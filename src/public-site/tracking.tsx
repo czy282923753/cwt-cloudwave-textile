@@ -126,8 +126,6 @@ export function trackPublicEvent(
       lastNonDirectMedium: attribution.lastNonDirectMedium || undefined,
       lastNonDirectCampaign: attribution.lastNonDirectCampaign || undefined,
       attributionConfidence: attribution.attributionConfidence,
-      consentState: attribution.consentState,
-      anonymousSessionId: attribution.anonymousSessionId,
       safeProperties,
       ...entity,
     }),

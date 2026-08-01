@@ -106,6 +106,7 @@ import {
   updateSourceDeclaration,
   uploadAsset,
 } from "@/uploads/service";
+import { isRoleMimeCompatible } from "@/uploads/asset-eligibility";
 
 import { currentActor } from "./actor";
 
@@ -1110,7 +1111,13 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
   const storage = createObjectStorage();
   const scanner = createFileScanner();
   const category = categorySchema.parse(requiredString(form, "category"));
+  const role = z
+    .enum(["hero", "gallery", "cover", "detail", "thumbnail", "inline", "document", "download"])
+    .parse(requiredString(form, "role"));
   for (const file of files) {
+    if (!isRoleMimeCompatible(role, file.type)) {
+      throw new Error("Asset role does not allow the uploaded MIME type.");
+    }
     const assetId = await uploadAsset(db, storage, scanner, {
       fileName: file.name,
       declaredMimeType: file.type,
@@ -1121,9 +1128,6 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
       uploadBatchId,
       sourceDeclarationEnabled,
     });
-    const role = z
-      .enum(["hero", "gallery", "detail", "thumbnail", "inline", "document"])
-      .parse(requiredString(form, "role"));
     const sortOrder = z.coerce.number().int().min(0).parse(form.get("sortOrder") ?? 0);
     if (associationType && associationEntityId) {
       if (associationType === "product") {
@@ -1145,6 +1149,7 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
         .optional()
         .parse(optionalString(form, "subjectRelationship"));
       await updateSourceDeclaration(db, assetId, actor, {
+        expectedVersion: 0,
         enabled: true,
         sourceType: optionalString(form, "sourceType") ?? null,
         sourceProvider: optionalString(form, "sourceProvider") ?? null,
@@ -1210,6 +1215,9 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
     .parse(optionalString(form, "editingPermission"));
   await withDatabase((db) =>
     updateSourceDeclaration(db, assetId, actor, {
+      expectedVersion: z.coerce.number().int().min(0).parse(
+        requiredString(form, "expectedVersion"),
+      ),
       enabled,
       sourceType: optionalString(form, "sourceType") ?? null,
       sourceProvider: optionalString(form, "sourceProvider") ?? null,
@@ -1240,12 +1248,19 @@ export async function reviewAssetDeclarationAction(form: FormData): Promise<void
   const decision = z
     .enum(["approved", "rejected"])
     .parse(requiredString(form, "decision"));
+  const effectiveDecision = z
+    .enum(["allowed", "restricted", "not_allowed", "revoked"])
+    .parse(requiredString(form, "effectiveDecision"));
+  const publicWebsite = optionalString(form, "rightsPublicWebsiteAllowed");
   await withDatabase((db) =>
     reviewSourceDeclaration(
       db,
       assetId,
       actor,
       decision,
+      effectiveDecision,
+      publicWebsite === "yes" ? true : publicWebsite === "no" ? false : null,
+      z.coerce.number().int().min(0).parse(requiredString(form, "expectedVersion")),
       optionalString(form, "reason") ?? null,
     ),
   );
@@ -1255,11 +1270,18 @@ export async function reviewAssetDeclarationAction(form: FormData): Promise<void
 export async function overrideAssetDeclarationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
   const assetId = requiredString(form, "assetId");
+  const effectiveDecision = z
+    .enum(["allowed", "restricted", "not_allowed", "revoked"])
+    .parse(requiredString(form, "effectiveDecision"));
+  const publicWebsite = optionalString(form, "rightsPublicWebsiteAllowed");
   await withDatabase((db) =>
     adminOverrideSourceDeclaration(
       db,
       assetId,
       actor,
+      effectiveDecision,
+      publicWebsite === "yes" ? true : publicWebsite === "no" ? false : null,
+      z.coerce.number().int().min(0).parse(requiredString(form, "expectedVersion")),
       requiredString(form, "reason"),
     ),
   );

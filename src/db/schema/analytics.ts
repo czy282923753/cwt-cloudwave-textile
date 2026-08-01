@@ -1,4 +1,5 @@
 import {
+  integer,
   index,
   jsonb,
   pgTable,
@@ -13,7 +14,20 @@ import {
   consentStateEnum,
   conversionEventEnum,
 } from "./enums";
-import { inquiries } from "./crm";
+
+export const analyticsConsents = pgTable(
+  "analytics_consents",
+  {
+    consentSessionId: text("consent_session_id").primaryKey(),
+    status: consentStateEnum("status").notNull().default("unknown"),
+    consentVersion: integer("consent_version").notNull().default(0),
+    grantedAt: timestamp("granted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("analytics_consents_status_idx").on(table.status)],
+);
 
 export const conversionEvents = pgTable(
   "conversion_events",
@@ -25,9 +39,7 @@ export const conversionEvents = pgTable(
     routePath: text("route_path").notNull(),
     entityType: text("entity_type"),
     entityId: uuid("entity_id"),
-    inquiryId: uuid("inquiry_id").references(() => inquiries.id, {
-      onDelete: "set null",
-    }),
+    externalReference: text("external_reference"),
     landingPagePath: text("landing_page_path"),
     submitSourcePagePath: text("submit_source_page_path"),
     referrerOrigin: text("referrer_origin"),
@@ -49,6 +61,6 @@ export const conversionEvents = pgTable(
     uniqueIndex("conversion_events_event_id_unique").on(table.eventId),
     index("conversion_events_name_time_idx").on(table.eventName, table.occurredAt),
     index("conversion_events_route_time_idx").on(table.routePath, table.occurredAt),
-    index("conversion_events_inquiry_idx").on(table.inquiryId),
+    index("conversion_events_external_reference_idx").on(table.externalReference),
   ],
 );

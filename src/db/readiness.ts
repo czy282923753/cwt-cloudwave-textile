@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, ne, not, notExists, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
@@ -11,24 +11,28 @@ import {
   productAssets,
   products,
   productTaxonomyTerms,
+  productLocalizations,
+  routes,
+  seoMetadata,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import {
+  publicImageRoles,
+  publicReadyAssetSqlConditions,
+  publicReadyImageSqlConditions,
+  roleMimeSqlCondition,
+} from "@/uploads/asset-eligibility";
+import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
 
-const unusableAsset = or(
-  ne(assets.storagePartition, "public"),
-  ne(assets.access, "public"),
-  ne(assets.status, "ready"),
-  ne(assets.scanStatus, "passed"),
-  sql`${assets.deletedAt} is not null`,
-  sql`(${assets.sourceDeclarationEnabled} = true and ${assets.publicUsePermission} = 'not_allowed')`,
-  sql`(${assets.declarationExpiryDate} is not null and ${assets.declarationExpiryDate} <= now())`,
-);
+const unusableAsset = not(publicReadyAssetSqlConditions());
 
 export interface DatabaseReadinessResult {
   invalidPrimaryTaxonomy: number;
   invalidInquiryAssets: number;
   publishedProductAssetFailures: number;
+  publishedProductEligibilityFailures: number;
   publishedFabricAssetFailures: number;
+  publishedFabricWithoutUsableImage: number;
   publishedContentAssetFailures: number;
   publishedProductsWithoutUsableImage: number;
   historicalAssetsAwaitingRescan: number;
@@ -63,14 +67,60 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
         sql`${assets.deletedAt} is not null`,
       ),
     );
-  const [badProducts, badFabric, badContent, missingProductImages, rescan, manual] =
+  const [
+    badProducts,
+    invalidPublishedProducts,
+    badFabric,
+    missingFabricImages,
+    badContent,
+    missingProductImages,
+    rescan,
+    manual,
+  ] =
     await Promise.all([
       db
         .select({ value: count() })
         .from(productAssets)
         .innerJoin(products, eq(products.id, productAssets.productId))
         .innerJoin(assets, eq(assets.id, productAssets.assetId))
-        .where(and(eq(products.status, "published"), unusableAsset)),
+        .where(
+          and(
+            eq(products.status, "published"),
+            or(unusableAsset, not(roleMimeSqlCondition(productAssets.role))),
+          ),
+        ),
+      db
+        .select({ value: count() })
+        .from(products)
+        .leftJoin(
+          productLocalizations,
+          and(
+            eq(productLocalizations.productId, products.id),
+            eq(productLocalizations.locale, "en"),
+          ),
+        )
+        .leftJoin(
+          routes,
+          and(
+            eq(routes.entityType, "product"),
+            eq(routes.entityId, products.id),
+            eq(routes.locale, "en"),
+            eq(routes.isCurrent, true),
+          ),
+        )
+        .leftJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+        .where(
+          and(
+            eq(products.status, "published"),
+            or(
+              not(publicProductEligibilityConditions(db)),
+              isNull(productLocalizations.productId),
+              sql`length(trim(coalesce(${productLocalizations.name}, ''))) = 0`,
+              isNull(routes.id),
+              isNull(seoMetadata.routeId),
+            ),
+          ),
+        ),
       db
         .select({ value: count() })
         .from(fabricLibraryEntryAssets)
@@ -79,13 +129,50 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
           eq(fabricLibraryEntries.id, fabricLibraryEntryAssets.fabricEntryId),
         )
         .innerJoin(assets, eq(assets.id, fabricLibraryEntryAssets.assetId))
-        .where(and(eq(fabricLibraryEntries.status, "published"), unusableAsset)),
+        .where(
+          and(
+            eq(fabricLibraryEntries.status, "published"),
+            or(
+              unusableAsset,
+              not(roleMimeSqlCondition(fabricLibraryEntryAssets.role)),
+            ),
+          ),
+        ),
+      db
+        .select({ value: count() })
+        .from(fabricLibraryEntries)
+        .where(
+          and(
+            eq(fabricLibraryEntries.status, "published"),
+            notExists(
+              db
+                .select({ id: fabricLibraryEntryAssets.assetId })
+                .from(fabricLibraryEntryAssets)
+                .innerJoin(assets, eq(assets.id, fabricLibraryEntryAssets.assetId))
+                .where(
+                  and(
+                    eq(
+                      fabricLibraryEntryAssets.fabricEntryId,
+                      fabricLibraryEntries.id,
+                    ),
+                    eq(fabricLibraryEntryAssets.role, "hero"),
+                    publicReadyImageSqlConditions(),
+                  ),
+                ),
+            ),
+          ),
+        ),
       db
         .select({ value: count() })
         .from(contentAssets)
         .innerJoin(contents, eq(contents.id, contentAssets.contentId))
         .innerJoin(assets, eq(assets.id, contentAssets.assetId))
-        .where(and(eq(contents.status, "published"), unusableAsset)),
+        .where(
+          and(
+            eq(contents.status, "published"),
+            or(unusableAsset, not(roleMimeSqlCondition(contentAssets.role))),
+          ),
+        ),
       db
         .select({ value: count() })
         .from(products)
@@ -100,21 +187,8 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
                 .where(
                   and(
                     eq(productAssets.productId, products.id),
-                    eq(assets.storagePartition, "public"),
-                    eq(assets.access, "public"),
-                    eq(assets.status, "ready"),
-                    eq(assets.scanStatus, "passed"),
-                    isNull(assets.deletedAt),
-                    or(
-                      eq(assets.sourceDeclarationEnabled, false),
-                      isNull(assets.publicUsePermission),
-                      ne(assets.publicUsePermission, "not_allowed"),
-                    ),
-                    or(
-                      isNull(assets.declarationExpiryDate),
-                      sql`${assets.declarationExpiryDate} > now()`,
-                    ),
-                    sql`${assets.detectedMimeType} in ('image/jpeg','image/png','image/webp','image/avif')`,
+                    inArray(productAssets.role, [...publicImageRoles]),
+                    publicReadyImageSqlConditions(),
                   ),
                 ),
             ),
@@ -130,7 +204,13 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
     invalidPrimaryTaxonomy: invalidPrimary.length,
     invalidInquiryAssets: invalidInquiry.length,
     publishedProductAssetFailures: Number(badProducts[0]?.value ?? 0),
+    publishedProductEligibilityFailures: Number(
+      invalidPublishedProducts[0]?.value ?? 0,
+    ),
     publishedFabricAssetFailures: Number(badFabric[0]?.value ?? 0),
+    publishedFabricWithoutUsableImage: Number(
+      missingFabricImages[0]?.value ?? 0,
+    ),
     publishedContentAssetFailures: Number(badContent[0]?.value ?? 0),
     publishedProductsWithoutUsableImage: Number(
       missingProductImages[0]?.value ?? 0,
@@ -145,7 +225,11 @@ export function assertDatabaseReady(result: DatabaseReadinessResult): void {
     invalidPrimaryTaxonomy: result.invalidPrimaryTaxonomy,
     invalidInquiryAssets: result.invalidInquiryAssets,
     publishedProductAssetFailures: result.publishedProductAssetFailures,
+    publishedProductEligibilityFailures:
+      result.publishedProductEligibilityFailures,
     publishedFabricAssetFailures: result.publishedFabricAssetFailures,
+    publishedFabricWithoutUsableImage:
+      result.publishedFabricWithoutUsableImage,
     publishedContentAssetFailures: result.publishedContentAssetFailures,
     publishedProductsWithoutUsableImage: result.publishedProductsWithoutUsableImage,
     historicalAssetsAwaitingRescan: result.historicalAssetsAwaitingRescan,

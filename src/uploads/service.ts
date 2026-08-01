@@ -220,6 +220,7 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
 }
 
 export interface SourceDeclarationUpdate {
+  expectedVersion: number;
   enabled: boolean;
   sourceType?: string | null;
   sourceProvider?: string | null;
@@ -233,138 +234,121 @@ export interface SourceDeclarationUpdate {
   isCwtOwnedFacility?: boolean | null;
 }
 
+type RightsDecision = "allowed" | "restricted" | "not_allowed" | "revoked";
+
+interface DeclarationOperationOptions {
+  auditWriter?: typeof writeAuditLog;
+}
+
 export async function updateSourceDeclaration<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   assetId: string,
   actor: { userId: string; role: UserRole },
   update: SourceDeclarationUpdate,
+  options: DeclarationOperationOptions = {},
 ): Promise<void> {
-  const beforeRows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
-  const before = beforeRows[0];
-  if (!before) throw new Error("Asset was not found.");
   if (!hasPermission(actor.role, "assets.write")) {
     throw new Error("Source Declaration changes require Asset writer authority.");
   }
-  const substantiveFields = [
-    "sourceType",
-    "sourceProvider",
-    "rightsStatus",
-    "subjectRelationship",
-    "publicUsePermission",
-    "editingPermission",
-    "usageRestrictions",
-    "permissionEvidence",
-    "declarationExpiryDate",
-    "isCwtOwnedFacility",
-  ] as const;
-  const declarationContentChanged =
-    update.enabled !== before.sourceDeclarationEnabled ||
-    (update.enabled && before.declarationStatementVersion === 0) ||
-    (update.enabled && substantiveFields.some(
-      (field) =>
-        field in update && String(update[field] ?? null) !== String(before[field] ?? null),
-    ));
-
-  await db
-    .update(assets)
-    .set({
-      sourceDeclarationEnabled: update.enabled,
-      ...(update.enabled
-        ? {
-            sourceType:
-              "sourceType" in update ? update.sourceType ?? null : before.sourceType,
-            sourceProvider:
-              "sourceProvider" in update
-                ? update.sourceProvider ?? null
-                : before.sourceProvider,
-            rightsStatus:
-              "rightsStatus" in update
-                ? update.rightsStatus ?? null
-                : before.rightsStatus,
-            subjectRelationship:
-              "subjectRelationship" in update
-                ? update.subjectRelationship ?? null
-                : before.subjectRelationship,
-            publicUsePermission:
-              "publicUsePermission" in update
-                ? update.publicUsePermission ?? null
-                : before.publicUsePermission,
-            editingPermission:
-              "editingPermission" in update
-                ? update.editingPermission ?? null
-                : before.editingPermission,
-            usageRestrictions:
-              "usageRestrictions" in update
-                ? update.usageRestrictions ?? null
-                : before.usageRestrictions,
-            permissionEvidence:
-              "permissionEvidence" in update
-                ? update.permissionEvidence ?? null
-                : before.permissionEvidence,
-            declarationExpiryDate:
-              "declarationExpiryDate" in update
-                ? update.declarationExpiryDate ?? null
-                : before.declarationExpiryDate,
-            isCwtOwnedFacility:
-              "isCwtOwnedFacility" in update
-                ? update.isCwtOwnedFacility ?? null
-                : before.isCwtOwnedFacility,
-          }
-        : {}),
-      ...(declarationContentChanged
-        ? {
-            declarationStatementVersion: before.declarationStatementVersion + 1,
-            declarationLastEditorUserId: actor.userId,
-            declarationReviewerUserId: null,
-            declarationReviewDate: null,
-            declarationReviewedStatementVersion: null,
-            declarationReviewDecision: null,
-            declarationReviewReason: null,
-          }
-        : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(assets.id, assetId));
-
-  const afterRows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
-  const after = afterRows[0];
-  if (!after) throw new Error("Asset disappeared during declaration update.");
-  const declarationFields = [
-    "sourceDeclarationEnabled",
-    "sourceType",
-    "sourceProvider",
-    "rightsStatus",
-    "subjectRelationship",
-    "publicUsePermission",
-    "editingPermission",
-    "usageRestrictions",
-    "permissionEvidence",
-    "declarationStatementVersion",
-    "declarationLastEditorUserId",
-    "declarationReviewerUserId",
-    "declarationReviewDate",
-    "declarationReviewedStatementVersion",
-    "declarationReviewDecision",
-    "declarationReviewReason",
-    "declarationExpiryDate",
-    "isCwtOwnedFacility",
-  ] as const;
-  const changedFields = declarationFields.filter(
-    (field) => String(before[field]) !== String(after[field]),
-  );
-
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "asset.source_declaration.updated",
-    entityType: "asset",
-    entityId: assetId,
-    beforeSummary: { enabled: before.sourceDeclarationEnabled },
-    afterSummary: {
-      enabled: update.enabled,
-      changedFields,
-      statementVersion: after.declarationStatementVersion,
-      reviewInvalidated: declarationContentChanged,
-    },
+  if (!Number.isInteger(update.expectedVersion) || update.expectedVersion < 0) {
+    throw new Error("Source Declaration expected version is invalid.");
+  }
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  await db.transaction(async (transaction) => {
+    const beforeRows = await transaction
+      .select()
+      .from(assets)
+      .where(eq(assets.id, assetId))
+      .limit(1);
+    const before = beforeRows[0];
+    if (!before) throw new Error("Asset was not found.");
+    if (before.declarationRecordVersion !== update.expectedVersion) {
+      throw new Error("Source Declaration changed; reload before saving.");
+    }
+    const substantiveFields = [
+      "sourceType",
+      "sourceProvider",
+      "rightsStatus",
+      "subjectRelationship",
+      "publicUsePermission",
+      "editingPermission",
+      "usageRestrictions",
+      "permissionEvidence",
+      "declarationExpiryDate",
+      "isCwtOwnedFacility",
+    ] as const;
+    const declarationContentChanged = update.enabled &&
+      (before.declarationStatementVersion === 0 ||
+        substantiveFields.some(
+          (field) =>
+            field in update &&
+            String(update[field] ?? null) !== String(before[field] ?? null),
+        ));
+    const nextVersion = declarationContentChanged
+      ? before.declarationStatementVersion + 1
+      : before.declarationStatementVersion;
+    const updatedRows = await transaction
+      .update(assets)
+      .set({
+        sourceDeclarationEnabled: update.enabled,
+        ...(update.enabled
+          ? {
+              sourceType: "sourceType" in update ? update.sourceType ?? null : before.sourceType,
+              sourceProvider: "sourceProvider" in update ? update.sourceProvider ?? null : before.sourceProvider,
+              rightsStatus: "rightsStatus" in update ? update.rightsStatus ?? null : before.rightsStatus,
+              subjectRelationship: "subjectRelationship" in update ? update.subjectRelationship ?? null : before.subjectRelationship,
+              publicUsePermission: "publicUsePermission" in update ? update.publicUsePermission ?? null : before.publicUsePermission,
+              editingPermission: "editingPermission" in update ? update.editingPermission ?? null : before.editingPermission,
+              usageRestrictions: "usageRestrictions" in update ? update.usageRestrictions ?? null : before.usageRestrictions,
+              permissionEvidence: "permissionEvidence" in update ? update.permissionEvidence ?? null : before.permissionEvidence,
+              declarationExpiryDate: "declarationExpiryDate" in update ? update.declarationExpiryDate ?? null : before.declarationExpiryDate,
+              isCwtOwnedFacility: "isCwtOwnedFacility" in update ? update.isCwtOwnedFacility ?? null : before.isCwtOwnedFacility,
+            }
+          : {}),
+        ...(declarationContentChanged
+          ? {
+              declarationStatementVersion: nextVersion,
+              declarationLastEditorUserId: actor.userId,
+              declarationReviewerUserId: null,
+              declarationReviewDate: null,
+              declarationReviewedStatementVersion: null,
+              declarationReviewDecision: null,
+              declarationReviewReason: null,
+              effectiveRightsDecision: "pending_review" as const,
+              rightsPublicWebsiteAllowed: null,
+            }
+          : {}),
+        declarationRecordVersion: update.expectedVersion + 1,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(assets.id, assetId),
+          eq(assets.declarationRecordVersion, update.expectedVersion),
+        ),
+      )
+      .returning();
+    const after = updatedRows[0];
+    if (!after) throw new Error("Source Declaration changed; reload before saving.");
+    await auditWriter(transaction, {
+      actorUserId: actor.userId,
+      action: "asset.source_declaration.updated",
+      entityType: "asset",
+      entityId: assetId,
+      beforeSummary: {
+        enabled: before.sourceDeclarationEnabled,
+        statementVersion: before.declarationStatementVersion,
+        recordVersion: before.declarationRecordVersion,
+        effectiveRightsDecision: before.effectiveRightsDecision,
+      },
+      afterSummary: {
+        enabled: after.sourceDeclarationEnabled,
+        statementVersion: after.declarationStatementVersion,
+        recordVersion: after.declarationRecordVersion,
+        reviewInvalidated: declarationContentChanged,
+        effectiveRightsDecision: after.effectiveRightsDecision,
+      },
+    });
   });
 }
 
@@ -375,57 +359,81 @@ export async function reviewSourceDeclaration<
   assetId: string,
   actor: { userId: string; role: UserRole },
   decision: "approved" | "rejected",
+  effectiveDecision: RightsDecision,
+  rightsPublicWebsiteAllowed: boolean | null,
+  expectedVersion: number,
   reason?: string | null,
+  options: DeclarationOperationOptions = {},
 ): Promise<void> {
   if (!hasPermission(actor.role, "assets.declaration.review")) {
     throw new Error("Source Declaration review requires reviewer authority.");
-  }
-  const rows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
-  const current = rows[0];
-  if (!current?.sourceDeclarationEnabled || current.declarationStatementVersion < 1) {
-    throw new Error("An enabled Source Declaration version is required before review.");
-  }
-  if (!current.declarationLastEditorUserId) {
-    throw new Error("Source Declaration does not record a statement editor.");
-  }
-  if (current.declarationLastEditorUserId === actor.userId) {
-    throw new Error("The last Source Declaration editor cannot review the same version.");
   }
   const normalizedReason = reason?.trim() || null;
   if (decision === "rejected" && !normalizedReason) {
     throw new Error("A rejected Source Declaration requires a reason.");
   }
-  const reviewTime = new Date();
-  const updated = await db
-    .update(assets)
-    .set({
-      declarationReviewerUserId: actor.userId,
-      declarationReviewDate: reviewTime,
-      declarationReviewedStatementVersion: current.declarationStatementVersion,
-      declarationReviewDecision: decision,
-      declarationReviewReason: normalizedReason,
-      updatedAt: reviewTime,
-    })
-    .where(
-      and(
-        eq(assets.id, assetId),
-        eq(assets.declarationStatementVersion, current.declarationStatementVersion),
-      ),
-    )
-    .returning({ id: assets.id });
-  if (!updated[0]) {
-    throw new Error("Source Declaration changed during review; review the current version.");
+  if (decision === "rejected" && effectiveDecision !== "not_allowed" && effectiveDecision !== "revoked") {
+    throw new Error("A rejected declaration must remain Not Allowed or Revoked.");
   }
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: `asset.source_declaration.${decision}`,
-    entityType: "asset",
-    entityId: assetId,
-    afterSummary: {
-      statementVersion: current.declarationStatementVersion,
-      decision,
-      hasReason: Boolean(normalizedReason),
-    },
+  if (effectiveDecision === "restricted" && rightsPublicWebsiteAllowed === null) {
+    throw new Error("Restricted rights require an explicit public website decision.");
+  }
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  await db.transaction(async (transaction) => {
+    const rows = await transaction.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+    const current = rows[0];
+    if (
+      !current?.sourceDeclarationEnabled ||
+      current.declarationStatementVersion < 1 ||
+      current.declarationRecordVersion !== expectedVersion
+    ) {
+      throw new Error("Source Declaration changed during review; review the current version.");
+    }
+    if (!current.declarationLastEditorUserId) {
+      throw new Error("Source Declaration does not record a statement editor.");
+    }
+    if (current.declarationLastEditorUserId === actor.userId) {
+      throw new Error("The last Source Declaration editor cannot review the same version.");
+    }
+    const reviewTime = new Date();
+    const updated = await transaction
+      .update(assets)
+      .set({
+        declarationReviewerUserId: actor.userId,
+        declarationReviewDate: reviewTime,
+        declarationReviewedStatementVersion: current.declarationStatementVersion,
+        declarationReviewDecision: decision,
+        declarationReviewReason: normalizedReason,
+        effectiveRightsDecision: effectiveDecision,
+        rightsPublicWebsiteAllowed:
+          effectiveDecision === "restricted" ? rightsPublicWebsiteAllowed : null,
+        declarationRecordVersion: expectedVersion + 1,
+        updatedAt: reviewTime,
+      })
+      .where(
+        and(
+          eq(assets.id, assetId),
+          eq(assets.declarationRecordVersion, expectedVersion),
+        ),
+      )
+      .returning({ id: assets.id });
+    if (!updated[0]) {
+      throw new Error("Source Declaration changed during review; review the current version.");
+    }
+    await auditWriter(transaction, {
+      actorUserId: actor.userId,
+      action: `asset.source_declaration.${decision}`,
+      entityType: "asset",
+      entityId: assetId,
+      afterSummary: {
+        statementVersion: current.declarationStatementVersion,
+        recordVersion: expectedVersion + 1,
+        decision,
+        effectiveRightsDecision: effectiveDecision,
+        rightsPublicWebsiteAllowed,
+        hasReason: Boolean(normalizedReason),
+      },
+    });
   });
 }
 
@@ -435,49 +443,70 @@ export async function adminOverrideSourceDeclaration<
   db: AppDatabase<TQueryResult>,
   assetId: string,
   actor: { userId: string; role: UserRole },
+  effectiveDecision: RightsDecision,
+  rightsPublicWebsiteAllowed: boolean | null,
+  expectedVersion: number,
   reason: string,
+  options: DeclarationOperationOptions = {},
 ): Promise<void> {
   if (actor.role !== "admin") {
     throw new Error("Only an Admin may use Source Declaration Override.");
   }
   const normalizedReason = reason.trim();
   if (!normalizedReason) throw new Error("Admin Override requires a reason.");
-  const rows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
-  const current = rows[0];
-  if (!current?.sourceDeclarationEnabled || current.declarationStatementVersion < 1) {
-    throw new Error("An enabled Source Declaration version is required before override.");
+  if (effectiveDecision === "restricted" && rightsPublicWebsiteAllowed === null) {
+    throw new Error("Restricted rights require an explicit public website decision.");
   }
-  const reviewTime = new Date();
-  const updated = await db
-    .update(assets)
-    .set({
-      declarationReviewerUserId: actor.userId,
-      declarationReviewDate: reviewTime,
-      declarationReviewedStatementVersion: current.declarationStatementVersion,
-      declarationReviewDecision: "admin_override",
-      declarationReviewReason: normalizedReason,
-      updatedAt: reviewTime,
-    })
-    .where(
-      and(
-        eq(assets.id, assetId),
-        eq(assets.declarationStatementVersion, current.declarationStatementVersion),
-      ),
-    )
-    .returning({ id: assets.id });
-  if (!updated[0]) {
-    throw new Error("Source Declaration changed during Admin Override; retry explicitly.");
-  }
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "asset.source_declaration.admin_override",
-    entityType: "asset",
-    entityId: assetId,
-    afterSummary: {
-      statementVersion: current.declarationStatementVersion,
-      decision: "admin_override",
-      reason: normalizedReason.slice(0, 500),
-    },
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  await db.transaction(async (transaction) => {
+    const rows = await transaction.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+    const current = rows[0];
+    if (
+      !current?.sourceDeclarationEnabled ||
+      current.declarationStatementVersion < 1 ||
+      current.declarationRecordVersion !== expectedVersion
+    ) {
+      throw new Error("Source Declaration changed during Admin Override; retry explicitly.");
+    }
+    const reviewTime = new Date();
+    const updated = await transaction
+      .update(assets)
+      .set({
+        declarationReviewerUserId: actor.userId,
+        declarationReviewDate: reviewTime,
+        declarationReviewedStatementVersion: current.declarationStatementVersion,
+        declarationReviewDecision: "admin_override",
+        declarationReviewReason: normalizedReason,
+        effectiveRightsDecision: effectiveDecision,
+        rightsPublicWebsiteAllowed:
+          effectiveDecision === "restricted" ? rightsPublicWebsiteAllowed : null,
+        declarationRecordVersion: expectedVersion + 1,
+        updatedAt: reviewTime,
+      })
+      .where(
+        and(
+          eq(assets.id, assetId),
+          eq(assets.declarationRecordVersion, expectedVersion),
+        ),
+      )
+      .returning({ id: assets.id });
+    if (!updated[0]) {
+      throw new Error("Source Declaration changed during Admin Override; retry explicitly.");
+    }
+    await auditWriter(transaction, {
+      actorUserId: actor.userId,
+      action: "asset.source_declaration.admin_override",
+      entityType: "asset",
+      entityId: assetId,
+      afterSummary: {
+        statementVersion: current.declarationStatementVersion,
+        recordVersion: expectedVersion + 1,
+        decision: "admin_override",
+        effectiveRightsDecision: effectiveDecision,
+        rightsPublicWebsiteAllowed,
+        reason: normalizedReason.slice(0, 500),
+      },
+    });
   });
 }
 

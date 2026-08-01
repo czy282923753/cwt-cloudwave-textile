@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { databaseConnection } from "@/db/client";
@@ -27,6 +27,12 @@ import {
   seoTopicMembers,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import {
+  publicImageRoles,
+  publicReadyAssetSqlConditions,
+  publicReadyImageSqlConditions,
+} from "@/uploads/asset-eligibility";
 
 function commonRouteConditions() {
   return and(
@@ -38,13 +44,7 @@ function commonRouteConditions() {
 }
 
 function publicAssetConditions() {
-  return and(
-    eq(assets.storagePartition, "public"),
-    eq(assets.access, "public"),
-    eq(assets.status, "ready"),
-    eq(assets.scanStatus, "passed"),
-    isNull(assets.deletedAt),
-  );
+  return publicReadyAssetSqlConditions();
 }
 
 export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT>(
@@ -90,9 +90,9 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
         .where(
           and(
             commonRouteConditions(),
-            eq(products.status, "published"),
-            isNotNull(products.realProductBasis),
-            isNotNull(products.realProductConfirmedAt),
+            publicProductEligibilityConditions(db),
+            inArray(productAssets.role, [...publicImageRoles]),
+            publicReadyImageSqlConditions(),
             or(
               sql`length(trim(coalesce(${productLocalizations.shortDescription}, ''))) > 0`,
               sql`length(trim(coalesce(${productLocalizations.fullDescription}, ''))) > 0`,
@@ -139,6 +139,7 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
           and(
             commonRouteConditions(),
             eq(applications.status, "published"),
+            publicProductEligibilityConditions(db),
             sql`length(trim(coalesce(${applicationLocalizations.body}, ''))) > 0`,
             sql`length(trim(coalesce(${seoMetadata.title}, ''))) > 0`,
             sql`length(trim(coalesce(${seoMetadata.metaDescription}, ''))) > 0`,
@@ -197,6 +198,8 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
           and(
             commonRouteConditions(),
             eq(fabricLibraryEntries.status, "published"),
+            eq(fabricLibraryEntryAssets.role, "hero"),
+            publicReadyImageSqlConditions(),
             isNotNull(fabricLibraryEntries.independentValueConfirmedAt),
             sql`length(trim(coalesce(${fabricLibraryEntryLocalizations.description}, ''))) > 0`,
             sql`length(trim(coalesce(${seoMetadata.title}, ''))) > 0`,

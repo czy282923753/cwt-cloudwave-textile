@@ -114,10 +114,12 @@ export const uploadIntentStatusEnum = pgEnum("upload_intent_status", [
 export const assetRoleEnum = pgEnum("asset_role", [
   "hero",
   "gallery",
+  "cover",
   "detail",
   "thumbnail",
   "inline",
   "document",
+  "download",
   "inquiry",
   "import",
 ]);
@@ -140,6 +142,18 @@ export const assetPermissionEnum = pgEnum("asset_permission", [
   "not_allowed",
   "restricted",
 ]);
+
+export const effectiveRightsDecisionEnum = pgEnum(
+  "effective_rights_decision",
+  [
+    "allowed",
+    "restricted",
+    "not_allowed",
+    "expired",
+    "revoked",
+    "pending_review",
+  ],
+);
 
 export const editorialRevisionStatusEnum = pgEnum(
   "editorial_revision_status",
@@ -241,6 +255,7 @@ export const consentStateEnum = pgEnum("consent_state", [
   "unknown",
   "granted",
   "denied",
+  "revoked",
 ]);
 
 export const outboxStatusEnum = pgEnum("outbox_status", [

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
@@ -34,6 +34,11 @@ import { createObjectStorage } from "@/storage";
 
 import { resolveVisibleProductFields } from "./product-visibility";
 import { assertPublicAssetCandidate } from "./public-asset-policy";
+import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import {
+  publicImageRoles,
+  publicReadyImageSqlConditions,
+} from "@/uploads/asset-eligibility";
 
 export interface PublicAsset {
   id: string;
@@ -65,8 +70,9 @@ async function toPublicAsset(row: {
   status: typeof assets.$inferSelect.status;
   scanStatus: typeof assets.$inferSelect.scanStatus;
   deletedAt: Date | null;
-  sourceDeclarationEnabled: boolean;
+  effectiveRightsDecision: typeof assets.$inferSelect.effectiveRightsDecision;
   publicUsePermission: typeof assets.$inferSelect.publicUsePermission;
+  rightsPublicWebsiteAllowed: boolean | null;
   declarationExpiryDate: Date | null;
   altText: string | null;
   width: number | null;
@@ -82,7 +88,7 @@ async function toPublicAsset(row: {
   };
 }
 
-async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
+export async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   limit = 100,
 ) {
@@ -100,8 +106,9 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
       assetStatus: assets.status,
       assetScanStatus: assets.scanStatus,
       assetDeletedAt: assets.deletedAt,
-      assetSourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      assetEffectiveRightsDecision: assets.effectiveRightsDecision,
       assetPublicUsePermission: assets.publicUsePermission,
+      assetRightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
       assetDeclarationExpiryDate: assets.declarationExpiryDate,
       altText: assets.altText,
       width: assets.width,
@@ -132,16 +139,11 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
       assets,
       and(
         eq(assets.id, productAssets.assetId),
-        eq(assets.storagePartition, "public"),
-        eq(assets.access, "public"),
-        eq(assets.status, "ready"),
-        eq(assets.scanStatus, "passed"),
-        isNull(assets.deletedAt),
-        or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
-        or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
+        inArray(productAssets.role, [...publicImageRoles]),
+        publicReadyImageSqlConditions(),
       ),
     )
-    .where(eq(products.status, "published"))
+    .where(publicProductEligibilityConditions(db))
     .orderBy(desc(products.publishedAt))
     .limit(limit);
   return Promise.all(
@@ -166,8 +168,9 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
               status: row.assetStatus,
               scanStatus: row.assetScanStatus,
               deletedAt: row.assetDeletedAt,
-              sourceDeclarationEnabled: row.assetSourceDeclarationEnabled ?? false,
+              effectiveRightsDecision: row.assetEffectiveRightsDecision,
               publicUsePermission: row.assetPublicUsePermission,
+              rightsPublicWebsiteAllowed: row.assetRightsPublicWebsiteAllowed,
               declarationExpiryDate: row.assetDeclarationExpiryDate,
               altText: row.altText,
               width: row.width,
@@ -184,7 +187,7 @@ export async function listPublishedProducts(limit?: number) {
     : queryPublishedProducts(databaseConnection.db, limit);
 }
 
-async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
+export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   path: string,
 ) {
@@ -230,7 +233,7 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
       ),
     )
     .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
-    .where(eq(products.status, "published"))
+    .where(publicProductEligibilityConditions(db))
     .limit(1);
   const product = rows[0];
   if (!product) return null;
@@ -245,8 +248,9 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
           status: assets.status,
           scanStatus: assets.scanStatus,
           deletedAt: assets.deletedAt,
-          sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+          effectiveRightsDecision: assets.effectiveRightsDecision,
           publicUsePermission: assets.publicUsePermission,
+          rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
           declarationExpiryDate: assets.declarationExpiryDate,
           altText: assets.altText,
           width: assets.width,
@@ -257,13 +261,8 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
         .where(
           and(
             eq(productAssets.productId, product.id),
-            eq(assets.status, "ready"),
-            eq(assets.access, "public"),
-            eq(assets.storagePartition, "public"),
-            eq(assets.scanStatus, "passed"),
-            isNull(assets.deletedAt),
-            or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
-            or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
+            inArray(productAssets.role, [...publicImageRoles]),
+            publicReadyImageSqlConditions(),
           ),
         )
         .orderBy(asc(productAssets.sortOrder)),
@@ -462,7 +461,7 @@ export async function listProductsForTaxonomy(taxonomyTermId: string) {
     : queryProductsForTaxonomy(databaseConnection.db, taxonomyTermId);
 }
 
-async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
+export async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
 ) {
   const rows = await db
@@ -482,8 +481,9 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
       assetStatus: assets.status,
       assetScanStatus: assets.scanStatus,
       assetDeletedAt: assets.deletedAt,
-      assetSourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      assetEffectiveRightsDecision: assets.effectiveRightsDecision,
       assetPublicUsePermission: assets.publicUsePermission,
+      assetRightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
       assetDeclarationExpiryDate: assets.declarationExpiryDate,
       altText: assets.altText,
       width: assets.width,
@@ -509,24 +509,18 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
       ),
     )
     .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
-    .leftJoin(
+    .innerJoin(
       fabricLibraryEntryAssets,
       and(
         eq(fabricLibraryEntryAssets.fabricEntryId, fabricLibraryEntries.id),
         eq(fabricLibraryEntryAssets.role, "hero"),
       ),
     )
-    .leftJoin(
+    .innerJoin(
       assets,
       and(
         eq(assets.id, fabricLibraryEntryAssets.assetId),
-        eq(assets.storagePartition, "public"),
-        eq(assets.access, "public"),
-        eq(assets.status, "ready"),
-        eq(assets.scanStatus, "passed"),
-        isNull(assets.deletedAt),
-        or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
-        or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
+        publicReadyImageSqlConditions(),
       ),
     )
     .where(eq(fabricLibraryEntries.status, "published"));
@@ -548,8 +542,9 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
               status: row.assetStatus,
               scanStatus: row.assetScanStatus,
               deletedAt: row.assetDeletedAt,
-              sourceDeclarationEnabled: row.assetSourceDeclarationEnabled ?? false,
+              effectiveRightsDecision: row.assetEffectiveRightsDecision,
               publicUsePermission: row.assetPublicUsePermission,
+              rightsPublicWebsiteAllowed: row.assetRightsPublicWebsiteAllowed,
               declarationExpiryDate: row.assetDeclarationExpiryDate,
               altText: row.altText,
               width: row.width,
@@ -638,10 +633,16 @@ export async function getPublishedContentByPath(path: string) {
   const all = await listPublishedContents();
   const content = all.find((item) => item.path === path);
   if (!content) return null;
-  const query = async <TQueryResult extends PgQueryResultHKT>(
-    db: AppDatabase<TQueryResult>,
-  ) =>
-    db
+  const imageRows = databaseConnection.kind === "pglite"
+    ? await queryPublicContentImages(databaseConnection.db, content.id)
+    : await queryPublicContentImages(databaseConnection.db, content.id);
+  return { ...content, images: await Promise.all(imageRows.map(toPublicAsset)) };
+}
+
+export async function queryPublicContentImages<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, contentId: string) {
+  return db
       .select({
         id: assets.id,
         objectKey: assets.objectKey,
@@ -650,8 +651,9 @@ export async function getPublishedContentByPath(path: string) {
         status: assets.status,
         scanStatus: assets.scanStatus,
         deletedAt: assets.deletedAt,
-        sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+        effectiveRightsDecision: assets.effectiveRightsDecision,
         publicUsePermission: assets.publicUsePermission,
+        rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
         declarationExpiryDate: assets.declarationExpiryDate,
         altText: assets.altText,
         width: assets.width,
@@ -662,21 +664,12 @@ export async function getPublishedContentByPath(path: string) {
         assets,
         and(
           eq(assets.id, contentAssets.assetId),
-          eq(assets.storagePartition, "public"),
-          eq(assets.access, "public"),
-          eq(assets.status, "ready"),
-          eq(assets.scanStatus, "passed"),
-          isNull(assets.deletedAt),
-          or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
-          or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
+          inArray(contentAssets.role, [...publicImageRoles]),
+          publicReadyImageSqlConditions(),
         ),
       )
-      .where(eq(contentAssets.contentId, content.id))
+      .where(eq(contentAssets.contentId, contentId))
       .orderBy(asc(contentAssets.sortOrder));
-  const imageRows = databaseConnection.kind === "pglite"
-    ? await query(databaseConnection.db)
-    : await query(databaseConnection.db);
-  return { ...content, images: await Promise.all(imageRows.map(toPublicAsset)) };
 }
 
 export async function listPublishedTaxonomyTerms() {

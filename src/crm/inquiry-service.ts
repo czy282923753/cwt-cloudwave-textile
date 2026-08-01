@@ -3,7 +3,6 @@ import { and, asc, count, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
-import { recordConversionEvent } from "@/analytics/conversion-service";
 import type { Actor } from "@/catalog/product-service";
 import {
   assets,
@@ -322,19 +321,6 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
     .select({
       status: inquiries.status,
       contactId: inquiries.contactId,
-      publicReference: inquiries.publicReference,
-      sessionId: inquiries.sessionId,
-      sourcePagePath: inquiries.sourcePagePath,
-      landingPagePath: inquiries.landingPagePath,
-      utmSource: inquiries.utmSource,
-      utmMedium: inquiries.utmMedium,
-      utmCampaign: inquiries.utmCampaign,
-      lastNonDirectSource: inquiries.lastNonDirectSource,
-      lastNonDirectMedium: inquiries.lastNonDirectMedium,
-      lastNonDirectCampaign: inquiries.lastNonDirectCampaign,
-      attributionConfidence: inquiries.attributionConfidence,
-      analyticsConsentState: inquiries.analyticsConsentState,
-      createdAt: inquiries.createdAt,
     })
     .from(inquiries)
     .where(eq(inquiries.id, inquiryId))
@@ -381,33 +367,6 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
       beforeSummary: { status: current.status },
       afterSummary: { status: toStatus, hasReason: Boolean(reason?.trim()) },
     });
-    const conversionName =
-      toStatus === "qualified"
-        ? "inquiry_qualified"
-        : toStatus === "won"
-          ? "inquiry_won"
-          : toStatus === "lost"
-            ? "inquiry_lost"
-            : null;
-    if (conversionName && current.sessionId) {
-      await recordConversionEvent(transaction, {
-        eventId: `${conversionName}:${current.publicReference}:${toStatus}`,
-        eventName: conversionName,
-        anonymousSessionId: current.sessionId,
-        routePath: current.sourcePagePath,
-        inquiryId,
-        consentState: current.analyticsConsentState,
-        landingPagePath: current.landingPagePath,
-        utmSource: current.utmSource,
-        utmMedium: current.utmMedium,
-        utmCampaign: current.utmCampaign,
-        lastNonDirectSource: current.lastNonDirectSource,
-        lastNonDirectMedium: current.lastNonDirectMedium,
-        lastNonDirectCampaign: current.lastNonDirectCampaign,
-        attributionConfidence: current.attributionConfidence,
-        submitSourcePagePath: current.sourcePagePath,
-      });
-    }
   });
 }
 
@@ -426,18 +385,6 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
   const inquiryRows = await db
     .select({
       contactId: inquiries.contactId,
-      publicReference: inquiries.publicReference,
-      sessionId: inquiries.sessionId,
-      sourcePagePath: inquiries.sourcePagePath,
-      landingPagePath: inquiries.landingPagePath,
-      utmSource: inquiries.utmSource,
-      utmMedium: inquiries.utmMedium,
-      utmCampaign: inquiries.utmCampaign,
-      lastNonDirectSource: inquiries.lastNonDirectSource,
-      lastNonDirectMedium: inquiries.lastNonDirectMedium,
-      lastNonDirectCampaign: inquiries.lastNonDirectCampaign,
-      attributionConfidence: inquiries.attributionConfidence,
-      analyticsConsentState: inquiries.analyticsConsentState,
       createdAt: inquiries.createdAt,
     })
     .from(inquiries)
@@ -500,31 +447,6 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
       entityId: activityId,
       afterSummary: { inquiryId, type: input.type, direction: input.direction },
     });
-    const conversionName =
-      input.type === "quote"
-        ? "quote_recorded"
-        : input.type === "sample"
-          ? "sample_recorded"
-          : null;
-    if (conversionName && inquiry.sessionId) {
-      await recordConversionEvent(transaction, {
-        eventId: `${conversionName}:${inquiry.publicReference}:${activityId.slice(0, 12)}`,
-        eventName: conversionName,
-        anonymousSessionId: inquiry.sessionId,
-        routePath: inquiry.sourcePagePath,
-        inquiryId,
-        consentState: inquiry.analyticsConsentState,
-        landingPagePath: inquiry.landingPagePath,
-        utmSource: inquiry.utmSource,
-        utmMedium: inquiry.utmMedium,
-        utmCampaign: inquiry.utmCampaign,
-        lastNonDirectSource: inquiry.lastNonDirectSource,
-        lastNonDirectMedium: inquiry.lastNonDirectMedium,
-        lastNonDirectCampaign: inquiry.lastNonDirectCampaign,
-        attributionConfidence: inquiry.attributionConfidence,
-        submitSourcePagePath: inquiry.sourcePagePath,
-      });
-    }
     return activityId;
   });
 }

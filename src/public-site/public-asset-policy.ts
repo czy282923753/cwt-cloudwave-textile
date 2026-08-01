@@ -1,4 +1,5 @@
 import type { assets } from "@/db/schema";
+import { isPublicWebsiteUseAllowed } from "@/uploads/asset-eligibility";
 
 export type PublicAssetCandidate = Pick<
   typeof assets.$inferSelect,
@@ -7,8 +8,9 @@ export type PublicAssetCandidate = Pick<
   | "status"
   | "scanStatus"
   | "deletedAt"
-  | "sourceDeclarationEnabled"
+  | "effectiveRightsDecision"
   | "publicUsePermission"
+  | "rightsPublicWebsiteAllowed"
   | "declarationExpiryDate"
 >;
 
@@ -21,8 +23,7 @@ export function isPublicAssetCandidate(
     asset.status === "ready" &&
     asset.scanStatus === "passed" &&
     asset.deletedAt === null &&
-    (!asset.sourceDeclarationEnabled || asset.publicUsePermission !== "not_allowed") &&
-    (asset.declarationExpiryDate === null || asset.declarationExpiryDate.getTime() > Date.now())
+    isPublicWebsiteUseAllowed(asset)
   );
 }
 

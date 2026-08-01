@@ -23,10 +23,16 @@ import {
   keywordPageMappings,
   seoMetadata,
   taxonomyTerms,
+  users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
+import {
+  allowedImageMimeTypes,
+  publicImageRoles,
+  publicReadyImageSqlConditions,
+} from "@/uploads/asset-eligibility";
 
 export class ProductValidationError extends Error {
   constructor(message: string) {
@@ -47,12 +53,7 @@ export interface CreateProductDraftInput {
   requestedSlug?: string;
 }
 
-export const eligibleProductImageMimeTypes = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/avif",
-] as const;
+export const eligibleProductImageMimeTypes = allowedImageMimeTypes;
 
 const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -946,15 +947,31 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
   productId: string,
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
-  const [productRows, localizations, imageCount] = await Promise.all([
+  const [productRows, currentRoutes, localizations, imageCount] = await Promise.all([
     db
       .select({
         realProductBasis: products.realProductBasis,
         confirmedBy: products.realProductConfirmedByUserId,
         confirmedAt: products.realProductConfirmedAt,
+        confirmedByActive: users.isActive,
+        confirmedByRole: users.role,
       })
       .from(products)
+      .leftJoin(users, eq(users.id, products.realProductConfirmedByUserId))
       .where(eq(products.id, productId))
+      .limit(1),
+    db
+      .select({ id: routes.id })
+      .from(routes)
+      .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+      .where(
+        and(
+          eq(routes.entityType, "product"),
+          eq(routes.entityId, productId),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        ),
+      )
       .limit(1),
     db
       .select({ name: productLocalizations.name })
@@ -973,12 +990,8 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
       .where(
         and(
           eq(productAssets.productId, productId),
-          eq(assets.status, "ready"),
-          eq(assets.access, "public"),
-          eq(assets.storagePartition, "public"),
-          eq(assets.scanStatus, "passed"),
-          inArray(assets.detectedMimeType, eligibleProductImageMimeTypes),
-          isNull(assets.deletedAt),
+          inArray(productAssets.role, [...publicImageRoles]),
+          publicReadyImageSqlConditions(),
         ),
       ),
   ]);
@@ -987,7 +1000,11 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
     !product?.realProductBasis ||
     !product.confirmedBy ||
     !product.confirmedAt ||
+    !product.confirmedByActive ||
+    (product.confirmedByRole !== "admin" &&
+      product.confirmedByRole !== "reviewer_publisher") ||
     !localizations[0]?.name.trim() ||
+    !currentRoutes[0] ||
     Number(imageCount[0]?.count ?? 0) < 1
   ) {
     throw new ProductValidationError("Product publication requirements are incomplete.");
@@ -999,6 +1016,8 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
       reviewedByUserId: actor.userId,
       reviewedAt: new Date(),
       publishedAt: new Date(),
+      publicationRemediationRequired: false,
+      publicationRemediationReason: null,
       updatedAt: new Date(),
     })
     .where(and(eq(products.id, productId), eq(products.status, "in_review")))
@@ -1087,7 +1106,10 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
     .select({
       status: products.status,
       realProductBasis: products.realProductBasis,
+      realProductConfirmedByUserId: products.realProductConfirmedByUserId,
       realProductConfirmedAt: products.realProductConfirmedAt,
+      confirmerActive: users.isActive,
+      confirmerRole: users.role,
       shortDescription: productLocalizations.shortDescription,
       fullDescription: productLocalizations.fullDescription,
       routeId: routes.id,
@@ -1095,6 +1117,7 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
       metaDescription: seoMetadata.metaDescription,
     })
     .from(products)
+    .leftJoin(users, eq(users.id, products.realProductConfirmedByUserId))
     .innerJoin(
       productLocalizations,
       and(
@@ -1125,11 +1148,8 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
         .where(
           and(
             eq(productAssets.productId, productId),
-            eq(assets.status, "ready"),
-            eq(assets.access, "public"),
-            eq(assets.storagePartition, "public"),
-            eq(assets.scanStatus, "passed"),
-            isNull(assets.deletedAt),
+            inArray(productAssets.role, [...publicImageRoles]),
+            publicReadyImageSqlConditions(),
             isNotNull(assets.altText),
             ne(assets.altText, ""),
           ),
@@ -1152,7 +1172,11 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
     if (
       product.status !== "published" ||
       !product.realProductBasis ||
+      !product.realProductConfirmedByUserId ||
       !product.realProductConfirmedAt ||
+      !product.confirmerActive ||
+      (product.confirmerRole !== "admin" &&
+        product.confirmerRole !== "reviewer_publisher") ||
       !(product.shortDescription?.trim() || product.fullDescription?.trim()) ||
       !product.title?.trim() ||
       !product.metaDescription?.trim() ||

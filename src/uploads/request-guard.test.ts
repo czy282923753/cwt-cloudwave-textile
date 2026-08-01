@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertRequestLength, preBodyRateLimitKeys, trustedClientAddress } from "./request-guard";
+import { assertRequestLength, preBodyRateLimitKeys, readRequestBodyWithLimit, trustedClientAddress } from "./request-guard";
 import { MemoryUploadRateLimiter } from "./rate-limit";
 
 describe("pre-body upload request guard", () => {
@@ -24,5 +24,59 @@ describe("pre-body upload request guard", () => {
     const limiter = new MemoryUploadRateLimiter(1, 60_000);
     await expect(limiter.consume("global:public-upload")).resolves.toBe(true);
     await expect(limiter.consume("global:public-upload")).resolves.toBe(false);
+  });
+
+  it("streams a missing-Content-Length and chunked body up to the exact hard limit", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]));
+        controller.enqueue(new Uint8Array([3, 4]));
+        controller.close();
+      },
+    });
+    const request = new Request("http://localhost/upload", {
+      method: "PUT",
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    expect(request.headers.get("content-length")).toBeNull();
+    await expect(readRequestBodyWithLimit(request, 4)).resolves.toEqual(
+      new Uint8Array([1, 2, 3, 4]),
+    );
+  });
+
+  it("aborts an actual body that exceeds the limit by one byte", async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request("http://localhost/upload", {
+      method: "PUT",
+      headers: { "content-length": "2" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    await expect(readRequestBodyWithLimit(request, 2)).rejects.toThrow(/actual upload bytes/i);
+    expect(cancelled).toBe(true);
+  });
+
+  it("surfaces an interrupted stream without producing a partial byte result", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+        controller.error(new Error("client disconnected"));
+      },
+    });
+    const request = new Request("http://localhost/upload", {
+      method: "PUT",
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    await expect(readRequestBodyWithLimit(request, 10)).rejects.toThrow(/client disconnected/);
   });
 });

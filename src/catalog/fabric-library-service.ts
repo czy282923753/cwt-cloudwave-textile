@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNotNull, ne } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { slugify } from "@/seo/path";
+import { publicReadyImageSqlConditions } from "@/uploads/asset-eligibility";
 
 import type { Actor } from "./product-service";
 
@@ -52,11 +53,7 @@ async function validateFabricSnapshot<TQueryResult extends PgQueryResultHKT>(
       .where(
         and(
           inArray(assets.id, snapshot.assetIds),
-          eq(assets.status, "ready"),
-          eq(assets.access, "public"),
-          eq(assets.storagePartition, "public"),
-          eq(assets.scanStatus, "passed"),
-          isNull(assets.deletedAt),
+          publicReadyImageSqlConditions(),
         ),
       ),
     snapshot.productIds.length
@@ -177,11 +174,7 @@ export async function createFabricLibraryEntry<
     .where(
       and(
         inArray(assets.id, assetIds),
-        eq(assets.status, "ready"),
-        eq(assets.access, "public"),
-        eq(assets.storagePartition, "public"),
-        eq(assets.scanStatus, "passed"),
-        isNull(assets.deletedAt),
+        publicReadyImageSqlConditions(),
       ),
     );
   if (validAssets.length !== assetIds.length) {
@@ -396,11 +389,8 @@ export async function publishFabricLibraryEntry<
     .where(
       and(
         eq(fabricLibraryEntryAssets.fabricEntryId, entryId),
-        eq(assets.storagePartition, "public"),
-        eq(assets.access, "public"),
-        eq(assets.status, "ready"),
-        eq(assets.scanStatus, "passed"),
-        isNull(assets.deletedAt),
+        eq(fabricLibraryEntryAssets.role, "hero"),
+        publicReadyImageSqlConditions(),
       ),
     );
   if (Number(assetRows[0]?.count ?? 0) < 1) {
@@ -630,11 +620,8 @@ export async function setFabricEntryIndexStatus<
         .where(
           and(
             eq(fabricLibraryEntryAssets.fabricEntryId, entryId),
-            eq(assets.storagePartition, "public"),
-            eq(assets.access, "public"),
-            eq(assets.status, "ready"),
-            eq(assets.scanStatus, "passed"),
-            isNull(assets.deletedAt),
+            eq(fabricLibraryEntryAssets.role, "hero"),
+            publicReadyImageSqlConditions(),
             isNotNull(assets.altText),
             ne(assets.altText, ""),
           ),

@@ -161,6 +161,7 @@ describe("public Asset delivery boundary", () => {
       .set({
         sourceDeclarationEnabled: true,
         publicUsePermission: "not_allowed",
+        effectiveRightsDecision: "not_allowed",
       })
       .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
     await expect(
@@ -170,12 +171,44 @@ describe("public Asset delivery boundary", () => {
       .update(assets)
       .set({
         sourceDeclarationEnabled: false,
-        publicUsePermission: null,
+        publicUsePermission: "not_allowed",
       })
       .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
     await expect(
       findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toBeNull();
+    await connection.db
+      .update(assets)
+      .set({
+        effectiveRightsDecision: "restricted",
+        rightsPublicWebsiteAllowed: false,
+      })
+      .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toBeNull();
+    await connection.db
+      .update(assets)
+      .set({ rightsPublicWebsiteAllowed: true })
+      .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
     ).resolves.toMatchObject({ objectKey: "boundary/eligible.jpg" });
+    await connection.db
+      .update(assets)
+      .set({
+        effectiveRightsDecision: "allowed",
+        rightsPublicWebsiteAllowed: null,
+        declarationExpiryDate: new Date(0),
+      })
+      .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toBeNull();
+    await connection.db
+      .update(assets)
+      .set({ declarationExpiryDate: null })
+      .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
     await connection.db
       .update(contents)
       .set({ status: "archived" })

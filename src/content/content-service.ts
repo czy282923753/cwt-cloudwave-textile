@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, not, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -20,6 +20,11 @@ import {
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { slugify } from "@/seo/path";
+import {
+  publicReadyAssetSqlConditions,
+  publicReadyImageSqlConditions,
+  roleMimeSqlCondition,
+} from "@/uploads/asset-eligibility";
 
 const revisionSnapshotSchema = z.object({
   title: z.string().min(1),
@@ -181,11 +186,7 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
       .where(
         and(
           inArray(assets.id, snapshot.assetIds),
-          eq(assets.storagePartition, "public"),
-          eq(assets.access, "public"),
-          eq(assets.status, "ready"),
-          eq(assets.scanStatus, "passed"),
-          isNull(assets.deletedAt),
+          publicReadyImageSqlConditions(),
         ),
       );
     if (assetRows.length !== snapshot.assetIds.length) {
@@ -232,7 +233,7 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
           snapshot.assetIds.map((assetId, sortOrder) => ({
             contentId,
             assetId,
-            role: sortOrder === 0 ? ("hero" as const) : ("inline" as const),
+            role: sortOrder === 0 ? ("cover" as const) : ("inline" as const),
             sortOrder,
           })),
         );
@@ -402,11 +403,7 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
         .where(
           and(
             inArray(assets.id, snapshot.assetIds),
-            eq(assets.storagePartition, "public"),
-            eq(assets.access, "public"),
-            eq(assets.status, "ready"),
-            eq(assets.scanStatus, "passed"),
-            isNull(assets.deletedAt),
+            publicReadyImageSqlConditions(),
           ),
         );
       if (assetRows.length !== snapshot.assetIds.length) {
@@ -449,7 +446,7 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
           snapshot.assetIds.map((assetId, sortOrder) => ({
             contentId: revision.entityId,
             assetId,
-            role: sortOrder === 0 ? ("hero" as const) : ("inline" as const),
+            role: sortOrder === 0 ? ("cover" as const) : ("inline" as const),
             sortOrder,
           })),
         );
@@ -546,6 +543,22 @@ export async function publishContent<TQueryResult extends PgQueryResultHKT>(
   contentId: string,
 ): Promise<void> {
   requirePermission(actor.role, "content.publish");
+  const invalidAssets = await db
+    .select({ count: count() })
+    .from(contentAssets)
+    .innerJoin(assets, eq(assets.id, contentAssets.assetId))
+    .where(
+      and(
+        eq(contentAssets.contentId, contentId),
+        or(
+          not(publicReadyAssetSqlConditions()),
+          not(roleMimeSqlCondition(contentAssets.role)),
+        ),
+      ),
+    );
+  if (Number(invalidAssets[0]?.count ?? 0) > 0) {
+    throw new Error("Content publication contains an invalid Asset role or MIME type.");
+  }
   const updated = await db
     .update(contents)
     .set({

@@ -57,6 +57,20 @@
       "when": 1785585598502,
       "tag": "0007_phase1a-remediation-round2",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785605634298,
+      "tag": "0008_phase1a-remediation-round3",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785606733440,
+      "tag": "0009_source-declaration-record-version",
+      "breakpoints": true
     }
   ]
 }

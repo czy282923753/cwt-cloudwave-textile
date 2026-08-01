@@ -277,10 +277,13 @@ export async function seedFixtureProducts<TQueryResult extends PgQueryResultHKT>
       await db
         .update(products)
         .set({
-          realProductBasis: "physical_sample",
-          realProductEvidenceNote: "Synthetic fixture basis for workflow testing only.",
-          realProductConfirmedByUserId: adminUserId,
-          realProductConfirmedAt: new Date(),
+          status: "in_review",
+          realProductBasis: null,
+          realProductEvidenceNote: null,
+          realProductConfirmedByUserId: null,
+          realProductConfirmedAt: null,
+          publicationRemediationRequired: true,
+          publicationRemediationReason: "synthetic_fixture_requires_explicit_test_review",
           updatedAt: new Date(),
         })
         .where(eq(products.id, existing[0].id));
@@ -305,15 +308,10 @@ export async function seedFixtureProducts<TQueryResult extends PgQueryResultHKT>
         .insert(products)
         .values({
           productCode: fixture.code,
-          status: "published",
-          realProductBasis: "physical_sample",
-          realProductEvidenceNote: "Synthetic fixture basis for workflow testing only.",
-          realProductConfirmedByUserId: adminUserId,
-          realProductConfirmedAt: new Date(),
+          status: "in_review",
+          publicationRemediationRequired: true,
+          publicationRemediationReason: "synthetic_fixture_requires_explicit_test_review",
           createdByUserId: adminUserId,
-          reviewedByUserId: adminUserId,
-          reviewedAt: new Date(),
-          publishedAt: new Date(),
         })
         .returning({ id: products.id });
       const productId = inserted[0]?.id;

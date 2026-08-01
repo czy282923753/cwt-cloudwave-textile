@@ -13,6 +13,7 @@ import * as schema from "@/db/schema";
 import {
   contacts,
   assets,
+  auditLogs,
   customerActivities,
   inquiries,
   productTaxonomyTerms,
@@ -249,8 +250,28 @@ describe("database migrations", () => {
       expect(byId.get("88888888-8888-4888-8888-888888888888")).toMatchObject({ rescanStatus: "manual_review", scanFailureReason: "historical_asset_deleted" });
       await expect(authorizeInquiryAssetRecord(connection.db, { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", role: "admin" }, "55555555-5555-4555-8555-555555555555")).resolves.toMatchObject({ inquiryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
       const readiness = await verifyDatabaseReadiness(connection.db);
-      expect(readiness.publishedProductAssetFailures).toBeGreaterThan(0);
-      expect(() => assertDatabaseReady(readiness)).toThrow(/readiness failed/);
+      expect(readiness.historicalAssetsManualReview).toBeGreaterThan(0);
+      expect(() => assertDatabaseReady(readiness)).not.toThrow();
+      const demoted = await connection.db
+        .select({
+          status: products.status,
+          remediationRequired: products.publicationRemediationRequired,
+          remediationReason: products.publicationRemediationReason,
+        })
+        .from(products)
+        .where(eq(products.id, "33333333-3333-4333-8333-333333333333"));
+      expect(demoted[0]).toMatchObject({
+        status: "in_review",
+        remediationRequired: true,
+        remediationReason: "round3_historical_publication_gate_failed",
+      });
+      const migrationAudits = await connection.db
+        .select({ action: auditLogs.action })
+        .from(auditLogs)
+        .where(eq(auditLogs.entityId, "33333333-3333-4333-8333-333333333333"));
+      expect(migrationAudits).toContainEqual({
+        action: "product.historical_publication.remediation_required",
+      });
       const primaryRows = await connection.db
         .select({ taxonomyTermId: productTaxonomyTerms.taxonomyTermId })
         .from(productTaxonomyTerms)

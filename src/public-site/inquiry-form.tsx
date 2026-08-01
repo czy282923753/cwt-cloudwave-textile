@@ -92,7 +92,6 @@ export function InquiryForm({
           lastNonDirectMedium: attribution.lastNonDirectMedium || null,
           lastNonDirectCampaign: attribution.lastNonDirectCampaign || null,
           attributionConfidence: attribution.attributionConfidence,
-          analyticsConsentState: attribution.consentState,
           anonymousSessionId: attribution.anonymousSessionId,
           idempotencyKey: idempotencyKey.current,
           website: stringField("website") || null,

@@ -28,6 +28,10 @@ const environmentSchema = z.object({
     .min(32)
     .default("local-only-development-secret-change-me"),
   AUTH_COOKIE_NAME: z.string().min(1).default("cwt_session"),
+  ANALYTICS_CONSENT_COOKIE_NAME: z
+    .string()
+    .min(1)
+    .default("cwt_analytics_session"),
   DEV_ADMIN_EMAIL: z.email().default("admin@example.test"),
   DEV_ADMIN_PASSWORD: z.string().min(12).default("local-only-admin-password"),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),

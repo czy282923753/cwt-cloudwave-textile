@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
@@ -11,17 +11,38 @@ import {
   products,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import {
+  isAllowedImageMimeType,
+  publicAttachmentRoles,
+  publicImageRoles,
+} from "@/uploads/asset-eligibility";
+
+import { isPublicAssetCandidate } from "./public-asset-policy";
 
 async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   assetId: string,
+  detectedMimeType: string,
 ): Promise<boolean> {
+  const allowedRoles = isAllowedImageMimeType(detectedMimeType)
+    ? [...publicImageRoles, ...publicAttachmentRoles]
+    : detectedMimeType === "application/pdf"
+      ? [...publicAttachmentRoles]
+      : [];
+  if (allowedRoles.length === 0) return false;
   const [productRows, fabricRows, contentRows] = await Promise.all([
     db
       .select({ id: products.id })
       .from(productAssets)
       .innerJoin(products, eq(products.id, productAssets.productId))
-      .where(and(eq(productAssets.assetId, assetId), eq(products.status, "published")))
+      .where(
+        and(
+          eq(productAssets.assetId, assetId),
+          inArray(productAssets.role, [...publicImageRoles]),
+          publicProductEligibilityConditions(db),
+        ),
+      )
       .limit(1),
     db
       .select({ id: fabricLibraryEntries.id })
@@ -33,6 +54,7 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
       .where(
         and(
           eq(fabricLibraryEntryAssets.assetId, assetId),
+          inArray(fabricLibraryEntryAssets.role, allowedRoles),
           eq(fabricLibraryEntries.status, "published"),
         ),
       )
@@ -41,7 +63,13 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
       .select({ id: contents.id })
       .from(contentAssets)
       .innerJoin(contents, eq(contents.id, contentAssets.contentId))
-      .where(and(eq(contentAssets.assetId, assetId), eq(contents.status, "published")))
+      .where(
+        and(
+          eq(contentAssets.assetId, assetId),
+          inArray(contentAssets.role, allowedRoles),
+          eq(contents.status, "published"),
+        ),
+      )
       .limit(1),
   ]);
   return Boolean(productRows[0] || fabricRows[0] || contentRows[0]);
@@ -63,9 +91,15 @@ export async function findPublicAssetForDelivery<
       id: assets.id,
       objectKey: assets.objectKey,
       partition: assets.storagePartition,
+      storagePartition: assets.storagePartition,
+      access: assets.access,
+      status: assets.status,
+      scanStatus: assets.scanStatus,
+      deletedAt: assets.deletedAt,
       detectedMimeType: assets.detectedMimeType,
-      sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      effectiveRightsDecision: assets.effectiveRightsDecision,
       publicUsePermission: assets.publicUsePermission,
+      rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
       declarationExpiryDate: assets.declarationExpiryDate,
     })
     .from(assets)
@@ -82,16 +116,8 @@ export async function findPublicAssetForDelivery<
     .limit(1);
   const asset = rows[0];
   if (!asset || asset.partition !== "public") return null;
-  if (!asset.detectedMimeType?.startsWith("image/")) return null;
-  if (
-    asset.sourceDeclarationEnabled &&
-    (asset.publicUsePermission === "not_allowed" ||
-      (asset.declarationExpiryDate !== null &&
-        asset.declarationExpiryDate.getTime() <= Date.now()))
-  ) {
-    return null;
-  }
-  if (!(await hasPublishedEntityRelation(db, asset.id))) return null;
+  if (!asset.detectedMimeType || !isPublicAssetCandidate(asset)) return null;
+  if (!(await hasPublishedEntityRelation(db, asset.id, asset.detectedMimeType))) return null;
   return {
     id: asset.id,
     objectKey: asset.objectKey,

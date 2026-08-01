@@ -4,6 +4,10 @@ import { z } from "zod";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { recordConversionEvent } from "@/analytics/conversion-service";
+import {
+  consentSessionIdFromRequest,
+  findPersistedConsent,
+} from "@/analytics/consent-service";
 import { assertSameOrigin } from "@/auth/request-security";
 import { env } from "@/config/env";
 import {
@@ -42,7 +46,6 @@ const inputSchema = z
     lastNonDirectMedium: z.string().max(100).nullable().optional(),
     lastNonDirectCampaign: z.string().max(100).nullable().optional(),
     attributionConfidence: z.enum(["high", "medium", "low", "unavailable"]),
-    analyticsConsentState: z.enum(["unknown", "granted", "denied"]),
     anonymousSessionId: z.uuid(),
     idempotencyKey: z.string().min(16).max(200),
     website: z.string().max(200).nullable().optional(),
@@ -70,6 +73,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     }
     const input = inputSchema.parse(await request.json());
+    const consentSessionId = consentSessionIdFromRequest(request);
+    const persistedConsent = await withDatabase((db) =>
+      findPersistedConsent(db, consentSessionId),
+    );
     if (request.headers.get("x-cwt-upload-session") !== input.anonymousSessionId) {
       return NextResponse.json({ ok: false, error: "Upload Session mismatch." }, { status: 403 });
     }
@@ -118,7 +125,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         lastNonDirectMedium: input.lastNonDirectMedium || null,
         lastNonDirectCampaign: input.lastNonDirectCampaign || null,
         attributionConfidence: input.attributionConfidence,
-        analyticsConsentState: input.analyticsConsentState,
+        analyticsConsentState: persistedConsent?.status ?? "unknown",
         sessionId: input.anonymousSessionId,
         requestId,
         idempotencyKey: input.idempotencyKey,
@@ -131,16 +138,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!created || created.id !== inquiryId) {
       throw new Error("Inquiry public reference could not be resolved.");
     }
-    if (input.analyticsConsentState === "granted") {
+    if (persistedConsent?.status === "granted" && consentSessionId) {
       try {
         if (reserved.assetIds.length > 0) {
           await withDatabase((db) =>
             recordConversionEvent(db, {
               eventId: `image_upload:${created.publicReference}`,
               eventName: "image_upload_completed",
-              anonymousSessionId: input.anonymousSessionId,
+              consentSessionId,
               routePath: sourcePagePath,
-              consentState: "granted",
               safeProperties: { file_count: reserved.assetIds.length },
             }),
           );
@@ -149,10 +155,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           recordConversionEvent(db, {
             eventId: `inquiry_created:${created.publicReference}`,
             eventName: "inquiry_created",
-            anonymousSessionId: input.anonymousSessionId,
+            consentSessionId,
             routePath: sourcePagePath,
-            inquiryId,
-            consentState: "granted",
+            externalReference: created.publicReference,
             landingPagePath,
             referrerOrigin: input.referrer || null,
             utmSource: input.utmSource || null,

@@ -8,6 +8,7 @@ import { publicUploadRateLimiter as limiter } from "@/uploads/rate-limit";
 import {
   assertRequestLength,
   preBodyRateLimitKeys,
+  readRequestBodyWithLimit,
 } from "@/uploads/request-guard";
 import { createFileScanner } from "@/uploads/scanner";
 import {
@@ -22,7 +23,7 @@ export async function PUT(
 ): Promise<NextResponse> {
   try {
     assertSameOrigin(request);
-    assertRequestLength(request, env.MAX_INQUIRY_FILE_BYTES, { required: true });
+    assertRequestLength(request, env.MAX_INQUIRY_FILE_BYTES);
     for (const key of preBodyRateLimitKeys(request)) {
       if (!(await limiter.consume(key, "upload"))) {
         return NextResponse.json({ ok: false, error: "Try again later." }, { status: 429 });
@@ -40,14 +41,16 @@ export async function PUT(
           anonymousSessionId,
         });
     assertRequestLength(request, env.MAX_INQUIRY_FILE_BYTES, {
-      required: true,
       exact: intent.declaredByteSize,
     });
     const requestMimeType = request.headers.get("content-type")?.split(";", 1)[0]?.trim();
     if (requestMimeType !== intent.declaredMimeType) {
       throw new Error("Upload MIME does not match the Upload Intent.");
     }
-    const bytes = new Uint8Array(await request.arrayBuffer());
+    const bytes = await readRequestBodyWithLimit(request, intent.declaredByteSize);
+    if (bytes.byteLength !== intent.declaredByteSize) {
+      throw new Error("Actual upload bytes do not match the Upload Intent.");
+    }
     const storage = createObjectStorage();
     const scanner = createFileScanner();
     const assetId = databaseConnection.kind === "pglite"

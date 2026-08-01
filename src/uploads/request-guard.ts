@@ -23,6 +23,45 @@ export function assertRequestLength(
   return value;
 }
 
+/**
+ * Reads a request body incrementally and aborts as soon as the actual byte count
+ * exceeds the trusted server-side limit. It never calls arrayBuffer/blob/formData.
+ */
+export async function readRequestBodyWithLimit(
+  request: Request,
+  maximumBytes: number,
+): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new Error("Streaming upload limit is invalid.");
+  }
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      const chunk = result.value;
+      total += chunk.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel("actual_byte_limit_exceeded");
+        throw new Error("Actual upload bytes exceed the configured size limit.");
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export function trustedClientAddress(request: Request): string | null {
   if (env.TRUSTED_PROXY_MODE === "cloudflare") {
     return request.headers.get("cf-connecting-ip")?.trim() || null;

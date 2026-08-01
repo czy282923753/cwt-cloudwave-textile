@@ -1,0 +1,1 @@
+ALTER TABLE "assets" ADD COLUMN "declaration_record_version" integer DEFAULT 0 NOT NULL;

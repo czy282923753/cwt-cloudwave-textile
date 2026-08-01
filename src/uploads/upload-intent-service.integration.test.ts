@@ -7,6 +7,7 @@ import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 
 import { DevelopmentFileScanner } from "./scanner";
 import { purgeExpiredUploadIntents } from "./retention-service";
+import { readRequestBodyWithLimit } from "./request-guard";
 import {
   completeInquiryUploadIntent,
   createInquiryUploadIntent,
@@ -119,6 +120,49 @@ describe("private Inquiry Upload Intent", () => {
       }),
     ).resolves.toEqual({ eligible: 1, deleted: 1, dryRun: false });
     expect(storage.objects.size).toBe(0);
+    await connection.close();
+  });
+
+  it("keeps an Intent retryable and storage empty after streaming exceeds the declared size", async () => {
+    const connection = await createTestDatabase();
+    const storage = new InMemoryObjectStorage();
+    const bytes = await imageBytes();
+    const sessionId = "66666666-6666-4666-8666-666666666666";
+    const intent = await createInquiryUploadIntent(connection.db, {
+      anonymousSessionId: sessionId,
+      fileName: "stream-limit.jpg",
+      declaredMimeType: "image/jpeg",
+      declaredByteSize: bytes.byteLength,
+    });
+    const oversized = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.enqueue(new Uint8Array([0]));
+        controller.close();
+      },
+    });
+    const failedRequest = new Request("http://localhost/upload", {
+      method: "PUT",
+      body: oversized,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+    await expect(
+      readRequestBodyWithLimit(failedRequest, bytes.byteLength),
+    ).rejects.toThrow(/exceed/);
+    expect((await connection.db.select().from(uploadIntents))[0]).toMatchObject({
+      status: "created",
+      assetId: null,
+    });
+    expect(storage.objects.size).toBe(0);
+
+    await completeInquiryUploadIntent(connection.db, storage, new DevelopmentFileScanner(), {
+      token: intent.token,
+      anonymousSessionId: sessionId,
+      bytes,
+    });
+    expect((await connection.db.select().from(uploadIntents))[0]).toMatchObject({
+      status: "passed",
+    });
     await connection.close();
   });
 });

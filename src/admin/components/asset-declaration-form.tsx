@@ -22,12 +22,15 @@ interface DeclarationAsset {
   usageRestrictions: string | null;
   permissionEvidence: string | null;
   declarationStatementVersion: number;
+  declarationRecordVersion: number;
   declarationLastEditorUserId: string | null;
   declarationReviewerUserId: string | null;
   declarationReviewDate: Date | null;
   declarationReviewedStatementVersion: number | null;
   declarationReviewDecision: string | null;
   declarationReviewReason: string | null;
+  effectiveRightsDecision: string | null;
+  rightsPublicWebsiteAllowed: boolean | null;
   declarationExpiryDate: Date | null;
   isCwtOwnedFacility: boolean | null;
 }
@@ -71,13 +74,16 @@ export function AssetDeclarationForm({
           <div><dt className="text-slate-500">Relationship</dt><dd>{asset.subjectRelationship ?? "Unspecified"}</dd></div>
           <div><dt className="text-slate-500">Statement version</dt><dd>{asset.declarationStatementVersion}</dd></div>
           <div><dt className="text-slate-500">Decision</dt><dd>{asset.declarationReviewDecision ?? "Not reviewed"}</dd></div>
+          <div><dt className="text-slate-500">Effective rights</dt><dd>{asset.effectiveRightsDecision ?? "No declaration decision"}</dd></div>
           <div><dt className="text-slate-500">Last reviewer</dt><dd>{asset.declarationReviewerUserId ?? "Not reviewed"}</dd></div>
           <div><dt className="text-slate-500">Review date</dt><dd>{asset.declarationReviewDate?.toLocaleString("en-GB") ?? "—"}</dd></div>
         </dl>
         {canReviewDeclaration && asset.sourceDeclarationEnabled && asset.declarationLastEditorUserId !== currentUserId ? (
           <form action={reviewAssetDeclarationAction} className="grid gap-3">
             <input name="assetId" type="hidden" value={asset.id} />
+            <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
             <input name="decision" type="hidden" value="approved" />
+            <input name="effectiveDecision" type="hidden" value="allowed" />
             <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950">
               Approve statement version {asset.declarationStatementVersion}
             </button>
@@ -86,6 +92,9 @@ export function AssetDeclarationForm({
         {isAdmin && asset.sourceDeclarationEnabled ? (
           <form action={overrideAssetDeclarationAction} className="grid gap-3 rounded-xl border border-amber-400/30 p-4">
             <input name="assetId" type="hidden" value={asset.id} />
+            <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
+            <label className="grid gap-2">Effective rights<select className={fieldClass} name="effectiveDecision"><option value="allowed">Allowed</option><option value="restricted">Restricted</option><option value="not_allowed">Not allowed</option><option value="revoked">Revoked</option></select></label>
+            <label className="grid gap-2">Public website use for Restricted<select className={fieldClass} name="rightsPublicWebsiteAllowed"><option value="">Not applicable</option><option value="yes">Allowed</option><option value="no">Not allowed</option></select></label>
             <label className="grid gap-2">Admin Override reason<input className={fieldClass} name="reason" required /></label>
             <button className="rounded-xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">Apply explicit Admin Override</button>
           </form>
@@ -109,6 +118,7 @@ export function AssetDeclarationForm({
       }}
     >
       <input name="assetId" type="hidden" value={asset.id} />
+      <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
       <label className="flex items-center gap-3 rounded-xl border border-white/10 p-4">
         <input checked={enabled} name="enabled" onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
         Enable Source Declaration
@@ -136,7 +146,10 @@ export function AssetDeclarationForm({
     {canReviewDeclaration && enabled && asset.declarationLastEditorUserId !== currentUserId ? (
       <form action={reviewAssetDeclarationAction} className="grid gap-3 rounded-2xl border border-teal-400/30 bg-slate-900 p-6">
         <input name="assetId" type="hidden" value={asset.id} />
+        <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
         <label className="grid gap-2">Review decision<select className={fieldClass} name="decision"><option value="approved">Approve</option><option value="rejected">Reject</option></select></label>
+        <label className="grid gap-2">Effective rights<select className={fieldClass} name="effectiveDecision"><option value="allowed">Allowed</option><option value="restricted">Restricted</option><option value="not_allowed">Not allowed</option><option value="revoked">Revoked</option></select></label>
+        <label className="grid gap-2">Public website use for Restricted<select className={fieldClass} name="rightsPublicWebsiteAllowed"><option value="">Not applicable</option><option value="yes">Allowed</option><option value="no">Not allowed</option></select></label>
         <label className="grid gap-2">Reason (required for rejection)<input className={fieldClass} name="reason" /></label>
         <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950">Review statement version {asset.declarationStatementVersion}</button>
       </form>
@@ -146,6 +159,9 @@ export function AssetDeclarationForm({
         <h3 className="font-semibold text-amber-200">Admin Override</h3>
         <p className="text-sm text-slate-300">This is a separate exceptional action, not a normal two-person review.</p>
         <input name="assetId" type="hidden" value={asset.id} />
+        <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
+        <label className="grid gap-2">Effective rights<select className={fieldClass} name="effectiveDecision"><option value="allowed">Allowed</option><option value="restricted">Restricted</option><option value="not_allowed">Not allowed</option><option value="revoked">Revoked</option></select></label>
+        <label className="grid gap-2">Public website use for Restricted<select className={fieldClass} name="rightsPublicWebsiteAllowed"><option value="">Not applicable</option><option value="yes">Allowed</option><option value="no">Not allowed</option></select></label>
         <label className="grid gap-2">Mandatory reason<input className={fieldClass} name="reason" required /></label>
         <button className="rounded-xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">Apply explicit Admin Override</button>
       </form>

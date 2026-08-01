@@ -104,6 +104,10 @@ export const products = pgTable(
     realProductConfirmedAt: timestamp("real_product_confirmed_at", {
       withTimezone: true,
     }),
+    publicationRemediationRequired: boolean("publication_remediation_required")
+      .notNull()
+      .default(false),
+    publicationRemediationReason: text("publication_remediation_reason"),
     supplierType: text("supplier_type"),
     composition: text("composition"),
     weightGsm: numeric("weight_gsm", { precision: 10, scale: 2 }),

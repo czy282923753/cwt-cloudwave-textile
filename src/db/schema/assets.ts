@@ -19,6 +19,7 @@ import {
   assetScanStatusEnum,
   assetStatusEnum,
   declarationReviewDecisionEnum,
+  effectiveRightsDecisionEnum,
   sourceDeclarationSubjectEnum,
 } from "./enums";
 import { users } from "./identity";
@@ -84,6 +85,9 @@ export const assets = pgTable(
     declarationStatementVersion: integer("declaration_statement_version")
       .notNull()
       .default(0),
+    declarationRecordVersion: integer("declaration_record_version")
+      .notNull()
+      .default(0),
     declarationLastEditorUserId: uuid(
       "declaration_last_editor_user_id",
     ).references(() => users.id, { onDelete: "set null" }),
@@ -101,6 +105,10 @@ export const assets = pgTable(
       "declaration_review_decision",
     ),
     declarationReviewReason: text("declaration_review_reason"),
+    effectiveRightsDecision: effectiveRightsDecisionEnum(
+      "effective_rights_decision",
+    ),
+    rightsPublicWebsiteAllowed: boolean("rights_public_website_allowed"),
     declarationExpiryDate: timestamp("declaration_expiry_date", {
       withTimezone: true,
     }),

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { assets, auditLogs, users } from "@/db/schema";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { createTestDatabase } from "@/test/database";
+import { isPublicWebsiteUseAllowed } from "./asset-eligibility";
 
 import { DevelopmentFileScanner } from "./scanner";
 import {
@@ -91,6 +92,7 @@ describe("secure asset upload", () => {
       },
     );
     await updateSourceDeclaration(connection.db, assetId, { userId, role: "admin" }, {
+      expectedVersion: 0,
       enabled: true,
       subjectRelationship: "partner_factory",
       isCwtOwnedFacility: false,
@@ -100,7 +102,7 @@ describe("secure asset upload", () => {
       connection.db,
       assetId,
       { userId, role: "admin" },
-      { enabled: false },
+      { expectedVersion: 1, enabled: false },
     );
 
     const rows = await connection.db
@@ -112,6 +114,8 @@ describe("secure asset upload", () => {
       subjectRelationship: "partner_factory",
       isCwtOwnedFacility: false,
       publicUsePermission: "allowed",
+      effectiveRightsDecision: "pending_review",
+      declarationStatementVersion: 1,
     });
     const audits = await connection.db.select().from(auditLogs);
     expect(audits).toHaveLength(2);
@@ -185,7 +189,7 @@ describe("secure asset upload", () => {
       connection.db,
       assetId,
       { userId, role: "product_editor" },
-      { enabled: true, rightsStatus: "claimed" },
+      { expectedVersion: 0, enabled: true, rightsStatus: "claimed" },
     );
     await expect(
       reviewSourceDeclaration(
@@ -193,6 +197,9 @@ describe("secure asset upload", () => {
         assetId,
         { userId, role: "admin" },
         "approved",
+        "allowed",
+        null,
+        1,
       ),
     ).rejects.toThrow(/last Source Declaration editor/);
     const rows = await connection.db.select().from(assets).where(eq(assets.id, assetId));
@@ -231,6 +238,7 @@ describe("secure asset upload", () => {
       assetId,
       { userId: editorId, role: "product_editor" },
       {
+        expectedVersion: 0,
         enabled: true,
         rightsStatus: "reviewed",
       },
@@ -240,12 +248,15 @@ describe("secure asset upload", () => {
       assetId,
       { userId: reviewerId, role: "reviewer_publisher" },
       "approved",
+      "allowed",
+      null,
+      1,
     );
     await updateSourceDeclaration(
       connection.db,
       assetId,
       { userId: editorId, role: "product_editor" },
-      { enabled: true, rightsStatus: "changed-by-editor" },
+      { expectedVersion: 2, enabled: true, rightsStatus: "changed-by-editor" },
     );
     const rows = await connection.db.select().from(assets).where(eq(assets.id, assetId));
     expect(rows[0]).toMatchObject({
@@ -253,6 +264,9 @@ describe("secure asset upload", () => {
       declarationReviewerUserId: null,
       declarationReviewDate: null,
       declarationReviewDecision: null,
+      effectiveRightsDecision: "pending_review",
+      declarationStatementVersion: 2,
+      declarationRecordVersion: 3,
     });
     await connection.close();
   });
@@ -274,13 +288,164 @@ describe("secure asset upload", () => {
       purpose: "public_asset",
       uploadedByUserId: adminId,
     });
-    await updateSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, { enabled: true, rightsStatus: "restricted" });
-    await expect(adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "")).rejects.toThrow(/reason/);
-    await adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "Urgent verified exception for test.");
+    await updateSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, { expectedVersion: 0, enabled: true, rightsStatus: "restricted" });
+    await expect(adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "allowed", null, 1, "")).rejects.toThrow(/reason/);
+    await adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "allowed", null, 1, "Urgent verified exception for test.");
     const rows = await connection.db.select().from(assets).where(eq(assets.id, assetId));
     expect(rows[0]).toMatchObject({ declarationReviewDecision: "admin_override", declarationReviewerUserId: adminId });
     const audits = await connection.db.select().from(auditLogs).where(eq(auditLogs.entityId, assetId));
     expect(audits.some((row) => row.action === "asset.source_declaration.admin_override")).toBe(true);
+    await connection.close();
+  });
+
+  it("rejects concurrent declaration edits and stale review or override versions", async () => {
+    const connection = await createTestDatabase();
+    const actorRows = await connection.db.insert(users).values([
+      { email: "concurrency-editor@example.test", displayName: "Editor", role: "product_editor", passwordHash: "test" },
+      { email: "concurrency-reviewer@example.test", displayName: "Reviewer", role: "reviewer_publisher", passwordHash: "test" },
+      { email: "concurrency-admin@example.test", displayName: "Admin", role: "admin", passwordHash: "test" },
+    ]).returning({ id: users.id, role: users.role });
+    const editorId = actorRows.find((row) => row.role === "product_editor")!.id;
+    const reviewerId = actorRows.find((row) => row.role === "reviewer_publisher")!.id;
+    const adminId = actorRows.find((row) => row.role === "admin")!.id;
+    const assetId = await uploadAsset(connection.db, new InMemoryObjectStorage(), new DevelopmentFileScanner(), {
+      fileName: "concurrent-rights.jpg",
+      declaredMimeType: "image/jpeg",
+      bytes: await testJpeg(),
+      category: "product",
+      purpose: "public_asset",
+      uploadedByUserId: editorId,
+    });
+    const edits = await Promise.allSettled([
+      updateSourceDeclaration(connection.db, assetId, { userId: editorId, role: "product_editor" }, { expectedVersion: 0, enabled: true, rightsStatus: "editor-a" }),
+      updateSourceDeclaration(connection.db, assetId, { userId: editorId, role: "product_editor" }, { expectedVersion: 0, enabled: true, rightsStatus: "editor-b" }),
+    ]);
+    expect(edits.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(edits.filter((result) => result.status === "rejected")).toHaveLength(1);
+    await expect(reviewSourceDeclaration(connection.db, assetId, { userId: reviewerId, role: "reviewer_publisher" }, "approved", "allowed", null, 0)).rejects.toThrow(/changed/);
+    await expect(adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "allowed", null, 0, "Stale override test")).rejects.toThrow(/changed/);
+    await connection.close();
+  });
+
+  it("requires an explicit current-version reviewer decision to restore public use and rolls review back with Audit failure", async () => {
+    const connection = await createTestDatabase();
+    const actorRows = await connection.db.insert(users).values([
+      { email: "restore-editor@example.test", displayName: "Restore Editor", role: "product_editor", passwordHash: "test" },
+      { email: "restore-reviewer@example.test", displayName: "Restore Reviewer", role: "reviewer_publisher", passwordHash: "test" },
+    ]).returning({ id: users.id, role: users.role });
+    const editorId = actorRows.find((row) => row.role === "product_editor")!.id;
+    const reviewerId = actorRows.find((row) => row.role === "reviewer_publisher")!.id;
+    const assetId = await uploadAsset(connection.db, new InMemoryObjectStorage(), new DevelopmentFileScanner(), {
+      fileName: "reviewer-restore.jpg",
+      declaredMimeType: "image/jpeg",
+      bytes: await testJpeg(),
+      category: "product",
+      purpose: "public_asset",
+      uploadedByUserId: editorId,
+    });
+    await updateSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: editorId, role: "product_editor" },
+      { expectedVersion: 0, enabled: true, rightsStatus: "third-party" },
+    );
+    await reviewSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: reviewerId, role: "reviewer_publisher" },
+      "rejected",
+      "not_allowed",
+      null,
+      1,
+      "Public use is not licensed.",
+    );
+    await updateSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: editorId, role: "product_editor" },
+      { expectedVersion: 2, enabled: false },
+    );
+    let asset = (await connection.db.select().from(assets).where(eq(assets.id, assetId)))[0]!;
+    expect(asset).toMatchObject({
+      sourceDeclarationEnabled: false,
+      effectiveRightsDecision: "not_allowed",
+      declarationRecordVersion: 3,
+    });
+    expect(isPublicWebsiteUseAllowed(asset)).toBe(false);
+
+    await updateSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: editorId, role: "product_editor" },
+      { expectedVersion: 3, enabled: true },
+    );
+    await reviewSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: reviewerId, role: "reviewer_publisher" },
+      "approved",
+      "allowed",
+      null,
+      4,
+      "License evidence was verified.",
+    );
+    asset = (await connection.db.select().from(assets).where(eq(assets.id, assetId)))[0]!;
+    expect(asset).toMatchObject({
+      effectiveRightsDecision: "allowed",
+      declarationRecordVersion: 5,
+    });
+    expect(isPublicWebsiteUseAllowed(asset)).toBe(true);
+
+    await expect(reviewSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: reviewerId, role: "reviewer_publisher" },
+      "rejected",
+      "revoked",
+      null,
+      5,
+      "Simulated revocation.",
+      { auditWriter: async () => { throw new Error("simulated review audit failure"); } },
+    )).rejects.toThrow(/simulated review audit failure/);
+    asset = (await connection.db.select().from(assets).where(eq(assets.id, assetId)))[0]!;
+    expect(asset).toMatchObject({
+      effectiveRightsDecision: "allowed",
+      declarationRecordVersion: 5,
+    });
+    await connection.close();
+  });
+
+  it("rolls back declaration content when its Audit Log write fails", async () => {
+    const connection = await createTestDatabase();
+    const actorRows = await connection.db.insert(users).values({
+      email: "audit-rollback-editor@example.test",
+      displayName: "Rollback Editor",
+      role: "product_editor",
+      passwordHash: "test",
+    }).returning({ id: users.id });
+    const editorId = actorRows[0]!.id;
+    const assetId = await uploadAsset(connection.db, new InMemoryObjectStorage(), new DevelopmentFileScanner(), {
+      fileName: "audit-rollback.jpg",
+      declaredMimeType: "image/jpeg",
+      bytes: await testJpeg(),
+      category: "product",
+      purpose: "public_asset",
+      uploadedByUserId: editorId,
+    });
+    await expect(updateSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId: editorId, role: "product_editor" },
+      { expectedVersion: 0, enabled: true, rightsStatus: "must-rollback" },
+      { auditWriter: async () => { throw new Error("simulated audit failure"); } },
+    )).rejects.toThrow(/simulated audit failure/);
+    const asset = (await connection.db.select().from(assets).where(eq(assets.id, assetId)))[0]!;
+    expect(asset).toMatchObject({
+      sourceDeclarationEnabled: false,
+      rightsStatus: null,
+      declarationStatementVersion: 0,
+      effectiveRightsDecision: null,
+    });
     await connection.close();
   });
 

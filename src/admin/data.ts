@@ -56,6 +56,8 @@ async function queryProducts<TQueryResult extends PgQueryResultHKT>(
       updatedAt: products.updatedAt,
       path: routes.path,
       indexStatus: seoMetadata.indexStatus,
+      publicationRemediationRequired: products.publicationRemediationRequired,
+      publicationRemediationReason: products.publicationRemediationReason,
     })
     .from(products)
     .innerJoin(
@@ -110,6 +112,8 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
       moqNoteDisplay: products.moqNoteDisplay,
       realProductBasis: products.realProductBasis,
       realProductEvidenceNote: products.realProductEvidenceNote,
+      publicationRemediationRequired: products.publicationRemediationRequired,
+      publicationRemediationReason: products.publicationRemediationReason,
       routeId: routes.id,
       path: routes.path,
       seoTitle: seoMetadata.title,

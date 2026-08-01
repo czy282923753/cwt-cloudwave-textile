@@ -11,13 +11,22 @@ import {
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { normalizePath } from "@/seo/path";
+import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import { findPersistedConsent } from "./consent-service";
 
 type SafePrimitive = string | number | boolean | null;
 type SafeProperties = Readonly<Record<string, SafePrimitive>>;
-type EventName = typeof conversionEvents.$inferInsert.eventName;
+export type PublicEventName =
+  | "product_view"
+  | "quote_cta_click"
+  | "whatsapp_click"
+  | "upload_started"
+  | "image_upload_completed"
+  | "quote_submit_success"
+  | "inquiry_created";
 type PublicEntityType = "product" | "application" | "fabric_entry" | "content";
 
-const propertyAllowlist: Readonly<Record<EventName, ReadonlySet<string>>> = {
+const propertyAllowlist: Readonly<Record<PublicEventName, ReadonlySet<string>>> = {
   product_view: new Set(["placement"]),
   quote_cta_click: new Set(["placement"]),
   whatsapp_click: new Set(["placement"]),
@@ -25,11 +34,6 @@ const propertyAllowlist: Readonly<Record<EventName, ReadonlySet<string>>> = {
   image_upload_completed: new Set(["file_count"]),
   quote_submit_success: new Set(["placement"]),
   inquiry_created: new Set(),
-  inquiry_qualified: new Set(),
-  quote_recorded: new Set(),
-  sample_recorded: new Set(),
-  inquiry_won: new Set(),
-  inquiry_lost: new Set(),
 };
 
 const emailLike = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/;
@@ -97,8 +101,17 @@ function optionalReferrer(value: string | null | undefined): string | null {
   return parsed.origin;
 }
 
+function optionalExternalReference(value: string | null | undefined): string | null {
+  const normalized = value?.trim() || null;
+  if (!normalized) return null;
+  if (!/^CWT-[A-F0-9]{20}$/.test(normalized)) {
+    throw new Error("External analytics reference is invalid.");
+  }
+  return normalized;
+}
+
 export function assertAllowedEventProperties(
-  eventName: EventName,
+  eventName: PublicEventName,
   properties: SafeProperties,
 ): void {
   const allowed = propertyAllowlist[eventName];
@@ -148,14 +161,12 @@ function truncate(value: string | null | undefined, limit = 200): string | null 
 
 export interface ConversionInput {
   eventId: string;
-  eventName: EventName;
-  anonymousSessionId: string;
+  eventName: PublicEventName;
+  consentSessionId: string;
   routePath: string;
-  consentState: typeof conversionEvents.$inferInsert.consentState;
   entityType?: PublicEntityType | null;
-  entityId?: string | null;
   entityPath?: string | null;
-  inquiryId?: string | null;
+  externalReference?: string | null;
   landingPagePath?: string | null;
   submitSourcePagePath?: string | null;
   referrerOrigin?: string | null;
@@ -174,7 +185,8 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
   db: AppDatabase<TQueryResult>,
   input: ConversionInput,
 ): Promise<string | null> {
-  if (input.consentState !== "granted") return null;
+  const consent = await findPersistedConsent(db, input.consentSessionId);
+  if (consent?.status !== "granted") return null;
   const safeProperties = input.safeProperties ?? {};
   assertAllowedEventProperties(input.eventName, safeProperties);
   const eventId = input.eventId.trim();
@@ -188,16 +200,10 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
   ) {
     throw new Error("Event ID is invalid.");
   }
-  if (!/^[0-9a-f-]{36}$/i.test(input.anonymousSessionId)) {
-    throw new Error("Anonymous Session ID is invalid.");
+  if (Boolean(input.entityType) !== Boolean(input.entityPath)) {
+    throw new Error("Analytics entity type requires a public path.");
   }
-  if (
-    Boolean(input.entityType) !== Boolean(input.entityId || input.entityPath) ||
-    Boolean(input.entityId && input.entityPath)
-  ) {
-    throw new Error("Analytics entity type requires exactly one server ID or public path.");
-  }
-  let resolvedEntityId = input.entityId ?? null;
+  let resolvedEntityId: string | null = null;
   if (input.entityType && input.entityPath) {
     const entityPath = optionalPath("Entity Path", input.entityPath);
     const routeRows = await db
@@ -222,7 +228,12 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
         ? await db
             .select({ id: products.id })
             .from(products)
-            .where(and(eq(products.id, resolvedEntityId), eq(products.status, "published")))
+            .where(
+              and(
+                eq(products.id, resolvedEntityId),
+                publicProductEligibilityConditions(db),
+              ),
+            )
             .limit(1)
         : input.entityType === "application"
           ? await db
@@ -255,12 +266,12 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
     .values({
       eventId,
       eventName: input.eventName,
-      anonymousSessionId: input.anonymousSessionId,
+      anonymousSessionId: consent.consentSessionId,
       routePath: optionalPath("Route Path", input.routePath) ?? "/",
-      consentState: input.consentState,
+      consentState: "granted",
       entityType: truncate(input.entityType, 50),
       entityId: resolvedEntityId,
-      inquiryId: input.inquiryId ?? null,
+      externalReference: optionalExternalReference(input.externalReference),
       landingPagePath: optionalPath("Landing Page", input.landingPagePath),
       submitSourcePagePath: optionalPath("Submit Source", input.submitSourcePagePath),
       referrerOrigin: optionalReferrer(input.referrerOrigin),
@@ -305,7 +316,7 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
   if (
     replay &&
     (replay.eventName !== input.eventName ||
-      replay.sessionId !== input.anonymousSessionId ||
+      replay.sessionId !== consent.consentSessionId ||
       replay.routePath !== (optionalPath("Route Path", input.routePath) ?? "/"))
   ) {
     throw new Error("Event ID replay payload does not match the original event.");

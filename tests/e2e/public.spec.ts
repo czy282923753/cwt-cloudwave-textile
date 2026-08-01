@@ -86,37 +86,13 @@ test("@desktop primary public surfaces return successful responses", async ({ pa
   }
 });
 
-test("@all fixture Product renders governed metadata, schema, and no empty specification module", async ({
+test("@desktop synthetic fixture Product is not publicly accessible before explicit gate review", async ({
   page,
 }) => {
   const response = await page.goto(fixtureProductPath);
-  expect(response?.ok()).toBe(true);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "TEST FIXTURE",
-  );
-  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
-    "content",
-    /noindex/,
-  );
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
-    "href",
-    new RegExp(`${fixtureProductPath}$`),
-  );
-  const schemaText = await page.locator('script[type="application/ld+json"]').textContent();
-  expect(schemaText).toContain('"Product"');
-  expect(schemaText).toContain('"BreadcrumbList"');
-  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /TEST FIXTURE/);
-  const image = page.locator("img").first();
-  await expect(image).toHaveAttribute("src", /^\/api\/public-assets\/[0-9a-f-]{36}\/$/i);
-  const imagePath = await image.getAttribute("src");
-  if (!imagePath) throw new Error("Fixture Product image is missing its governed media path.");
-  const imageResponse = await page.request.get(imagePath);
-  expect(imageResponse.status()).toBe(200);
-  expect(imageResponse.headers()["cache-control"]).toContain("no-store");
-  const publicHtml = await response!.text();
-  expect(publicHtml).not.toMatch(/amazonaws\.com|r2\.cloudflarestorage\.com|\.storage\/public|object_key/i);
-  await expect(page.getByText("Product Code", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("MOQ", { exact: true })).toHaveCount(0);
+  expect(response?.status()).toBe(404);
+  const list = await page.request.get("/products/");
+  expect(await list.text()).not.toContain("TEST FIXTURE Fabric Sample 01");
 });
 
 test("@desktop dynamic Application, taxonomy, and Fabric Library pages expose OG and Breadcrumb metadata", async ({ page }) => {
@@ -143,10 +119,10 @@ test("@desktop analytics consent defaults off and can be granted then withdrawn"
   await expect(page.getByRole("dialog", { name: "Analytics privacy choices" })).toBeVisible();
   expect(await page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBeNull();
   await page.getByRole("button", { name: "Allow analytics" }).click();
-  expect(await page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBe("granted");
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBe("granted");
   await page.getByRole("button", { name: "Privacy choices" }).click();
   await page.getByRole("button", { name: "Withdraw consent" }).click();
-  expect(await page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBe("denied");
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBe("denied");
 });
 
 test("@mobile mobile viewport uses the compact header and fixed inquiry action", async ({
@@ -160,6 +136,12 @@ test("@mobile mobile viewport uses the compact header and fixed inquiry action",
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     await page.evaluate(() => window.innerWidth),
   );
+});
+
+test("@mobile unreviewed synthetic Product remains fail-closed on Pixel 7", async ({ page }) => {
+  const response = await page.goto("/products/test-fixture-fabric-02/");
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "This page could not be found." })).toBeVisible();
 });
 
 test("@desktop text-only inquiry is accepted", async ({ page }) => {
@@ -224,6 +206,17 @@ test("@desktop operations require authentication and local fixture login reaches
   await expect(page.getByText("auth.session.revoked").first()).toBeVisible();
 });
 
+test("@desktop Asset Library opens a governed Asset with Source Declaration off by default", async ({ page }) => {
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/assets/");
+  await expect(page.getByRole("heading", { name: "Asset Library" })).toBeVisible();
+  const firstAsset = page.locator("tbody a").first();
+  await expect(firstAsset).toBeVisible();
+  await openLinkedRecord(page, firstAsset);
+  await expect(page.getByText("Detected MIME", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Enable Source Declaration" })).not.toBeChecked();
+});
+
 test("@desktop a Published Product edit stays pending until approval", async ({ page }) => {
   await loginAsLocalAdmin(page);
   await page.goto("/admin/products/");
@@ -231,6 +224,16 @@ test("@desktop a Published Product edit stays pending until approval", async ({ 
     page,
     page.getByRole("link", { name: /TEST FIXTURE Fabric Sample 01/ }),
   );
+  await page.getByLabel("Real Product basis").selectOption("physical_sample");
+  await page.getByLabel("Evidence note").fill("Explicit E2E-only reviewer confirmation; never production data.");
+  await submitServerAction(
+    page,
+    page.getByRole("button", { name: "Confirm real Product basis" }),
+  );
+  await submitServerAction(page, page.getByRole("button", { name: "Publish", exact: true }));
+  const published = await page.request.get(fixtureProductPath);
+  expect(published.status()).toBe(200);
+  expect(await published.text()).toContain('"Product"');
   const replacement = `E2E approved editorial revision ${Date.now()}.`;
   await page.getByLabel("Short Description").fill(replacement);
   await submitServerAction(
@@ -246,6 +249,13 @@ test("@desktop a Published Product edit stays pending until approval", async ({ 
   );
   await page.goto(fixtureProductPath);
   await expect(page.getByText(replacement)).toBeVisible();
+  const image = page.locator("img").first();
+  await expect(image).toHaveAttribute("src", /^\/api\/public-assets\/[0-9a-f-]{36}\/$/i);
+  const imagePath = await image.getAttribute("src");
+  if (!imagePath) throw new Error("Published test Product image is missing its governed media path.");
+  expect((await page.request.get(imagePath)).headers()["cache-control"]).toContain("no-store");
+  await expect(page.getByText("Product Code", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("MOQ", { exact: true })).toHaveCount(0);
 });
 
 test("@desktop a changed Published Product slug returns a real 301 to the slash URL", async ({ page }) => {
@@ -255,6 +265,13 @@ test("@desktop a changed Published Product slug returns a real 301 to the slash 
     page,
     page.getByRole("link", { name: /TEST FIXTURE Fabric Sample 12/ }),
   );
+  await page.getByLabel("Real Product basis").selectOption("physical_sample");
+  await page.getByLabel("Evidence note").fill("Explicit E2E-only redirect workflow confirmation.");
+  await submitServerAction(
+    page,
+    page.getByRole("button", { name: "Confirm real Product basis" }),
+  );
+  await submitServerAction(page, page.getByRole("button", { name: "Publish", exact: true }));
   const routeText = await page.locator("p").filter({ hasText: /^\/products\// }).first().textContent();
   const oldPath = routeText?.split(" · ")[0];
   if (!oldPath) throw new Error("Unable to read the current fixture Product path.");
