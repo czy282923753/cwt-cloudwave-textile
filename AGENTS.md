@@ -38,7 +38,7 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 ## Asset source declaration
 
 - `Enable Source Declaration` is OFF by default.
-- When disabled, source, rights, permission, relationship, review, expiry, and facility-ownership fields stay hidden and null.
+- On a new ordinary upload, disabled source, rights, permission, relationship, review, expiry, and facility-ownership fields stay hidden and null. Disabling a declaration that already contains data hides but preserves that history.
 - Do not populate `CWT Original Photography`, `CWT Owned`, or other inferred defaults.
 - Source declaration may be enabled manually per asset or upload batch.
 - Automated person/logo/document hints are non-blocking and never enable declarations automatically.

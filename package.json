@@ -21,6 +21,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "db:seed:fixtures": "tsx scripts/seed-fixtures.ts",
     "db:verify": "tsx scripts/verify-database.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle"
   },
@@ -37,6 +38,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "0.0.1",
+    "sharp": "0.35.3",
     "zod": "4.4.3"
   },
   "devDependencies": {

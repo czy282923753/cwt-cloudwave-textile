@@ -34,3 +34,7 @@ Factual values use Empty, Provided, Verified, or Rejected review states. Only au
 ## Display overrides
 
 Optional public fields use Inherit, Show, or Hide. Product Code, Supplier Type, internal tags/notes, and fixed price remain internal in Phase 1A.
+
+## Related asset fields
+
+Product images reference Asset records; they do not duplicate files or rights metadata. `Enable Source Declaration` is OFF for a new ordinary upload, so all source, rights, relationship, permission, reviewer, expiry, and facility-ownership fields begin as null and are hidden. Enabling the declaration exposes optional fields. Disabling it later preserves previously recorded values and Audit Log history. This behavior never changes the Product draft requirement or the independent upload security pipeline.
