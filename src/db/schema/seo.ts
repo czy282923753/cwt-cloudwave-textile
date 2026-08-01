@@ -20,6 +20,7 @@ import {
   topicMemberRoleEnum,
 } from "./enums";
 import { users } from "./identity";
+import { assets } from "./assets";
 
 export const routes = pgTable(
   "routes",
@@ -57,7 +58,9 @@ export const seoMetadata = pgTable(
     canonicalPath: text("canonical_path"),
     openGraphTitle: text("open_graph_title"),
     openGraphDescription: text("open_graph_description"),
-    openGraphAssetId: uuid("open_graph_asset_id"),
+    openGraphAssetId: uuid("open_graph_asset_id").references(() => assets.id, {
+      onDelete: "set null",
+    }),
     schemaData: jsonb("schema_data"),
     updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",

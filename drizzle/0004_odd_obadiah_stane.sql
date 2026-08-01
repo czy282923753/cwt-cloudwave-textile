@@ -1,0 +1,3 @@
+ALTER TABLE "taxonomy_terms" ADD CONSTRAINT "taxonomy_terms_parent_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."taxonomy_terms"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "seo_metadata" ADD CONSTRAINT "seo_metadata_open_graph_asset_id_assets_id_fk" FOREIGN KEY ("open_graph_asset_id") REFERENCES "public"."assets"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "product_taxonomy_one_primary_unique" ON "product_taxonomy_terms" USING btree ("product_id") WHERE "product_taxonomy_terms"."is_primary" = true;

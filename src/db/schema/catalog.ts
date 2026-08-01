@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   numeric,
@@ -18,6 +19,7 @@ import {
   assetRoleEnum,
   displayOverrideEnum,
   recordStatusEnum,
+  realProductBasisEnum,
   taxonomyDimensionEnum,
   triStateEnum,
   verificationStatusEnum,
@@ -39,6 +41,11 @@ export const taxonomyTerms = pgTable(
   (table) => [
     uniqueIndex("taxonomy_terms_internal_key_unique").on(table.internalKey),
     index("taxonomy_terms_dimension_idx").on(table.dimension),
+    foreignKey({
+      columns: [table.parentId],
+      foreignColumns: [table.id],
+      name: "taxonomy_terms_parent_fk",
+    }).onDelete("restrict"),
   ],
 );
 
@@ -91,6 +98,15 @@ export const products = pgTable(
       .references(() => taxonomyTerms.id, { onDelete: "restrict" }),
     status: recordStatusEnum("status").notNull().default("draft"),
     productCode: text("product_code"),
+    realProductBasis: realProductBasisEnum("real_product_basis"),
+    realProductEvidenceNote: text("real_product_evidence_note"),
+    realProductConfirmedByUserId: uuid("real_product_confirmed_by_user_id").references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    realProductConfirmedAt: timestamp("real_product_confirmed_at", {
+      withTimezone: true,
+    }),
     supplierType: text("supplier_type"),
     composition: text("composition"),
     weightGsm: numeric("weight_gsm", { precision: 10, scale: 2 }),
@@ -158,6 +174,9 @@ export const productTaxonomyTerms = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.productId, table.taxonomyTermId] }),
+    uniqueIndex("product_taxonomy_one_primary_unique")
+      .on(table.productId)
+      .where(sql`${table.isPrimary} = true`),
     index("product_taxonomy_term_idx").on(table.taxonomyTermId),
   ],
 );
@@ -260,6 +279,12 @@ export const fabricLibraryEntries = pgTable("fabric_library_entries", {
   status: recordStatusEnum("status").notNull().default("draft"),
   createdByUserId: uuid("created_by_user_id").references(() => users.id, {
     onDelete: "set null",
+  }),
+  independentValueConfirmedByUserId: uuid(
+    "independent_value_confirmed_by_user_id",
+  ).references(() => users.id, { onDelete: "set null" }),
+  independentValueConfirmedAt: timestamp("independent_value_confirmed_at", {
+    withTimezone: true,
   }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

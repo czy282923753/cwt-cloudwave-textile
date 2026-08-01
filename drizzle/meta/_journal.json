@@ -15,6 +15,27 @@
       "when": 1785546775847,
       "tag": "0001_wild_mathemanic",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785547205734,
+      "tag": "0002_goofy_johnny_blaze",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785548024237,
+      "tag": "0003_ambitious_diamondback",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785548949944,
+      "tag": "0004_odd_obadiah_stane",
+      "breakpoints": true
     }
   ]
 }

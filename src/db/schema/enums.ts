@@ -40,6 +40,13 @@ export const taxonomyDimensionEnum = pgEnum("taxonomy_dimension", [
 ]);
 
 export const triStateEnum = pgEnum("tri_state", ["unknown", "yes", "no"]);
+export const realProductBasisEnum = pgEnum("real_product_basis", [
+  "physical_product",
+  "physical_sample",
+  "internal_product_code",
+  "supply_specification",
+  "explicit_specification_combination",
+]);
 export const displayOverrideEnum = pgEnum("display_override", [
   "inherit",
   "show",
