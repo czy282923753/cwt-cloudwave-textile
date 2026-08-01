@@ -2,6 +2,10 @@ import { and, count, eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import {
   applicationLocalizations,
@@ -206,6 +210,7 @@ export async function setTaxonomyIndexStatus<TQueryResult extends PgQueryResultH
   actor: Actor,
   termId: string,
   indexStatus: "index" | "noindex",
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   const rows = await db
@@ -267,17 +272,19 @@ export async function setTaxonomyIndexStatus<TQueryResult extends PgQueryResultH
       );
     }
   }
-  await db
-    .update(seoMetadata)
-    .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
-    .where(eq(seoMetadata.routeId, term.routeId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "taxonomy.index_status.changed",
-    entityType: "taxonomy",
-    entityId: termId,
-    afterSummary: { indexStatus },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, term.routeId));
+    await audit({
+      actorUserId: actor.userId,
+      action: "taxonomy.index_status.changed",
+      entityType: "taxonomy",
+      entityId: termId,
+      afterSummary: { indexStatus },
+    });
+  }, options);
 }
 
 export async function setTaxonomyActive<TQueryResult extends PgQueryResultHKT>(

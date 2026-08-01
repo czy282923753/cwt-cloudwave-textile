@@ -17,6 +17,9 @@ import {
   conversionEventEnum,
 } from "./enums";
 
+export const CONVERSION_EVENTS_PUBLIC_ONLY_EXPRESSION =
+  `"conversion_events"."event_name" in ('product_view', 'quote_cta_click', 'whatsapp_click', 'upload_started', 'image_upload_completed', 'quote_submit_success', 'inquiry_created') and ("conversion_events"."entity_type" is null or "conversion_events"."entity_type" in ('product', 'application', 'fabric_entry', 'content')) and (("conversion_events"."entity_type" is null and "conversion_events"."entity_id" is null) or ("conversion_events"."entity_type" is not null and "conversion_events"."entity_id" is not null))`;
+
 export const analyticsConsents = pgTable(
   "analytics_consents",
   {
@@ -66,7 +69,7 @@ export const conversionEvents = pgTable(
     index("conversion_events_external_reference_idx").on(table.externalReference),
     check(
       "conversion_events_public_only_check",
-      sql`${table.entityType} is null or ${table.entityType} in ('product', 'application', 'fabric_entry', 'content', 'taxonomy')`,
+      sql.raw(CONVERSION_EVENTS_PUBLIC_ONLY_EXPRESSION),
     ),
   ],
 );

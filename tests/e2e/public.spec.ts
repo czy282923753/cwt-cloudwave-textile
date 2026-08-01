@@ -206,6 +206,19 @@ test("@desktop operations require authentication and local fixture login reaches
   await expect(page.getByText("auth.session.revoked").first()).toBeVisible();
 });
 
+test("@desktop governed admin actions announce success and refresh persisted data", async ({ page }) => {
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/authors/");
+  const suffix = Date.now();
+  const displayName = `TEST FIXTURE Author ${suffix}`;
+  await page.getByPlaceholder("Display name").fill(displayName);
+  await page.getByPlaceholder("stable-internal-key").fill(`test-fixture-author-${suffix}`);
+  const createButton = page.getByRole("button", { name: "Create Author" });
+  await createButton.click();
+  await expect(page.getByRole("status").filter({ hasText: "Author created." })).toBeVisible();
+  await expect(page.locator(`input[name="displayName"][value="${displayName}"]`)).toBeVisible();
+});
+
 test("@desktop Asset Library opens a governed Asset with Source Declaration off by default", async ({ page }) => {
   await loginAsLocalAdmin(page);
   await page.goto("/admin/assets/");

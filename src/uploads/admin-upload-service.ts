@@ -15,6 +15,7 @@ import {
   contents,
   fabricLibraryEntries,
   fabricLibraryEntryAssets,
+  objectCleanupJobs,
   productAssets,
   products,
   uploadIntents,
@@ -25,6 +26,12 @@ import type { ObjectStorage } from "@/storage";
 import { isRoleMimeCompatible } from "./asset-eligibility";
 import { acceptedPublicMimeTypes } from "./file-validation";
 import { createImageDerivatives } from "./image-derivatives";
+import {
+  FINALIZE_COMPENSATION_GRACE_MILLISECONDS,
+  processPendingObjectCleanupJobs,
+  registerObjectCleanup,
+  releaseBatchCleanupJobs,
+} from "./object-cleanup-service";
 import { createUploadRateLimiter, type UploadRateLimiter } from "./rate-limit";
 import type { FileScanner } from "./scanner";
 import { uploadAsset } from "./service";
@@ -401,36 +408,75 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
 ): Promise<{ assetIds: string[] }> {
   const now = options.now ?? new Date();
   await assertActiveSession(db, actor, now);
-  const batch = (await db.select().from(assetUploadBatches).where(and(
-    eq(assetUploadBatches.id, z.uuid().parse(batchId)),
-    eq(assetUploadBatches.createdByUserId, actor.userId),
-    eq(assetUploadBatches.authSessionId, actor.authSessionId),
-    eq(assetUploadBatches.status, "ready_to_finalize"),
-    gt(assetUploadBatches.expiresAt, now),
-  )).limit(1))[0];
-  if (!batch) throw new Error("Admin Upload Batch is unavailable, incomplete, expired, or already finalized.");
-  const intents = await db.select().from(uploadIntents).where(and(
-    eq(uploadIntents.uploadBatchId, batch.id),
-    eq(uploadIntents.kind, "admin_asset"),
-    eq(uploadIntents.status, "passed"),
-  ));
-  if (intents.length !== batch.declaredFileCount || intents.some((intent) => !intent.assetId || !intent.adminAssetRole)) {
-    throw new Error("Admin Upload Batch is incomplete.");
-  }
-  const staged = await db.select().from(assets).where(eq(assets.uploadBatchId, batch.id));
-  if (staged.length !== intents.length || staged.some((asset) => asset.storagePartition !== "private" || asset.access !== "internal" || asset.status !== "ready" || asset.scanStatus !== "passed")) {
-    throw new Error("Admin Upload Batch does not contain eligible staged Assets.");
-  }
-  const source = batch.sourceDeclarationEnabled
-    ? (batch.declarationInput as AdminSourceDeclarationInput | null) ?? {}
-    : null;
-  if (source?.subjectRelationship) sourceSubjectSchema.parse(source.subjectRelationship);
-  if (source?.publicUsePermission) permissionSchema.parse(source.publicUsePermission);
-  if (source?.editingPermission) permissionSchema.parse(source.editingPermission);
-  const copies: { objectKey: string; variants: { key: string; format: string; bytes: Uint8Array; width: number; height: number }[] }[] = [];
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  const parsedBatchId = z.uuid().parse(batchId);
+  const batch = await db.transaction(async (transaction) => {
+    await assertActiveSession(transaction, actor, now);
+    const claimed = (await transaction
+      .update(assetUploadBatches)
+      .set({ status: "finalizing", failureReason: null })
+      .where(and(
+        eq(assetUploadBatches.id, parsedBatchId),
+        eq(assetUploadBatches.createdByUserId, actor.userId),
+        eq(assetUploadBatches.authSessionId, actor.authSessionId),
+        eq(assetUploadBatches.status, "ready_to_finalize"),
+        gt(assetUploadBatches.expiresAt, now),
+      ))
+      .returning())[0];
+    if (!claimed) {
+      throw new Error("Admin Upload Batch is unavailable, incomplete, expired, or already finalized.");
+    }
+    await auditWriter(transaction, {
+      actorUserId: actor.userId,
+      action: "asset.upload_batch.finalize_claimed",
+      entityType: "asset_upload_batch",
+      entityId: claimed.id,
+    });
+    return claimed;
+  });
+  let staged: (typeof assets.$inferSelect)[] = [];
   try {
+    const intents = await db.select().from(uploadIntents).where(and(
+      eq(uploadIntents.uploadBatchId, batch.id),
+      eq(uploadIntents.kind, "admin_asset"),
+      eq(uploadIntents.status, "passed"),
+    ));
+    if (intents.length !== batch.declaredFileCount || intents.some((intent) => !intent.assetId || !intent.adminAssetRole)) {
+      throw new Error("Admin Upload Batch is incomplete.");
+    }
+    staged = await db.select().from(assets).where(eq(assets.uploadBatchId, batch.id));
+    if (staged.length !== intents.length || staged.some((asset) => asset.storagePartition !== "private" || asset.access !== "internal" || asset.status !== "ready" || asset.scanStatus !== "passed")) {
+      throw new Error("Admin Upload Batch does not contain eligible staged Assets.");
+    }
+    const source = batch.sourceDeclarationEnabled
+      ? (batch.declarationInput as AdminSourceDeclarationInput | null) ?? {}
+      : null;
+    if (source?.subjectRelationship) sourceSubjectSchema.parse(source.subjectRelationship);
+    if (source?.publicUsePermission) permissionSchema.parse(source.publicUsePermission);
+    if (source?.editingPermission) permissionSchema.parse(source.editingPermission);
+    const compensationNotBefore = new Date(
+      now.getTime() + FINALIZE_COMPENSATION_GRACE_MILLISECONDS,
+    );
+    const copies: {
+      objectKey: string;
+      variants: {
+        key: string;
+        format: string;
+        bytes: Uint8Array;
+        width: number;
+        height: number;
+      }[];
+    }[] = [];
     for (const asset of staged) {
       const bytes = await storage.get("private", asset.objectKey);
+      await registerObjectCleanup(db, {
+        uploadBatchId: batch.id,
+        assetId: asset.id,
+        storagePartition: "public",
+        objectKey: asset.objectKey,
+        reason: "finalize_public_original_compensation",
+        notBefore: compensationNotBefore,
+      });
       await storage.put("public", asset.objectKey, bytes, asset.detectedMimeType ?? asset.declaredMimeType);
       const variants = asset.detectedMimeType?.startsWith("image/")
         ? (await createImageDerivatives(bytes)).map((variant) => ({
@@ -441,14 +487,23 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
             height: variant.height,
           }))
         : [];
-      for (const variant of variants) await storage.put("public", variant.key, variant.bytes, `image/${variant.format}`);
+      for (const variant of variants) {
+        await registerObjectCleanup(db, {
+          uploadBatchId: batch.id,
+          assetId: asset.id,
+          storagePartition: "public",
+          objectKey: variant.key,
+          reason: "finalize_public_variant_compensation",
+          notBefore: compensationNotBefore,
+        });
+        await storage.put("public", variant.key, variant.bytes, `image/${variant.format}`);
+      }
       copies.push({ objectKey: asset.objectKey, variants });
     }
-    const auditWriter = options.auditWriter ?? writeAuditLog;
     await db.transaction(async (transaction) => {
       await assertActiveSession(transaction, actor, now);
       const current = (await transaction.select().from(assetUploadBatches).where(and(
-        eq(assetUploadBatches.id, batch.id), eq(assetUploadBatches.status, "ready_to_finalize"),
+        eq(assetUploadBatches.id, batch.id), eq(assetUploadBatches.status, "finalizing"),
         eq(assetUploadBatches.createdByUserId, actor.userId), eq(assetUploadBatches.authSessionId, actor.authSessionId),
       )).limit(1))[0];
       if (!current) throw new Error("Admin Upload Batch changed before finalization.");
@@ -485,17 +540,77 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         });
         await transaction.update(uploadIntents).set({ status: "consumed", isConsumed: true, usedAt: now, updatedAt: now }).where(and(eq(uploadIntents.id, intent.id), eq(uploadIntents.status, "passed")));
         await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.released_public", entityType: "asset", entityId: asset.id, afterSummary: { uploadBatchId: batch.id, associationType: intent.associationType } });
+        await transaction.insert(objectCleanupJobs).values({
+          uploadBatchId: batch.id,
+          assetId: asset.id,
+          storagePartition: "private",
+          objectKey: asset.objectKey,
+          reason: "finalize_private_staging_released",
+          status: "pending",
+          nextAttemptAt: now,
+        }).onConflictDoUpdate({
+          target: [objectCleanupJobs.storagePartition, objectCleanupJobs.objectKey],
+          set: {
+            uploadBatchId: batch.id,
+            assetId: asset.id,
+            reason: "finalize_private_staging_released",
+            status: "pending",
+            attemptCount: 0,
+            nextAttemptAt: now,
+            lockedBy: null,
+            lockedAt: null,
+            leaseExpiresAt: null,
+            lastError: null,
+            completedAt: null,
+            updatedAt: now,
+          },
+        });
       }
+      await transaction.update(objectCleanupJobs).set({
+        status: "cancelled",
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        updatedAt: now,
+      }).where(and(
+        eq(objectCleanupJobs.uploadBatchId, batch.id),
+        eq(objectCleanupJobs.storagePartition, "public"),
+        eq(objectCleanupJobs.status, "pending"),
+      ));
       await transaction.update(assetUploadBatches).set({ status: "completed", completedAt: now, failureReason: null }).where(eq(assetUploadBatches.id, batch.id));
       await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.upload_batch.completed", entityType: "asset_upload_batch", entityId: batch.id, afterSummary: { fileCount: intents.length, sourceDeclarationEnabled: batch.sourceDeclarationEnabled } });
     });
+    await processPendingObjectCleanupJobs(db, storage, {
+      limit: Math.max(1, staged.length),
+      workerId: `finalize-private-${batch.id}`,
+      now,
+    });
   } catch (error) {
-    for (const copy of copies) {
-      await storage.delete("public", copy.objectKey);
-      for (const variant of copy.variants) await storage.delete("public", variant.key);
-    }
+    await db.transaction(async (transaction) => {
+      const failed = await transaction.update(assetUploadBatches).set({
+        status: "failed",
+        failureReason: error instanceof Error ? error.message.slice(0, 500) : "finalize_failed",
+      }).where(and(
+        eq(assetUploadBatches.id, batch.id),
+        eq(assetUploadBatches.status, "finalizing"),
+      )).returning({ id: assetUploadBatches.id });
+      if (failed[0]) {
+        await writeAuditLog(transaction, {
+          actorUserId: actor.userId,
+          action: "asset.upload_batch.finalize_failed",
+          entityType: "asset_upload_batch",
+          entityId: batch.id,
+          afterSummary: { reason: "compensation_required" },
+        });
+      }
+    });
+    await releaseBatchCleanupJobs(db, batch.id, now);
+    await processPendingObjectCleanupJobs(db, storage, {
+      limit: Math.max(1, staged.length * 8),
+      workerId: `finalize-compensation-${batch.id}`,
+      now,
+    });
     throw error;
   }
-  for (const asset of staged) await storage.delete("private", asset.objectKey);
   return { assetIds: staged.map((asset) => asset.id) };
 }

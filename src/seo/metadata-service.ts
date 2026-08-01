@@ -1,7 +1,10 @@
 import { eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
-import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
 import { routes, seoMetadata } from "@/db/schema";
@@ -19,6 +22,7 @@ export async function updateSeoMetadata<TQueryResult extends PgQueryResultHKT>(
     focusKeyword?: string | null;
     canonicalPath?: string | null;
   },
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   let canonicalPath: string | null | undefined;
@@ -33,30 +37,32 @@ export async function updateSeoMetadata<TQueryResult extends PgQueryResultHKT>(
       if (!target[0]) throw new Error("Canonical target must be a current governed route.");
     }
   }
-  await db
-    .update(seoMetadata)
-    .set({
-      ...(input.title !== undefined ? { title: input.title?.trim() || null } : {}),
-      ...(input.metaDescription !== undefined
-        ? { metaDescription: input.metaDescription?.trim() || null }
-        : {}),
-      ...(input.focusKeyword !== undefined
-        ? { focusKeyword: input.focusKeyword?.trim() || null }
-        : {}),
-      ...(canonicalPath !== undefined ? { canonicalPath } : {}),
-      updatedByUserId: actor.userId,
-      updatedAt: new Date(),
-    })
-    .where(eq(seoMetadata.routeId, routeId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "seo.metadata.updated",
-    entityType: "route",
-    entityId: routeId,
-    afterSummary: {
-      titleChanged: input.title !== undefined,
-      descriptionChanged: input.metaDescription !== undefined,
-      canonicalPath,
-    },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .update(seoMetadata)
+      .set({
+        ...(input.title !== undefined ? { title: input.title?.trim() || null } : {}),
+        ...(input.metaDescription !== undefined
+          ? { metaDescription: input.metaDescription?.trim() || null }
+          : {}),
+        ...(input.focusKeyword !== undefined
+          ? { focusKeyword: input.focusKeyword?.trim() || null }
+          : {}),
+        ...(canonicalPath !== undefined ? { canonicalPath } : {}),
+        updatedByUserId: actor.userId,
+        updatedAt: new Date(),
+      })
+      .where(eq(seoMetadata.routeId, routeId));
+    await audit({
+      actorUserId: actor.userId,
+      action: "seo.metadata.updated",
+      entityType: "route",
+      entityId: routeId,
+      afterSummary: {
+        titleChanged: input.title !== undefined,
+        descriptionChanged: input.metaDescription !== undefined,
+        canonicalPath,
+      },
+    });
+  }, options);
 }

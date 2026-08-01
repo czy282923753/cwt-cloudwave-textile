@@ -1,7 +1,10 @@
 import { and, eq, isNull, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
-import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission, type UserRole } from "@/auth/permissions";
 import { redirects, routes, seoMetadata } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
@@ -47,11 +50,12 @@ export async function createRedirect<TQueryResult extends PgQueryResultHKT>(
     reason: string;
     actor: { userId: string; role: UserRole };
   },
+  options: GovernedMutationOptions = {},
 ): Promise<string> {
   const sourcePath = normalizePath(input.sourcePath);
   const destinationPath = normalizePath(input.destinationPath);
   requirePermission(input.actor.role, "seo.manage");
-  return db.transaction(async (transaction) => {
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
     const [existing, routeConflicts, destinationRoutes] = await Promise.all([
       transaction
         .select({ sourcePath: redirects.sourcePath, destinationPath: redirects.destinationPath })
@@ -86,7 +90,7 @@ export async function createRedirect<TQueryResult extends PgQueryResultHKT>(
       .returning({ id: redirects.id });
     const redirect = rows[0];
     if (!redirect) throw new Error("Redirect insert did not return an ID.");
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: input.actor.userId,
       action: "redirect.created",
       entityType: "redirect",
@@ -94,7 +98,7 @@ export async function createRedirect<TQueryResult extends PgQueryResultHKT>(
       afterSummary: { sourcePath, destinationPath },
     });
     return redirect.id;
-  });
+  }, options);
 }
 
 export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
@@ -107,10 +111,11 @@ export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
     actor: { userId: string; role: UserRole };
     reason: string;
   },
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   const newPath = normalizePath(input.newPath);
   requirePermission(input.actor.role, "seo.manage");
-  await db.transaction(async (transaction) => {
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
     const currentRows = await transaction
       .select()
       .from(routes)
@@ -164,7 +169,7 @@ export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
       createdByUserId: input.actor.userId,
     });
 
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: input.actor.userId,
       action: "route.path.changed",
       entityType: input.entityType,
@@ -172,5 +177,5 @@ export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
       beforeSummary: { path: oldPath },
       afterSummary: { path: newPath, redirectCreated: true },
     });
-  });
+  }, options);
 }

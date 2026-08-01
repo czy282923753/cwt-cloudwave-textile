@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireCurrentUser } from "@/auth/current-user";
+import { adminActionHttpFailure } from "@/admin/action-result";
 import { assertSameOrigin } from "@/auth/request-security";
 import { databaseConnection } from "@/db/client";
 import { env } from "@/config/env";
@@ -25,8 +26,7 @@ export async function POST(request: Request, context: { params: Promise<{ batchI
     revalidatePath("/admin/assets");
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Admin Upload Batch could not be finalized.";
-    const status = /Authentication|permission|session/.test(message) ? 403 : 400;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    const failure = adminActionHttpFailure(error);
+    return NextResponse.json({ ok: false, error: failure.error, errorKind: failure.errorKind }, { status: failure.status });
   }
 }

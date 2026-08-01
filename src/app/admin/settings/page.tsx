@@ -1,4 +1,5 @@
 import { setFeatureFlagAction } from "@/admin/actions";
+import { AdminActionForm } from "@/admin/components/admin-action-form";
 import { AdminPageHeader, AdminTable } from "@/admin/components/admin-table";
 import { listAdminFeatureFlags } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
@@ -18,13 +19,13 @@ export default async function AdminSettingsPage() {
           flag.key,
           flag.enabled ? "Enabled" : "Disabled",
           flag.updatedAt.toLocaleString("en-GB"),
-          <form action={setFeatureFlagAction} key={flag.id}>
+          <AdminActionForm action={setFeatureFlagAction} key={flag.id} successMessage="Feature Flag updated.">
             <input name="flagId" type="hidden" value={flag.id} />
             <input name="enabled" type="hidden" value={flag.enabled ? "false" : "true"} />
             <button className="rounded-lg border border-white/20 px-3 py-2">
               {flag.enabled ? "Disable" : "Enable"}
             </button>
-          </form>,
+          </AdminActionForm>,
         ])}
       />
     </main>

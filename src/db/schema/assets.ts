@@ -21,6 +21,7 @@ import {
   assetStatusEnum,
   declarationReviewDecisionEnum,
   effectiveRightsDecisionEnum,
+  objectCleanupStatusEnum,
   sourceDeclarationSubjectEnum,
 } from "./enums";
 import { authSessions, users } from "./identity";
@@ -163,6 +164,46 @@ export const assetVariants = pgTable(
       table.sourceAssetId,
       table.variantKey,
     ),
+  ],
+);
+
+/** Persistent compensation records for storage side effects. */
+export const objectCleanupJobs = pgTable(
+  "object_cleanup_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadBatchId: uuid("upload_batch_id").references(() => assetUploadBatches.id, {
+      onDelete: "set null",
+    }),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    storagePartition: text("storage_partition").notNull(),
+    objectKey: text("object_key").notNull(),
+    reason: text("reason").notNull(),
+    status: objectCleanupStatusEnum("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(8),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lockedBy: text("locked_by"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("object_cleanup_jobs_object_unique").on(
+      table.storagePartition,
+      table.objectKey,
+    ),
+    index("object_cleanup_jobs_work_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+    ),
+    index("object_cleanup_jobs_batch_idx").on(table.uploadBatchId, table.status),
   ],
 );
 

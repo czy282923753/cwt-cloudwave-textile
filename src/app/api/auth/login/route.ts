@@ -4,13 +4,11 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/audit/service";
 import { authenticateUserAttempt } from "@/auth/authenticate";
 import { assertSameOrigin } from "@/auth/request-security";
-import { createSession } from "@/auth/session";
+import { createAuthenticatedSession } from "@/auth/session";
 import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
-import { users } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { createUploadRateLimiter } from "@/uploads/rate-limit";
-import { eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 const loginLimiter = createUploadRateLimiter();
@@ -80,20 +78,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
       return loginRedirect("invalid");
     }
-    const session = await withDatabase(async (db) => {
-      const created = await createSession(db, attempt.userId);
-      await db
-        .update(users)
-        .set({ lastLoginAt: new Date(), updatedAt: new Date() })
-        .where(eq(users.id, attempt.userId));
-      await writeAuditLog(db, {
-        actorUserId: attempt.userId,
-        action: "auth.login.success",
-        entityType: "auth",
-        requestId,
-      });
-      return created;
-    });
+    const session = await withDatabase((db) =>
+      createAuthenticatedSession(db, attempt.userId, requestId),
+    );
     const response = loginRedirect();
     response.cookies.set(env.AUTH_COOKIE_NAME, session.token, {
       httpOnly: true,

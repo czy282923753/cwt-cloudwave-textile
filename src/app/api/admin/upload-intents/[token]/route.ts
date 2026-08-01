@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireCurrentUser } from "@/auth/current-user";
+import { adminActionHttpFailure } from "@/admin/action-result";
 import { assertSameOrigin } from "@/auth/request-security";
 import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
@@ -34,8 +35,7 @@ export async function PUT(request: Request, context: { params: Promise<{ token: 
       : await completeAdminUploadIntent(databaseConnection.db, storage, scanner, actor, { token, bytes });
     return NextResponse.json({ ok: true, assetId }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Admin upload failed.";
-    const status = /Authentication|permission|session/.test(message) ? 403 : 400;
-    return NextResponse.json({ ok: false, error: message }, { status });
+    const failure = adminActionHttpFailure(error);
+    return NextResponse.json({ ok: false, error: failure.error, errorKind: failure.errorKind }, { status: failure.status });
   }
 }

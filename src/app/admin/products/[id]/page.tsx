@@ -16,6 +16,7 @@ import {
   updateProductSeoAction,
   updateProductStructureAction,
 } from "@/admin/actions";
+import { AdminActionForm } from "@/admin/components/admin-action-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
 import {
   getAdminProduct,
@@ -70,16 +71,16 @@ export default async function ProductEditorPage({
           </p>
         ) : null}
 
-        <form action={updateProductEditorialAction} className={panelClass}>
+        <AdminActionForm action={updateProductEditorialAction} className={panelClass} successMessage="Product copy saved.">
           <h2 className="text-xl font-semibold">Editorial copy</h2>
           <input name="productId" type="hidden" value={product.id} />
           <label className="grid gap-2">Product Name<input className={inputClass} defaultValue={product.name} name="name" required /></label>
           <label className="grid gap-2">Short Description<textarea className={inputClass} defaultValue={product.shortDescription ?? ""} name="shortDescription" rows={3} /></label>
           <label className="grid gap-2">Full Description<textarea className={inputClass} defaultValue={product.fullDescription ?? ""} name="fullDescription" rows={8} /></label>
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Save or propose editorial copy</button>
-        </form>
+        </AdminActionForm>
 
-        <form action={updateProductFactsAction} className={`${panelClass} border-amber-300/20 sm:grid-cols-2`}>
+        <AdminActionForm action={updateProductFactsAction} className={`${panelClass} border-amber-300/20 sm:grid-cols-2`} successMessage="Product facts saved as provided data.">
           <div className="sm:col-span-2">
             <h2 className="text-xl font-semibold">Facts — never infer</h2>
             <p className="mt-2 text-sm text-amber-200">Unknown values stay blank. Saving a value marks it Provided, not Verified.</p>
@@ -100,25 +101,25 @@ export default async function ProductEditorPage({
           <label className="grid gap-2">Custom Available<select className={inputClass} defaultValue={product.customAvailable} name="customAvailable"><option value="unknown">Unknown</option><option value="yes">Yes</option><option value="no">No</option></select></label>
           <label className="grid gap-2">Sample Available<select className={inputClass} defaultValue={product.sampleAvailable} name="sampleAvailable"><option value="unknown">Unknown</option><option value="yes">Yes</option><option value="no">No</option></select></label>
           <button className="rounded-xl border border-white/20 px-4 py-3 sm:col-span-2" type="submit">Save or propose factual inputs</button>
-        </form>
+        </AdminActionForm>
 
         <section className={panelClass}>
           <h2 className="text-xl font-semibold">Fact review status</h2>
           <div className="grid gap-3 sm:grid-cols-3">
             {(["composition", "weightGsm", "widthCm"] as const).map((fieldName) => (
-              <form action={reviewProductFieldAction} className="grid gap-2 rounded-xl border border-white/10 p-4" key={fieldName}>
+              <AdminActionForm action={reviewProductFieldAction} className="grid gap-2 rounded-xl border border-white/10 p-4" key={fieldName} successMessage="Product field review recorded.">
                 <input name="productId" type="hidden" value={product.id} />
                 <input name="fieldName" type="hidden" value={fieldName} />
                 <strong>{fieldName}</strong>
                 <span className="text-sm text-slate-400">Current: {reviewStatus.get(fieldName) ?? "empty"}</span>
                 <select className={inputClass} name="verificationStatus"><option value="verified">Verified</option><option value="rejected">Rejected</option></select>
                 <button className="rounded-lg border border-white/20 p-2" type="submit">Record review</button>
-              </form>
+              </AdminActionForm>
             ))}
           </div>
         </section>
 
-        <form action={updateProductStructureAction} className={panelClass}>
+        <AdminActionForm action={updateProductStructureAction} className={panelClass} successMessage="Product relations and display structure saved.">
           <h2 className="text-xl font-semibold">Taxonomy, Applications, media, and structured content</h2>
           <input name="productId" type="hidden" value={product.id} />
           <label className="grid gap-2">Primary Category<select className={inputClass} defaultValue={primaryTaxonomy} name="primaryTaxonomyTermId" required>{taxonomy.map((term) => <option key={term.id} value={term.id}>{term.name} · {term.dimension}</option>)}</select></label>
@@ -147,23 +148,23 @@ export default async function ProductEditorPage({
             ].map(([label, name, value]) => <label className="grid gap-2" key={String(name)}>{label}<select className={inputClass} defaultValue={String(value)} name={String(name)}><option value="inherit">Inherit</option><option value="show">Show</option><option value="hide">Hide</option></select></label>)}
           </div>
           <button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Save or propose structure</button>
-        </form>
+        </AdminActionForm>
 
-        <form action={updateProductSeoAction} className={panelClass}>
+        <AdminActionForm action={updateProductSeoAction} className={panelClass} successMessage="Product SEO draft saved.">
           <h2 className="text-xl font-semibold">SEO metadata</h2>
           <input name="productId" type="hidden" value={product.id} />
           <label className="grid gap-2">SEO Title<input className={inputClass} defaultValue={product.seoTitle ?? ""} name="seoTitle" /></label>
           <label className="grid gap-2">Meta Description<textarea className={inputClass} defaultValue={product.metaDescription ?? ""} name="metaDescription" rows={3} /></label>
           <label className="grid gap-2">Focus Keyword<input className={inputClass} defaultValue={product.focusKeyword ?? ""} name="focusKeyword" /></label>
           <button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Save or propose metadata</button>
-        </form>
+        </AdminActionForm>
 
         {product.revisions.length ? (
           <section className={panelClass}>
             <h2 className="text-xl font-semibold">Editorial revisions</h2>
             {product.revisions.map((revision) => {
               const kind = typeof revision.kind === "object" && revision.kind && "kind" in revision.kind ? String(revision.kind.kind) : "unknown";
-              return <article className="rounded-xl border border-white/10 p-4" key={revision.id}><p>v{revision.versionNumber} · {kind} · {revision.status}</p><p className="text-sm text-slate-400">{revision.changeSummary}</p>{revision.status === "in_review" ? <div className="mt-3 flex gap-3"><form action={applyProductRevisionAction}><input name="productId" type="hidden" value={product.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg bg-teal-400 px-3 py-2 text-slate-950" type="submit">Approve &amp; apply</button></form><form action={rejectProductRevisionAction}><input name="productId" type="hidden" value={product.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg border border-red-300/40 px-3 py-2" type="submit">Reject</button></form></div> : null}</article>;
+              return <article className="rounded-xl border border-white/10 p-4" key={revision.id}><p>v{revision.versionNumber} · {kind} · {revision.status}</p><p className="text-sm text-slate-400">{revision.changeSummary}</p>{revision.status === "in_review" ? <div className="mt-3 flex gap-3"><AdminActionForm action={applyProductRevisionAction} successMessage="Product revision applied."><input name="productId" type="hidden" value={product.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg bg-teal-400 px-3 py-2 text-slate-950" type="submit">Approve &amp; apply</button></AdminActionForm><AdminActionForm action={rejectProductRevisionAction} successMessage="Product revision rejected."><input name="productId" type="hidden" value={product.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg border border-red-300/40 px-3 py-2" type="submit">Reject</button></AdminActionForm></div> : null}</article>;
             })}
           </section>
         ) : null}
@@ -171,26 +172,26 @@ export default async function ProductEditorPage({
         <section className={panelClass}>
           <h2 className="text-xl font-semibold">Human review and publication</h2>
           <div className="flex flex-wrap gap-3">
-            <form action={submitProductReviewAction}><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Submit for review</button></form>
-            <form action={publishProductAction}><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Publish</button></form>
+            <AdminActionForm action={submitProductReviewAction} successMessage="Product submitted for review."><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Submit for review</button></AdminActionForm>
+            <AdminActionForm action={publishProductAction} successMessage="Product published; Index remains independently controlled."><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Publish</button></AdminActionForm>
           </div>
-          <form action={rejectProductReviewAction} className="flex flex-wrap gap-3"><input name="productId" type="hidden" value={product.id} /><input className={`${inputClass} flex-1`} name="reason" placeholder="Review rejection reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Reject to Draft</button></form>
-          <form action={confirmRealProductAction} className="grid gap-3 sm:grid-cols-2">
+          <AdminActionForm action={rejectProductReviewAction} className="flex flex-wrap gap-3" successMessage="Product returned to Draft."><input name="productId" type="hidden" value={product.id} /><input className={`${inputClass} flex-1`} name="reason" placeholder="Review rejection reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Reject to Draft</button></AdminActionForm>
+          <AdminActionForm action={confirmRealProductAction} className="grid gap-3 sm:grid-cols-2" successMessage="Real Product basis confirmed.">
             <input name="productId" type="hidden" value={product.id} />
             <label className="grid gap-2">Real Product basis<select className={inputClass} defaultValue={product.realProductBasis ?? ""} name="basis" required><option value="">Select only with evidence…</option><option value="physical_product">Physical product</option><option value="physical_sample">Physical sample</option><option value="internal_product_code">Internal product code</option><option value="supply_specification">Supply specification</option><option value="explicit_specification_combination">Explicit specification combination</option></select></label>
             <label className="grid gap-2">Evidence note<input className={inputClass} defaultValue={product.realProductEvidenceNote ?? ""} name="evidenceNote" /></label>
             <button className="rounded-xl border border-amber-300/40 px-4 py-3 sm:col-span-2" type="submit">Confirm real Product basis</button>
-          </form>
+          </AdminActionForm>
         </section>
 
         <section className={`${panelClass} sm:grid-cols-2`}>
-          <form action={changeProductSlugAction} className="grid gap-3">
+          <AdminActionForm action={changeProductSlugAction} className="grid gap-3" successMessage="Product URL changed and 301 Redirect created.">
             <h2 className="text-lg font-semibold">Change slug with 301</h2><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="slug" required /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Change URL transactionally</button>
-          </form>
-          <form action={setProductIndexAction} className="grid gap-3">
+          </AdminActionForm>
+          <AdminActionForm action={setProductIndexAction} className="grid gap-3" successMessage="Product Index status updated.">
             <h2 className="text-lg font-semibold">Index decision</h2><input name="productId" type="hidden" value={product.id} /><select className={inputClass} defaultValue={product.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Apply index status</button>
-          </form>
-          <form action={archiveProductAction} className="grid gap-3 sm:col-span-2"><h2 className="text-lg font-semibold">Archive Product</h2><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Archive and force Noindex</button></form>
+          </AdminActionForm>
+          <AdminActionForm action={archiveProductAction} className="grid gap-3 sm:col-span-2" successMessage="Product archived and forced to Noindex."><h2 className="text-lg font-semibold">Archive Product</h2><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Archive and force Noindex</button></AdminActionForm>
         </section>
       </div>
     </main>

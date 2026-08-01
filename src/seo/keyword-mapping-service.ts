@@ -1,7 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
-import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import {
   applications,
@@ -59,6 +62,7 @@ export async function assignPrimaryKeywordOwner<
     routeId: string;
     notes?: string;
   },
+  options: GovernedMutationOptions = {},
 ): Promise<string> {
   requirePermission(actor.role, "seo.manage");
   const normalizedKeyword = normalizeKeyword(input.keyword);
@@ -69,35 +73,37 @@ export async function assignPrimaryKeywordOwner<
     .limit(1);
   if (!routeRows[0]) throw new Error("Keyword owner route was not found.");
   await assertEligiblePrimaryOwner(db, routeRows[0]);
-  const rows = await db
-    .insert(keywordPageMappings)
-    .values({
-      locale: "en",
-      normalizedKeyword,
-      intent: input.intent,
-      primaryRouteId: input.routeId,
-      notes: input.notes?.trim() || null,
-      updatedByUserId: actor.userId,
-    })
-    .onConflictDoUpdate({
-      target: [keywordPageMappings.locale, keywordPageMappings.normalizedKeyword],
-      set: {
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const rows = await transaction
+      .insert(keywordPageMappings)
+      .values({
+        locale: "en",
+        normalizedKeyword,
         intent: input.intent,
         primaryRouteId: input.routeId,
         notes: input.notes?.trim() || null,
         updatedByUserId: actor.userId,
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: keywordPageMappings.id });
-  const mappingId = rows[0]?.id;
-  if (!mappingId) throw new Error("Keyword mapping did not return an ID.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "seo.keyword_owner.assigned",
-    entityType: "keyword_mapping",
-    entityId: mappingId,
-    afterSummary: { normalizedKeyword, routeId: input.routeId },
-  });
-  return mappingId;
+      })
+      .onConflictDoUpdate({
+        target: [keywordPageMappings.locale, keywordPageMappings.normalizedKeyword],
+        set: {
+          intent: input.intent,
+          primaryRouteId: input.routeId,
+          notes: input.notes?.trim() || null,
+          updatedByUserId: actor.userId,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ id: keywordPageMappings.id });
+    const mappingId = rows[0]?.id;
+    if (!mappingId) throw new Error("Keyword mapping did not return an ID.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "seo.keyword_owner.assigned",
+      entityType: "keyword_mapping",
+      entityId: mappingId,
+      afterSummary: { normalizedKeyword, routeId: input.routeId },
+    });
+    return mappingId;
+  }, options);
 }

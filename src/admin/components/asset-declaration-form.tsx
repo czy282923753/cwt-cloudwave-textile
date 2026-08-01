@@ -7,6 +7,7 @@ import {
   reviewAssetDeclarationAction,
   updateAssetDeclarationAction,
 } from "@/admin/actions";
+import { AdminActionForm } from "@/admin/components/admin-action-form";
 
 const fieldClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 
@@ -79,7 +80,7 @@ export function AssetDeclarationForm({
           <div><dt className="text-slate-500">Review date</dt><dd>{asset.declarationReviewDate?.toLocaleString("en-GB") ?? "—"}</dd></div>
         </dl>
         {canReviewDeclaration && asset.sourceDeclarationEnabled && asset.declarationLastEditorUserId !== currentUserId ? (
-          <form action={reviewAssetDeclarationAction} className="grid gap-3">
+          <AdminActionForm action={reviewAssetDeclarationAction} className="grid gap-3" successMessage="Source Declaration reviewed.">
             <input name="assetId" type="hidden" value={asset.id} />
             <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
             <input name="decision" type="hidden" value="approved" />
@@ -87,17 +88,17 @@ export function AssetDeclarationForm({
             <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950">
               Approve statement version {asset.declarationStatementVersion}
             </button>
-          </form>
+          </AdminActionForm>
         ) : null}
         {isAdmin && asset.sourceDeclarationEnabled ? (
-          <form action={overrideAssetDeclarationAction} className="grid gap-3 rounded-xl border border-amber-400/30 p-4">
+          <AdminActionForm action={overrideAssetDeclarationAction} className="grid gap-3 rounded-xl border border-amber-400/30 p-4" successMessage="Admin Override recorded.">
             <input name="assetId" type="hidden" value={asset.id} />
             <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
             <label className="grid gap-2">Effective rights<select className={fieldClass} name="effectiveDecision"><option value="allowed">Allowed</option><option value="restricted">Restricted</option><option value="not_allowed">Not allowed</option><option value="revoked">Revoked</option></select></label>
             <label className="grid gap-2">Public website use for Restricted<select className={fieldClass} name="rightsPublicWebsiteAllowed"><option value="">Not applicable</option><option value="yes">Allowed</option><option value="no">Not allowed</option></select></label>
             <label className="grid gap-2">Admin Override reason<input className={fieldClass} name="reason" required /></label>
             <button className="rounded-xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">Apply explicit Admin Override</button>
-          </form>
+          </AdminActionForm>
         ) : null}
       </section>
     );
@@ -105,17 +106,15 @@ export function AssetDeclarationForm({
 
   return (
     <div className="grid gap-5">
-    <form
+    <AdminActionForm
       action={updateAssetDeclarationAction}
+      beforeSubmit={() => !(
+        asset.sourceDeclarationEnabled && !enabled && hasHistoricalData
+      ) || window.confirm(
+        "Turn off Source Declaration? Existing declaration data will be hidden but preserved in history and Audit Log.",
+      )}
       className="grid gap-5 rounded-2xl border border-white/10 bg-slate-900 p-6"
-      onSubmit={(event) => {
-        if (
-          asset.sourceDeclarationEnabled && !enabled && hasHistoricalData &&
-          !window.confirm(
-            "Turn off Source Declaration? Existing declaration data will be hidden but preserved in history and Audit Log.",
-          )
-        ) event.preventDefault();
-      }}
+      successMessage="Source Declaration state saved."
     >
       <input name="assetId" type="hidden" value={asset.id} />
       <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
@@ -142,9 +141,9 @@ export function AssetDeclarationForm({
       )}
       <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Save declaration state</button>
       {asset.declarationReviewDecision ? <p className="text-sm text-slate-400">Current review: {asset.declarationReviewDecision} for statement version {asset.declarationReviewedStatementVersion ?? "—"}. Editing declaration content invalidates it.</p> : null}
-    </form>
+    </AdminActionForm>
     {canReviewDeclaration && enabled && asset.declarationLastEditorUserId !== currentUserId ? (
-      <form action={reviewAssetDeclarationAction} className="grid gap-3 rounded-2xl border border-teal-400/30 bg-slate-900 p-6">
+      <AdminActionForm action={reviewAssetDeclarationAction} className="grid gap-3 rounded-2xl border border-teal-400/30 bg-slate-900 p-6" successMessage="Source Declaration reviewed.">
         <input name="assetId" type="hidden" value={asset.id} />
         <input name="expectedVersion" type="hidden" value={asset.declarationRecordVersion} />
         <label className="grid gap-2">Review decision<select className={fieldClass} name="decision"><option value="approved">Approve</option><option value="rejected">Reject</option></select></label>
@@ -152,10 +151,10 @@ export function AssetDeclarationForm({
         <label className="grid gap-2">Public website use for Restricted<select className={fieldClass} name="rightsPublicWebsiteAllowed"><option value="">Not applicable</option><option value="yes">Allowed</option><option value="no">Not allowed</option></select></label>
         <label className="grid gap-2">Reason (required for rejection)<input className={fieldClass} name="reason" /></label>
         <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950">Review statement version {asset.declarationStatementVersion}</button>
-      </form>
+      </AdminActionForm>
     ) : null}
     {isAdmin && enabled ? (
-      <form action={overrideAssetDeclarationAction} className="grid gap-3 rounded-2xl border border-amber-400/30 bg-slate-900 p-6">
+      <AdminActionForm action={overrideAssetDeclarationAction} className="grid gap-3 rounded-2xl border border-amber-400/30 bg-slate-900 p-6" successMessage="Admin Override recorded.">
         <h3 className="font-semibold text-amber-200">Admin Override</h3>
         <p className="text-sm text-slate-300">This is a separate exceptional action, not a normal two-person review.</p>
         <input name="assetId" type="hidden" value={asset.id} />
@@ -164,7 +163,7 @@ export function AssetDeclarationForm({
         <label className="grid gap-2">Public website use for Restricted<select className={fieldClass} name="rightsPublicWebsiteAllowed"><option value="">Not applicable</option><option value="yes">Allowed</option><option value="no">Not allowed</option></select></label>
         <label className="grid gap-2">Mandatory reason<input className={fieldClass} name="reason" required /></label>
         <button className="rounded-xl bg-amber-300 px-4 py-3 font-semibold text-slate-950">Apply explicit Admin Override</button>
-      </form>
+      </AdminActionForm>
     ) : null}
     </div>
   );

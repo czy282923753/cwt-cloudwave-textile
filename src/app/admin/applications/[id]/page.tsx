@@ -11,6 +11,7 @@ import {
   submitApplicationReviewAction,
   updateApplicationAction,
 } from "@/admin/actions";
+import { AdminActionForm } from "@/admin/components/admin-action-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
 import { getAdminApplication, listAdminProducts } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
@@ -42,7 +43,7 @@ export default async function ApplicationEditorPage({
             unchanged until approval.
           </p>
         ) : null}
-        <form action={updateApplicationAction} className={panelClass}>
+        <AdminActionForm action={updateApplicationAction} className={panelClass} successMessage="Application changes saved.">
           <input name="applicationId" type="hidden" value={application.id} />
           <input name="routeId" type="hidden" value={application.routeId} />
           <h2 className="text-xl font-semibold">Landing page, relations, and SEO</h2>
@@ -82,15 +83,15 @@ export default async function ApplicationEditorPage({
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">
             Save or propose revision
           </button>
-        </form>
+        </AdminActionForm>
         <section className={panelClass}>
           <h2 className="text-xl font-semibold">Review, publish, and index</h2>
           <div className="flex flex-wrap gap-3">
-            <form action={submitApplicationReviewAction}><input name="applicationId" type="hidden" value={application.id} /><button className="rounded-xl border border-white/20 px-4 py-3">Submit for review</button></form>
-            <form action={publishApplicationAction}><input name="applicationId" type="hidden" value={application.id} /><button className="rounded-xl border border-white/20 px-4 py-3">Publish</button></form>
+            <AdminActionForm action={submitApplicationReviewAction} successMessage="Application submitted for review."><input name="applicationId" type="hidden" value={application.id} /><button className="rounded-xl border border-white/20 px-4 py-3">Submit for review</button></AdminActionForm>
+            <AdminActionForm action={publishApplicationAction} successMessage="Application published; Index remains independently controlled."><input name="applicationId" type="hidden" value={application.id} /><button className="rounded-xl border border-white/20 px-4 py-3">Publish</button></AdminActionForm>
           </div>
-          <form action={rejectApplicationReviewAction} className="flex gap-3"><input name="applicationId" type="hidden" value={application.id} /><input className={`${inputClass} flex-1`} name="reason" placeholder="Review rejection reason" required /><button className="rounded-xl border border-red-300/40 px-4">Reject to Draft</button></form>
-          <form action={setApplicationIndexAction} className="flex gap-3"><input name="applicationId" type="hidden" value={application.id} /><select className={`${inputClass} flex-1`} defaultValue={application.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select><button className="rounded-xl border border-white/20 px-4">Apply</button></form>
+          <AdminActionForm action={rejectApplicationReviewAction} className="flex gap-3" successMessage="Application returned to Draft."><input name="applicationId" type="hidden" value={application.id} /><input className={`${inputClass} flex-1`} name="reason" placeholder="Review rejection reason" required /><button className="rounded-xl border border-red-300/40 px-4">Reject to Draft</button></AdminActionForm>
+          <AdminActionForm action={setApplicationIndexAction} className="flex gap-3" successMessage="Application Index status updated."><input name="applicationId" type="hidden" value={application.id} /><select className={`${inputClass} flex-1`} defaultValue={application.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select><button className="rounded-xl border border-white/20 px-4">Apply</button></AdminActionForm>
         </section>
         <section className={panelClass}>
           <h2 className="text-xl font-semibold">Revisions</h2>
@@ -98,12 +99,12 @@ export default async function ApplicationEditorPage({
             <article className="rounded-xl border border-white/10 p-4" key={revision.id}>
               <p>v{revision.versionNumber} · {revision.status}</p>
               <p className="text-sm text-slate-400">{revision.changeSummary}</p>
-              {revision.status === "in_review" ? <div className="mt-3 flex gap-3"><form action={applyApplicationRevisionAction}><input name="applicationId" type="hidden" value={application.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg bg-teal-400 px-3 py-2 text-slate-950">Approve &amp; apply</button></form><form action={rejectApplicationRevisionAction}><input name="applicationId" type="hidden" value={application.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg border border-red-300/40 px-3 py-2">Reject</button></form></div> : null}
+              {revision.status === "in_review" ? <div className="mt-3 flex gap-3"><AdminActionForm action={applyApplicationRevisionAction} successMessage="Application revision applied."><input name="applicationId" type="hidden" value={application.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg bg-teal-400 px-3 py-2 text-slate-950">Approve &amp; apply</button></AdminActionForm><AdminActionForm action={rejectApplicationRevisionAction} successMessage="Application revision rejected."><input name="applicationId" type="hidden" value={application.id} /><input name="revisionId" type="hidden" value={revision.id} /><button className="rounded-lg border border-red-300/40 px-3 py-2">Reject</button></AdminActionForm></div> : null}
             </article>
           ))}
         </section>
-        <form action={archiveApplicationAction} className={panelClass}><h2 className="text-xl font-semibold">Archive Application</h2><input name="applicationId" type="hidden" value={application.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3">Archive and force Noindex</button></form>
-        <form action={changeApplicationSlugAction} className={panelClass}><h2 className="text-xl font-semibold">Change slug with 301</h2><input name="applicationId" type="hidden" value={application.id} /><input className={inputClass} name="slug" placeholder="new-application-slug" required /><button className="rounded-xl border border-white/20 px-4 py-3">Change URL transactionally</button></form>
+        <AdminActionForm action={archiveApplicationAction} className={panelClass} successMessage="Application archived and forced to Noindex."><h2 className="text-xl font-semibold">Archive Application</h2><input name="applicationId" type="hidden" value={application.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3">Archive and force Noindex</button></AdminActionForm>
+        <AdminActionForm action={changeApplicationSlugAction} className={panelClass} successMessage="Application URL changed and 301 Redirect created."><h2 className="text-xl font-semibold">Change slug with 301</h2><input name="applicationId" type="hidden" value={application.id} /><input className={inputClass} name="slug" placeholder="new-application-slug" required /><button className="rounded-xl border border-white/20 px-4 py-3">Change URL transactionally</button></AdminActionForm>
       </div>
     </main>
   );

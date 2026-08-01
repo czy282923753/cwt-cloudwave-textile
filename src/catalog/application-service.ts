@@ -3,6 +3,10 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import {
   applicationLocalizations,
@@ -111,6 +115,7 @@ export async function updateApplication<TQueryResult extends PgQueryResultHKT>(
   actor: Actor,
   applicationId: string,
   input: ApplicationSnapshot,
+  options: GovernedMutationOptions = {},
 ): Promise<string | null> {
   requirePermission(actor.role, "taxonomy.manage");
   const snapshot = applicationRevisionSchema.parse({
@@ -129,41 +134,43 @@ export async function updateApplication<TQueryResult extends PgQueryResultHKT>(
   if (status === "archived") throw new Error("Archived Applications cannot be edited.");
   await validateApplicationSnapshot(db, applicationId, snapshot);
   if (status === "published") {
-    const latestRows = await db
-      .select({ versionNumber: editorialRevisions.versionNumber })
-      .from(editorialRevisions)
-      .where(
-        and(
-          eq(editorialRevisions.entityType, "application"),
-          eq(editorialRevisions.entityId, applicationId),
-          eq(editorialRevisions.locale, "en"),
-        ),
-      )
-      .orderBy(desc(editorialRevisions.versionNumber))
-      .limit(1);
-    const inserted = await db
-      .insert(editorialRevisions)
-      .values({
-        entityType: "application",
-        entityId: applicationId,
-        locale: "en",
-        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
-        status: "in_review",
-        snapshot,
-        changeSummary: "Published Application update",
-        createdByUserId: actor.userId,
-      })
-      .returning({ id: editorialRevisions.id });
-    const revisionId = inserted[0]?.id;
-    if (!revisionId) throw new Error("Application revision insert failed.");
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "application.revision.proposed",
-      entityType: "editorial_revision",
-      entityId: revisionId,
-      afterSummary: { applicationId },
-    });
-    return revisionId;
+    return runGovernedMutation(db, async ({ transaction, audit }) => {
+      const latestRows = await transaction
+        .select({ versionNumber: editorialRevisions.versionNumber })
+        .from(editorialRevisions)
+        .where(
+          and(
+            eq(editorialRevisions.entityType, "application"),
+            eq(editorialRevisions.entityId, applicationId),
+            eq(editorialRevisions.locale, "en"),
+          ),
+        )
+        .orderBy(desc(editorialRevisions.versionNumber))
+        .limit(1);
+      const inserted = await transaction
+        .insert(editorialRevisions)
+        .values({
+          entityType: "application",
+          entityId: applicationId,
+          locale: "en",
+          versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+          status: "in_review",
+          snapshot,
+          changeSummary: "Published Application update",
+          createdByUserId: actor.userId,
+        })
+        .returning({ id: editorialRevisions.id });
+      const revisionId = inserted[0]?.id;
+      if (!revisionId) throw new Error("Application revision insert failed.");
+      await audit({
+        actorUserId: actor.userId,
+        action: "application.revision.proposed",
+        entityType: "editorial_revision",
+        entityId: revisionId,
+        afterSummary: { applicationId },
+      });
+      return revisionId;
+    }, options);
   }
   await db.transaction(async (transaction) => {
     await applyApplicationSnapshot(transaction, actor, applicationId, snapshot);
@@ -179,20 +186,27 @@ export async function updateApplication<TQueryResult extends PgQueryResultHKT>(
 
 export async function submitApplicationForReview<
   TQueryResult extends PgQueryResultHKT,
->(db: AppDatabase<TQueryResult>, actor: Actor, applicationId: string): Promise<void> {
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  applicationId: string,
+  options: GovernedMutationOptions = {},
+): Promise<void> {
   requirePermission(actor.role, "taxonomy.manage");
-  const updated = await db
-    .update(applications)
-    .set({ status: "in_review", updatedAt: new Date() })
-    .where(and(eq(applications.id, applicationId), eq(applications.status, "draft")))
-    .returning({ id: applications.id });
-  if (!updated[0]) throw new Error("Only a Draft Application can enter review.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "application.review.requested",
-    entityType: "application",
-    entityId: applicationId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(applications)
+      .set({ status: "in_review", updatedAt: new Date() })
+      .where(and(eq(applications.id, applicationId), eq(applications.status, "draft")))
+      .returning({ id: applications.id });
+    if (!updated[0]) throw new Error("Only a Draft Application can enter review.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "application.review.requested",
+      entityType: "application",
+      entityId: applicationId,
+    });
+  }, options);
 }
 
 export async function rejectApplicationReview<TQueryResult extends PgQueryResultHKT>(
@@ -200,30 +214,34 @@ export async function rejectApplicationReview<TQueryResult extends PgQueryResult
   actor: Actor,
   applicationId: string,
   reason: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
   if (!reason.trim()) throw new Error("Application review rejection requires a reason.");
-  const updated = await db
-    .update(applications)
-    .set({ status: "draft", updatedAt: new Date() })
-    .where(
-      and(eq(applications.id, applicationId), eq(applications.status, "in_review")),
-    )
-    .returning({ id: applications.id });
-  if (!updated[0]) throw new Error("Only an In Review Application can be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "application.review.rejected",
-    entityType: "application",
-    entityId: applicationId,
-    afterSummary: { reason: reason.trim().slice(0, 500) },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(applications)
+      .set({ status: "draft", updatedAt: new Date() })
+      .where(
+        and(eq(applications.id, applicationId), eq(applications.status, "in_review")),
+      )
+      .returning({ id: applications.id });
+    if (!updated[0]) throw new Error("Only an In Review Application can be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "application.review.rejected",
+      entityType: "application",
+      entityId: applicationId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
+  }, options);
 }
 
 export async function publishApplication<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   applicationId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
   const localizationRows = await db
@@ -239,20 +257,22 @@ export async function publishApplication<TQueryResult extends PgQueryResultHKT>(
   if (!localizationRows[0]?.name.trim() || !localizationRows[0].body?.trim()) {
     throw new Error("Application publication requires an English name and useful body copy.");
   }
-  const updated = await db
-    .update(applications)
-    .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(eq(applications.id, applicationId), eq(applications.status, "in_review")),
-    )
-    .returning({ id: applications.id });
-  if (!updated[0]) throw new Error("Only an In Review Application can be published.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "application.published",
-    entityType: "application",
-    entityId: applicationId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(applications)
+      .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(eq(applications.id, applicationId), eq(applications.status, "in_review")),
+      )
+      .returning({ id: applications.id });
+    if (!updated[0]) throw new Error("Only an In Review Application can be published.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "application.published",
+      entityType: "application",
+      entityId: applicationId,
+    });
+  }, options);
 }
 
 export async function applyApplicationRevision<TQueryResult extends PgQueryResultHKT>(
@@ -306,27 +326,30 @@ export async function rejectApplicationRevision<TQueryResult extends PgQueryResu
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   revisionId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
-  const updated = await db
-    .update(editorialRevisions)
-    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
-    .where(
-      and(
-        eq(editorialRevisions.id, revisionId),
-        eq(editorialRevisions.entityType, "application"),
-        eq(editorialRevisions.status, "in_review"),
-      ),
-    )
-    .returning({ entityId: editorialRevisions.entityId });
-  if (!updated[0]) throw new Error("Application revision cannot be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "application.revision.rejected",
-    entityType: "editorial_revision",
-    entityId: revisionId,
-    afterSummary: { applicationId: updated[0].entityId },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(editorialRevisions)
+      .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(
+        and(
+          eq(editorialRevisions.id, revisionId),
+          eq(editorialRevisions.entityType, "application"),
+          eq(editorialRevisions.status, "in_review"),
+        ),
+      )
+      .returning({ entityId: editorialRevisions.entityId });
+    if (!updated[0]) throw new Error("Application revision cannot be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "application.revision.rejected",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { applicationId: updated[0].entityId },
+    });
+  }, options);
 }
 
 export async function archiveApplication<TQueryResult extends PgQueryResultHKT>(
@@ -377,6 +400,7 @@ export async function setApplicationIndexStatus<
   actor: Actor,
   applicationId: string,
   indexStatus: "index" | "noindex",
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   const rows = await db
@@ -438,15 +462,17 @@ export async function setApplicationIndexStatus<
       );
     }
   }
-  await db
-    .update(seoMetadata)
-    .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
-    .where(eq(seoMetadata.routeId, application.routeId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "application.index_status.changed",
-    entityType: "application",
-    entityId: applicationId,
-    afterSummary: { indexStatus },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, application.routeId));
+    await audit({
+      actorUserId: actor.userId,
+      action: "application.index_status.changed",
+      entityType: "application",
+      entityId: applicationId,
+      afterSummary: { indexStatus },
+    });
+  }, options);
 }

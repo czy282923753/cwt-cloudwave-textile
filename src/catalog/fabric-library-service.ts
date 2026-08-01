@@ -3,6 +3,10 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import {
   assets,
@@ -258,6 +262,7 @@ export async function updateFabricLibraryEntry<
   actor: Actor,
   entryId: string,
   input: FabricRevisionSnapshot,
+  options: GovernedMutationOptions = {},
 ): Promise<string | null> {
   requirePermission(actor.role, "products.write");
   const snapshot = fabricRevisionSchema.parse({
@@ -278,41 +283,43 @@ export async function updateFabricLibraryEntry<
   if (!status) throw new Error("Fabric Library Entry was not found.");
   if (status === "archived") throw new Error("Archived Fabric Library Entries cannot be edited.");
   if (status === "published") {
-    const latestRows = await db
-      .select({ versionNumber: editorialRevisions.versionNumber })
-      .from(editorialRevisions)
-      .where(
-        and(
-          eq(editorialRevisions.entityType, "fabric_entry"),
-          eq(editorialRevisions.entityId, entryId),
-          eq(editorialRevisions.locale, "en"),
-        ),
-      )
-      .orderBy(desc(editorialRevisions.versionNumber))
-      .limit(1);
-    const revisionRows = await db
-      .insert(editorialRevisions)
-      .values({
-        entityType: "fabric_entry",
-        entityId: entryId,
-        locale: "en",
-        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
-        status: "in_review",
-        snapshot,
-        changeSummary: "Published Fabric Library Entry update",
-        createdByUserId: actor.userId,
-      })
-      .returning({ id: editorialRevisions.id });
-    const revisionId = revisionRows[0]?.id;
-    if (!revisionId) throw new Error("Fabric Library revision insert failed.");
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "fabric_entry.revision.proposed",
-      entityType: "editorial_revision",
-      entityId: revisionId,
-      afterSummary: { entryId },
-    });
-    return revisionId;
+    return runGovernedMutation(db, async ({ transaction, audit }) => {
+      const latestRows = await transaction
+        .select({ versionNumber: editorialRevisions.versionNumber })
+        .from(editorialRevisions)
+        .where(
+          and(
+            eq(editorialRevisions.entityType, "fabric_entry"),
+            eq(editorialRevisions.entityId, entryId),
+            eq(editorialRevisions.locale, "en"),
+          ),
+        )
+        .orderBy(desc(editorialRevisions.versionNumber))
+        .limit(1);
+      const revisionRows = await transaction
+        .insert(editorialRevisions)
+        .values({
+          entityType: "fabric_entry",
+          entityId: entryId,
+          locale: "en",
+          versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+          status: "in_review",
+          snapshot,
+          changeSummary: "Published Fabric Library Entry update",
+          createdByUserId: actor.userId,
+        })
+        .returning({ id: editorialRevisions.id });
+      const revisionId = revisionRows[0]?.id;
+      if (!revisionId) throw new Error("Fabric Library revision insert failed.");
+      await audit({
+        actorUserId: actor.userId,
+        action: "fabric_entry.revision.proposed",
+        entityType: "editorial_revision",
+        entityId: revisionId,
+        afterSummary: { entryId },
+      });
+      return revisionId;
+    }, options);
   }
   await db.transaction(async (transaction) => {
     await applyFabricSnapshot(transaction, actor.userId, entryId, snapshot);
@@ -328,22 +335,29 @@ export async function updateFabricLibraryEntry<
 
 export async function submitFabricLibraryEntryForReview<
   TQueryResult extends PgQueryResultHKT,
->(db: AppDatabase<TQueryResult>, actor: Actor, entryId: string): Promise<void> {
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  entryId: string,
+  options: GovernedMutationOptions = {},
+): Promise<void> {
   requirePermission(actor.role, "products.write");
-  const updated = await db
-    .update(fabricLibraryEntries)
-    .set({ status: "in_review", updatedAt: new Date() })
-    .where(
-      and(eq(fabricLibraryEntries.id, entryId), eq(fabricLibraryEntries.status, "draft")),
-    )
-    .returning({ id: fabricLibraryEntries.id });
-  if (!updated[0]) throw new Error("Only a Draft Fabric Library Entry can enter review.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "fabric_entry.review.requested",
-    entityType: "fabric_entry",
-    entityId: entryId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(fabricLibraryEntries)
+      .set({ status: "in_review", updatedAt: new Date() })
+      .where(
+        and(eq(fabricLibraryEntries.id, entryId), eq(fabricLibraryEntries.status, "draft")),
+      )
+      .returning({ id: fabricLibraryEntries.id });
+    if (!updated[0]) throw new Error("Only a Draft Fabric Library Entry can enter review.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "fabric_entry.review.requested",
+      entityType: "fabric_entry",
+      entityId: entryId,
+    });
+  }, options);
 }
 
 export async function rejectFabricLibraryEntryReview<
@@ -353,27 +367,30 @@ export async function rejectFabricLibraryEntryReview<
   actor: Actor,
   entryId: string,
   reason: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
   if (!reason.trim()) throw new Error("Review rejection requires a reason.");
-  const updated = await db
-    .update(fabricLibraryEntries)
-    .set({ status: "draft", updatedAt: new Date() })
-    .where(
-      and(
-        eq(fabricLibraryEntries.id, entryId),
-        eq(fabricLibraryEntries.status, "in_review"),
-      ),
-    )
-    .returning({ id: fabricLibraryEntries.id });
-  if (!updated[0]) throw new Error("Fabric Library Entry cannot be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "fabric_entry.review.rejected",
-    entityType: "fabric_entry",
-    entityId: entryId,
-    afterSummary: { reason: reason.trim().slice(0, 500) },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(fabricLibraryEntries)
+      .set({ status: "draft", updatedAt: new Date() })
+      .where(
+        and(
+          eq(fabricLibraryEntries.id, entryId),
+          eq(fabricLibraryEntries.status, "in_review"),
+        ),
+      )
+      .returning({ id: fabricLibraryEntries.id });
+    if (!updated[0]) throw new Error("Fabric Library Entry cannot be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "fabric_entry.review.rejected",
+      entityType: "fabric_entry",
+      entityId: entryId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
+  }, options);
 }
 
 export async function publishFabricLibraryEntry<
@@ -382,6 +399,7 @@ export async function publishFabricLibraryEntry<
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   entryId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
   const assetRows = await db
@@ -398,23 +416,25 @@ export async function publishFabricLibraryEntry<
   if (Number(assetRows[0]?.count ?? 0) < 1) {
     throw new Error("Fabric Library publication requires a scanned public image.");
   }
-  const updated = await db
-    .update(fabricLibraryEntries)
-    .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(fabricLibraryEntries.id, entryId),
-        eq(fabricLibraryEntries.status, "in_review"),
-      ),
-    )
-    .returning({ id: fabricLibraryEntries.id });
-  if (!updated[0]) throw new Error("Fabric Library entry cannot be published.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "fabric_entry.published",
-    entityType: "fabric_entry",
-    entityId: entryId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(fabricLibraryEntries)
+      .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(fabricLibraryEntries.id, entryId),
+          eq(fabricLibraryEntries.status, "in_review"),
+        ),
+      )
+      .returning({ id: fabricLibraryEntries.id });
+    if (!updated[0]) throw new Error("Fabric Library entry cannot be published.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "fabric_entry.published",
+      entityType: "fabric_entry",
+      entityId: entryId,
+    });
+  }, options);
 }
 
 export async function applyFabricLibraryRevision<
@@ -481,27 +501,34 @@ export async function applyFabricLibraryRevision<
 
 export async function rejectFabricLibraryRevision<
   TQueryResult extends PgQueryResultHKT,
->(db: AppDatabase<TQueryResult>, actor: Actor, revisionId: string): Promise<void> {
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  revisionId: string,
+  options: GovernedMutationOptions = {},
+): Promise<void> {
   requirePermission(actor.role, "products.publish");
-  const updated = await db
-    .update(editorialRevisions)
-    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
-    .where(
-      and(
-        eq(editorialRevisions.id, revisionId),
-        eq(editorialRevisions.entityType, "fabric_entry"),
-        eq(editorialRevisions.status, "in_review"),
-      ),
-    )
-    .returning({ entryId: editorialRevisions.entityId });
-  if (!updated[0]) throw new Error("Fabric Library revision cannot be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "fabric_entry.revision.rejected",
-    entityType: "editorial_revision",
-    entityId: revisionId,
-    afterSummary: { entryId: updated[0].entryId },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(editorialRevisions)
+      .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(
+        and(
+          eq(editorialRevisions.id, revisionId),
+          eq(editorialRevisions.entityType, "fabric_entry"),
+          eq(editorialRevisions.status, "in_review"),
+        ),
+      )
+      .returning({ entryId: editorialRevisions.entityId });
+    if (!updated[0]) throw new Error("Fabric Library revision cannot be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "fabric_entry.revision.rejected",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { entryId: updated[0].entryId },
+    });
+  }, options);
 }
 
 export async function archiveFabricLibraryEntry<
@@ -556,22 +583,27 @@ export async function confirmFabricEntryIndependentValue<
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   entryId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
-  await db
-    .update(fabricLibraryEntries)
-    .set({
-      independentValueConfirmedByUserId: actor.userId,
-      independentValueConfirmedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(fabricLibraryEntries.id, entryId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "fabric_entry.independent_value.confirmed",
-    entityType: "fabric_entry",
-    entityId: entryId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(fabricLibraryEntries)
+      .set({
+        independentValueConfirmedByUserId: actor.userId,
+        independentValueConfirmedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(fabricLibraryEntries.id, entryId))
+      .returning({ id: fabricLibraryEntries.id });
+    if (!updated[0]) throw new Error("Fabric Library Entry was not found.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "fabric_entry.independent_value.confirmed",
+      entityType: "fabric_entry",
+      entityId: entryId,
+    });
+  }, options);
 }
 
 export async function setFabricEntryIndexStatus<
@@ -581,6 +613,7 @@ export async function setFabricEntryIndexStatus<
   actor: Actor,
   entryId: string,
   indexStatus: "index" | "noindex",
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   const rows = await db
@@ -668,15 +701,17 @@ export async function setFabricEntryIndexStatus<
       );
     }
   }
-  await db
-    .update(seoMetadata)
-    .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
-    .where(eq(seoMetadata.routeId, entry.routeId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "fabric_entry.index_status.changed",
-    entityType: "fabric_entry",
-    entityId: entryId,
-    afterSummary: { indexStatus },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, entry.routeId));
+    await audit({
+      actorUserId: actor.userId,
+      action: "fabric_entry.index_status.changed",
+      entityType: "fabric_entry",
+      entityId: entryId,
+      afterSummary: { indexStatus },
+    });
+  }, options);
 }

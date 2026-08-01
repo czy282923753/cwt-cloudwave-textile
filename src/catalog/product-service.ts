@@ -3,6 +3,10 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission, type UserRole } from "@/auth/permissions";
 import {
   assets,
@@ -109,8 +113,9 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
   actor: Actor,
   productId: string,
   snapshot: z.infer<typeof productRevisionSnapshotSchema>,
+  options: GovernedMutationOptions = {},
 ): Promise<string> {
-  return db.transaction(async (transaction) => {
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
       .from(editorialRevisions)
@@ -141,7 +146,7 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
       .returning({ id: editorialRevisions.id });
     const revisionId = rows[0]?.id;
     if (!revisionId) throw new Error("Product revision insert failed.");
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: actor.userId,
       action: "product.revision.proposed",
       entityType: "editorial_revision",
@@ -149,7 +154,7 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
       afterSummary: { productId, kind: snapshot.kind },
     });
     return revisionId;
-  });
+  }, options);
 }
 
 async function uniqueProductPath<TQueryResult extends PgQueryResultHKT>(
@@ -405,20 +410,23 @@ export async function submitProductForReview<TQueryResult extends PgQueryResultH
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   productId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.write");
-  const updated = await db
-    .update(products)
-    .set({ status: "in_review", updatedAt: new Date() })
-    .where(and(eq(products.id, productId), eq(products.status, "draft")))
-    .returning({ id: products.id });
-  if (!updated[0]) throw new ProductValidationError("Only a draft can enter review.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "product.review.requested",
-    entityType: "product",
-    entityId: productId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(products)
+      .set({ status: "in_review", updatedAt: new Date() })
+      .where(and(eq(products.id, productId), eq(products.status, "draft")))
+      .returning({ id: products.id });
+    if (!updated[0]) throw new ProductValidationError("Only a draft can enter review.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.review.requested",
+      entityType: "product",
+      entityId: productId,
+    });
+  }, options);
 }
 
 export async function rejectProductReview<TQueryResult extends PgQueryResultHKT>(
@@ -426,22 +434,25 @@ export async function rejectProductReview<TQueryResult extends PgQueryResultHKT>
   actor: Actor,
   productId: string,
   reason: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
   if (!reason.trim()) throw new ProductValidationError("Review rejection requires a reason.");
-  const updated = await db
-    .update(products)
-    .set({ status: "draft", reviewedByUserId: actor.userId, reviewedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(products.id, productId), eq(products.status, "in_review")))
-    .returning({ id: products.id });
-  if (!updated[0]) throw new ProductValidationError("Only an in-review Product can be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "product.review.rejected",
-    entityType: "product",
-    entityId: productId,
-    afterSummary: { reason: reason.trim().slice(0, 500) },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(products)
+      .set({ status: "draft", reviewedByUserId: actor.userId, reviewedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(products.id, productId), eq(products.status, "in_review")))
+      .returning({ id: products.id });
+    if (!updated[0]) throw new ProductValidationError("Only an in-review Product can be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.review.rejected",
+      entityType: "product",
+      entityId: productId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
+  }, options);
 }
 
 export async function updateProductEditorialCopy<
@@ -651,6 +662,7 @@ export async function updateProductStructure<TQueryResult extends PgQueryResultH
   actor: Actor,
   productId: string,
   input: Omit<ProductStructureSnapshot, "kind">,
+  options: GovernedMutationOptions = {},
 ): Promise<string | null> {
   requirePermission(actor.role, "products.write");
   const statusRows = await db
@@ -686,17 +698,17 @@ export async function updateProductStructure<TQueryResult extends PgQueryResultH
   }
   await validateProductStructure(db, snapshot);
   if (status === "published") {
-    return proposeProductRevision(db, actor, productId, snapshot);
+    return proposeProductRevision(db, actor, productId, snapshot, options);
   }
-  await db.transaction(async (transaction) => {
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
     await applyProductStructure(transaction, productId, snapshot);
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: actor.userId,
       action: "product.structure.updated",
       entityType: "product",
       entityId: productId,
     });
-  });
+  }, options);
   return null;
 }
 
@@ -918,33 +930,37 @@ export async function rejectProductRevision<TQueryResult extends PgQueryResultHK
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   revisionId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
-  const updated = await db
-    .update(editorialRevisions)
-    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
-    .where(
-      and(
-        eq(editorialRevisions.id, revisionId),
-        eq(editorialRevisions.entityType, "product"),
-        eq(editorialRevisions.status, "in_review"),
-      ),
-    )
-    .returning({ entityId: editorialRevisions.entityId });
-  if (!updated[0]) throw new ProductValidationError("Product revision cannot be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "product.revision.rejected",
-    entityType: "editorial_revision",
-    entityId: revisionId,
-    afterSummary: { productId: updated[0].entityId },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(editorialRevisions)
+      .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(
+        and(
+          eq(editorialRevisions.id, revisionId),
+          eq(editorialRevisions.entityType, "product"),
+          eq(editorialRevisions.status, "in_review"),
+        ),
+      )
+      .returning({ entityId: editorialRevisions.entityId });
+    if (!updated[0]) throw new ProductValidationError("Product revision cannot be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.revision.rejected",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { productId: updated[0].entityId },
+    });
+  }, options);
 }
 
 export async function publishReviewedProduct<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   productId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
   const [productRows, currentRoutes, localizations, imageCount] = await Promise.all([
@@ -1009,29 +1025,31 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
   ) {
     throw new ProductValidationError("Product publication requirements are incomplete.");
   }
-  const updated = await db
-    .update(products)
-    .set({
-      status: "published",
-      reviewedByUserId: actor.userId,
-      reviewedAt: new Date(),
-      publishedAt: new Date(),
-      publicationRemediationRequired: false,
-      publicationRemediationReason: null,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(products.id, productId), eq(products.status, "in_review")))
-    .returning({ id: products.id });
-  if (!updated[0]) {
-    throw new ProductValidationError("Only an in-review product can be published.");
-  }
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "product.published",
-    entityType: "product",
-    entityId: productId,
-    afterSummary: { status: "published" },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(products)
+      .set({
+        status: "published",
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+        publishedAt: new Date(),
+        publicationRemediationRequired: false,
+        publicationRemediationReason: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(products.id, productId), eq(products.status, "in_review")))
+      .returning({ id: products.id });
+    if (!updated[0]) {
+      throw new ProductValidationError("Only an in-review product can be published.");
+    }
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.published",
+      entityType: "product",
+      entityId: productId,
+      afterSummary: { status: "published" },
+    });
+  }, options);
 }
 
 export async function confirmRealProductBasis<TQueryResult extends PgQueryResultHKT>(
@@ -1040,25 +1058,30 @@ export async function confirmRealProductBasis<TQueryResult extends PgQueryResult
   productId: string,
   basis: NonNullable<typeof products.$inferInsert.realProductBasis>,
   evidenceNote?: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
-  await db
-    .update(products)
-    .set({
-      realProductBasis: basis,
-      realProductEvidenceNote: evidenceNote?.trim() || null,
-      realProductConfirmedByUserId: actor.userId,
-      realProductConfirmedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(products.id, productId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "product.real_basis.confirmed",
-    entityType: "product",
-    entityId: productId,
-    afterSummary: { basis },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(products)
+      .set({
+        realProductBasis: basis,
+        realProductEvidenceNote: evidenceNote?.trim() || null,
+        realProductConfirmedByUserId: actor.userId,
+        realProductConfirmedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, productId))
+      .returning({ id: products.id });
+    if (!updated[0]) throw new ProductValidationError("Product was not found.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.real_basis.confirmed",
+      entityType: "product",
+      entityId: productId,
+      afterSummary: { basis },
+    });
+  }, options);
 }
 
 export async function reviewProductField<TQueryResult extends PgQueryResultHKT>(
@@ -1067,32 +1090,35 @@ export async function reviewProductField<TQueryResult extends PgQueryResultHKT>(
   productId: string,
   fieldName: "composition" | "weightGsm" | "widthCm",
   status: "verified" | "rejected",
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.review");
-  await db
-    .insert(productFieldReviews)
-    .values({
-      productId,
-      fieldName,
-      verificationStatus: status,
-      reviewedByUserId: actor.userId,
-      reviewedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [productFieldReviews.productId, productFieldReviews.fieldName],
-      set: {
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .insert(productFieldReviews)
+      .values({
+        productId,
+        fieldName,
         verificationStatus: status,
         reviewedByUserId: actor.userId,
         reviewedAt: new Date(),
-      },
+      })
+      .onConflictDoUpdate({
+        target: [productFieldReviews.productId, productFieldReviews.fieldName],
+        set: {
+          verificationStatus: status,
+          reviewedByUserId: actor.userId,
+          reviewedAt: new Date(),
+        },
+      });
+    await audit({
+      actorUserId: actor.userId,
+      action: `product.field.${status}`,
+      entityType: "product",
+      entityId: productId,
+      afterSummary: { fieldName, status },
     });
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: `product.field.${status}`,
-    entityType: "product",
-    entityId: productId,
-    afterSummary: { fieldName, status },
-  });
+  }, options);
 }
 
 export async function setProductIndexStatus<TQueryResult extends PgQueryResultHKT>(
@@ -1100,6 +1126,7 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
   actor: Actor,
   productId: string,
   indexStatus: "index" | "noindex",
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   const rows = await db
@@ -1189,17 +1216,19 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
       );
     }
   }
-  await db
-    .update(seoMetadata)
-    .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
-    .where(eq(seoMetadata.routeId, product.routeId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "product.index_status.changed",
-    entityType: "product",
-    entityId: productId,
-    afterSummary: { indexStatus },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, product.routeId));
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.index_status.changed",
+      entityType: "product",
+      entityId: productId,
+      afterSummary: { indexStatus },
+    });
+  }, options);
 }
 
 export async function archiveProduct<TQueryResult extends PgQueryResultHKT>(
@@ -1207,10 +1236,11 @@ export async function archiveProduct<TQueryResult extends PgQueryResultHKT>(
   actor: Actor,
   productId: string,
   reason: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
   if (!reason.trim()) throw new ProductValidationError("Archive requires a reason.");
-  await db.transaction(async (transaction) => {
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
     const routeRows = await transaction
       .select({ routeId: routes.id, status: products.status })
       .from(products)
@@ -1236,7 +1266,7 @@ export async function archiveProduct<TQueryResult extends PgQueryResultHKT>(
       .update(seoMetadata)
       .set({ indexStatus: "noindex", updatedByUserId: actor.userId, updatedAt: new Date() })
       .where(eq(seoMetadata.routeId, current.routeId));
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: actor.userId,
       action: "product.archived",
       entityType: "product",
@@ -1244,7 +1274,7 @@ export async function archiveProduct<TQueryResult extends PgQueryResultHKT>(
       beforeSummary: { status: current.status },
       afterSummary: { status: "archived", reason: reason.trim().slice(0, 500) },
     });
-  });
+  }, options);
 }
 
 export async function changeProductSlug<TQueryResult extends PgQueryResultHKT>(
@@ -1252,6 +1282,7 @@ export async function changeProductSlug<TQueryResult extends PgQueryResultHKT>(
   actor: Actor,
   productId: string,
   requestedSlug: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   await changeEntityRoute(db, {
@@ -1261,5 +1292,5 @@ export async function changeProductSlug<TQueryResult extends PgQueryResultHKT>(
     newPath: `/products/${slugify(requestedSlug)}/`,
     actor,
     reason: "Published product slug changed by an authorized operator",
-  });
+  }, options);
 }

@@ -3,6 +3,10 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
+import {
+  runGovernedMutation,
+  type GovernedMutationOptions,
+} from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
 import {
@@ -280,6 +284,7 @@ export async function proposePublishedContentRevision<
     };
     changeSummary: string;
   },
+  options: GovernedMutationOptions = {},
 ): Promise<string> {
   requirePermission(actor.role, "content.write");
   const contentRows = await db
@@ -290,18 +295,6 @@ export async function proposePublishedContentRevision<
   if (contentRows[0]?.status !== "published") {
     throw new Error("Revision workflow is reserved for published content.");
   }
-  const latestRows = await db
-    .select({ versionNumber: editorialRevisions.versionNumber })
-    .from(editorialRevisions)
-    .where(
-      and(
-        eq(editorialRevisions.entityType, "content"),
-        eq(editorialRevisions.entityId, contentId),
-        eq(editorialRevisions.locale, "en"),
-      ),
-    )
-    .orderBy(desc(editorialRevisions.versionNumber))
-    .limit(1);
   const snapshot = revisionSnapshotSchema.parse({
     title: input.title.trim(),
     excerpt: input.excerpt?.trim() || null,
@@ -311,49 +304,66 @@ export async function proposePublishedContentRevision<
     ...(input.assetIds ? { assetIds: [...new Set(input.assetIds)] } : {}),
     ...(input.seo ? { seo: input.seo } : {}),
   });
-  const rows = await db
-    .insert(editorialRevisions)
-    .values({
-      entityType: "content",
-      entityId: contentId,
-      locale: "en",
-      versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
-      status: "in_review",
-      snapshot,
-      changeSummary: input.changeSummary.trim(),
-      createdByUserId: actor.userId,
-    })
-    .returning({ id: editorialRevisions.id });
-  const revisionId = rows[0]?.id;
-  if (!revisionId) throw new Error("Editorial revision insert failed.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "content.revision.proposed",
-    entityType: "editorial_revision",
-    entityId: revisionId,
-    afterSummary: { contentId },
-  });
-  return revisionId;
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const latestRows = await transaction
+      .select({ versionNumber: editorialRevisions.versionNumber })
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "content"),
+          eq(editorialRevisions.entityId, contentId),
+          eq(editorialRevisions.locale, "en"),
+        ),
+      )
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1);
+    const rows = await transaction
+      .insert(editorialRevisions)
+      .values({
+        entityType: "content",
+        entityId: contentId,
+        locale: "en",
+        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+        status: "in_review",
+        snapshot,
+        changeSummary: input.changeSummary.trim(),
+        createdByUserId: actor.userId,
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = rows[0]?.id;
+    if (!revisionId) throw new Error("Editorial revision insert failed.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.revision.proposed",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { contentId },
+    });
+    return revisionId;
+  }, options);
 }
 
 export async function submitContentForReview<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   contentId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "content.write");
-  const updated = await db
-    .update(contents)
-    .set({ status: "in_review", updatedAt: new Date() })
-    .where(and(eq(contents.id, contentId), eq(contents.status, "draft")))
-    .returning({ id: contents.id });
-  if (!updated[0]) throw new Error("Only draft content can enter review.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "content.review.requested",
-    entityType: "content",
-    entityId: contentId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(contents)
+      .set({ status: "in_review", updatedAt: new Date() })
+      .where(and(eq(contents.id, contentId), eq(contents.status, "draft")))
+      .returning({ id: contents.id });
+    if (!updated[0]) throw new Error("Only draft content can enter review.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.review.requested",
+      entityType: "content",
+      entityId: contentId,
+    });
+  }, options);
 }
 
 export async function applyContentRevision<TQueryResult extends PgQueryResultHKT>(
@@ -492,55 +502,62 @@ export async function rejectContentReview<TQueryResult extends PgQueryResultHKT>
   actor: Actor,
   contentId: string,
   reason: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "content.review");
   if (!reason.trim()) throw new Error("Review rejection requires a reason.");
-  const updated = await db
-    .update(contents)
-    .set({ status: "draft", reviewedByUserId: actor.userId, reviewedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(contents.id, contentId), eq(contents.status, "in_review")))
-    .returning({ id: contents.id });
-  if (!updated[0]) throw new Error("Only In Review Content can be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "content.review.rejected",
-    entityType: "content",
-    entityId: contentId,
-    afterSummary: { reason: reason.trim().slice(0, 500) },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(contents)
+      .set({ status: "draft", reviewedByUserId: actor.userId, reviewedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(contents.id, contentId), eq(contents.status, "in_review")))
+      .returning({ id: contents.id });
+    if (!updated[0]) throw new Error("Only In Review Content can be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.review.rejected",
+      entityType: "content",
+      entityId: contentId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
+  }, options);
 }
 
 export async function rejectContentRevision<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   revisionId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "content.publish");
-  const updated = await db
-    .update(editorialRevisions)
-    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
-    .where(
-      and(
-        eq(editorialRevisions.id, revisionId),
-        eq(editorialRevisions.entityType, "content"),
-        eq(editorialRevisions.status, "in_review"),
-      ),
-    )
-    .returning({ contentId: editorialRevisions.entityId });
-  if (!updated[0]) throw new Error("Content revision cannot be rejected.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "content.revision.rejected",
-    entityType: "editorial_revision",
-    entityId: revisionId,
-    afterSummary: { contentId: updated[0].contentId },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(editorialRevisions)
+      .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(
+        and(
+          eq(editorialRevisions.id, revisionId),
+          eq(editorialRevisions.entityType, "content"),
+          eq(editorialRevisions.status, "in_review"),
+        ),
+      )
+      .returning({ contentId: editorialRevisions.entityId });
+    if (!updated[0]) throw new Error("Content revision cannot be rejected.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.revision.rejected",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { contentId: updated[0].contentId },
+    });
+  }, options);
 }
 
 export async function publishContent<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   contentId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "content.publish");
   const invalidAssets = await db
@@ -559,24 +576,26 @@ export async function publishContent<TQueryResult extends PgQueryResultHKT>(
   if (Number(invalidAssets[0]?.count ?? 0) > 0) {
     throw new Error("Content publication contains an invalid Asset role or MIME type.");
   }
-  const updated = await db
-    .update(contents)
-    .set({
-      status: "published",
-      reviewedByUserId: actor.userId,
-      reviewedAt: new Date(),
-      publishedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(contents.id, contentId), eq(contents.status, "in_review")))
-    .returning({ id: contents.id });
-  if (!updated[0]) throw new Error("Only in-review content can be published.");
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "content.published",
-    entityType: "content",
-    entityId: contentId,
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(contents)
+      .set({
+        status: "published",
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+        publishedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(contents.id, contentId), eq(contents.status, "in_review")))
+      .returning({ id: contents.id });
+    if (!updated[0]) throw new Error("Only in-review content can be published.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.published",
+      entityType: "content",
+      entityId: contentId,
+    });
+  }, options);
 }
 
 export async function setContentIndexStatus<TQueryResult extends PgQueryResultHKT>(
@@ -584,6 +603,7 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
   actor: Actor,
   contentId: string,
   indexStatus: "index" | "noindex",
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "seo.manage");
   const rows = await db
@@ -651,17 +671,19 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
       );
     }
   }
-  await db
-    .update(seoMetadata)
-    .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
-    .where(eq(seoMetadata.routeId, content.routeId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "content.index_status.changed",
-    entityType: "content",
-    entityId: contentId,
-    afterSummary: { indexStatus },
-  });
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus, updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, content.routeId));
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.index_status.changed",
+      entityType: "content",
+      entityId: contentId,
+      afterSummary: { indexStatus },
+    });
+  }, options);
 }
 
 export async function archiveContent<TQueryResult extends PgQueryResultHKT>(

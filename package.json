@@ -30,6 +30,7 @@
     "retention:preview": "tsx scripts/enforce-retention.ts",
     "retention:execute": "tsx scripts/enforce-retention.ts --execute",
     "outbox:process": "tsx scripts/process-notification-outbox.ts",
+    "cleanup:objects": "tsx scripts/process-object-cleanup.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle",
     "check:all": "pnpm check && pnpm audit --prod && pnpm test:e2e"
   },

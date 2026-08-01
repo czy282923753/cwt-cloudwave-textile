@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 const fieldClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 
@@ -22,12 +22,18 @@ export function AssetUploadForm({ associations }: Readonly<{
   const router = useRouter();
   const [declarationEnabled, setDeclarationEnabled] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const errorSummaryRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (feedback?.kind === "error") errorSummaryRef.current?.focus();
+  }, [feedback]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
-    setMessage(null);
+    setFeedback(null);
     try {
       const formElement = event.currentTarget;
       const form = new FormData(formElement);
@@ -89,10 +95,10 @@ export function AssetUploadForm({ associations }: Readonly<{
       if (!finalizeResponse.ok) throw new Error(typeof finalizeResult.error === "string" ? finalizeResult.error : "Upload Batch finalization failed.");
       formElement.reset();
       setDeclarationEnabled(false);
-      setMessage(`${files.length} asset${files.length === 1 ? "" : "s"} uploaded and released.`);
+      setFeedback({ kind: "success", message: `${files.length} asset${files.length === 1 ? "" : "s"} uploaded and released.` });
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Upload failed.");
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Upload failed safely. Try again." });
     } finally {
       setSubmitting(false);
     }
@@ -114,7 +120,7 @@ export function AssetUploadForm({ associations }: Readonly<{
           <label className="grid gap-2 sm:col-span-2">Usage Restrictions<textarea className={fieldClass} name="usageRestrictions" rows={3} /></label><label className="grid gap-2 sm:col-span-2">Permission Evidence<input className={fieldClass} name="permissionEvidence" /></label><label className="grid gap-2">Whether CWT-Owned Facility<select className={fieldClass} name="isCwtOwnedFacility"><option value="">Unspecified</option><option value="yes">Yes</option><option value="no">No</option></select></label><label className="grid gap-2">Optional Expiry Date<input className={fieldClass} name="declarationExpiryDate" type="date" /></label><p className="text-sm text-amber-200 sm:col-span-2">Partner Factory + CWT-Owned Facility: No must never be described publicly as “Our Factory” or “CWT Factory”.</p>
         </fieldset>
       )}
-      {message ? <p aria-live="polite" className="text-sm text-amber-100">{message}</p> : null}
+      {feedback ? <p aria-live={feedback.kind === "error" ? "assertive" : "polite"} className={feedback.kind === "error" ? "rounded-lg border border-red-300/40 p-3 text-sm text-red-100" : "text-sm text-teal-200"} ref={feedback.kind === "error" ? errorSummaryRef : undefined} role={feedback.kind === "error" ? "alert" : "status"} tabIndex={feedback.kind === "error" ? -1 : undefined}>{feedback.message}</p> : null}
       <button className="rounded-xl bg-teal-400 px-5 py-3 font-semibold text-slate-950 disabled:opacity-60" disabled={submitting} type="submit">{submitting ? "Uploading…" : "Upload and process"}</button>
     </form>
   );

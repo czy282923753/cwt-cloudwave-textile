@@ -5,12 +5,19 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { writeAuditLog } from "@/audit/service";
 import { hasPermission, type UserRole } from "@/auth/permissions";
 import { env } from "@/config/env";
-import { assets, assetVariants, inquiryAssets, uploadIntents } from "@/db/schema";
+import {
+  assets,
+  assetVariants,
+  inquiryAssets,
+  objectCleanupJobs,
+  uploadIntents,
+} from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { ObjectStorage, StoragePartition } from "@/storage";
 
 import { validateUploadedFile, inferNonBlockingRiskHints } from "./file-validation";
 import { createImageDerivatives } from "./image-derivatives";
+import { processPendingObjectCleanupJobs } from "./object-cleanup-service";
 import type { FileScanner } from "./scanner";
 
 type AssetCategory = typeof assets.$inferInsert.category;
@@ -537,25 +544,53 @@ export async function cleanupUnlinkedInquiryAssets<
   ]);
   const linked = new Set(linkedRows.map((row) => row.assetId));
   const orphans = assetRows.filter((row) => !linked.has(row.id));
-  for (const orphan of orphans) {
-    if (
-      orphan.partition === "public" ||
-      orphan.partition === "private" ||
-      orphan.partition === "imports"
-    ) {
-      await storage.delete(orphan.partition, orphan.objectKey);
-    }
-    await db
-      .update(assets)
-      .set({ status: "deleted", deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(assets.id, orphan.id));
-  }
   if (orphans.length > 0) {
-    await writeAuditLog(db, {
-      action: "inquiry_asset.orphan_cleanup",
-      entityType: "asset",
-      requestId,
-      afterSummary: { removedCount: orphans.length },
+    const now = new Date();
+    await db.transaction(async (transaction) => {
+      for (const orphan of orphans) {
+        if (
+          orphan.partition !== "public" &&
+          orphan.partition !== "private" &&
+          orphan.partition !== "imports"
+        ) {
+          throw new Error("Orphan Asset has an invalid storage partition.");
+        }
+        await transaction
+          .update(assets)
+          .set({ status: "deleted", deletedAt: now, updatedAt: now })
+          .where(eq(assets.id, orphan.id));
+        await transaction
+          .insert(objectCleanupJobs)
+          .values({
+            assetId: orphan.id,
+            storagePartition: orphan.partition,
+            objectKey: orphan.objectKey,
+            reason: "unlinked_inquiry_asset_retention",
+            status: "pending",
+            nextAttemptAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [objectCleanupJobs.storagePartition, objectCleanupJobs.objectKey],
+            set: {
+              assetId: orphan.id,
+              reason: "unlinked_inquiry_asset_retention",
+              status: "pending",
+              nextAttemptAt: now,
+              updatedAt: now,
+            },
+          });
+      }
+      await writeAuditLog(transaction, {
+        action: "inquiry_asset.orphan_cleanup",
+        entityType: "asset",
+        requestId,
+        afterSummary: { removedCount: orphans.length },
+      });
+    });
+    await processPendingObjectCleanupJobs(db, storage, {
+      limit: orphans.length,
+      workerId: `inquiry-orphan-${requestId}`,
+      now,
     });
   }
   return orphans.length;

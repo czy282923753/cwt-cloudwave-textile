@@ -12,6 +12,7 @@ import { createTestDatabase } from "@/test/database";
 import * as schema from "@/db/schema";
 import {
   contacts,
+  conversionEvents,
   assets,
   auditLogs,
   customerActivities,
@@ -23,6 +24,7 @@ import {
   taxonomyTerms,
   users,
 } from "@/db/schema";
+import { CONVERSION_EVENTS_PUBLIC_ONLY_EXPRESSION } from "@/db/schema/analytics";
 import { assertDatabaseReady, verifyDatabaseReadiness } from "./readiness";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { DevelopmentFileScanner } from "@/uploads/scanner";
@@ -148,14 +150,59 @@ describe("database migrations", () => {
   it("keeps authoritative Check Constraints in Schema/Snapshot and rejects blank Product Codes at the database boundary", async () => {
     const connection = await createTestDatabase();
     try {
-      const constraints = await connection.db.execute<{ conname: string }>(sql`
-        select conname from pg_constraint
+      const constraints = await connection.db.execute<{ conname: string; definition: string }>(sql`
+        select conname, pg_get_constraintdef(oid) as definition from pg_constraint
         where conname in ('conversion_events_public_only_check', 'products_product_code_nonblank_check')
       `);
       expect(constraints.rows.map((row) => row.conname).sort()).toEqual([
         "conversion_events_public_only_check",
         "products_product_code_nonblank_check",
       ]);
+      const conversionDefinition = constraints.rows.find((row) => row.conname === "conversion_events_public_only_check")?.definition ?? "";
+      for (const requiredFragment of [
+        "event_name",
+        "entity_type",
+        "entity_id",
+        "product_view",
+        "inquiry_created",
+        "fabric_entry",
+      ]) {
+        expect(conversionDefinition).toContain(requiredFragment);
+      }
+      for (const forbiddenInternalEvent of [
+        "inquiry_qualified",
+        "quote_recorded",
+        "sample_recorded",
+        "inquiry_won",
+        "inquiry_lost",
+      ]) {
+        await expect(connection.db.insert(conversionEvents).values({
+          eventId: `constraint-${forbiddenInternalEvent}`,
+          eventName: forbiddenInternalEvent as typeof conversionEvents.$inferInsert.eventName,
+          anonymousSessionId: "constraint-session",
+          routePath: "/",
+        })).rejects.toThrow();
+      }
+      await expect(connection.db.insert(conversionEvents).values({
+        eventId: "constraint-public-legal",
+        eventName: "quote_cta_click",
+        anonymousSessionId: "constraint-session",
+        routePath: "/products/",
+      })).resolves.toBeDefined();
+      await expect(connection.db.insert(conversionEvents).values({
+        eventId: "constraint-entity-illegal",
+        eventName: "quote_cta_click",
+        anonymousSessionId: "constraint-session",
+        routePath: "/products/",
+        entityType: "taxonomy",
+      })).rejects.toThrow();
+      await expect(connection.db.insert(conversionEvents).values({
+        eventId: "constraint-entity-id-mismatch",
+        eventName: "product_view",
+        anonymousSessionId: "constraint-session",
+        routePath: "/products/test/",
+        entityType: "product",
+      })).rejects.toThrow();
       const [taxonomy] = await connection.db.insert(taxonomyTerms).values({ internalKey: "product-code-constraint", dimension: "material_fiber" }).returning({ id: taxonomyTerms.id });
       if (!taxonomy) throw new Error("Missing Taxonomy.");
       const insertCode = (productCode: string | null) => connection.db.transaction(async (transaction) => {
@@ -169,12 +216,14 @@ describe("database migrations", () => {
       for (const blank of ["", "   ", "\t", "\n", " \t\n "]) {
         await expect(insertCode(blank), JSON.stringify(blank)).rejects.toThrow();
       }
-      const snapshot = await readFile("drizzle/meta/0010_snapshot.json", "utf8");
+      const snapshot = await readFile("drizzle/meta/0011_snapshot.json", "utf8");
       expect(snapshot).toContain('"conversion_events_public_only_check"');
       expect(snapshot).toContain('"products_product_code_nonblank_check"');
-      const migration = await readFile("drizzle/0010_soft_marrow.sql", "utf8");
-      expect(migration).not.toContain('ADD CONSTRAINT "conversion_events_public_only_check"');
-      expect(migration).toContain('ADD CONSTRAINT "products_product_code_nonblank_check"');
+      expect(snapshot).toContain(CONVERSION_EVENTS_PUBLIC_ONLY_EXPRESSION.replaceAll('"', '\\"'));
+      const migration = await readFile("drizzle/0011_clever_inertia.sql", "utf8");
+      expect(migration).toContain('DROP CONSTRAINT IF EXISTS "conversion_events_public_only_check"');
+      expect(migration).toContain(`ADD CONSTRAINT "conversion_events_public_only_check" CHECK (${CONVERSION_EVENTS_PUBLIC_ONLY_EXPRESSION})`);
+      expect(migration.match(/ADD CONSTRAINT "conversion_events_public_only_check"/g)).toHaveLength(1);
     } finally {
       await connection.close();
     }
@@ -321,6 +370,15 @@ describe("database migrations", () => {
         where table_name = 'products' and column_name = 'primary_taxonomy_term_id'
       `);
       expect(columns.rows).toHaveLength(0);
+      const upgradedConstraint = await connection.db.execute<{ definition: string }>(sql`
+        select pg_get_constraintdef(oid) as definition
+        from pg_constraint
+        where conname = 'conversion_events_public_only_check'
+      `);
+      expect(upgradedConstraint.rows).toHaveLength(1);
+      expect(upgradedConstraint.rows[0]?.definition).toContain("event_name");
+      expect(upgradedConstraint.rows[0]?.definition).toContain("entity_type");
+      expect(upgradedConstraint.rows[0]?.definition).toContain("entity_id");
     } finally {
       await connection.close();
       await rm(temporaryRoot, { recursive: true, force: true });

@@ -1,11 +1,13 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
 import { env } from "@/config/env";
-import { assetUploadBatches, assets, authSessions, productAssets, products, productTaxonomyTerms, taxonomyTerms, uploadIntents, users } from "@/db/schema";
+import { writeAuditLog } from "@/audit/service";
+import { assetUploadBatches, assets, assetVariants, auditLogs, authSessions, objectCleanupJobs, productAssets, products, productTaxonomyTerms, taxonomyTerms, uploadIntents, users } from "@/db/schema";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { createTestDatabase } from "@/test/database";
+import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
 
 import {
   completeAdminUploadIntent,
@@ -14,11 +16,22 @@ import {
   inspectAdminUploadIntent,
   linkAssetRelation,
   unlinkAssetRelation,
+  type AdminUploadActor,
 } from "./admin-upload-service";
+import {
+  claimObjectCleanupJob,
+  processObjectCleanupJob,
+  processPendingObjectCleanupJobs,
+  registerObjectCleanup,
+} from "./object-cleanup-service";
 import { DevelopmentFileScanner } from "./scanner";
 
 const allowLimiter = { consume: async () => true };
 const failingAudit = async (): Promise<string> => { throw new Error("TEST audit failure"); };
+const failReleasedAudit: typeof writeAuditLog = async (db, input) => {
+  if (input.action === "asset.released_public") throw new Error("TEST release Audit failure");
+  return writeAuditLog(db, input);
+};
 const cleanLimitScanner = { scan: async () => ({ clean: true, provider: "test-limit-scanner", reference: "test:clean" }) };
 
 async function jpegWithSize(size?: number): Promise<Uint8Array> {
@@ -42,6 +55,58 @@ async function createDraftProducts(
     await transaction.insert(productTaxonomyTerms).values(rows.map((row) => ({ productId: row.id, taxonomyTermId: taxonomy.id, isPrimary: true })));
     return rows.map((row) => row.id);
   });
+}
+
+async function stageImageBatch(
+  db: Awaited<ReturnType<typeof createTestDatabase>>["db"],
+  storage: InMemoryObjectStorage,
+  actor: AdminUploadActor,
+  productId: string,
+  fixtureName: string,
+) {
+  const bytes = await jpegWithSize();
+  const batch = await createAdminUploadBatch(db, actor, {
+    files: [{ fileName: `${fixtureName}.jpg`, declaredMimeType: "image/jpeg", declaredByteSize: bytes.byteLength }],
+    category: "product",
+    role: "gallery",
+    sortOrder: 0,
+    associationType: "product",
+    associationEntityId: productId,
+    sourceDeclarationEnabled: false,
+  }, { rateLimiter: allowLimiter });
+  const assetId = await completeAdminUploadIntent(
+    db,
+    storage,
+    new DevelopmentFileScanner(),
+    actor,
+    { token: batch.intents[0]!.token, bytes },
+  );
+  return { batch, assetId };
+}
+
+class FaultInjectingStorage extends InMemoryObjectStorage {
+  publicPublicPutCount = 0;
+  throwAfterPublicPutAt: number | null = null;
+  failDeleteCount = 0;
+
+  override async put(...args: Parameters<InMemoryObjectStorage["put"]>) {
+    const result = await super.put(...args);
+    if (args[0] === "public") {
+      this.publicPublicPutCount += 1;
+      if (this.throwAfterPublicPutAt === this.publicPublicPutCount) {
+        throw new Error("TEST put persisted then failed");
+      }
+    }
+    return result;
+  }
+
+  override async delete(...args: Parameters<InMemoryObjectStorage["delete"]>) {
+    if (this.failDeleteCount > 0) {
+      this.failDeleteCount -= 1;
+      throw new Error("TEST cleanup delete failed");
+    }
+    return super.delete(...args);
+  }
 }
 
 describe("Admin Asset Upload Intents", () => {
@@ -154,9 +219,9 @@ describe("Admin Asset Upload Intents", () => {
       expect(storage.objects.has(`public:${staged.objectKey}`)).toBe(false);
       expect((await connection.db.select().from(assets).where(eq(assets.id, assetId)))[0]).toMatchObject({ storagePartition: "private", access: "internal" });
       await connection.db.update(products).set({ status: "draft" }).where(eq(products.id, productA!));
-      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId, { auditWriter: failingAudit })).rejects.toThrow("TEST audit failure");
+      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId, { auditWriter: failReleasedAudit })).rejects.toThrow("TEST release Audit failure");
       expect((await connection.db.select().from(assets).where(eq(assets.id, assetId)))[0]).toMatchObject({ storagePartition: "private", access: "internal" });
-      expect(storage.objects.has(`public:${staged.objectKey}`)).toBe(false);
+      expect([...storage.objects.keys()].filter((key) => key.startsWith(`public:${staged.objectKey}`))).toEqual([]);
       expect(await connection.db.select().from(productAssets).where(eq(productAssets.assetId, assetId))).toHaveLength(0);
 
       await finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId);
@@ -167,5 +232,126 @@ describe("Admin Asset Upload Intents", () => {
       expect(await connection.db.select().from(productAssets).where(eq(productAssets.productId, productB!))).toHaveLength(1);
       await unlinkAssetRelation(connection.db, actor, { assetId, associationType: "product", associationEntityId: productB! });
     } finally { await connection.close(); }
+  }, 30_000);
+
+  it("persists compensation before public puts, retries cleanup, recovers leases, and serializes concurrent Finalize", async () => {
+    const connection = await createTestDatabase();
+    const storage = new FaultInjectingStorage();
+    try {
+      const [user] = await connection.db.insert(users).values({
+        email: "cleanup-admin@example.test",
+        displayName: "Cleanup Admin",
+        role: "admin",
+        passwordHash: "test",
+      }).returning({ id: users.id, role: users.role });
+      if (!user) throw new Error("Missing User.");
+      const [session] = await connection.db.insert(authSessions).values({
+        userId: user.id,
+        tokenHash: "cleanup-session",
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      }).returning({ id: authSessions.id });
+      if (!session) throw new Error("Missing Session.");
+      const actor: AdminUploadActor = { userId: user.id, role: user.role, authSessionId: session.id };
+      const [productId] = await createDraftProducts(connection.db, "cleanup-finalize-product", 1);
+      if (!productId) throw new Error("Missing Product.");
+
+      const failed = await stageImageBatch(connection.db, storage, actor, productId, "put-after-persist");
+      const failedAsset = (await connection.db.select().from(assets).where(eq(assets.id, failed.assetId)))[0]!;
+      storage.throwAfterPublicPutAt = 1;
+      storage.failDeleteCount = 1;
+      await expect(
+        finalizeAdminUploadBatch(connection.db, storage, actor, failed.batch.batchId),
+      ).rejects.toThrow(/persisted then failed/);
+      expect(storage.objects.has(`public:${failedAsset.objectKey}`)).toBe(true);
+      expect((await connection.db.select().from(assets).where(eq(assets.id, failed.assetId)))[0]).toMatchObject({
+        storagePartition: "private",
+        access: "internal",
+      });
+      await expect(findPublicAssetForDelivery(connection.db, failed.assetId)).resolves.toBeNull();
+      const cleanup = (await connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.storagePartition, "public"),
+        eq(objectCleanupJobs.objectKey, failedAsset.objectKey),
+      )))[0]!;
+      expect(cleanup.status).toBe("pending");
+      await processPendingObjectCleanupJobs(connection.db, storage, {
+        workerId: "retry-worker",
+        now: new Date(Date.now() + 2 * 60_000),
+      });
+      expect(storage.objects.has(`public:${failedAsset.objectKey}`)).toBe(false);
+      expect((await connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.id, cleanup.id)))[0]?.status).toBe("completed");
+      expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, failed.batch.batchId)))[0]?.status).toBe("ready_to_finalize");
+
+      for (const failureOffset of [2, 3]) {
+        const partial = await stageImageBatch(
+          connection.db,
+          storage,
+          actor,
+          productId,
+          `variant-failure-${failureOffset}`,
+        );
+        const partialAsset = (await connection.db.select().from(assets).where(eq(assets.id, partial.assetId)))[0]!;
+        storage.throwAfterPublicPutAt = storage.publicPublicPutCount + failureOffset;
+        await expect(finalizeAdminUploadBatch(
+          connection.db,
+          storage,
+          actor,
+          partial.batch.batchId,
+        )).rejects.toThrow(/persisted then failed/);
+        expect([...storage.objects.keys()].filter((key) => key.startsWith(`public:${partialAsset.objectKey}`))).toEqual([]);
+        expect((await connection.db.select().from(assetVariants).where(eq(assetVariants.sourceAssetId, partial.assetId)))).toHaveLength(0);
+        expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, partial.batch.batchId)))[0]?.status).toBe("ready_to_finalize");
+      }
+
+      const leaseKey = "cleanup/lease-recovery.bin";
+      storage.objects.set(`public:${leaseKey}`, new Uint8Array([1, 2, 3]));
+      const leaseJobId = await registerObjectCleanup(connection.db, {
+        storagePartition: "public",
+        objectKey: leaseKey,
+        reason: "test_lease_recovery",
+      });
+      const leaseStart = new Date();
+      expect(await claimObjectCleanupJob(connection.db, leaseJobId, "crashed-worker", leaseStart, 1_000)).toBeTruthy();
+      await expect(processObjectCleanupJob(connection.db, storage, leaseJobId, {
+        workerId: "early-worker",
+        now: new Date(leaseStart.getTime() + 500),
+      })).resolves.toBe("not_claimed");
+      await expect(processObjectCleanupJob(connection.db, storage, leaseJobId, {
+        workerId: "recovery-worker",
+        now: new Date(leaseStart.getTime() + 1_001),
+      })).resolves.toBe("completed");
+      expect(storage.objects.has(`public:${leaseKey}`)).toBe(false);
+
+      const deadKey = "cleanup/dead-alert.bin";
+      storage.objects.set(`public:${deadKey}`, new Uint8Array([4, 5, 6]));
+      const deadJobId = await registerObjectCleanup(connection.db, {
+        storagePartition: "public",
+        objectKey: deadKey,
+        reason: "test_dead_alert",
+      });
+      await connection.db.update(objectCleanupJobs).set({ maxAttempts: 1 }).where(eq(objectCleanupJobs.id, deadJobId));
+      storage.failDeleteCount = 1;
+      await expect(processObjectCleanupJob(connection.db, storage, deadJobId, {
+        workerId: "dead-worker",
+      })).resolves.toBe("dead");
+      expect((await connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.id, deadJobId)))[0]?.status).toBe("dead");
+      expect(await connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "object_cleanup.dead"),
+        eq(auditLogs.entityId, deadJobId),
+      ))).toHaveLength(1);
+
+      storage.throwAfterPublicPutAt = null;
+      const concurrent = await stageImageBatch(connection.db, storage, actor, productId, "concurrent-finalize");
+      const results = await Promise.allSettled([
+        finalizeAdminUploadBatch(connection.db, storage, actor, concurrent.batch.batchId),
+        finalizeAdminUploadBatch(connection.db, storage, actor, concurrent.batch.batchId),
+      ]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, concurrent.batch.batchId)))[0]?.status).toBe("completed");
+      expect(await connection.db.select().from(assetVariants).where(eq(assetVariants.sourceAssetId, concurrent.assetId))).not.toHaveLength(0);
+      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, concurrent.batch.batchId)).rejects.toThrow(/unavailable|finalized/i);
+    } finally {
+      await connection.close();
+    }
   }, 30_000);
 });

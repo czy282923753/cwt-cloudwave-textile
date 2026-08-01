@@ -120,9 +120,18 @@ export const assetUploadBatchStatusEnum = pgEnum("asset_upload_batch_status", [
   "created",
   "uploading",
   "ready_to_finalize",
+  "finalizing",
   "completed",
   "failed",
   "expired",
+]);
+
+export const objectCleanupStatusEnum = pgEnum("object_cleanup_status", [
+  "pending",
+  "processing",
+  "completed",
+  "cancelled",
+  "dead",
 ]);
 
 export const assetRoleEnum = pgEnum("asset_role", [
