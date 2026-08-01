@@ -1,111 +1,100 @@
-# CWT Phase 1A implementation report
+# CWT Phase 1A remediation implementation report
 
 Date: 2026-08-01  
 Baseline: frozen CWT Product and Technical Architecture V1.1  
-Scope: locally executable A0–A13 only; no production deployment or formal data import
+Scope: Phase 1A remediation only; no Phase 1B, production deployment, DNS, external push, or formal data import
 
-## 1. Files and repository shape
+## 1. Remediation outcome
 
-The repository now contains the Next.js application, Drizzle schema and six migrations, public and operations routes, modular domain services, secure upload/storage adapters, local scripts, CI, unit/integration/E2E tests, frozen architecture documents, AGENTS rules, and five ADRs. Generated build, test, local database, and storage artifacts are ignored. No application file was deleted.
+All locally executable Blocker and specified High findings from the independent review have been addressed and reproduced under the locked Node 24.14.0 ARM runtime. Phase 1A final acceptance is **not** claimed because neither Docker nor a local PostgreSQL server is available for the mandatory real-PostgreSQL matrix. The code is ready for a second independent review, with real PostgreSQL validation remaining the external database-environment blocker.
 
-## 2. Formal documents
+## 2. Architecture governance
 
-The frozen requirements, architecture, data model, product dictionary, SEO URL strategy, publishing, content/taxonomy, CMS/permissions, assets/uploads, security/privacy, CRM/attribution, analytics dictionary, environments/deployment, testing, operations, phase plan, AI governance, technology validation, ADR index, and this implementation report are committed under `docs/`.
+The V1.1 positioning, real Product definition, Taxonomy/Application/Fabric boundary, English-root trailing-slash URLs, one-intent ownership, publish/index separation, AI draft-only rule, storage isolation, minimal Inquiry/Contact/Organization relationships, and modular monolith remain unchanged. ADR-0006 records the remediation enforcement decisions and rollback boundary.
 
-## 3. AGENTS governance
+## 3. Public Asset and private-file boundary
 
-`AGENTS.md` protects the frozen positioning, truth boundary, real Product definition, taxonomy/Application/Fabric Library separation, English-root URLs, one-intent ownership, publication/index separation, AI draft-only rules, storage isolation, minimal inquiry/CRM relationships, modular monolith, Source Declaration OFF/null defaults, quality gates, and external-action restrictions.
+Public delivery now requires Public partition/access, Ready status, Passed scan, no deletion, and a valid relation to a currently Published Product, Fabric Entry, or Content. Direct erroneous Private, Import, Quarantined, Draft, or Archived associations fail closed. Inquiry attachments use a separate private endpoint with record authorization and expiring access; they cannot become public or enter AI knowledge automatically.
 
-## 4. ADRs
+## 4. Record-level CRM authorization
 
-- ADR-0001: modular monolith.
-- ADR-0002: English at root and future language prefixes.
-- ADR-0003: conditional Refine UI-shell boundary.
-- ADR-0004: isolated public/private/import storage.
-- ADR-0005: separate publishing and indexing.
+Admin can access all Inquiries. Sales reads/manages only assigned records. Analyst is aggregate-only and cannot read customer PII or attachments. Reviewer/Publisher, Product Editor, and Content Editor receive no CRM access through their publishing roles. Owners are limited to active Admin/Sales users and all changes are audited.
 
-No frozen-architecture change was required during Phase 1A.
+## 5. Revisions, publishing, and Company Facts
 
-## 5. Locked technology
+Published Product, Application, Fabric Library, and Content edits create Editorial Revisions. Public pages stay on approved data until the latest revision is applied by Reviewer/Publisher or Admin; stale revisions are rejected. Fabric Library enforces Draft → In Review → Published → Archived. Company Facts publish only when Verified and explicitly public; edits reset verification. Public factual hard-coding was removed or replaced with safe brand-level copy.
 
-Node 24.14.0 LTS, pnpm 11.9.0, Next.js 16.2.12, React 19.2.8, TypeScript 5.9.3 strict, Tailwind 4.3.3, Drizzle ORM 0.45.2/Kit 0.31.10, PostgreSQL in production with PGlite for local/test, Sharp 0.35.3, Refine Core 5.0.12/Next router 7.0.5, Playwright 1.62.1, and Vitest 4.1.10. Workspace overrides keep Next's transitive Sharp/PostCSS on audited patched versions.
+## 6. Asset declaration permissions
 
-## 6. Refine conclusion
+Source Declaration remains OFF with null fields on ordinary upload. Writers cannot forge reviewer/date. Review-only operators see a read-only declaration and can record only their own review. Later content changes invalidate an older review. Disabling preserves history and writes an Audit Log.
 
-Conditional Go. Refine is limited to admin navigation/list/detail/simple CRUD shell behavior beneath `/admin`. Server services and relational constraints own all permissions, workflows, uploads, publication, indexing, routes, CRM, and public rendering. Public bundle inspection passes.
+## 7. Product and CMS operations
 
-## 7. Database
+The Product editor covers Primary/Additional Taxonomy, Applications, Tags, ordered Assets/Hero, Features, FAQs, facts and review status, display controls, SEO, Index, revision, publication, archive, and transactional Slug changes. Operational edit/review/publish/index/archive surfaces now exist for Application, Fabric Library, Content, Company Facts, Authors, Taxonomy, Feature Flags, and Audit Logs. Refine remains a conditional navigation/list shell only.
 
-There are 49 relational tables across identity/governance, assets, catalog, editorial, SEO/routing, CRM, analytics, and settings. Six ordered migrations define enum types, foreign keys, compound unique keys, partial unique ownership rules, checks, and indexes. Core relationships include Product-to-primary/multiple taxonomy, Product-to-Application, independent Fabric Library Entry links, versioned Content, path ownership/redirects/keywords/topics, Organization-to-Contact-to-Inquiry, private Inquiry Assets, Activities/Status History, and PII-free Conversion Events.
+## 8. CRM consistency and delivery
 
-## 8. Environment variables
+Unauthenticated inquiries match Contact only by exact normalized email and never overwrite the Contact master. Submitted name/email/country/WhatsApp are retained on the Inquiry snapshot. A unique Idempotency Key returns the original Inquiry on retry. Inquiry and notification-outbox row commit together; notification transport failure does not roll back a valid submission. `pnpm outbox:process` retries due rows.
 
-Names and purposes are documented in `.env.example` and `ENVIRONMENT_AND_DEPLOYMENT.md`. No real secret is committed. Local/test values are explicit substitutes. Production startup fails closed for the formal URL, PostgreSQL, isolated S3 buckets and CDN, scanner, shared limiter, SMTP/inquiry recipient, WhatsApp, retention values, and external monitoring.
+## 9. Pipeline and first response
 
-## 9. Operations/admin functions
+Database/service rules enforce legal Owner, Qualified/qualification agreement, Lost Reason, and Customer Activity/Inquiry Contact consistency. Spam is excluded from effective metrics. Activity direction is Inbound/Outbound/Internal. First Response recalculates from the earliest valid Outbound Email, WhatsApp, Quote, or Sample; Internal Notes never count. Failed uploads and concurrent idempotent losers clean unlinked private objects.
 
-Delivered: authentication/session/logout, fixed roles and server permissions, Products and quality gates, taxonomy dimensions, Applications, Assets and declarations, Fabric Library Entries, Contents/Authors/Revisions, Company Facts, route/metadata/redirect/topic/keyword services, Inquiries, Contacts, lightweight Organizations, assignments, statuses, Activities, private-file grants, Conversion Events, feature-flag storage, and Audit Logs. User provisioning, aggregate dashboards, and advanced approval UI are intentionally not Phase 1A workflows.
+## 10. Analytics and attribution
 
-## 10. Public pages
+Conversion Events have unique Event IDs, consent state, anonymous Session ID, receive limiting, published-entity validation, and strict per-event property allowlists. Denied consent stores nothing. Email, phone, URLs, UUID/private identifiers, filenames, descriptions, and other customer content are rejected. First landing/referrer/UTM, last non-direct touch, submit page, and attribution confidence are retained. `whatsapp_click` remains a click only.
 
-Delivered: Home, Products/detail, taxonomy landing, Applications/detail, Fabric Library/detail, Resources, the three independent content hubs and articles, About, Get Quote, Privacy, global navigation/footer, desktop floating inquiry CTA, and mobile fixed CTA. Fixtures are conspicuously synthetic and noindex. Unknown/hidden Product fields render no empty blocks.
+## 11. URLs, redirects, and discovery
 
-## 11. Build, lint, and types
+Public routes, Canonicals, Breadcrumbs, links, Sitemap entries, and Redirect targets use lowercase trailing-slash paths. Published Slug changes return HTTP 301 through the proxy, not `permanentRedirect`. Domain checks plus database locking/triggers reject route/source collisions, missing destinations, loops, and chains; inbound redirects flatten to the current route and changes are audited.
 
-The optimized production build completes with 35 routes. ESLint passes with zero warnings. Strict TypeScript passes; strictness was not reduced and no `any` was added to hide failures. The public-bundle check finds no Refine/admin dependency in the public home manifest.
+## 12. Sitemap and non-production indexing
 
-## 12. Automated tests
+Sitemap queries independently validate Published state, localization, current route, Index flag, content/metadata, public Asset and relationship gates, and search-intent ownership. Static pages use an explicit allowlist. Non-production returns Noindex in metadata and HTTP headers, disallows robots, and emits an empty Sitemap.
 
-Vitest passes 18 files/29 tests. Playwright passes eight applicable desktop/mobile scenarios with project selection rather than skipped applicable cases. Coverage includes migrations, seed repeatability, permissions, sessions, audit, Products/publication/indexing, taxonomy/Application boundaries, Fabric Library, Content revisions, redirects, assets, retention, inquiries/CRM, attribution/PII, public SEO outputs, mobile layout, accessibility, image-only/text-only inquiries, and admin authentication.
+## 13. Database and migration
 
-## 13. Permissions and audit
+Phase 1A contains 50 relational tables and seven ordered migrations (`0000` through remediation `0006`). The remediation migration backfills the old Product primary field into authoritative `product_taxonomy_terms`, validates every Product, drops the duplicate field, then adds Asset scan, Inquiry snapshot/idempotency/consent, activity direction, notification outbox, Conversion Event dedupe/attribution, and database triggers for primary category, CRM, and route/redirect invariants.
 
-Fixed roles are Admin, Product Editor, Content Editor, Reviewer/Publisher, Sales, and Analyst. Server permission tests pass. Audit records cover governed creation/change/publish/index/route/declaration/private-access/CRM/retention actions without secrets or customer file contents.
+Fresh PGlite migration, repeated migration, upgrade from `0000–0005`, core seed repeatability, 12-fixture repeatability, and relationship verification pass. PGlite is local evidence only and not final database acceptance.
 
-## 14. SEO and routing
+## 14. Authentication and audit
 
-English uses `/`; future locales reserve `/es/`, `/vi/`, `/tr/`, and `/zh-cn/`. Route ownership, canonical, metadata, robots, sitemap, Breadcrumb/Product/Article/FAQ/Organization schemas, noindex control, keyword ownership, topic/internal links, and transactional slug-to-301 are implemented. Redirect conflicts, loops, incoming and outgoing chains are rejected. Non-production returns noindex headers, disallows robots, and emits no sitemap entries.
+Login uses hashed network/account limit keys. Login success/failure, disabled-user attempt, logout, and session revocation are audited without passwords, session tokens, or customer PII. Audit views and tests cover governed changes and private access.
 
-## 15. Files and privacy
+## 15. Build and dependency reproducibility
 
-MIME, magic bytes, image decode, configured size/count, rate limiting, quarantine, scanning, random safe keys, derivative generation, partition isolation, expiring grants, access audit, and retention preview/execution are implemented. EICAR development-signature rejection passes. Inquiry files stay private and cannot enter public Assets or AI knowledge. Source Declaration is OFF; fields stay null on ordinary upload, hints are non-blocking, disabling preserves history, and changes are audited.
+The stale x64 dependency tree was isolated and dependencies restored strictly from the unchanged lockfile under Node 24.14.0 ARM/pnpm 11.9.0. Sharp and Lightning CSS load their ARM native modules. A stale `.next` was isolated before a clean Next.js 16.2.12 production build. `pnpm audit --prod` reports no known vulnerability.
 
-## 16. Inquiry, Contacts, CRM, and attribution
+## 16. Automated evidence
 
-Name/Email plus Description or image is enforced. Text-only and image-only E2E flows pass. Exact normalized email reuses a Contact while creating distinct Inquiries. Pipeline transitions, Qualified, Lost Reason, assignment/priority/qualification, first response, Activities, Status History, and audited private access are implemented. UTM/landing/referrer/last-non-direct/confidence and anonymous session data are stored without promising per-inquiry Google keywords.
+- ESLint: pass, zero warnings.
+- Strict TypeScript: pass.
+- Vitest: 22 files, 44 tests pass.
+- Playwright: 12 desktop/mobile flows pass, including 11 primary public surfaces returning HTTP 200.
+- Production build: 37 routes complete.
+- Public bundle: 20 public page manifests and 28 manifest/chunk files inspected; no Refine/admin dependency found.
+- PGlite migrations/seeds/constraints: pass, including `0006` upgrade backfill.
+- Axe: no critical/serious violation on tested Home; mobile horizontal-overflow check passes.
+- Production dependency audit: no known vulnerability.
 
-## 17. Mobile, accessibility, and performance
+## 17. E2E isolation and business flows
 
-Desktop and Pixel 7 flows pass with no horizontal overflow. Axe finds no critical/serious violation on the tested Home surface after AA contrast corrections. Local production Lighthouse Home scores: mobile Performance 94, desktop Performance 100, Accessibility 100, Best Practices 100, CLS 0. Non-production SEO is 66 because noindex/robots blocking is intentionally active.
+Each Playwright run uses its own temporary PGlite database, Public/Private/Import storage roots, and Auth Cookie, then safely removes only that recognized temporary root. E2E covers primary public-surface HTTP 200 responses, non-production Noindex, Product metadata/schema/empty-field behavior, mobile CTA/layout, text-only and image-only Inquiry, private attachment link, auth/logout/audit, pending Product revision then approval, real 301, CRM assignment/status/outbound activity.
 
-## 18. Substitutes and placeholders
+## 18. Placeholders and external blockers
 
-PGlite, local filesystem partitions, development malware scanner, memory limiter, log email notifier, disabled GA4/GSC, localhost/preview URL, local auth fixture, local logs, and 12 synthetic noindex Product fixtures are in use. All are environment/feature controlled and rejected where required in production.
+Local substitutes remain: PGlite, local isolated object storage, development scanner, memory limiter, log email, disabled GA4/GSC, localhost, local test Admin, local logging, and 12 explicit Noindex fixtures. Production configuration fails closed.
 
-## 19. Externally blocked items
+Unavailable external items include formal domain/address/contact channels, verified company/factory facts, 10–15 real Products and rights-cleared assets, production PostgreSQL/S3/scanner/limiter/SMTP/monitoring accounts, legal retention periods, backup/restore rehearsal, DNS, and old-URL inventory. Real Product final validation remains `Waiting for Real Product Data Validation`.
 
-Formal domain/address, inquiry email, WhatsApp, production accounts/keys, PostgreSQL provider, S3/CDN, scanner, shared limiter, SMTP, monitoring, DNS, privacy/legal retention periods, backup/restore ownership, verified company facts, facility relationships, and old-site URL inventory are not available. No production deployment, DNS change, external push, formal import, or irreversible external operation was performed.
+## 19. Known limitations and technical debt
 
-## 20. Waiting for Real Product Data Validation
+- Mandatory real PostgreSQL fresh/upgrade/concurrency/query matrix is unexecuted because no engine is installed; do not claim final Phase 1A acceptance.
+- Production provider integration, backup/restore rehearsal, alert routing, privacy copy, and retention schedules require external decisions/accounts.
+- Performance evidence in this remediation is the successful optimized build and bounded public Bundle; production field Core Web Vitals still require the final host/CDN/real assets.
+- Phase 1B import, AI, dashboards, multilingual publishing, country pages, advanced filtering, and complex Organizations remain intentionally out of scope.
 
-The system has not completed real Product launch, real Product SEO quality review, factual specification validation, or imagery-rights review. The first 10–15 real records and authorized assets are still required. The 12 fixtures validate mechanics only and may never be represented as real CWT Products.
+## 20. Deployment and next action
 
-## 21. Known limitations and risks
-
-- Production integrations and provider-specific backup/restore/monitoring are unconfigured by instruction.
-- Formal privacy copy and retention schedules await business/legal decisions.
-- Analytics dashboards, Excel import, AI, multilingual publication, country pages, advanced Fabric Library filtering, complex Organizations, and notification retry queues are later scope.
-- CSP currently permits inline framework styles/scripts required by the selected Next.js rendering setup; tightening to nonce/hash policy is a launch-hardening task.
-- Local Lighthouse is not field Core Web Vitals; production RUM and device/network sampling remain necessary.
-
-## 22. Recommended Phase 1B order
-
-Receive/validate 10–15 real Products and assets → confirm company/contact/privacy facts → implement Excel template/preview/validation/idempotent import → run real template/SEO quality review → expand reviewed Products toward 30–50 → configure production providers and restore rehearsal → preview acceptance → explicit production launch authorization.
-
-## 23. Checkpoint commits
-
-Checkpoint 1 `2a2e32d`, `b66ed59`; Checkpoint 2 `1d8a0be`; Checkpoint 3 `ee280c3`; Checkpoint 4 `0720f4e`; Checkpoint 5 is recorded by the final Phase 1A delivery commit.
-
-## 24. Deployment state
-
-Local development and local production-build validation only. Preview: not deployed. Production: not deployed. DNS: unchanged. External Git: not pushed.
+Local development/build/test only. Preview and Production are not deployed, DNS is unchanged, and no external Git push occurred. Do not enter Phase 1B. Request a second independent Phase 1A code review and provide a temporary real PostgreSQL environment for the remaining acceptance matrix.

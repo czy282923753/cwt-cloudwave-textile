@@ -27,16 +27,17 @@ English remains at root. Reserved future language prefixes are `/es/`, `/vi/`, `
 
 - Lowercase ASCII slugs with hyphens.
 - Locale plus path is globally unique.
-- Published route changes create a 301 in the same transaction.
+- Published route changes create a real HTTP 301 in the same transaction; framework 308 redirects are not the content-migration mechanism.
 - Old paths are not silently reused for unrelated pages.
-- Redirect loops, conflicts, and multi-hop chains are rejected.
+- Redirect loops, route/source conflicts, missing destinations, and multi-hop chains are rejected in both the domain transaction and database constraints. Inbound historical redirects are flattened to the new current route and the change is audited.
 - Canonical defaults to self; cross-page canonicals require publisher authority.
 
 ## Index policy
 
 - Published and Index are independent.
 - Draft, review, preview, search, ordinary filters, synthetic fixtures, and thin Fabric Entries are noindex.
-- Only canonical indexable routes enter XML sitemaps.
+- Only current canonical routes whose Published entity still passes its full minimum public/index-quality conditions enter XML sitemaps. A direct erroneous Index flag cannot bypass this query.
+- Non-production robots, page metadata, sitemap, and `X-Robots-Tag` agree on Noindex; the non-production sitemap is empty.
 - Each primary search intent has one primary indexable owner page.
 - Tags do not automatically create indexable pages.
 

@@ -19,10 +19,12 @@
 
 Event ID, anonymous session ID, timestamp, route/entity reference, referrer, UTM source/medium/campaign, landing page, CTA position, consent state, aggregate `file_count`, and a strict non-PII context map.
 
+The only event-specific free properties are `placement` for Product/CTA/WhatsApp/submit events and integer `file_count` for upload events. All other event properties are rejected. Entity-linked events require the target entity to be currently Published. Repeated Event IDs are deduplicated. Denied consent writes no event.
+
 ## Forbidden context
 
-Name, email, WhatsApp, description, filenames, file content, secrets, or raw customer attachments. WhatsApp clicks are not treated as sent messages or qualified inquiries.
+Name, email, WhatsApp, description, filenames, file URLs, private Asset IDs, UUID-like customer identifiers, file content, secrets, or raw customer attachments. WhatsApp clicks are not treated as sent messages or qualified inquiries.
 
 ## Delivery
 
-The application records first-party events and sends only approved events/parameters through an analytics adapter. Disabled adapters are explicit in non-production environments.
+The application records first landing/referrer/UTM, last non-direct source/medium/campaign, submit source page, and an explicit attribution-confidence value. It sends only approved events/parameters through an analytics adapter. Disabled adapters are explicit in non-production environments.

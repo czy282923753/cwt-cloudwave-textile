@@ -12,11 +12,11 @@
 
 ## Refine
 
-Conditional Go for admin navigation, lists, paging, sorting, filters, detail views, and simple CRUD only. Refine Core 5.0.12 and Next.js Router 7.0.5 require a Suspense boundary under App Router. Public bundle inspection confirms isolation from the public home route.
+Conditional Go for admin navigation, lists, paging, sorting, filters, detail views, and simple CRUD only. Refine Core 5.0.12 and Next.js Router 7.0.5 require a Suspense boundary under App Router. Fresh-build inspection of every non-admin public page manifest and referenced chunk confirms public-bundle isolation.
 
 ## Local substitutes
 
-PGlite provides PostgreSQL-compatible local and integration-test execution. PostgreSQL remains required for preview/production. Local filesystem storage and a development scanner are permitted only outside production; S3-compatible storage and a real scanner are production gates.
+PGlite provides PostgreSQL-compatible local and integration-test execution. It is not accepted as the final Phase 1A database proof; the real PostgreSQL migration/constraint/concurrency/query matrix remains blocked until an engine is provided. PostgreSQL remains required for preview/production. Local filesystem storage and a development scanner are permitted only outside production; S3-compatible storage and a real scanner are production gates.
 
 Local PGlite builds use one Next.js page-data worker to avoid concurrent WebAssembly access to the same development database file. PostgreSQL builds retain the framework's normal worker selection. This setting affects local build concurrency, not public runtime behavior or the production data model.
 

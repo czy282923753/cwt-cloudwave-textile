@@ -23,7 +23,9 @@ Permissions are enforced server-side. Phase 1A does not include a custom role/pe
 
 ## Sensitive actions
 
-Only Admin or Reviewer/Publisher can publish, set Index, manage cross-page canonical values, verify Company Facts, or approve redirects. Sales manages assigned inquiries and customer activities. Private inquiry files are restricted to authorized CRM roles.
+Only Admin or Reviewer/Publisher can publish and apply revisions. SEO/Index actions require `seo.manage` and remain subject to server-owned quality gates; Product Editor can manage Product SEO/Index but cannot bypass review, publication, real-product, or intent-ownership rules. Only Admin/Reviewer-Publisher can verify Company Facts or record source-declaration reviews. Sales manages only assigned Inquiries and their activities. Admin is the only role that can list master Contacts/Organizations or reassign an Inquiry. Private inquiry files are record-authorized, not merely role-hidden.
+
+Product operations include Primary/Additional Taxonomy, Applications, Tags, ordered Assets and Hero, Features, FAQs, factual review statuses, display switches, SEO, Index, revisions, publication, archive, and transactional Slug/301 changes. Application, Fabric Library, Content, Company Fact, Author, Taxonomy, Feature Flag, and Audit modules expose the Phase 1A operations required by their frozen workflows; they are not list-only shells.
 
 ## Audit scope
 

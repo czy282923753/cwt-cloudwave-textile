@@ -8,7 +8,9 @@ Name and email are required. A description or one successfully stored image is r
 
 An Organization may have many Contacts. A Contact may have many Inquiries. Each Inquiry has private assets, an owner, priority, qualification state, pipeline status, activities, status history, and attribution snapshot.
 
-Exact normalized email may match an existing Contact. Similar names or organizations never auto-merge.
+Exact normalized email may match an existing Contact. Similar names or organizations never auto-merge. An unauthenticated submission never overwrites the matched Contact; submitted name/email/country/WhatsApp remain immutable Inquiry snapshots for human comparison.
+
+Every public submission carries a unique Idempotency Key. The database unique constraint and service lookup make network retries return the original Inquiry. Inquiry creation and a notification-outbox row commit together. Notification failure never rolls back a valid Inquiry; the worker retries due rows and eventually records sent or dead status without exposing customer content in logs.
 
 ## Pipeline
 
@@ -18,7 +20,9 @@ Qualification: Unassessed, Qualified, Unqualified, Needs Information. A pipeline
 
 ## Activities
 
-Note, Email, WhatsApp, Quote, Sample, and Status Change. First Response Time counts the first valid outbound interaction, not an internal note.
+Note, Email, WhatsApp, Quote, Sample, and Status Change have Inbound, Outbound, or Internal direction subject to type rules. First Response Time is recalculated from the earliest valid Outbound Email, WhatsApp, Quote, or Sample; Internal Notes never count.
+
+Admin sees all records. Sales is owner-scoped. Owner may only be an active Sales/Admin user. Qualified pipeline status and qualification state must agree, Lost requires a reason, and Spam is excluded from effective-inquiry reporting.
 
 ## Attribution
 

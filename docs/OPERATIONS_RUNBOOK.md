@@ -22,7 +22,11 @@ Unknown or failed scans remain quarantined and are not publicly released. Verify
 
 ## Inquiry and email incidents
 
-An inquiry transaction is stored before notification. A notification outage must alert operations and be retried by an approved operational process; do not ask the buyer to resubmit blindly. Development logs omit PII. Formal retry queues are not part of Phase 1A and must be added before high-volume operation.
+An Inquiry and its notification-outbox item are committed in one transaction. A notification outage must alert operations; do not ask the buyer to resubmit blindly. Run `pnpm outbox:process` from the approved scheduler/worker context to deliver due rows. Delivery failures increment attempts, schedule a retry, and eventually mark a row dead for operator investigation. Development logs omit PII. Production scheduling and alert thresholds must be configured before launch.
+
+## Test isolation
+
+Playwright creates a fresh per-run temporary PGlite database, Public/Private/Import storage roots, and test-only Auth Cookie, then validates and deletes only that recognized temporary directory during teardown. Local development, E2E, Preview, and Production resources must never be shared.
 
 ## Redirect and SEO incidents
 

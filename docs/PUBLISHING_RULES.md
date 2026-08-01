@@ -14,11 +14,13 @@ AI cannot review, publish, archive, redirect, or change index status.
 
 ## Editing published content
 
-Published content remains live while changes are held in an Editorial Revision. An authorized reviewer applies an approved revision. Public reads never use an unapproved revision.
+Published Product, Application, Fabric Library Entry, and Content data remains live while public-facing changes are held in an Editorial Revision. An authorized Reviewer/Publisher or Admin can apply only the latest revision; stale revisions are rejected. Public reads never use an unapproved revision. Approval writes an Audit Log and revalidates the affected admin, public route, and discovery surfaces.
+
+Draft and In Review records may be edited according to role permissions. Archived records cannot be edited or indexed. Fabric Library follows Draft → In Review → Published → Archived and cannot publish directly from Draft. Company Facts require evidence-backed verification and explicit public permission before public use; changing a verified fact resets it to unverified.
 
 ## Index quality
 
-Indexable products require real-product evidence, unique imagery/content, an owned search intent, verified displayed facts, metadata, canonical, image alt information, and useful internal relationships. Word count and page-count quotas are not gates.
+Indexable products require real-product evidence, useful approved copy, public Passed/Ready imagery with alt text, an owned search intent, verified displayed facts, metadata, canonical, and a Published Application relationship. Applications, Taxonomy landings, Fabric Entries, and Contents have equivalent entity-specific value, relationship, metadata, topic/link, and intent-ownership gates. The sitemap independently re-evaluates these minimum conditions and fails closed even if a database row is mistakenly marked Index. Word count and page-count quotas are not gates.
 
 ## Merge and archive
 

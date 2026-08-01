@@ -32,7 +32,8 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Saving a Product draft requires only a name, one Primary Category, and at least one image.
 - Unknown factual specifications remain empty. Empty fields render no headings, tables, placeholders, or modules.
 - Publishing and indexability are separate. AI cannot publish or set index.
-- Route changes for published pages create a permanent redirect in the same transaction.
+- Published Product, Application, Fabric Library, and Content changes are revisions; public reads remain on the approved version until a Reviewer/Publisher or Admin applies the latest revision.
+- Route changes for published pages create an audited HTTP 301 redirect in the same transaction. Redirect loops, chains, route collisions, and missing destinations are rejected.
 - Search, ordinary filter results, and low-value Fabric Library entries are noindex by default.
 
 ## Asset source declaration
@@ -43,6 +44,7 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Source declaration may be enabled manually per asset or upload batch.
 - Automated person/logo/document hints are non-blocking and never enable declarations automatically.
 - Closing a populated declaration does not delete history. Declaration changes are audited.
+- Declaration writers cannot self-review. Reviewer identity/date may only be set by the acting Reviewer/Publisher or Admin; later declaration edits invalidate the previous review until reviewed again.
 - Source declaration convenience must not weaken MIME, magic-byte, decode, size/count, rate-limit, malware-scan, isolation, or private-access controls.
 
 ## Architecture and security
@@ -54,6 +56,10 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Never commit secrets or production data. Production must fail closed when a required integration is missing.
 - Local, test, preview, and production environments do not share databases, buckets, secrets, authentication, or analytics configuration.
 - Inquiry assets are private and cannot automatically enter public assets or any AI knowledge base.
+- Public Asset delivery requires a Public partition, Public access, Ready processing, Passed scan, no deletion, and an effective link to a currently Published public entity.
+- Admin may access all Inquiries. Sales may access only assigned records. Analyst, Reviewer/Publisher, Product Editor, and Content Editor receive no raw customer-record or private-file access through their other roles.
+- Public Inquiry retries use an Idempotency Key. Contact master data is not overwritten by unauthenticated submissions; submitted values stay on the Inquiry snapshot. Notification delivery uses the persistent outbox.
+- Conversion Events use per-event property allowlists, consent state, unique Event IDs, and no customer PII or private identifiers.
 
 ## Quality gates
 

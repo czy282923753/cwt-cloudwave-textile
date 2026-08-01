@@ -23,6 +23,18 @@ Source declaration is OFF by default and adds no upload confirmation. Its fields
 - Private downloads use expiring authorization and least privilege.
 - Non-production is noindex and isolated from production resources.
 
+## Record authorization
+
+- Admin can access every Inquiry and attachment.
+- Sales queries are owner-scoped and may read/manage only records assigned to that user.
+- Analyst receives aggregate/de-identified analytics only; no raw Inquiry PII or private file grants.
+- Reviewer/Publisher, Product Editor, and Content Editor receive no CRM access through their publishing roles.
+- Inquiry attachment authorization validates both the private Asset boundary and record ownership on every request.
+
+## Authentication and analytics
+
+Login uses hashed account/network rate-limit keys and audits success, failure, disabled-user attempts, logout, and session revocation without credentials, tokens, or unnecessary PII. Conversion Events use unique Event IDs, consent state, published-entity validation, per-event property allowlists, server receiving limits, and content-level PII detection. Denied consent is not stored.
+
 ## Operational controls
 
 Use environment validation, secure headers, CSRF-aware write operations, output encoding, rate limits, audit trails, database backups, restore tests, error monitoring, and dependency/security update review.

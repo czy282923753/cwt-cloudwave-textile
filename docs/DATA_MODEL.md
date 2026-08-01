@@ -11,7 +11,7 @@
 
 ### Identity and governance
 
-Users, Audit Logs, Company Facts, Feature Flags, and System Settings.
+Users, Auth Sessions, Audit Logs, Company Facts, Feature Flags, and System Settings.
 
 ### Product
 
@@ -31,23 +31,27 @@ Routes, SEO Metadata, Redirects, SEO Topics, Keyword Mappings, Topic Members, an
 
 ### CRM and analytics
 
-Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Inquiry Status History, and Conversion Events.
+Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notification Outbox, Inquiry Status History, and Conversion Events.
 
 ## Key constraints
 
 - One path per locale.
 - One current route per localized routable entity.
 - Product Code is unique when present.
-- One Primary Category per product.
+- `product_taxonomy_terms` is the only Product/Taxonomy authority. A deferred database constraint requires exactly one Primary Category for every Product and prevents concurrent dual-primary writes.
 - Join rows are compound-unique.
 - Draft save validation requires name, Primary Category, and one product image.
 - Public factual fields require verification.
 - Inquiry requires description or a successfully stored image.
 - Contact matching is only automatic on exact normalized email.
+- `idempotency_key` is unique per Inquiry; repeated public requests resolve to the same Inquiry.
+- Customer Activity contact must equal its Inquiry contact. Inquiry Owner must be an active Sales/Admin user; Qualified and Lost invariants are database-backed.
+- Route and Redirect namespaces are disjoint. Database triggers serialize route mutations, require real redirect destinations, and reject loops/chains.
+- Conversion Event ID is unique. Consent and first/last-touch attribution are stored in relational fields; only allowlisted non-PII properties use JSONB.
 
 ## Asset source declaration
 
-`source_declaration_enabled` defaults to false. For new ordinary uploads, declaration fields are null and hidden. Declaration fields include source type/provider, rights, subject relationship, public/edit permissions, restrictions, evidence, reviewer, review and expiry dates, and facility ownership. Disabling a populated declaration hides rather than erases its historical values. Changes are audited.
+`source_declaration_enabled` defaults to false. For new ordinary uploads, declaration fields are null and hidden. Declaration fields include source type/provider, rights, subject relationship, public/edit permissions, restrictions, evidence, reviewer, review and expiry dates, and facility ownership. Disabling a populated declaration hides rather than erases its historical values. Writers cannot set reviewer/date without the declaration-review permission. A later content edit invalidates an older review. All changes are audited.
 
 ## Phase 1A table use
 
@@ -58,8 +62,10 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Inquiry
 - Fabric Entry and its relationship tables provide a browsable visual record that remains distinct from a Product and its underlying files.
 - Content, author, localization, asset, and revision tables support three editorial channels and recoverable review history.
 - Route, metadata, redirect, topic, keyword mapping, topic member, and internal-link tables enforce URL ownership and one principal page per intent.
-- Contact, lightweight Organization, Inquiry, private asset, activity, and status history tables implement repeat inquiries and accountable sales follow-up.
-- Conversion Events records a PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
+- Contact, lightweight Organization, Inquiry, private asset, activity, status history, and persistent notification-outbox tables implement repeat inquiries and accountable/retryable sales follow-up.
+- Conversion Events records a consent-aware, deduplicated, PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
+
+Phase 1A has 50 relational tables. Migration `0006_phase1a-remediation.sql` upgrades existing data by reconciling the former Product primary-category column into the authoritative join relation before dropping the duplicate column, then installs the new CRM, analytics, Asset-scan, route, and consistency constraints.
 
 Source declaration is independent from security scanning, access class, and storage context.
 
