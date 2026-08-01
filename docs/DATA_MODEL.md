@@ -1,5 +1,12 @@
 # CWT data model — Phase 1A baseline
 
+## Final Closure additions
+
+- `asset_upload_batches.status` adds `finalizing` so one database compare-and-set claim serializes concurrent Finalize attempts.
+- `object_cleanup_jobs` durably records the storage partition/key before each external put, its Batch/Asset context, reason, retry/dead state, attempt schedule, worker lock/lease, safe error and completion time. `(storage_partition, object_key)` is unique, making deletion registration and execution idempotent.
+- `conversion_events_public_only_check` has one authoritative expression exported by the current Drizzle schema. It accepts only public funnel event names, permits only `product`, `application`, `fabric_entry` or `content` entity types, and requires `entity_type`/`entity_id` to be both null or both non-null. CRM/internal event names are rejected.
+- Migration `0011_clever_inertia.sql` is forward-only: it safely drops the previously inconsistent named constraint, recreates it exactly once from the authoritative expression, and adds the Finalize/cleanup-queue schema. Fresh and Upgrade paths inspect the actual database expression rather than treating the constraint name as proof.
+
 ## Final local remediation additions
 
 - `asset_upload_batches` now records authenticated Session binding, declared/completed counts, lifecycle status, expiry/completion/failure and the optional batch declaration payload. Its ordinary declaration state remains OFF with a null payload.
@@ -41,7 +48,7 @@ Products, Product Localizations, Taxonomy Terms and Localizations, Product Taxon
 
 ### Assets and library
 
-Assets, Asset Variants, Asset Tags, Fabric Entries and Localizations, Fabric Entry Assets, Fabric Entry Products, and Fabric Entry Applications.
+Assets, Asset Variants, Asset Tags, Asset Upload Batches, Object Cleanup Jobs, Fabric Entries and Localizations, Fabric Entry Assets, Fabric Entry Products, and Fabric Entry Applications.
 
 ### Editorial
 
@@ -87,7 +94,7 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 - Contact, lightweight Organization, Inquiry, private asset, activity, status history, and persistent notification-outbox tables implement repeat inquiries and accountable/retryable sales follow-up.
 - Conversion Events records a consent-aware, deduplicated, PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
 
-Phase 1A has 52 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides. Migration `0010_soft_marrow.sql` adds the Admin Upload Intent/Batch state and Product Code database check; the already-deployed conversion-event check is represented in Schema/Snapshot without being added a second time.
+Phase 1A has 53 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides. Migration `0010_soft_marrow.sql` adds the Admin Upload Intent/Batch state and Product Code database check. Migration `0011_clever_inertia.sql` adds serialized Finalize, durable object cleanup and the forward correction for the conversion-event Check Constraint.
 
 Source declaration is independent from security scanning, access class, and storage context.
 

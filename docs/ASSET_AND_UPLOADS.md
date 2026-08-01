@@ -10,7 +10,17 @@ Public Inquiry uploads use Upload Intent → bounded private upload → scan/dec
 
 Admin Asset Library uploads use a separate `admin_asset` Intent kind: create an authenticated Batch bound to the acting User and active Auth Session; send each file to a raw binary PUT; scan it into Private/Internal staging; then finalize with small JSON. Category, association target, role, order, declared MIME/size and optional declaration state are server-bound before bytes arrive and revalidated at finalization. Each Intent is TTL-limited and single-use; cross-User, cross-Session, replay and expired requests fail. Expiry retention deletes staged objects and marks the Batch expired.
 
-Public release occurs only after every Batch Intent passes. Object copies and image derivatives remain unaddressable until one database transaction activates Public storage/access, optional declaration statement, relation rows, consumed Intents, completed Batch and Audit Logs. A transaction or relation/Audit failure deletes the copied Public objects and leaves the original staged Asset nonpublic. The Admin UI never sends file bytes through a Server Action, multipart Server Action body, `file.arrayBuffer()`, or large finalize JSON.
+Public release occurs only after every Batch Intent passes. A ready Batch is atomically claimed as `finalizing`; concurrent or repeated callers cannot both activate it. Before each original or derivative put, an `object_cleanup_jobs` row records the expected partition/key. Object copies and image derivatives remain unaddressable until one database transaction activates Public storage/access, optional declaration statement, relation rows, consumed Intents, completed Batch and Audit Logs. On success, Public compensation jobs are cancelled and Private staging deletion remains a durable cleanup job. On put, derivative, relation, database or Audit failure, Public cleanup jobs are released for immediate retry and the original Asset remains Private/Internal. The Admin UI never sends file bytes through a Server Action, multipart Server Action body, `file.arrayBuffer()`, or large finalize JSON.
+
+## Finalize compensation and recovery
+
+- Cleanup registration precedes every external put, including a provider that persists bytes and then throws.
+- Workers claim jobs with a lease, delete idempotently, and mark completion. An expired processing lease is reclaimable after a worker crash.
+- Transient deletion failure increments the attempt, records only a safe error and schedules exponential retry. Exhausted attempts enter `dead` and create an audited `object_cleanup.dead` operational alert.
+- A failed/finalizing Batch returns to `ready_to_finalize` only after all released Public compensation jobs complete; a dead job keeps it failed for investigation. Successful Batches stay completed.
+- Public media delivery never resolves a copied key by key alone. It requires an activated Public/Ready/Passed Asset and effective Published relation, so compensation windows remain inaccessible.
+- Run `pnpm cleanup:objects` from an approved worker/scheduler context. Production schedule, monitoring and dead-letter alert routing must fail closed and are required before deployment.
+- R2/S3 provider behavior remains external validation: conditional/overwrite behavior, delete idempotency, read-after-write/list consistency, SDK retry semantics, private bucket policy, lifecycle/versioning and interruption after provider acknowledgement must be rehearsed against the selected provider.
 
 ## Default operator experience
 

@@ -33,9 +33,15 @@ CWT is a modular monolith: one deployable Next.js application with explicit publ
 ## Final local remediation boundaries
 
 - A Server Action is a transport adapter only: parse/validate, call one Domain Service, map a known error, and revalidate or redirect. Author, Company Fact, Asset relation/batch, Organization, Contact and Feature Flag writes are domain-owned.
-- Required Audit Logs share the exact transaction with the mutation and relationship/status writes. A failed Audit insert fails the operation. Permission and target-state checks run again inside the Domain Service transaction.
+- Required Audit Logs share the exact transaction with the mutation and relationship/status writes. The shared governed-mutation context supplies a transaction-bound Audit writer to the owning service and any nested service. A failed Audit insert fails the operation. Permission and target-state checks run again inside the Domain Service transaction.
 - `publicProductEligibilityConditions` is the single Product public-truth predicate. Correlated helpers expose it to Taxonomy, Application and Fabric Library queries without copying a weaker Published-only condition.
-- Admin uploads use a three-step boundary: small authenticated Intent JSON; a raw bounded binary PUT into Private/Internal staging with MIME, signature, decode and scan; then small finalize JSON. Finalize copies inaccessible objects first, commits Public activation, variants, relations, Intent consumption, Batch completion and Audit atomically, and deletes copied Public objects if the transaction fails.
+- Admin uploads use a three-step boundary: small authenticated Intent JSON; a raw bounded binary PUT into Private/Internal staging with MIME, signature, decode and scan; then small finalize JSON. Finalize is serialized by an atomic `ready_to_finalize → finalizing` claim. Every expected destination key receives a durable cleanup record before its storage put. Public activation, variants, relations, Intent consumption, Batch completion and Audit commit atomically; compensation is lease-based, idempotent, retryable and dead-lettered instead of relying on process memory.
+
+## Final Closure boundaries
+
+- Database transactions never wait on object-storage writes. Storage compensation is an explicit durable workflow; controlled public delivery cannot see a copied object until its database Asset and relation are Ready and eligible.
+- Governed admin mutations return a typed, sanitized Action Result. The client form owns pending state, repeat-submit suppression, result announcements, error focus and refresh/redirect intent; Domain Services remain the only business-write authority.
+- Database constraints with application policy meaning have one exported SQL expression. Migration 0011 replaces the old conversion-event constraint by forward migration and tests the actual `pg_get_constraintdef` result for both Fresh and Upgrade paths.
 
 ## Technology baseline
 

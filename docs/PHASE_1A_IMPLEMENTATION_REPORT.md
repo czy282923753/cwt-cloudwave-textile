@@ -1,166 +1,133 @@
-# CWT Phase 1A Final Local Remediation implementation report
+# CWT Phase 1A Final Closure implementation report
 
 Date: 2026-08-02
 
 Baseline: frozen CWT Product and Technical Architecture V1.1
 
-Scope: the fourth independent review's three Medium and two Low findings only. Phase 1B, provider/external acceptance, deployment and formal data remain excluded.
+Scope: the fifth independent review's two Medium and two Low findings only. Phase 1B, real PostgreSQL/R2/S3 acceptance, provider integration, deployment and formal data remain excluded.
 
-## 1. Three Medium findings
+## 1. Two Medium findings
 
-1. **Admin writes through Domain Services — fixed locally.** Author creation/update and Company Fact creation/review now join Organization, Contact and Feature Flag writes behind permission-checking Domain Services. `src/admin/actions.ts` contains no business `insert/update/delete`, Audit writer or file buffering. Asset Batch/relation/release writes are domain-owned.
-2. **One real-Product public authority — fixed locally.** Product public eligibility is reused by Taxonomy, Application, Fabric Library, related Products, sitemap, keyword-owner quality and readiness. A direct invalid `Published` row cannot qualify a derived route.
-3. **Admin Asset streaming upload — fixed locally.** The Asset Library uses User-and-Auth-Session-bound Admin Upload Intents, bounded binary PUT endpoints, Private/Internal staging, decode/scan, and a small-JSON atomic finalize operation. Server Actions no longer receive Asset files.
+1. **Governed mutation/Audit atomicity — fixed locally.** A shared governed-mutation context opens the transaction and supplies a transaction-bound Audit writer. Product, Application, Fabric Library, Content, Taxonomy, SEO and identity session paths no longer commit their required Audit after the business mutation. Existing CRM, governance and Asset services were re-audited and already use explicit transactions. Injected Audit failure rolls every related mutation back.
+2. **Asset Finalize orphan prevention — fixed locally.** A Finalize Batch is atomically claimed, every expected storage key is registered in a persistent cleanup queue before the put, public activation remains database-gated, and failure cleanup survives process interruption with lease recovery, retry, dead-letter state and audited alerting. Concurrent/repeated Finalize cannot double-activate.
 
 ## 2. Two Low findings
 
-1. **Conversion Event constraint authority — fixed.** `conversion_events_public_only_check` now exists in Drizzle Schema and snapshot while remaining added exactly once by Migration 0008.
-2. **Product Code nonblank database constraint — fixed.** Null remains valid; non-null empty, spaces, tabs, newlines and mixed whitespace are rejected; unique non-null codes remain enforced.
+1. **Conversion Event Check Constraint — fixed by forward Migration.** Drizzle Schema, Snapshot, Migration 0011, documentation and tests share one expression. It allowlists public event names and entity types, requires entity type/ID pairing, and rejects CRM/internal event names. Fresh and Upgrade tests inspect the actual database constraint definition.
+2. **Admin operation feedback — fixed consistently.** Governed forms now share a typed Action Result with pending, success, safe validation/permission/conflict/network/unknown failures, repeat-submit prevention, refresh/redirect intent, focused error summary and ARIA live announcements. Asset Upload/Finalize has the equivalent protected feedback flow. Raw database/provider errors are sanitized.
 
-## 3. Added or adjusted Domain Services
+## 3. Governed Domain Service audit inventory
 
-- Added `content/author-service`: create/update with `content.write`, validation, atomic Audit.
-- Extended `content/company-facts-service`: create/update/verify/reject are transactional and Audit-atomic.
-- Added `uploads/admin-upload-service`: Batch/Intent creation, staged completion, public finalization, Asset relation create/delete and lifecycle handling.
-- Strengthened Organization/Contact and Feature Flag services with injectable Audit writers for real rollback verification; production defaults still use the standard Audit writer.
-- Admin API handlers and Server Actions remain transport adapters and recheck no domain invariants on behalf of services.
+- Identity: authenticated session creation, User last-login update and session revocation.
+- Product: drafts/revisions, factual review, submit/reject/publish, structure relations, Index, archive and Slug/Redirect.
+- Application/Taxonomy: drafts/revisions, review/publish/reject, terms, Product relations and Index.
+- Fabric Library: draft/revision, review/publish/reject, independent value and Index.
+- Content: draft/revision, review/publish/reject and Index.
+- SEO: Metadata, Topic, Keyword Mapping, Route and Redirect.
+- Governance: Authors, Company Facts, Contacts/Organizations and Feature Flags.
+- CRM: Inquiry assignment/status/priority/qualification/lost reason, Activities and status history.
+- Assets: source declaration edit/review/override, Batch/Intent lifecycle, release, relation changes, inquiry-orphan cleanup, retention and cleanup dead-letter alerts.
 
-## 4. Audit atomicity
+All mutation paths above use the shared helper or an existing explicit transaction with a transaction-bound Audit writer. Read access and unsuccessful-attempt Audits have no business mutation to roll back. A static scan covers every governed service family and rejects transaction-outside `writeAuditLog(db, …)` calls; Admin Server Actions still contain no direct business writes.
 
-Author, Company Fact, Organization, Contact, Feature Flag, Asset relation, Admin Upload Batch transition and Asset public-release mutations write their required Audit rows inside the same database transaction. Tests inject an Audit writer that throws and confirm the business row, changed fields, relation, status or public activation does not commit. Association/session/permission state is rechecked in the transaction where the final mutation occurs.
+## 4. Audit atomicity implementation
 
-## 5. Unified Product Eligibility
+`runGovernedMutation` accepts a database, callback and optional injectable Audit writer. It supplies only the transaction and a bound `audit(input)` function. Nested Product Slug changes pass the same transaction/Audit dependency into Redirect handling. Audit failure rejects the transaction, including relation replacement, state transitions, Metadata/Index, Route/Redirect and identity-session rows. Direct Domain Service calls still run their own server permission checks.
 
-`publicProductEligibilityConditions` remains the sole real-Product public predicate: Published state, real basis, active Admin/Reviewer-Publisher confirmer, confirmation time, current nonblank English localization, current English route, and an allowed image in Public/Ready/Passed state with effective rights. Correlated helpers expose that predicate to Taxonomy, Application and Fabric Entry queries.
+External side effects are intentionally outside database transactions. Object storage now uses durable compensation; notifications retain the existing persistent outbox.
 
-The same authority now governs Index gates, sitemap inclusion, related Product IDs, keyword-owner quality and readiness. Removing the last eligible Product immediately removes derived routes from sitemap results and makes a stale Index flag fail database readiness.
+## 5. Asset Finalize compensation model
 
-## 6. Admin streaming upload architecture
+1. Claim `ready_to_finalize → finalizing` by compare-and-set; only one caller proceeds.
+2. Revalidate actor Session, files, scanner/decode facts, roles and association targets.
+3. Before each public original/variant put, upsert a pending cleanup record for the exact partition/key.
+4. Perform storage writes while all database Assets remain Private/Internal and therefore unavailable to the media route.
+5. Atomically activate Asset/Variants/relations, consume Intents, complete Batch, cancel public compensation jobs, retain a Private staging cleanup job and write required Audits.
+6. On any failure, mark/release the Batch and compensation records transactionally, then let the cleanup worker delete idempotently.
 
-1. Authenticated operator submits small JSON declaring file facts, category, role, optional association/order and optional Source Declaration state.
-2. Domain Service validates `assets.write`, active User/Auth Session binding, count, declared MIME/size, role compatibility, rate limit and target state; it creates one Batch and short-lived single-use Intents transactionally.
-3. Each file is sent as a raw binary PUT. Supplied Content-Length is an early/exact check; missing length remains bounded by actual streamed bytes. The server never calls `arrayBuffer`, `blob` or `formData` on the upload request.
-4. MIME signature, image decoding and malware scanning finish before a Private/Internal staged Asset becomes Passed.
-5. Small `{}` JSON finalization rechecks Session, permissions, Batch state, detected MIME and associations; it activates Public objects, derivatives, declaration statement, relations, Intent consumption, Batch completion and Audit in one transaction.
-6. Finalization failure deletes copied Public objects and preserves only nonpublic staging. TTL retention expires Intents/Batches and deletes unconsumed staged files.
+This covers provider `put` persisting bytes and then throwing, derivative interruption, mid-variant failure, relation/database/Audit rollback, concurrency and replay.
 
-Source Declaration stays OFF by default and every source/right/reviewer/expiry/facility field remains null. Cross-User, cross-Session, expired, replayed, unauthorized, oversize, interrupted, scanner-rejected and association-failed paths fail closed.
+## 6. Cleanup Queue and recovery
 
-## 7. Migration and Schema changes
+`object_cleanup_jobs` stores Batch/Asset context, partition/key, reason, pending/processing/completed/cancelled/dead status, attempt count, schedule, lock/lease, safe error and timestamps. Partition/key uniqueness makes registration and deletion idempotent. Workers reclaim expired leases, retry with exponential delay and produce `object_cleanup.dead` Audit evidence after exhaustion. A failed Batch returns to ready only after all released public compensation completes; a dead job keeps it failed. `pnpm cleanup:objects` is the local/worker entry point.
 
-- Added Migration `0010_soft_marrow.sql`, snapshot 0010 and journal entry.
-- Added Admin Batch status and Upload Intent kind enums.
-- Extended `asset_upload_batches` with Session, lifecycle, counts, optional declaration payload, expiry/completion/failure.
-- Extended `upload_intents` with kind, User/Session/Batch, category/role/association/order and supporting indexes.
-- Added `products_product_code_nonblank_check` once in Migration 0010.
-- Declared `conversion_events_public_only_check` in current Drizzle Schema/Snapshot without a duplicate ADD in Migration 0010.
-- Fresh migration, repeat migration, pre-remediation upgrade and generated-schema consistency pass locally. `SET CONSTRAINTS ALL IMMEDIATE` in 0010 safely drains older deferred Product trigger events before altering the Product table during a multi-migration upgrade transaction.
-- Rollback strategy before production remains forward restoration: stop new Admin Intents, retain nullable new columns, and deploy a compensating migration only after confirming no active batches. No deployed old Migration was rewritten.
+Selected R2/S3 semantics remain **External Validation Required**: private bucket policy, SDK retry/acknowledgement behavior, conditional overwrite, delete idempotency, read/list consistency, versioning/lifecycle and interruption testing.
 
-## 8. File changes
+## 7. Check Constraint authority
 
-New implementation/test/migration files:
+`conversion_events_public_only_check` enforces all three conditions:
 
-- `drizzle/0010_soft_marrow.sql`
-- `drizzle/meta/0010_snapshot.json`
-- `src/app/api/admin/upload-intents/route.ts`
-- `src/app/api/admin/upload-intents/[token]/route.ts`
-- `src/app/api/admin/upload-intents/[token]/route.test.ts`
-- `src/app/api/admin/upload-batches/[batchId]/finalize/route.ts`
-- `src/content/author-service.ts`
-- `src/content/admin-domain-services.integration.test.ts`
-- `src/seo/derived-product-eligibility.integration.test.ts`
-- `src/uploads/admin-upload-service.ts`
-- `src/uploads/admin-upload-service.integration.test.ts`
+1. Event name is one of `product_view`, `quote_cta_click`, `whatsapp_click`, `upload_started`, `image_upload_completed`, `quote_submit_success`, or `inquiry_created`.
+2. Entity type is null or one of `product`, `application`, `fabric_entry`, or `content`.
+3. Entity type and entity ID are either both null or both non-null.
 
-Modified implementation/test files:
+Internal CRM outcomes stay in CRM tables and cannot be inserted into public Conversion Events. Migration 0011 safely drops the earlier inconsistent named constraint and adds the authoritative expression once; no historical Migration was rewritten.
 
-- `drizzle/meta/_journal.json`
-- `src/admin/actions.ts`, `src/admin/actions.test.ts`, `src/admin/components/asset-upload-form.tsx`
-- `src/auth/session.ts`
-- `src/catalog/application-service.ts`, `fabric-library-service.ts`, `product-eligibility.ts`, `taxonomy-index-service.ts`, `taxonomy-service.ts`
-- `src/content/company-facts-service.ts`, `src/crm/contact-service.ts`, `src/settings/feature-flag-service.ts`
-- `src/db/migrations.integration.test.ts`, `readiness.ts`, and Analytics/Asset/Catalog/CRM/Enum schemas
-- `src/public-site/data.ts`, `src/seo/keyword-mapping-service.ts`, `src/seo/public-index.ts`
-- `src/uploads/file-validation.ts`, `retention-service.ts`, `service.ts`
-- `tests/e2e/public.spec.ts`
+## 8. Admin feedback pattern
 
-Modified governance documents: `AGENTS.md`, `ARCHITECTURE.md`, `ASSET_AND_UPLOADS.md`, `CMS_AND_PERMISSIONS.md`, `DATA_MODEL.md`, `SEO_URL_STRATEGY.md`, `TESTING_AND_ACCEPTANCE.md`, and this report. No file was deleted.
+`AdminActionResult` is a discriminated union carrying success/message/entity/intent or safe form/field errors and an error kind. `AdminActionForm` disables its fieldset while pending, holds an immediate repeat-submit guard, announces pending/success, focuses an assertive error alert and refreshes server-rendered data after success. All Author, Company Fact, Organization, Contact, Feature Flag, Product, Application, Fabric Library, Content, Source Declaration, Taxonomy and main CRM forms use it. Asset Upload/Finalize implements the equivalent Fetch/API pattern and focus behavior.
 
-## 9. Tests added or changed
+Unit tests cover success, validation, permission, conflict, unknown database-error sanitization, repeat suppression, focus/ARIA and Finalize error feedback. Browser acceptance creates an Author, observes the success status and confirms the persisted field after refresh.
 
-- Static Server Action mutation/buffering prohibition.
-- Author create/update, direct permission and Audit rollback.
-- Company Fact create/verify and Audit rollback.
-- Organization creation, Contact assignment and Feature Flag Audit rollback.
-- Asset relation create/delete, permission and Audit rollback.
-- Admin Batch lifecycle, User/Session binding, expiry, replay, rate/role/size validation, exact 12 MiB and over-1-MiB valid images.
-- Shared stream guard: missing/forged Content-Length, chunked body, limit +1 cancellation and interruption.
-- Scanner failure, association failure and Audit failure leave no orphan Public Asset.
-- Source Declaration OFF/null after Admin release.
-- Invalid direct Published Product cannot qualify Taxonomy/Application/Fabric; valid Product can; eligibility removal fails sitemap/readiness; keyword owner uses the same authority.
-- Database constraint introspection and direct Product Code null/valid/duplicate/blank/space/tab/newline cases.
-- Browser Asset Library upload through the new Intent/binary/finalize flow.
+## 9. Migration and Schema changes
 
-No original test was deleted, skipped, marked TODO or conditionally bypassed. The former 81 Vitest assertions remain and the suite now has 91.
+- Added `finalizing` to `asset_upload_batch_status`.
+- Added `object_cleanup_status` enum.
+- Added `object_cleanup_jobs` with unique key, work/batch indexes, lease/retry/dead fields and Batch/Asset foreign keys.
+- Replaced `conversion_events_public_only_check` by forward Migration `0011_clever_inertia.sql`.
+- Added Snapshot 0011 and journal entry; Drizzle Generate reports no remaining change.
+- Fresh, full-chain repeat and Upgrade paths pass locally; actual `pg_get_constraintdef` is asserted.
 
-## 10. Build, Lint, TypeScript and Drizzle
+## 10. File changes
 
-- Environment diagnosis: Node 24.14.0 arm64, pnpm 11.9.0, Sharp 0.35.3, Lightning CSS 1.32.0 and Next SWC 16.2.12 load successfully.
+New: Migration/Snapshot 0011, governed-mutation helper and atomicity tests, object-cleanup service/worker script, typed Admin Action Result/invoker/form and tests, plus Asset Finalize feedback test.
+
+Modified: package cleanup script; Audit-governed Product/Application/Fabric/Taxonomy/Content/SEO/Auth/Upload services; Admin upload APIs/UI and governed module forms; Asset/Analytics enums/schema and migration tests; Playwright browser acceptance; `AGENTS.md`; `ARCHITECTURE.md`, `DATA_MODEL.md`, `CMS_AND_PERMISSIONS.md`, `ASSET_AND_UPLOADS.md`, `TESTING_AND_ACCEPTANCE.md`, `OPERATIONS_RUNBOOK.md`, and this report. No project file was deleted in the delivered tree.
+
+## 11. Tests added or strengthened
+
+- Audit-failure rollback for Product, Application, Fabric Entry, Content, Taxonomy/Application relations, SEO Metadata, publish/review/archive, nested Slug/Redirect and identity sessions.
+- Static coverage of all governed service families and direct-service permission enforcement.
+- Persistent pre-put compensation; put-after-persist; original/first/mid variant; database/Audit/relation failure; cleanup retry/idempotency; worker lease recovery/dead Audit; concurrent/repeated Finalize; inaccessible media/no permanent unrecorded orphan.
+- Fresh/Upgrade actual constraint-expression checks, legal/illegal events and entity pairing, one-add/snapshot/schema parity.
+- Typed feedback classification, raw-error sanitization, pending/repeat/success/refresh, error focus/ARIA and Asset Finalize failure.
+- Browser Author success and persisted refresh while retaining every prior Desktop/Pixel 7 scenario.
+
+No prior test was deleted or weakened; no skip, TODO or only marker was added.
+
+## 12. Local quality results
+
+- Environment: Node 24.14.0 arm64, pnpm 11.9.0, Sharp 0.35.3, Lightning CSS 1.32.0 and Next SWC 16.2.12 load.
 - ESLint: pass with zero warnings.
 - Strict TypeScript: pass.
-- Drizzle Check: pass.
-- Drizzle Generate consistency: no schema changes remain to migrate after 0010.
-- Fresh Production Build: pass under Next.js 16.2.12; 40 static-generation units/dynamic routes complete.
+- Drizzle Check: pass; Generate: no schema delta after 0011.
+- Vitest: 43 files / 100 tests pass, including Fresh/Upgrade migrations, constraint introspection and repeatable Seed coverage.
+- Production Build: pass; 40 static/dynamic route units generated.
+- Public Bundle: 20 public manifests / 29 referenced files contain no Refine/admin dependency.
+- Playwright: 17/17 pass across Desktop Chromium and Pixel 7.
+- HTTP/A11y/mobile: 11 principal public paths return 200; Home has zero Axe Critical/Serious findings; Pixel 7 has no horizontal overflow.
+- Production dependency audit: no known vulnerability.
 
-## 11. Vitest, Playwright and Bundle
+## 13. Existing capability regression
 
-- Vitest: 39 files, 91 tests, all pass.
-- Migration Fresh/Upgrade and core/Fixture Seed repeatability: pass in the integration suite and isolated Playwright setup.
-- Playwright: 16/16 pass across Desktop Chromium and Pixel 7; the original 15 remain active plus one Admin Asset Intent upload scenario.
-- HTTP: all 11 principal public paths return 200 in browser acceptance.
-- Accessibility: Home has zero Axe Critical/Serious findings in Desktop and Pixel 7 projects; mobile has no horizontal overflow.
-- Public Bundle: 20 public page manifests and 29 manifest/chunk files contain no Refine/admin dependency.
-- Production dependency audit: no known vulnerabilities.
+Historical Asset rescan/readiness, real Product eligibility, Effective Rights, Source Declaration separation/versioning, Analytics/CRM privacy, server Consent, public/admin streaming Upload Intents, Fabric/Content role-MIME, Published/Index separation, Revision, true HTTP 301/slash URLs, controlled public media, CRM record authorization, Outbox lease, Contact snapshot protection, Inquiry idempotency, Refine public-bundle isolation, non-production Noindex and Product Code nonblank enforcement remain active and pass.
 
-## 12. Admin upload actual test results
+## 14. Severity and phase state
 
-- A valid JPEG larger than 1 MiB and smaller than 12 MiB stages and finalizes.
-- A valid JPEG exactly at the configured 12 MiB limit stages successfully.
-- Declared limit +1 is rejected; actual limit +1 is cancelled by the shared stream reader.
-- Missing length, chunked stream and interruption are covered by shared binary infrastructure tests; forged length is rejected before processing.
-- Expiry, replay, cross-User, cross-Session and unauthorized role are rejected.
-- Development scanner rejection marks Intent/Batch failed without Public release.
-- Association target failure and injected Audit failure remove copied Public objects and keep the Asset Private/Internal.
-- Browser upload completes through three API calls and the refreshed Asset list shows the released file.
+Local authorized-scope self-check after full gates: Blocker 0, High 0, Medium 0, Low 0 identified. This is not a substitute for the requested independent Final Closure review. Phase 1B remains paused. Real Product validation remains `Waiting for Real Product Data Validation`.
 
-## 13. Existing-function regression result
+## 15. External validation
 
-Historical Asset rescan/readiness, real Product publication, effective rights, Source Declaration separation/versioning, analytics/CRM privacy, server consent, Inquiry streaming Intent, role/MIME rules, Published/Index separation, revision flow, HTTP 301/slash URLs, governed media paths, CRM record authorization, Outbox lease, Contact snapshot protection, Inquiry idempotency, Refine bundle isolation and non-production global Noindex remain covered and pass.
+Not executed: real PostgreSQL migration/locking/query behavior; R2/S3 policy and compensation semantics; production scanner, SMTP/Outbox provider, analytics providers, Preview/Production deployment, DNS, backup/restore, formal retention, Company Facts/rights, 10–15 real Products, production Core Web Vitals and crawler behavior.
 
-## 14. Remaining severity assessment
+## 16. Source control and external state
 
-- Local authorized scope self-check: Blocker 0, High 0, Medium 0, Low 0 identified after remediation.
-- This is not a substitute for the requested independent difference review.
-- Phase 1B remains paused.
-- Real Product launch remains **Waiting for Real Product Data Validation**.
+Implementation/tests/Migration are committed locally as `5c6698d` (`fix: close phase 1a final review findings`). The documentation/evidence commit is the next local commit and its immutable hash is available from `git log`. No external push, provider account call, Preview/Production deployment, production database/key, DNS mutation or formal data import occurred.
 
-## 15. External validation items
+## 17. Final review recommendation
 
-Not executed: real PostgreSQL query-plan/locking/migration rehearsal; R2/S3 access policy and object behavior; production malware scanner; SMTP/Outbox provider behavior; analytics providers; Preview/Production deployment; DNS; backup/restore; approved production retention values; real Company Facts, rights and 10–15 Product validation; production Core Web Vitals and crawling.
+A final independent closing review is recommended. Review the Closure commits against the preceding accepted checkpoint with focus on Audit transaction propagation, external-side-effect compensation, Migration 0011 expression parity and Admin error sanitization/interaction behavior.
 
-## 16. Git record
+## 18. External PostgreSQL recommendation
 
-- `3101b3d` — `fix: complete phase 1a final local remediation`
-- `4822294` — `test: stabilize admin upload limit coverage`
-- Documentation/evidence commit: the commit containing this report; use local `git log` for its immutable hash.
-
-No external push, provider call, Preview/Production deployment, production database/key, DNS mutation or formal data import occurred.
-
-## 17. Final targeted independent review recommendation
-
-Recommended. Diff from `f4d7c0a` through the documentation commit and focus only on the three Medium/two Low findings, especially Server Action static boundaries, Asset finalize storage cleanup, the correlated Product predicates and Migration 0010's one-time constraints.
-
-## 18. Real PostgreSQL external acceptance recommendation
-
-Recommended only after the final targeted independent review confirms no remaining Blocker/High/Medium in this authorized scope. Then run the frozen `POSTGRESQL_EXTERNAL_VALIDATION.md` plan before approving Phase 1A external acceptance. Do not enter Phase 1B merely because local checks pass.
+Only if the independent closing review confirms no remaining Blocker/High/Medium should the frozen real PostgreSQL external acceptance plan begin. Passing local Closure does not authorize Phase 1B or production/provider work.

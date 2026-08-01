@@ -71,9 +71,13 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Hero, Gallery, Cover, Thumbnail, Detail, and Inline roles require an allowed image MIME. PDF is accepted only as Document/Download and can never satisfy Product, Fabric Entry, or Content image readiness.
 - Server Actions parse input, call a Domain Service, translate errors, and revalidate/redirect only. They never write a business table, relationship, workflow state, or Audit Log directly.
 - Business mutation, relationship changes, status transitions, and their required Audit Logs commit in one Domain Service transaction. Domain Services always recheck permissions; Audit failure rolls the mutation back.
+- New governed mutations use the shared governed-mutation transaction context (or an equivalent existing transaction) and pass its transaction-bound Audit writer through nested Domain Services. A critical Audit may never be appended after commit.
+- Object-storage writes are external side effects: every expected cleanup key is durably registered before a put, and failed Finalize compensation runs through the lease/retry/dead-letter cleanup queue. Production storage remains nonpublic behind the controlled media route.
 - Taxonomy, Application, Fabric Library, related-Product, sitemap, keyword-owner quality and readiness decisions all reuse the authoritative public real-Product eligibility predicate. A bare `products.status = published` is never sufficient for a derived SEO surface.
 - Admin Asset Library files use authenticated, User-and-Auth-Session-bound Upload Intents and a bounded binary API. Server Actions and multipart `FormData` are not a binary upload transport. Release to Public storage and relationship activation happen only after scan/decode and an atomic finalize transaction.
 - Drizzle Schema, generated Snapshot and forward Migration must agree on database Check Constraints. Product Code is nullable, unique when present, and database-rejected when non-null but entirely whitespace.
+- `conversion_events_public_only_check` has one authoritative expression shared by Schema, Snapshot, forward Migration and tests; it allowlists public event names and entity types and requires entity type/ID to be both absent or both present.
+- Governed admin forms use the typed Action Result adapter: pending, success, safe validation/permission/conflict/unknown errors, repeat-submit prevention, refresh/redirect intent, error focus and ARIA live feedback. Raw database/provider exceptions are never rendered.
 
 ## Quality gates
 

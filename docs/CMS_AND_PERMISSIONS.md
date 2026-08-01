@@ -34,3 +34,18 @@ Authentication, user state, publish/index, route/redirect, fact verification, so
 ## Mutation adapter rule
 
 Admin Server Actions contain no direct `insert`, `update`, `delete`, relationship mutation or Audit writer. Author and Company Fact operations join Organization, Contact and Feature Flag operations as transaction-owning Domain Services. The Asset Library uses authenticated API handlers as transport adapters, but User/Session validation, permissions, association state, batch lifecycle, release and Audit rules remain in the Asset Domain Service. Direct service calls are authorization-tested and do not trust the UI.
+
+Every governed form uses the same typed Action Result contract: success flag, safe message, field/form errors, error kind, optional entity ID, and refresh/redirect/none intent. The client disables the form while pending, rejects repeat submission, announces pending/success through a status region, focuses and announces failure through an assertive alert, and refreshes persisted server data after success. Zod validation, permission, business conflict and unknown/network failures are distinguished without exposing raw database or provider exceptions. Asset Finalize uses the equivalent JSON error contract and the upload UI follows the same pending/result/focus rules.
+
+## Governed write audit inventory
+
+- Identity: login session creation, `last_login_at`, logout revocation and their required Audits are atomic; failed/rate-limited login Audits are event-only writes.
+- Product: draft/edit revisions, review, publish/reject, field verification, structure relations, Index, archive and Slug/Redirect.
+- Application and Taxonomy: draft/edit revisions, review/publish/reject, Index, terms and Product relations.
+- Fabric Library and Content: draft/edit revisions, review/publish/reject, independent-value/Index and editorial relations.
+- SEO: metadata, Topics, Keyword Mapping, routes and Redirects, including nested Product Slug changes.
+- Governance: Authors, Company Facts, Contacts/Organizations and Feature Flags.
+- CRM: Inquiry assignment/status/priority/qualification/lost state, Activities and status history.
+- Assets: declaration edit/review/override, upload Batch/Intent lifecycle, release, relation changes, orphan cleanup, retention and cleanup dead-letter alerts.
+
+All mutation paths above either use the shared governed-mutation context or an existing explicit transaction with a transaction-bound Audit writer. Static tests reject `writeAuditLog(db, …)` in governed services; rollback tests inject Audit failure across every principal domain family. Read-only access Audits and failed-attempt Audits have no business mutation to roll back.

@@ -5,12 +5,13 @@
 1. Back up the database and all storage partitions.
 2. Apply migration 0007. Do not serve traffic as ready.
 3. Run `pnpm assets:rescan-legacy`; stale interrupted claims older than 15 minutes are reclaimed automatically. Resolve every missing/rejected item required by a Published entity or Inquiry, then retry one repaired item with `pnpm assets:rescan-legacy --retry-manual {assetId}`.
-4. Apply migrations 0008–0009. Review every Product marked `publication_remediation_required`; never manufacture basis evidence. Reconfirm with an active Reviewer/Publisher or Admin, complete the normal In Review workflow, and republish only after current localization, route and image gates pass.
+4. Apply migrations 0008–0011. Review every Product marked `publication_remediation_required`; never manufacture basis evidence. Reconfirm with an active Reviewer/Publisher or Admin, complete the normal In Review workflow, and republish only after current localization, route and image gates pass.
 5. Inspect Source Declaration rows whose Effective Rights is Pending Review, Not Allowed, Revoked, Expired, or Restricted. Turning the UI switch off is not remediation. Only an authorized current-record-version review or reason-required Admin Override may change the effective decision.
 6. Verify server Consent storage and that `conversion_events` contains no Inquiry column before enabling any analytics adapter.
-4. Run `pnpm db:verify`; it must not pass while a public/private relation is broken.
-5. Run retention preview for expired Upload Intents, then an approved execution.
-6. Run the full gate and external PostgreSQL/R2 checklist before deployment authorization.
+7. Run `pnpm cleanup:objects` until no due cleanup job remains; investigate every `dead` row and its `object_cleanup.dead` Audit before serving traffic.
+8. Run `pnpm db:verify`; it must not pass while a public/private relation is broken.
+9. Run retention preview for expired Upload Intents, then an approved execution.
+10. Run the full gate and external PostgreSQL/R2 checklist before deployment authorization.
 
 Outbox workers use 60-second leases and a stable Delivery Key. Monitor `processing` past lease, `failed` and `dead`; never manually mark Sent without provider evidence.
 
@@ -29,6 +30,8 @@ Production PostgreSQL point-in-time recovery, object versioning/lifecycle, backu
 ## Upload and scan incidents
 
 Unknown or failed scans remain quarantined and are not publicly released. Verify scanner health, do not bypass scanning, and use Audit Logs plus request references without copying customer content into logs. Private/public/import storage boundaries remain intact during incident handling. Rotate exposed object-store credentials and invalidate grants if private access is suspected.
+
+For a failed Asset Finalize, inspect the Batch and its `object_cleanup_jobs`. Run `pnpm cleanup:objects`; it safely reclaims expired leases and retries due deletions. Do not manually mark a job completed without verifying the exact partition/key is absent. A `dead` job or `object_cleanup.dead` Audit requires operator escalation, provider diagnostics and an explicit retried/remediated record before retrying Finalize. Keep provider buckets private; a copied object must never be reachable except through the governed media route.
 
 ## Retention
 
