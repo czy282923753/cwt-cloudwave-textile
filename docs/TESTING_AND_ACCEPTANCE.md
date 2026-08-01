@@ -19,7 +19,7 @@ Record command results, migrations, role tests, route/SEO checks, upload securit
 ## Phase 1A remediation local evidence
 
 - Strict TypeScript and ESLint: pass with no suppressed errors.
-- Vitest: 22 files and 44 unit/integration tests pass, including fresh and upgrade migration paths.
+- Vitest: 23 files and 46 unit/integration/route tests pass, including fresh and upgrade migration paths plus direct private-attachment API authorization.
 - Playwright: 12 desktop/mobile business-flow and primary-surface scenarios pass in an isolated per-run environment with no skipped applicable scenarios.
 - Production build: 37 generated routes complete successfully.
 - Public bundle: all 20 non-admin public page manifests and 28 referenced manifest/chunk files contain no Refine/admin module.

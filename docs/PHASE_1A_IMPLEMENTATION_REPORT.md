@@ -70,7 +70,7 @@ The stale x64 dependency tree was isolated and dependencies restored strictly fr
 
 - ESLint: pass, zero warnings.
 - Strict TypeScript: pass.
-- Vitest: 22 files, 44 tests pass.
+- Vitest: 23 files, 46 tests pass, including direct private-attachment API authorization.
 - Playwright: 12 desktop/mobile flows pass, including 11 primary public surfaces returning HTTP 200.
 - Production build: 37 routes complete.
 - Public bundle: 20 public page manifests and 28 manifest/chunk files inspected; no Refine/admin dependency found.
