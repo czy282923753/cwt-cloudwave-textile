@@ -122,4 +122,28 @@ describe("secure asset upload", () => {
     expect(storage.objects.size).toBe(0);
     await connection.close();
   });
+
+  it("rejects a decoded image containing the development malware signature", async () => {
+    const connection = await createTestDatabase();
+    const storage = new InMemoryObjectStorage();
+    const infected = Buffer.concat([
+      await testJpeg(),
+      Buffer.from("EICAR-STANDARD-ANTIVIRUS-TEST-FILE"),
+    ]);
+    await expect(
+      uploadAsset(connection.db, storage, new DevelopmentFileScanner(), {
+        fileName: "malware-test.jpg",
+        declaredMimeType: "image/jpeg",
+        bytes: infected,
+        category: "inquiry",
+        purpose: "inquiry",
+      }),
+    ).rejects.toThrow(/malware scanning/);
+    const rows = await connection.db.select().from(assets);
+    expect(rows[0]?.status).toBe("rejected");
+    expect(
+      [...storage.objects.keys()].every((key) => key.startsWith("private:quarantine/")),
+    ).toBe(true);
+    await connection.close();
+  });
 });

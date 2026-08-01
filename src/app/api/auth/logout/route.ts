@@ -21,7 +21,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     }
   } finally {
-    const response = NextResponse.redirect(new URL("/operations-login", request.url), 303);
+    const response = NextResponse.redirect(
+      new URL("/operations-login", env.NEXT_PUBLIC_SITE_URL),
+      303,
+    );
     response.cookies.set(env.AUTH_COOKIE_NAME, "", {
       httpOnly: true,
       secure: env.APP_ENV === "production",

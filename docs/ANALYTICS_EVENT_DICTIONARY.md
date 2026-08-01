@@ -17,7 +17,7 @@
 
 ## Allowed context
 
-Event ID, anonymous session ID, timestamp, route/entity reference, referrer, UTM source/medium/campaign, landing page, CTA position, consent state, and a strict non-PII context map.
+Event ID, anonymous session ID, timestamp, route/entity reference, referrer, UTM source/medium/campaign, landing page, CTA position, consent state, aggregate `file_count`, and a strict non-PII context map.
 
 ## Forbidden context
 

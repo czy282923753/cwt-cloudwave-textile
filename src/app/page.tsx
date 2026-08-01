@@ -83,7 +83,7 @@ export default async function Home() {
 
         <section className="site-container py-24">
           <div className="grid gap-12 lg:grid-cols-3">
-            {capabilities.map(([title, description], index) => <article className="border-t border-stone-300 pt-6" key={title}><span className="text-sm font-semibold text-[#e56d3f]">0{index + 1}</span><h2 className="mt-8 text-2xl font-semibold tracking-[-0.03em] text-[#143a34]">{title}</h2><p className="mt-4 leading-7 text-stone-600">{description}</p></article>)}
+            {capabilities.map(([title, description], index) => <article className="border-t border-stone-300 pt-6" key={title}><span className="text-sm font-semibold text-[#a94426]">0{index + 1}</span><h2 className="mt-8 text-2xl font-semibold tracking-[-0.03em] text-[#143a34]">{title}</h2><p className="mt-4 leading-7 text-stone-600">{description}</p></article>)}
           </div>
         </section>
 

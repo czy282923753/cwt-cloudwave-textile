@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { RefineAdminProvider } from "@/admin/refine/refine-admin-provider";
 import { resolveCurrentUser } from "@/auth/current-user";
+import { requirePermission } from "@/auth/permissions";
 
 export const metadata: Metadata = {
   title: "CWT Operations",
@@ -15,6 +16,7 @@ export default async function AdminLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const user = await resolveCurrentUser();
   if (!user) redirect("/operations-login");
+  requirePermission(user.role, "admin.access");
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="flex items-center justify-between border-b border-white/10 px-6 py-3 text-sm">

@@ -7,7 +7,8 @@ import { normalizePath } from "@/seo/path";
 type SafePrimitive = string | number | boolean | null;
 type SafeProperties = Readonly<Record<string, SafePrimitive>>;
 
-const forbiddenKey = /(email|e-mail|phone|whatsapp|name|description|message|address|file)/i;
+const forbiddenKey =
+  /(^|_)(email|e-mail|phone|whatsapp|name|description|message|address|filename|file_name|file_path|file_url|object_key)(_|$)/i;
 const emailLike = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/;
 const phoneLike = /(?:\+?\d[\d\s().-]{6,}\d)/;
 

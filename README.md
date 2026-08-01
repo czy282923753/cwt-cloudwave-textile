@@ -13,7 +13,7 @@ The frozen product and architecture baseline is CWT V1.1. Start with:
 
 ## Current phase
 
-Phase 1A. Production deployment, real customer data, real product imports, AI publishing, multilingual publishing, and Phase 1B imports are out of scope.
+Phase 1A local implementation is complete for the currently executable scope. Production deployment, real customer data, real product imports, AI publishing, multilingual publishing, and Phase 1B imports are out of scope. Real-product launch remains `Waiting for Real Product Data Validation`.
 
 ## Runtime
 
@@ -29,8 +29,10 @@ The exact application dependencies are pinned in `package.json` and `pnpm-lock.y
 1. Copy `.env.example` to a local `.env` file and replace development-only secrets.
 2. Install dependencies with `pnpm install --frozen-lockfile`.
 3. Apply the development database migrations with `pnpm db:migrate`.
-4. Seed synthetic noindex data with `pnpm db:seed`.
-5. Start the application with `pnpm dev`.
+4. Seed the local operator and settings with `pnpm db:seed`.
+5. Optionally create 12 conspicuous noindex product fixtures with `pnpm db:seed:fixtures`.
+6. Verify core relationships with `pnpm db:verify`.
+7. Start the application with `pnpm dev`.
 
 Use Node.js 24. The project rejects unsupported runtime majors.
 
@@ -42,6 +44,12 @@ Use Node.js 24. The project rejects unsupported runtime majors.
 - `pnpm build`
 - `pnpm check:bundle`
 - `pnpm check`
+- `pnpm test:e2e`
+- `pnpm audit --prod`
+- `pnpm check:all`
+- `pnpm retention:preview`
+
+See `docs/PHASE_1A_IMPLEMENTATION_REPORT.md` for the delivered surface, evidence, placeholders, and remaining external gates.
 
 ## Environment boundary
 

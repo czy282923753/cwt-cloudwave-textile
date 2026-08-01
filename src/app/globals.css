@@ -34,7 +34,7 @@ summary {
 }
 
 :focus-visible {
-  outline: 3px solid #e56d3f;
+  outline: 3px solid #a94426;
   outline-offset: 3px;
 }
 
@@ -56,12 +56,12 @@ summary {
 }
 
 .button-primary {
-  background: #e56d3f;
+  background: #a94426;
   color: white;
 }
 
 .button-primary:hover {
-  background: #c9572e;
+  background: #8f351c;
   transform: translateY(-1px);
 }
 
@@ -76,7 +76,7 @@ summary {
   font-weight: 750;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #3d776c;
+  color: #2d665c;
 }
 
 .display-title {

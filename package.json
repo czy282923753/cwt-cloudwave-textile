@@ -23,7 +23,10 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:fixtures": "tsx scripts/seed-fixtures.ts",
     "db:verify": "tsx scripts/verify-database.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle"
+    "retention:preview": "tsx scripts/enforce-retention.ts",
+    "retention:execute": "tsx scripts/enforce-retention.ts --execute",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle",
+    "check:all": "pnpm check && pnpm audit --prod && pnpm test:e2e"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1101.0",

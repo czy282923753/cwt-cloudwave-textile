@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: ["@electric-sql/pglite"],
+  ...(process.env.DATABASE_DRIVER !== "postgres"
+    ? { experimental: { cpus: 1 } }
+    : {}),
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [],

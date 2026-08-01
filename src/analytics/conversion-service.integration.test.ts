@@ -24,7 +24,9 @@ describe("Conversion Events privacy boundary", () => {
   });
 
   it("blocks PII-like keys and values", () => {
+    expect(() => assertPiiFreeProperties({ file_count: 2 })).not.toThrow();
     expect(() => assertPiiFreeProperties({ email: "hidden" })).toThrow();
+    expect(() => assertPiiFreeProperties({ file_name: "customer.jpg" })).toThrow();
     expect(() =>
       assertPiiFreeProperties({ label: "buyer@example.test" }),
     ).toThrow();

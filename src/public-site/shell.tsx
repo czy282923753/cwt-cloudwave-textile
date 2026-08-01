@@ -63,11 +63,11 @@ export function FloatingInquiryActions() {
     <>
       <aside className="fixed bottom-8 right-6 z-30 hidden flex-col gap-2 md:flex" aria-label="Quick inquiry">
         {digits ? <TrackedLink className="rounded-full bg-[#1f8f65] px-5 py-3 text-sm font-semibold text-white shadow-lg" eventName="whatsapp_click" href={`https://wa.me/${digits}`} placement="desktop_float">WhatsApp</TrackedLink> : null}
-        <TrackedLink className="rounded-full bg-[#e56d3f] px-5 py-3 text-sm font-semibold text-white shadow-lg" eventName="quote_cta_click" href="/get-quote" placement="desktop_float">Find Your Fabric</TrackedLink>
+        <TrackedLink className="rounded-full bg-[#a94426] px-5 py-3 text-sm font-semibold text-white shadow-lg" eventName="quote_cta_click" href="/get-quote" placement="desktop_float">Find Your Fabric</TrackedLink>
       </aside>
       <aside className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-2 border-t border-stone-200 bg-white p-2 md:hidden" aria-label="Mobile quick inquiry">
-        {digits ? <TrackedLink className="rounded-lg px-3 py-3 text-center text-sm font-semibold text-[#166348]" eventName="whatsapp_click" href={`https://wa.me/${digits}`} placement="mobile_bar">WhatsApp</TrackedLink> : <span className="px-3 py-3 text-center text-sm text-stone-400">CWT Sourcing</span>}
-        <TrackedLink className="rounded-lg bg-[#e56d3f] px-3 py-3 text-center text-sm font-semibold text-white" eventName="quote_cta_click" href="/get-quote" placement="mobile_bar">Get Quote</TrackedLink>
+        {digits ? <TrackedLink className="rounded-lg px-3 py-3 text-center text-sm font-semibold text-[#166348]" eventName="whatsapp_click" href={`https://wa.me/${digits}`} placement="mobile_bar">WhatsApp</TrackedLink> : <span className="px-3 py-3 text-center text-sm text-stone-600">CWT Sourcing</span>}
+        <TrackedLink className="rounded-lg bg-[#a94426] px-3 py-3 text-center text-sm font-semibold text-white" eventName="quote_cta_click" href="/get-quote" placement="mobile_bar">Get Quote</TrackedLink>
       </aside>
     </>
   );

@@ -1,7 +1,5 @@
 import Link from "next/link";
 
-import { requireCurrentUser } from "@/auth/current-user";
-
 const areas = [
   ["Products", "/admin/products"],
   ["Applications", "/admin/applications"],
@@ -13,7 +11,6 @@ const areas = [
 ] as const;
 
 export default async function AdminHomePage() {
-  await requireCurrentUser("admin.access");
   return (
     <main className="mx-auto max-w-6xl px-6 py-12">
       <h1 className="text-3xl font-semibold">CWT operations</h1>

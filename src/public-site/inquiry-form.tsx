@@ -74,10 +74,12 @@ export function InquiryForm({
         <label className="form-field">WhatsApp <input autoComplete="tel" name="whatsapp" placeholder="Optional" /></label>
       </div>
       <label className="form-field">Describe what you need <textarea defaultValue={initialDescription} name="description" placeholder="Use, feel, stretch, color, quantity—or leave blank and upload an image." rows={compact ? 3 : 5} /></label>
-      <label className="form-field">
-        Upload fabric images
+      <div className="form-field">
+        <label htmlFor="inquiry-images">Upload fabric images</label>
         <input
           accept="image/jpeg,image/png,image/webp"
+          aria-describedby="inquiry-images-help"
+          id="inquiry-images"
           multiple
           name="images"
           onChange={(event) => {
@@ -87,8 +89,8 @@ export function InquiryForm({
           }}
           type="file"
         />
-        <span className="text-xs font-normal text-stone-500">JPG, PNG or WebP. Files remain private and use expiring access.</span>
-      </label>
+        <span className="text-xs font-normal text-stone-500" id="inquiry-images-help">JPG, PNG or WebP. Files remain private and use expiring access.</span>
+      </div>
       <div className="hidden" aria-hidden="true"><label>Website<input autoComplete="off" name="website" tabIndex={-1} /></label></div>
       {state.kind === "error" ? <p className="text-sm text-red-700" role="alert">{state.message}</p> : null}
       <button className="button-primary justify-center" disabled={state.kind === "submitting"} type="submit">

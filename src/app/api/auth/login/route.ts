@@ -13,20 +13,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     const email = form.get("email");
     const password = form.get("password");
     if (typeof email !== "string" || typeof password !== "string") {
-      return NextResponse.redirect(new URL("/operations-login?error=invalid", request.url), 303);
+      return NextResponse.redirect(
+        new URL("/operations-login?error=invalid", env.NEXT_PUBLIC_SITE_URL),
+        303,
+      );
     }
     const user =
       databaseConnection.kind === "pglite"
         ? await authenticateUser(databaseConnection.db, email, password)
         : await authenticateUser(databaseConnection.db, email, password);
     if (!user) {
-      return NextResponse.redirect(new URL("/operations-login?error=invalid", request.url), 303);
+      return NextResponse.redirect(
+        new URL("/operations-login?error=invalid", env.NEXT_PUBLIC_SITE_URL),
+        303,
+      );
     }
     const session =
       databaseConnection.kind === "pglite"
         ? await createSession(databaseConnection.db, user.id)
         : await createSession(databaseConnection.db, user.id);
-    const response = NextResponse.redirect(new URL("/admin", request.url), 303);
+    const response = NextResponse.redirect(
+      new URL("/admin", env.NEXT_PUBLIC_SITE_URL),
+      303,
+    );
     response.cookies.set(env.AUTH_COOKIE_NAME, session.token, {
       httpOnly: true,
       secure: env.APP_ENV === "production",
@@ -36,6 +45,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
     return response;
   } catch {
-    return NextResponse.redirect(new URL("/operations-login?error=request", request.url), 303);
+    return NextResponse.redirect(
+      new URL("/operations-login?error=request", env.NEXT_PUBLIC_SITE_URL),
+      303,
+    );
   }
 }

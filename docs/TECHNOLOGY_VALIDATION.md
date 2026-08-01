@@ -18,6 +18,14 @@ Conditional Go for admin navigation, lists, paging, sorting, filters, detail vie
 
 PGlite provides PostgreSQL-compatible local and integration-test execution. PostgreSQL remains required for preview/production. Local filesystem storage and a development scanner are permitted only outside production; S3-compatible storage and a real scanner are production gates.
 
+Local PGlite builds use one Next.js page-data worker to avoid concurrent WebAssembly access to the same development database file. PostgreSQL builds retain the framework's normal worker selection. This setting affects local build concurrency, not public runtime behavior or the production data model.
+
 ## Security and version policy
 
 Dependencies are pinned exactly. Production initialization uses the patched Active LTS framework line and excludes RC database tooling. The initialization-day lockfile is authoritative until a reviewed dependency update.
+
+The final Phase 1A audit found vulnerable transitive Sharp and PostCSS resolutions under Next.js. Workspace-level overrides now resolve one Sharp 0.35.3 and one PostCSS 8.5.25 instance. `pnpm audit --prod` reports no known vulnerabilities. These overrides are covered by build, image-processing, public-bundle, unit/integration, and E2E checks and must remain until the parent dependency ranges no longer need them.
+
+## Final Go / No-Go
+
+Refine is **Go with conditions** for the narrow operations UI shell. It is isolated under `/admin`, wrapped in Suspense for App Router compatibility, and absent from the public home client manifest. Custom domain services remain authoritative for every permission, state transition, route transaction, upload, relationship, CRM, publishing, and indexing rule. A future compatibility regression changes the shell to custom UI; it does not change the frozen domain model.
