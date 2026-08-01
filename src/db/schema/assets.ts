@@ -15,8 +15,10 @@ import {
   assetAccessEnum,
   assetCategoryEnum,
   assetPermissionEnum,
+  assetRescanStatusEnum,
   assetScanStatusEnum,
   assetStatusEnum,
+  declarationReviewDecisionEnum,
   sourceDeclarationSubjectEnum,
 } from "./enums";
 import { users } from "./identity";
@@ -59,7 +61,15 @@ export const assets = pgTable(
     scanProvider: text("scan_provider"),
     scanStatus: assetScanStatusEnum("scan_status").notNull().default("pending"),
     scanResult: text("scan_result"),
+    scanFailureReason: text("scan_failure_reason"),
     scanCompletedAt: timestamp("scan_completed_at", { withTimezone: true }),
+    rescanStatus: assetRescanStatusEnum("rescan_status")
+      .notNull()
+      .default("not_required"),
+    rescanAttemptCount: integer("rescan_attempt_count").notNull().default(0),
+    lastRescanAttemptAt: timestamp("last_rescan_attempt_at", {
+      withTimezone: true,
+    }),
     sourceDeclarationEnabled: boolean("source_declaration_enabled")
       .notNull()
       .default(false),
@@ -71,6 +81,12 @@ export const assets = pgTable(
     editingPermission: assetPermissionEnum("editing_permission"),
     usageRestrictions: text("usage_restrictions"),
     permissionEvidence: text("permission_evidence"),
+    declarationStatementVersion: integer("declaration_statement_version")
+      .notNull()
+      .default(0),
+    declarationLastEditorUserId: uuid(
+      "declaration_last_editor_user_id",
+    ).references(() => users.id, { onDelete: "set null" }),
     declarationReviewerUserId: uuid("declaration_reviewer_user_id").references(
       () => users.id,
       { onDelete: "set null" },
@@ -78,6 +94,13 @@ export const assets = pgTable(
     declarationReviewDate: timestamp("declaration_review_date", {
       withTimezone: true,
     }),
+    declarationReviewedStatementVersion: integer(
+      "declaration_reviewed_statement_version",
+    ),
+    declarationReviewDecision: declarationReviewDecisionEnum(
+      "declaration_review_decision",
+    ),
+    declarationReviewReason: text("declaration_review_reason"),
     declarationExpiryDate: timestamp("declaration_expiry_date", {
       withTimezone: true,
     }),
@@ -97,6 +120,7 @@ export const assets = pgTable(
     index("assets_access_status_idx").on(table.access, table.status),
     index("assets_sha256_idx").on(table.sha256),
     index("assets_retention_idx").on(table.retentionExpiresAt),
+    index("assets_rescan_work_idx").on(table.rescanStatus, table.updatedAt),
   ],
 );
 

@@ -5,11 +5,10 @@ import { useEffect } from "react";
 import { trackPublicEvent } from "./tracking";
 
 export function ProductViewTracker({
-  productId,
   path,
-}: Readonly<{ productId: string; path: string }>) {
+}: Readonly<{ path: string }>) {
   useEffect(() => {
-    trackPublicEvent("product_view", path, {}, { entityType: "product", entityId: productId });
-  }, [path, productId]);
+    trackPublicEvent("product_view", path, {}, { entityType: "product", entityPath: path });
+  }, [path]);
   return null;
 }

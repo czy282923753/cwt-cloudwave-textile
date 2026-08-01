@@ -5,12 +5,14 @@ import { drizzle } from "drizzle-orm/pglite";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sharp from "sharp";
 
 import { migrateDatabase } from "./migrate";
 import { createTestDatabase } from "@/test/database";
 import * as schema from "@/db/schema";
 import {
   contacts,
+  assets,
   customerActivities,
   inquiries,
   productTaxonomyTerms,
@@ -20,6 +22,11 @@ import {
   taxonomyTerms,
   users,
 } from "@/db/schema";
+import { assertDatabaseReady, verifyDatabaseReadiness } from "./readiness";
+import { InMemoryObjectStorage } from "@/test/in-memory-storage";
+import { DevelopmentFileScanner } from "@/uploads/scanner";
+import { rescanLegacyAssets } from "@/uploads/legacy-rescan-service";
+import { authorizeInquiryAssetRecord } from "@/crm/authorization";
 
 describe("database migrations", () => {
   it("creates the complete schema and is safe to run repeatedly", async () => {
@@ -36,7 +43,7 @@ describe("database migrations", () => {
     expect(names).toContain("inquiries");
     expect(names).toContain("audit_logs");
     await connection.close();
-  });
+  }, 15_000);
 
   it("enforces primary taxonomy, CRM contact, owner, and route/redirect invariants", async () => {
     const connection = await createTestDatabase();
@@ -83,6 +90,7 @@ describe("database migrations", () => {
     const inquiryRows = await connection.db
       .insert(inquiries)
       .values({
+        publicReference: "CWT-CONSTRAINT",
         contactId: contactA,
         submittedName: "Contact A",
         submittedEmail: "constraint-a@example.test",
@@ -166,20 +174,83 @@ describe("database migrations", () => {
       `));
       await connection.db.execute(sql.raw(`
         insert into products (id, status, primary_taxonomy_term_id)
-        values ('33333333-3333-4333-8333-333333333333', 'draft', '11111111-1111-4111-8111-111111111111')
+        values ('33333333-3333-4333-8333-333333333333', 'published', '11111111-1111-4111-8111-111111111111')
       `));
       await connection.db.execute(sql.raw(`
         insert into product_taxonomy_terms (product_id, taxonomy_term_id, is_primary)
         values ('33333333-3333-4333-8333-333333333333', '22222222-2222-4222-8222-222222222222', true)
       `));
-      const remediationEntry = journal.entries.find((entry) => entry.idx === 6);
-      if (!remediationEntry) throw new Error("Missing remediation migration journal entry.");
-      await copyFile(
-        `drizzle/${remediationEntry.tag}.sql`,
-        join(temporaryRoot, `${remediationEntry.tag}.sql`),
-      );
+      const imageBytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: "blue" } }).jpeg().toBuffer();
+      await connection.db.execute(sql.raw(`
+        insert into assets
+          (id, original_file_name, storage_provider, storage_partition, object_key, access, category, status, declared_mime_type, detected_mime_type, byte_size, sha256, deleted_at)
+        values
+          ('44444444-4444-4444-8444-444444444444', 'legacy-public.jpg', 'legacy', 'public', 'legacy/public.jpg', 'public', 'product', 'ready', 'image/jpeg', 'image/jpeg', ${imageBytes.byteLength}, 'legacy-public', null),
+          ('55555555-5555-4555-8555-555555555555', 'legacy-inquiry.jpg', 'legacy', 'private', 'legacy/inquiry.jpg', 'private', 'inquiry', 'ready', 'image/jpeg', 'image/jpeg', ${imageBytes.byteLength}, 'legacy-inquiry', null),
+          ('66666666-6666-4666-8666-666666666666', 'legacy-import.jpg', 'legacy', 'imports', 'legacy/import.jpg', 'internal', 'import', 'ready', 'image/jpeg', 'image/jpeg', ${imageBytes.byteLength}, 'legacy-import', null),
+          ('77777777-7777-4777-8777-777777777777', 'legacy-missing.jpg', 'legacy', 'public', 'legacy/missing.jpg', 'public', 'product', 'ready', 'image/jpeg', 'image/jpeg', ${imageBytes.byteLength}, 'legacy-missing', null),
+          ('88888888-8888-4888-8888-888888888888', 'legacy-deleted.jpg', 'legacy', 'public', 'legacy/deleted.jpg', 'public', 'product', 'deleted', 'image/jpeg', 'image/jpeg', ${imageBytes.byteLength}, 'legacy-deleted', now())
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into product_assets (product_id, asset_id, role, sort_order)
+        values
+          ('33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444', 'hero', 0),
+          ('33333333-3333-4333-8333-333333333333', '77777777-7777-4777-8777-777777777777', 'gallery', 1)
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into contacts (id, name, email, normalized_email)
+        values ('99999999-9999-4999-8999-999999999999', 'Legacy Buyer', 'legacy@example.test', 'legacy@example.test')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into inquiries (id, contact_id, source_page_path)
+        values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '99999999-9999-4999-8999-999999999999', '/get-quote/')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into inquiry_assets (inquiry_id, asset_id)
+        values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '55555555-5555-4555-8555-555555555555')
+      `));
+      const storage = new InMemoryObjectStorage();
+      await storage.put("public", "legacy/public.jpg", imageBytes, "image/jpeg");
+      await storage.put("private", "legacy/inquiry.jpg", imageBytes, "image/jpeg");
+      await storage.put("imports", "legacy/import.jpg", imageBytes, "image/jpeg");
+      const remediationEntries = journal.entries.filter((entry) => entry.idx > 5);
+      if (!remediationEntries.length) throw new Error("Missing remediation migration journal entries.");
+      for (const remediationEntry of remediationEntries) {
+        await copyFile(
+          `drizzle/${remediationEntry.tag}.sql`,
+          join(temporaryRoot, `${remediationEntry.tag}.sql`),
+        );
+      }
       await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify(journal));
       await migrateDatabase(connection, temporaryRoot);
+      const postMigrationAssets = await connection.db
+        .select({ id: assets.id, rescanStatus: assets.rescanStatus, scanStatus: assets.scanStatus })
+        .from(assets);
+      expect(postMigrationAssets.filter((asset) => asset.id !== "88888888-8888-4888-8888-888888888888").every((asset) => asset.rescanStatus === "required" && asset.scanStatus === "pending")).toBe(true);
+      await connection.db
+        .update(assets)
+        .set({
+          rescanStatus: "processing",
+          lastRescanAttemptAt: new Date(0),
+          scanFailureReason: null,
+        })
+        .where(eq(assets.id, "66666666-6666-4666-8666-666666666666"));
+      await rescanLegacyAssets(connection.db, storage, new DevelopmentFileScanner());
+      const rescanned = await connection.db.select().from(assets);
+      const byId = new Map(rescanned.map((asset) => [asset.id, asset]));
+      for (const id of [
+        "44444444-4444-4444-8444-444444444444",
+        "55555555-5555-4555-8555-555555555555",
+        "66666666-6666-4666-8666-666666666666",
+      ]) {
+        expect(byId.get(id)).toMatchObject({ scanStatus: "passed", rescanStatus: "completed", status: "ready" });
+      }
+      expect(byId.get("77777777-7777-4777-8777-777777777777")).toMatchObject({ scanStatus: "error", rescanStatus: "manual_review", status: "quarantined", scanFailureReason: "source_object_missing" });
+      expect(byId.get("88888888-8888-4888-8888-888888888888")).toMatchObject({ rescanStatus: "manual_review", scanFailureReason: "historical_asset_deleted" });
+      await expect(authorizeInquiryAssetRecord(connection.db, { userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", role: "admin" }, "55555555-5555-4555-8555-555555555555")).resolves.toMatchObject({ inquiryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+      const readiness = await verifyDatabaseReadiness(connection.db);
+      expect(readiness.publishedProductAssetFailures).toBeGreaterThan(0);
+      expect(() => assertDatabaseReady(readiness)).toThrow(/readiness failed/);
       const primaryRows = await connection.db
         .select({ taxonomyTermId: productTaxonomyTerms.taxonomyTermId })
         .from(productTaxonomyTerms)

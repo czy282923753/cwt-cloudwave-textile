@@ -77,6 +77,16 @@ describe("minimal inquiry and CRM workflow", () => {
       sourcePagePath: "/products/test",
     });
     expect(firstInquiryId).not.toBe(secondInquiryId);
+    const references = await connection.db
+      .select({ id: inquiries.id, publicReference: inquiries.publicReference })
+      .from(inquiries);
+    for (const row of references) {
+      expect(row.publicReference).toMatch(/^CWT-[A-F0-9]{20}$/);
+      expect(row.publicReference).not.toContain(row.id);
+      expect(row.publicReference).not.toMatch(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+      );
+    }
     const contactCount = await connection.db.select({ count: count() }).from(contacts);
     const inquiryCount = await connection.db.select({ count: count() }).from(inquiries);
     const attachmentCount = await connection.db
@@ -309,6 +319,7 @@ describe("minimal inquiry and CRM workflow", () => {
     const connection = await createTestDatabase();
     await connection.db.insert(inquiries).values([
       {
+        publicReference: "CWT-STATS-A",
         contactId: (await connection.db.insert(contacts).values({ name: "A", email: "a@example.test", normalizedEmail: "a@example.test" }).returning({ id: contacts.id }))[0]!.id,
         submittedName: "A",
         submittedEmail: "a@example.test",
@@ -318,6 +329,7 @@ describe("minimal inquiry and CRM workflow", () => {
         sourcePagePath: "/",
       },
       {
+        publicReference: "CWT-STATS-B",
         contactId: (await connection.db.insert(contacts).values({ name: "B", email: "b@example.test", normalizedEmail: "b@example.test" }).returning({ id: contacts.id }))[0]!.id,
         submittedName: "B",
         submittedEmail: "b@example.test",

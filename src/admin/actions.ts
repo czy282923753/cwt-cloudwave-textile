@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
-import { hasPermission, requirePermission } from "@/auth/permissions";
+import { requirePermission } from "@/auth/permissions";
 import {
   applyApplicationRevision,
   archiveApplication,
@@ -60,6 +60,10 @@ import {
   changeInquiryStatus,
 } from "@/crm/inquiry-service";
 import {
+  assignContactOrganization,
+  createOrganization,
+} from "@/crm/contact-service";
+import {
   applyContentRevision,
   archiveContent,
   createContentDraft,
@@ -78,18 +82,14 @@ import {
 import { databaseConnection } from "@/db/client";
 import {
   assetUploadBatches,
-  assets,
   authors,
   companyFacts,
-  contacts,
   contentAssets,
   contents,
   fabricLibraryEntries,
   fabricLibraryEntryAssets,
-  organizations,
   productAssets,
   products,
-  featureFlags,
 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/types";
@@ -97,9 +97,15 @@ import { createObjectStorage } from "@/storage";
 import { updateSeoMetadata } from "@/seo/metadata-service";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
+import { setFeatureFlag } from "@/settings/feature-flag-service";
 import { createUploadRateLimiter } from "@/uploads/rate-limit";
 import { createFileScanner } from "@/uploads/scanner";
-import { updateSourceDeclaration, uploadAsset } from "@/uploads/service";
+import {
+  adminOverrideSourceDeclaration,
+  reviewSourceDeclaration,
+  updateSourceDeclaration,
+  uploadAsset,
+} from "@/uploads/service";
 
 import { currentActor } from "./actor";
 
@@ -1138,10 +1144,6 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
         .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
         .optional()
         .parse(optionalString(form, "subjectRelationship"));
-      const markReviewed = form.get("markReviewed") === "on";
-      if (markReviewed) {
-        requirePermission(actor.role, "assets.declaration.review");
-      }
       await updateSourceDeclaration(db, assetId, actor, {
         enabled: true,
         sourceType: optionalString(form, "sourceType") ?? null,
@@ -1158,12 +1160,6 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
           .parse(optionalString(form, "editingPermission")) ?? null,
         usageRestrictions: optionalString(form, "usageRestrictions") ?? null,
         permissionEvidence: optionalString(form, "permissionEvidence") ?? null,
-        ...(markReviewed
-          ? {
-              declarationReviewerUserId: actor.userId,
-              declarationReviewDate: new Date(),
-            }
-          : {}),
         declarationExpiryDate: optionalString(form, "declarationExpiryDate")
           ? new Date(requiredString(form, "declarationExpiryDate"))
           : null,
@@ -1196,29 +1192,10 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
   const actor = await currentActor();
   const assetId = requiredString(form, "assetId");
   const enabled = form.get("enabled") === "on";
-  const markReviewed = form.get("markReviewed") === "on";
-  if (!hasPermission(actor.role, "assets.write")) {
-    requirePermission(actor.role, "assets.declaration.review");
-    if (!markReviewed || !enabled) {
-      throw new Error("A review-only operator can only record an enabled declaration review.");
-    }
-    await withDatabase(async (db) => {
-      const rows = await db
-        .select({ enabled: assets.sourceDeclarationEnabled })
-        .from(assets)
-        .where(eq(assets.id, assetId))
-        .limit(1);
-      if (!rows[0]?.enabled) throw new Error("Source Declaration must be enabled before review.");
-      await updateSourceDeclaration(db, assetId, actor, {
-        enabled: true,
-        declarationReviewerUserId: actor.userId,
-        declarationReviewDate: new Date(),
-      });
-    });
-    revalidatePath(`/admin/assets/${assetId}`);
-    return;
+  requirePermission(actor.role, "assets.write");
+  if (form.has("markReviewed") || form.has("reviewDecision")) {
+    throw new Error("Declaration editing and review must be separate operations.");
   }
-  if (markReviewed) requirePermission(actor.role, "assets.declaration.review");
   const subjectRelationship = z
     .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
     .optional()
@@ -1242,12 +1219,6 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
       editingPermission: editingPermission ?? null,
       usageRestrictions: optionalString(form, "usageRestrictions") ?? null,
       permissionEvidence: optionalString(form, "permissionEvidence") ?? null,
-      ...(markReviewed
-        ? {
-            declarationReviewerUserId: actor.userId,
-            declarationReviewDate: new Date(),
-          }
-        : {}),
       declarationExpiryDate: optionalString(form, "declarationExpiryDate")
         ? new Date(requiredString(form, "declarationExpiryDate"))
         : null,
@@ -1261,6 +1232,38 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
   );
   revalidatePath(`/admin/assets/${assetId}`);
   revalidatePath("/admin/assets");
+}
+
+export async function reviewAssetDeclarationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const assetId = requiredString(form, "assetId");
+  const decision = z
+    .enum(["approved", "rejected"])
+    .parse(requiredString(form, "decision"));
+  await withDatabase((db) =>
+    reviewSourceDeclaration(
+      db,
+      assetId,
+      actor,
+      decision,
+      optionalString(form, "reason") ?? null,
+    ),
+  );
+  revalidatePath(`/admin/assets/${assetId}`);
+}
+
+export async function overrideAssetDeclarationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const assetId = requiredString(form, "assetId");
+  await withDatabase((db) =>
+    adminOverrideSourceDeclaration(
+      db,
+      assetId,
+      actor,
+      requiredString(form, "reason"),
+    ),
+  );
+  revalidatePath(`/admin/assets/${assetId}`);
 }
 
 export async function changeInquiryStatusAction(form: FormData): Promise<void> {
@@ -1330,73 +1333,30 @@ export async function assignInquiryAction(form: FormData): Promise<void> {
 
 export async function createOrganizationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "users.manage");
-  await withDatabase(async (db) => {
-    const rows = await db
-      .insert(organizations)
-      .values({
-        name: requiredString(form, "name"),
-        website: optionalString(form, "website") ?? null,
-        countryCode: optionalString(form, "countryCode") ?? null,
-      })
-      .returning({ id: organizations.id });
-    const organizationId = rows[0]?.id;
-    if (!organizationId) throw new Error("Organization insert failed.");
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "organization.created",
-      entityType: "organization",
-      entityId: organizationId,
-    });
-  });
+  await withDatabase((db) =>
+    createOrganization(db, actor, {
+      name: requiredString(form, "name"),
+      website: optionalString(form, "website") ?? null,
+      countryCode: optionalString(form, "countryCode") ?? null,
+    }),
+  );
   revalidatePath("/admin/contacts");
 }
 
 export async function assignContactOrganizationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "users.manage");
   const contactId = requiredString(form, "contactId");
   const organizationId = optionalString(form, "organizationId") ?? null;
-  await withDatabase(async (db) => {
-    await db
-      .update(contacts)
-      .set({ organizationId, updatedAt: new Date() })
-      .where(eq(contacts.id, contactId));
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "contact.organization.assigned",
-      entityType: "contact",
-      entityId: contactId,
-      afterSummary: { organizationId },
-    });
-  });
+  await withDatabase((db) =>
+    assignContactOrganization(db, actor, contactId, organizationId),
+  );
   revalidatePath("/admin/contacts");
 }
 
 export async function setFeatureFlagAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "settings.manage");
   const flagId = requiredString(form, "flagId");
   const enabled = requiredString(form, "enabled") === "true";
-  await withDatabase(async (db) => {
-    const before = await db
-      .select({ enabled: featureFlags.enabled, key: featureFlags.key })
-      .from(featureFlags)
-      .where(eq(featureFlags.id, flagId))
-      .limit(1);
-    if (!before[0]) throw new Error("Feature Flag was not found.");
-    await db
-      .update(featureFlags)
-      .set({ enabled, updatedByUserId: actor.userId, updatedAt: new Date() })
-      .where(eq(featureFlags.id, flagId));
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "feature_flag.changed",
-      entityType: "feature_flag",
-      entityId: flagId,
-      beforeSummary: { enabled: before[0].enabled },
-      afterSummary: { key: before[0].key, enabled },
-    });
-  });
+  await withDatabase((db) => setFeatureFlag(db, actor, flagId, enabled));
   revalidatePath("/admin/settings");
 }

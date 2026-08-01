@@ -10,7 +10,7 @@ import { createUploadRateLimiter } from "@/uploads/rate-limit";
 const limiter = createUploadRateLimiter();
 
 const eventSchema = z.object({
-  eventId: z.string().min(16).max(200),
+  eventId: z.string().min(16).max(128),
   eventName: z.enum([
     "product_view",
     "quote_cta_click",
@@ -20,10 +20,10 @@ const eventSchema = z.object({
     "quote_submit_success",
   ]),
   anonymousSessionId: z.uuid(),
-  consentState: z.enum(["unknown", "granted", "denied"]),
+  consentState: z.literal("granted"),
   routePath: z.string().max(500),
   entityType: z.enum(["product", "application", "fabric_entry", "content"]).optional(),
-  entityId: z.uuid().optional(),
+  entityPath: z.string().max(500).optional(),
   landingPagePath: z.string().max(500).optional(),
   referrerOrigin: z.string().max(200).optional(),
   utmSource: z.string().max(100).optional(),
@@ -37,7 +37,7 @@ const eventSchema = z.object({
   safeProperties: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
     .optional(),
-});
+}).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
@@ -49,13 +49,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!(await limiter.consume(rateKey, "conversion"))) {
       return NextResponse.json({ ok: false }, { status: 429 });
     }
-    if (input.consentState === "denied") {
-      return new NextResponse(null, { status: 204 });
-    }
     const conversionInput = {
       ...input,
       entityType: input.entityType ?? null,
-      entityId: input.entityId ?? null,
+      entityPath: input.entityPath ?? null,
       landingPagePath: input.landingPagePath ?? null,
       referrerOrigin: input.referrerOrigin ?? null,
       utmSource: input.utmSource ?? null,

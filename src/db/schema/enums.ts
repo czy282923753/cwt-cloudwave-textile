@@ -89,6 +89,28 @@ export const assetScanStatusEnum = pgEnum("asset_scan_status", [
   "error",
 ]);
 
+export const assetRescanStatusEnum = pgEnum("asset_rescan_status", [
+  "not_required",
+  "required",
+  "processing",
+  "completed",
+  "manual_review",
+]);
+
+export const declarationReviewDecisionEnum = pgEnum(
+  "declaration_review_decision",
+  ["approved", "rejected", "admin_override"],
+);
+
+export const uploadIntentStatusEnum = pgEnum("upload_intent_status", [
+  "created",
+  "uploading",
+  "passed",
+  "failed",
+  "consumed",
+  "expired",
+]);
+
 export const assetRoleEnum = pgEnum("asset_role", [
   "hero",
   "gallery",

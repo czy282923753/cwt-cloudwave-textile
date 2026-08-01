@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
 import { hasPermission, type UserRole } from "@/auth/permissions";
 import { env } from "@/config/env";
-import { assets, assetVariants, inquiryAssets } from "@/db/schema";
+import { assets, assetVariants, inquiryAssets, uploadIntents } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { ObjectStorage, StoragePartition } from "@/storage";
 
@@ -25,6 +25,8 @@ export interface UploadAssetInput {
   uploadBatchId?: string | null;
   sourceDeclarationEnabled?: boolean;
   retentionExpiresAt?: Date | null;
+  /** Internal Upload Intent linkage; never accepted from a public form. */
+  uploadIntentId?: string | null;
 }
 
 function fileExtension(mimeType: string): string {
@@ -80,38 +82,70 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
   const objectKey = `${datePrefix}/${identifier}.${extension}`;
   const sha256 = createHash("sha256").update(input.bytes).digest("hex");
 
-  await storage.put(
-    "private",
-    quarantineKey,
-    input.bytes,
-    validated.detectedMimeType,
-  );
-
-  const inserted = await db
-    .insert(assets)
-    .values({
-      uploadBatchId: input.uploadBatchId ?? null,
-      uploadedByUserId: input.uploadedByUserId ?? null,
-      originalFileName: input.fileName,
-      storageProvider: env.STORAGE_DRIVER,
-      storagePartition: "private",
-      objectKey: quarantineKey,
-      access: "internal",
-      category: input.category,
-      status: "scanning",
-      declaredMimeType: input.declaredMimeType,
-      detectedMimeType: validated.detectedMimeType,
-      byteSize: input.bytes.byteLength,
-      sha256,
-      width: validated.width,
-      height: validated.height,
-      sourceDeclarationEnabled: input.sourceDeclarationEnabled ?? false,
-      nonBlockingRiskHints: inferNonBlockingRiskHints(input.fileName),
-      retentionExpiresAt: input.retentionExpiresAt ?? null,
-    })
-    .returning({ id: assets.id });
-  const asset = inserted[0];
+  const asset = await db.transaction(async (transaction) => {
+    const inserted = await transaction
+      .insert(assets)
+      .values({
+        uploadBatchId: input.uploadBatchId ?? null,
+        uploadedByUserId: input.uploadedByUserId ?? null,
+        originalFileName: input.fileName,
+        storageProvider: env.STORAGE_DRIVER,
+        storagePartition: "private",
+        objectKey: quarantineKey,
+        access: "internal",
+        category: input.category,
+        status: "scanning",
+        declaredMimeType: input.declaredMimeType,
+        detectedMimeType: validated.detectedMimeType,
+        byteSize: input.bytes.byteLength,
+        sha256,
+        width: validated.width,
+        height: validated.height,
+        sourceDeclarationEnabled: input.sourceDeclarationEnabled ?? false,
+        nonBlockingRiskHints: inferNonBlockingRiskHints(input.fileName),
+        retentionExpiresAt: input.retentionExpiresAt ?? null,
+      })
+      .returning({ id: assets.id });
+    const created = inserted[0];
+    if (!created) throw new Error("Asset insert did not return an ID.");
+    if (input.uploadIntentId) {
+      const linked = await transaction
+        .update(uploadIntents)
+        .set({ assetId: created.id, updatedAt: new Date() })
+        .where(
+          and(
+            eq(uploadIntents.id, input.uploadIntentId),
+            eq(uploadIntents.status, "uploading"),
+          ),
+        )
+        .returning({ id: uploadIntents.id });
+      if (!linked[0]) {
+        throw new Error("Upload Intent could not be linked to its quarantined Asset.");
+      }
+    }
+    return created;
+  });
   if (!asset) throw new Error("Asset insert did not return an ID.");
+
+  try {
+    await storage.put(
+      "private",
+      quarantineKey,
+      input.bytes,
+      validated.detectedMimeType,
+    );
+  } catch (error) {
+    await db
+      .update(assets)
+      .set({
+        status: "quarantined",
+        scanStatus: "error",
+        scanResult: "quarantine_storage_error",
+        updatedAt: new Date(),
+      })
+      .where(eq(assets.id, asset.id));
+    throw error;
+  }
 
   let scanResult;
   try {
@@ -195,8 +229,6 @@ export interface SourceDeclarationUpdate {
   editingPermission?: typeof assets.$inferInsert.editingPermission;
   usageRestrictions?: string | null;
   permissionEvidence?: string | null;
-  declarationReviewerUserId?: string | null;
-  declarationReviewDate?: Date | null;
   declarationExpiryDate?: Date | null;
   isCwtOwnedFacility?: boolean | null;
 }
@@ -210,33 +242,8 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
   const beforeRows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
   const before = beforeRows[0];
   if (!before) throw new Error("Asset was not found.");
-  const touchesReview =
-    "declarationReviewerUserId" in update || "declarationReviewDate" in update;
-  const updateKeys = Object.keys(update);
-  const isReviewOnlyUpdate = updateKeys.every((key) =>
-    ["enabled", "declarationReviewerUserId", "declarationReviewDate"].includes(key),
-  );
-  if (
-    !hasPermission(actor.role, "assets.write") &&
-    !(
-      touchesReview &&
-      isReviewOnlyUpdate &&
-      hasPermission(actor.role, "assets.declaration.review")
-    )
-  ) {
+  if (!hasPermission(actor.role, "assets.write")) {
     throw new Error("Source Declaration changes require Asset writer authority.");
-  }
-  if (touchesReview && !hasPermission(actor.role, "assets.declaration.review")) {
-    throw new Error("Source declaration review fields require reviewer authority.");
-  }
-  if (
-    update.declarationReviewerUserId &&
-    update.declarationReviewerUserId !== actor.userId
-  ) {
-    throw new Error("A source declaration reviewer can only record their own review.");
-  }
-  if (update.declarationReviewDate && !update.declarationReviewerUserId) {
-    throw new Error("A source declaration review date requires a reviewer.");
   }
   const substantiveFields = [
     "sourceType",
@@ -251,13 +258,12 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
     "isCwtOwnedFacility",
   ] as const;
   const declarationContentChanged =
-    update.enabled &&
-    substantiveFields.some(
+    update.enabled !== before.sourceDeclarationEnabled ||
+    (update.enabled && before.declarationStatementVersion === 0) ||
+    (update.enabled && substantiveFields.some(
       (field) =>
         field in update && String(update[field] ?? null) !== String(before[field] ?? null),
-    );
-  const reviewExplicitlyRecorded =
-    Boolean(update.declarationReviewerUserId) && Boolean(update.declarationReviewDate);
+    ));
 
   await db
     .update(assets)
@@ -295,18 +301,6 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
               "permissionEvidence" in update
                 ? update.permissionEvidence ?? null
                 : before.permissionEvidence,
-            declarationReviewerUserId:
-              "declarationReviewerUserId" in update
-                ? update.declarationReviewerUserId ?? null
-                : declarationContentChanged && !reviewExplicitlyRecorded
-                  ? null
-                  : before.declarationReviewerUserId,
-            declarationReviewDate:
-              "declarationReviewDate" in update
-                ? update.declarationReviewDate ?? null
-                : declarationContentChanged && !reviewExplicitlyRecorded
-                  ? null
-                  : before.declarationReviewDate,
             declarationExpiryDate:
               "declarationExpiryDate" in update
                 ? update.declarationExpiryDate ?? null
@@ -315,6 +309,17 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
               "isCwtOwnedFacility" in update
                 ? update.isCwtOwnedFacility ?? null
                 : before.isCwtOwnedFacility,
+          }
+        : {}),
+      ...(declarationContentChanged
+        ? {
+            declarationStatementVersion: before.declarationStatementVersion + 1,
+            declarationLastEditorUserId: actor.userId,
+            declarationReviewerUserId: null,
+            declarationReviewDate: null,
+            declarationReviewedStatementVersion: null,
+            declarationReviewDecision: null,
+            declarationReviewReason: null,
           }
         : {}),
       updatedAt: new Date(),
@@ -334,8 +339,13 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
     "editingPermission",
     "usageRestrictions",
     "permissionEvidence",
+    "declarationStatementVersion",
+    "declarationLastEditorUserId",
     "declarationReviewerUserId",
     "declarationReviewDate",
+    "declarationReviewedStatementVersion",
+    "declarationReviewDecision",
+    "declarationReviewReason",
     "declarationExpiryDate",
     "isCwtOwnedFacility",
   ] as const;
@@ -352,7 +362,121 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
     afterSummary: {
       enabled: update.enabled,
       changedFields,
-      reviewInvalidated: declarationContentChanged && !reviewExplicitlyRecorded,
+      statementVersion: after.declarationStatementVersion,
+      reviewInvalidated: declarationContentChanged,
+    },
+  });
+}
+
+export async function reviewSourceDeclaration<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  assetId: string,
+  actor: { userId: string; role: UserRole },
+  decision: "approved" | "rejected",
+  reason?: string | null,
+): Promise<void> {
+  if (!hasPermission(actor.role, "assets.declaration.review")) {
+    throw new Error("Source Declaration review requires reviewer authority.");
+  }
+  const rows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  const current = rows[0];
+  if (!current?.sourceDeclarationEnabled || current.declarationStatementVersion < 1) {
+    throw new Error("An enabled Source Declaration version is required before review.");
+  }
+  if (!current.declarationLastEditorUserId) {
+    throw new Error("Source Declaration does not record a statement editor.");
+  }
+  if (current.declarationLastEditorUserId === actor.userId) {
+    throw new Error("The last Source Declaration editor cannot review the same version.");
+  }
+  const normalizedReason = reason?.trim() || null;
+  if (decision === "rejected" && !normalizedReason) {
+    throw new Error("A rejected Source Declaration requires a reason.");
+  }
+  const reviewTime = new Date();
+  const updated = await db
+    .update(assets)
+    .set({
+      declarationReviewerUserId: actor.userId,
+      declarationReviewDate: reviewTime,
+      declarationReviewedStatementVersion: current.declarationStatementVersion,
+      declarationReviewDecision: decision,
+      declarationReviewReason: normalizedReason,
+      updatedAt: reviewTime,
+    })
+    .where(
+      and(
+        eq(assets.id, assetId),
+        eq(assets.declarationStatementVersion, current.declarationStatementVersion),
+      ),
+    )
+    .returning({ id: assets.id });
+  if (!updated[0]) {
+    throw new Error("Source Declaration changed during review; review the current version.");
+  }
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: `asset.source_declaration.${decision}`,
+    entityType: "asset",
+    entityId: assetId,
+    afterSummary: {
+      statementVersion: current.declarationStatementVersion,
+      decision,
+      hasReason: Boolean(normalizedReason),
+    },
+  });
+}
+
+export async function adminOverrideSourceDeclaration<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  assetId: string,
+  actor: { userId: string; role: UserRole },
+  reason: string,
+): Promise<void> {
+  if (actor.role !== "admin") {
+    throw new Error("Only an Admin may use Source Declaration Override.");
+  }
+  const normalizedReason = reason.trim();
+  if (!normalizedReason) throw new Error("Admin Override requires a reason.");
+  const rows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  const current = rows[0];
+  if (!current?.sourceDeclarationEnabled || current.declarationStatementVersion < 1) {
+    throw new Error("An enabled Source Declaration version is required before override.");
+  }
+  const reviewTime = new Date();
+  const updated = await db
+    .update(assets)
+    .set({
+      declarationReviewerUserId: actor.userId,
+      declarationReviewDate: reviewTime,
+      declarationReviewedStatementVersion: current.declarationStatementVersion,
+      declarationReviewDecision: "admin_override",
+      declarationReviewReason: normalizedReason,
+      updatedAt: reviewTime,
+    })
+    .where(
+      and(
+        eq(assets.id, assetId),
+        eq(assets.declarationStatementVersion, current.declarationStatementVersion),
+      ),
+    )
+    .returning({ id: assets.id });
+  if (!updated[0]) {
+    throw new Error("Source Declaration changed during Admin Override; retry explicitly.");
+  }
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "asset.source_declaration.admin_override",
+    entityType: "asset",
+    entityId: assetId,
+    afterSummary: {
+      statementVersion: current.declarationStatementVersion,
+      decision: "admin_override",
+      reason: normalizedReason.slice(0, 500),
     },
   });
 }

@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   jsonb,
   index,
@@ -20,6 +21,7 @@ import {
   priorityEnum,
   qualificationStatusEnum,
   outboxStatusEnum,
+  uploadIntentStatusEnum,
 } from "./enums";
 import { users } from "./identity";
 
@@ -57,6 +59,7 @@ export const inquiries = pgTable(
   "inquiries",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    publicReference: text("public_reference").notNull(),
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "restrict" }),
@@ -102,6 +105,39 @@ export const inquiries = pgTable(
     index("inquiries_owner_status_idx").on(table.ownerUserId, table.status),
     index("inquiries_contact_idx").on(table.contactId),
     uniqueIndex("inquiries_idempotency_key_unique").on(table.idempotencyKey),
+    uniqueIndex("inquiries_public_reference_unique").on(table.publicReference),
+  ],
+);
+
+export const uploadIntents = pgTable(
+  "upload_intents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tokenHash: text("token_hash").notNull(),
+    anonymousSessionId: text("anonymous_session_id").notNull(),
+    declaredFileName: text("declared_file_name").notNull(),
+    declaredMimeType: text("declared_mime_type").notNull(),
+    declaredByteSize: integer("declared_byte_size").notNull(),
+    status: uploadIntentStatusEnum("status").notNull().default("created"),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "restrict" }),
+    consumedByInquiryId: uuid("consumed_by_inquiry_id").references(
+      (): typeof inquiries.id => inquiries.id,
+      { onDelete: "set null" },
+    ),
+    isConsumed: boolean("is_consumed").notNull().default(false),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("upload_intents_token_hash_unique").on(table.tokenHash),
+    index("upload_intents_session_status_idx").on(
+      table.anonymousSessionId,
+      table.status,
+    ),
+    index("upload_intents_expiry_idx").on(table.expiresAt),
   ],
 );
 
@@ -152,11 +188,17 @@ export const notificationOutbox = pgTable(
     aggregateId: uuid("aggregate_id").notNull(),
     status: outboxStatusEnum("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    deliveryKey: text("delivery_key").notNull(),
     payload: jsonb("payload").notNull(),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     lastErrorCode: text("last_error_code"),
+    lastError: text("last_error"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: text("locked_by"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
   },
@@ -166,6 +208,7 @@ export const notificationOutbox = pgTable(
       table.aggregateType,
       table.aggregateId,
     ),
+    uniqueIndex("notification_outbox_delivery_key_unique").on(table.deliveryKey),
     index("notification_outbox_delivery_idx").on(table.status, table.nextAttemptAt),
   ],
 );

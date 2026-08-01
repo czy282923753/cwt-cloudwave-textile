@@ -7,6 +7,9 @@ export type PublicAssetCandidate = Pick<
   | "status"
   | "scanStatus"
   | "deletedAt"
+  | "sourceDeclarationEnabled"
+  | "publicUsePermission"
+  | "declarationExpiryDate"
 >;
 
 export function isPublicAssetCandidate(
@@ -17,7 +20,9 @@ export function isPublicAssetCandidate(
     asset.access === "public" &&
     asset.status === "ready" &&
     asset.scanStatus === "passed" &&
-    asset.deletedAt === null
+    asset.deletedAt === null &&
+    (!asset.sourceDeclarationEnabled || asset.publicUsePermission !== "not_allowed") &&
+    (asset.declarationExpiryDate === null || asset.declarationExpiryDate.getTime() > Date.now())
   );
 }
 

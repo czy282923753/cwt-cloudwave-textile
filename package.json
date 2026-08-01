@@ -4,11 +4,13 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "engines": {
-    "node": ">=24.0.0 <25",
-    "pnpm": ">=11.9.0 <12"
+    "node": "24.14.0",
+    "pnpm": "11.9.0"
   },
   "scripts": {
     "dev": "next dev",
+    "env:check": "node scripts/check-runtime.mjs",
+    "env:diagnose": "node scripts/diagnose-environment.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
@@ -23,6 +25,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:fixtures": "tsx scripts/seed-fixtures.ts",
     "db:verify": "tsx scripts/verify-database.ts",
+    "db:validate:postgres": "tsx scripts/verify-postgres-round2.ts",
+    "assets:rescan-legacy": "tsx scripts/rescan-legacy-assets.ts",
     "retention:preview": "tsx scripts/enforce-retention.ts",
     "retention:execute": "tsx scripts/enforce-retention.ts --execute",
     "outbox:process": "tsx scripts/process-notification-outbox.ts",

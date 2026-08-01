@@ -40,7 +40,7 @@ export default async function AdminAssetsPage() {
             asset.sourceDeclarationEnabled ? "Enabled" : "Off",
           ])}
         />
-        {hasPermission(user.role, "assets.write") ? <AssetUploadForm associations={associations} canReviewDeclaration={hasPermission(user.role, "assets.declaration.review")} /> : <p className="rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-300">You have review-only Asset access. Open an Asset to review an enabled declaration.</p>}
+        {hasPermission(user.role, "assets.write") ? <AssetUploadForm associations={associations} /> : <p className="rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-300">You have review-only Asset access. Open an Asset to review an enabled declaration.</p>}
       </div>
     </main>
   );

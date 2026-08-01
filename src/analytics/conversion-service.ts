@@ -7,6 +7,7 @@ import {
   conversionEvents,
   fabricLibraryEntries,
   products,
+  routes,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { normalizePath } from "@/seo/path";
@@ -35,6 +36,66 @@ const emailLike = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/;
 const phoneLike = /(?:\+?\d[\d\s().-]{6,}\d)/;
 const urlLike = /(?:https?:\/\/|\/api\/(?:storage|inquiry-assets)\/)/i;
 const uuidLike = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
+const fileLike = /(?:^|[\/\\])[^/\\]+\.(?:jpe?g|png|webp|avif|pdf|docx?|xlsx?|zip)(?:$|[?#])/i;
+
+function containsCustomerOrPrivateData(value: string): boolean {
+  return (
+    emailLike.test(value) ||
+    phoneLike.test(value) ||
+    uuidLike.test(value) ||
+    /\/api\/(?:storage|inquiry-assets)\//i.test(value) ||
+    fileLike.test(value)
+  );
+}
+
+function optionalToken(
+  label: string,
+  value: string | null | undefined,
+  maximum: number,
+): string | null {
+  const normalized = value?.trim() || null;
+  if (!normalized) return null;
+  if (normalized.length > maximum) throw new Error(`${label} is too long.`);
+  if (!/^[a-z0-9][a-z0-9 ._:-]*$/i.test(normalized)) {
+    throw new Error(`${label} contains unsupported characters.`);
+  }
+  if (containsCustomerOrPrivateData(normalized)) {
+    throw new Error(`${label} appears to contain customer or private data.`);
+  }
+  return normalized;
+}
+
+function optionalPath(label: string, value: string | null | undefined): string | null {
+  if (!value?.trim()) return null;
+  if (value.length > 500 || /[?#]/.test(value) || containsCustomerOrPrivateData(value)) {
+    throw new Error(`${label} is not a safe public path.`);
+  }
+  return normalizePath(value);
+}
+
+function optionalReferrer(value: string | null | undefined): string | null {
+  if (!value?.trim()) return null;
+  if (value.length > 200 || containsCustomerOrPrivateData(value)) {
+    throw new Error("Referrer is not privacy safe.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Referrer must be an absolute HTTP origin.");
+  }
+  if (
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname !== "/"
+  ) {
+    throw new Error("Referrer must contain only an HTTP origin.");
+  }
+  return parsed.origin;
+}
 
 export function assertAllowedEventProperties(
   eventName: EventName,
@@ -93,6 +154,7 @@ export interface ConversionInput {
   consentState: typeof conversionEvents.$inferInsert.consentState;
   entityType?: PublicEntityType | null;
   entityId?: string | null;
+  entityPath?: string | null;
   inquiryId?: string | null;
   landingPagePath?: string | null;
   submitSourcePagePath?: string | null;
@@ -112,28 +174,62 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
   db: AppDatabase<TQueryResult>,
   input: ConversionInput,
 ): Promise<string | null> {
-  if (input.consentState === "denied") return null;
+  if (input.consentState !== "granted") return null;
   const safeProperties = input.safeProperties ?? {};
   assertAllowedEventProperties(input.eventName, safeProperties);
   const eventId = input.eventId.trim();
-  if (!eventId || eventId.length > 200) throw new Error("Event ID is invalid.");
-  if (Boolean(input.entityType) !== Boolean(input.entityId)) {
-    throw new Error("Analytics entity type and ID must be provided together.");
+  if (
+    !eventId ||
+    eventId.length > 128 ||
+    !/^[a-z0-9:_-]+$/i.test(eventId) ||
+    emailLike.test(eventId) ||
+    phoneLike.test(eventId) ||
+    uuidLike.test(eventId)
+  ) {
+    throw new Error("Event ID is invalid.");
   }
-  if (input.entityType && input.entityId) {
+  if (!/^[0-9a-f-]{36}$/i.test(input.anonymousSessionId)) {
+    throw new Error("Anonymous Session ID is invalid.");
+  }
+  if (
+    Boolean(input.entityType) !== Boolean(input.entityId || input.entityPath) ||
+    Boolean(input.entityId && input.entityPath)
+  ) {
+    throw new Error("Analytics entity type requires exactly one server ID or public path.");
+  }
+  let resolvedEntityId = input.entityId ?? null;
+  if (input.entityType && input.entityPath) {
+    const entityPath = optionalPath("Entity Path", input.entityPath);
+    const routeRows = await db
+      .select({ entityId: routes.entityId })
+      .from(routes)
+      .where(
+        and(
+          eq(routes.path, entityPath ?? "/"),
+          eq(routes.entityType, input.entityType),
+          eq(routes.isCurrent, true),
+        ),
+      )
+      .limit(1);
+    resolvedEntityId = routeRows[0]?.entityId ?? null;
+    if (!resolvedEntityId) {
+      throw new Error("Analytics entity path must resolve to a current public route.");
+    }
+  }
+  if (input.entityType && resolvedEntityId) {
     const entityRows =
       input.entityType === "product"
         ? await db
             .select({ id: products.id })
             .from(products)
-            .where(and(eq(products.id, input.entityId), eq(products.status, "published")))
+            .where(and(eq(products.id, resolvedEntityId), eq(products.status, "published")))
             .limit(1)
         : input.entityType === "application"
           ? await db
               .select({ id: applications.id })
               .from(applications)
               .where(
-                and(eq(applications.id, input.entityId), eq(applications.status, "published")),
+                and(eq(applications.id, resolvedEntityId), eq(applications.status, "published")),
               )
               .limit(1)
           : input.entityType === "fabric_entry"
@@ -142,7 +238,7 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
                 .from(fabricLibraryEntries)
                 .where(
                   and(
-                    eq(fabricLibraryEntries.id, input.entityId),
+                    eq(fabricLibraryEntries.id, resolvedEntityId),
                     eq(fabricLibraryEntries.status, "published"),
                   ),
                 )
@@ -150,7 +246,7 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
             : await db
                 .select({ id: contents.id })
                 .from(contents)
-                .where(and(eq(contents.id, input.entityId), eq(contents.status, "published")))
+                .where(and(eq(contents.id, resolvedEntityId), eq(contents.status, "published")))
                 .limit(1);
     if (!entityRows[0]) throw new Error("Analytics entity must be currently published.");
   }
@@ -160,35 +256,59 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
       eventId,
       eventName: input.eventName,
       anonymousSessionId: input.anonymousSessionId,
-      routePath: normalizePath(input.routePath),
+      routePath: optionalPath("Route Path", input.routePath) ?? "/",
       consentState: input.consentState,
       entityType: truncate(input.entityType, 50),
-      entityId: input.entityId ?? null,
+      entityId: resolvedEntityId,
       inquiryId: input.inquiryId ?? null,
-      landingPagePath: input.landingPagePath
-        ? normalizePath(input.landingPagePath)
-        : null,
-      submitSourcePagePath: input.submitSourcePagePath
-        ? normalizePath(input.submitSourcePagePath)
-        : null,
-      referrerOrigin: truncate(input.referrerOrigin),
-      utmSource: truncate(input.utmSource, 100),
-      utmMedium: truncate(input.utmMedium, 100),
-      utmCampaign: truncate(input.utmCampaign, 100),
-      lastNonDirectSource: truncate(input.lastNonDirectSource, 200),
-      lastNonDirectMedium: truncate(input.lastNonDirectMedium, 100),
-      lastNonDirectCampaign: truncate(input.lastNonDirectCampaign, 100),
+      landingPagePath: optionalPath("Landing Page", input.landingPagePath),
+      submitSourcePagePath: optionalPath("Submit Source", input.submitSourcePagePath),
+      referrerOrigin: optionalReferrer(input.referrerOrigin),
+      utmSource: optionalToken("UTM Source", input.utmSource, 100),
+      utmMedium: optionalToken("UTM Medium", input.utmMedium, 100),
+      utmCampaign: optionalToken("UTM Campaign", input.utmCampaign, 100),
+      lastNonDirectSource: input.lastNonDirectSource?.startsWith("http")
+        ? optionalReferrer(input.lastNonDirectSource)
+        : optionalToken("Last Non-Direct Source", input.lastNonDirectSource, 200),
+      lastNonDirectMedium: optionalToken(
+        "Last Non-Direct Medium",
+        input.lastNonDirectMedium,
+        100,
+      ),
+      lastNonDirectCampaign: optionalToken(
+        "Last Non-Direct Campaign",
+        input.lastNonDirectCampaign,
+        100,
+      ),
       attributionConfidence: input.attributionConfidence ?? "unavailable",
-      countryCode: truncate(input.countryCode, 2),
+      countryCode: input.countryCode
+        ? /^[A-Z]{2}$/.test(input.countryCode)
+          ? input.countryCode
+          : (() => { throw new Error("Country Code is invalid."); })()
+        : null,
       safeProperties,
     })
     .onConflictDoNothing({ target: conversionEvents.eventId })
     .returning({ id: conversionEvents.id });
   if (rows[0]?.id) return rows[0].id;
   const existing = await db
-    .select({ id: conversionEvents.id })
+    .select({
+      id: conversionEvents.id,
+      eventName: conversionEvents.eventName,
+      sessionId: conversionEvents.anonymousSessionId,
+      routePath: conversionEvents.routePath,
+    })
     .from(conversionEvents)
     .where(eq(conversionEvents.eventId, eventId))
     .limit(1);
-  return existing[0]?.id ?? null;
+  const replay = existing[0];
+  if (
+    replay &&
+    (replay.eventName !== input.eventName ||
+      replay.sessionId !== input.anonymousSessionId ||
+      replay.routePath !== (optionalPath("Route Path", input.routePath) ?? "/"))
+  ) {
+    throw new Error("Event ID replay payload does not match the original event.");
+  }
+  return replay?.id ?? null;
 }

@@ -20,5 +20,6 @@ export interface ObjectStorage {
     objectKey: string,
     expiresInSeconds: number,
   ): Promise<string>;
-  createPublicUrl(objectKey: string): string;
+  /** Returns the application-controlled media route, never a raw object URL. */
+  createPublicUrl(assetId: string): string;
 }

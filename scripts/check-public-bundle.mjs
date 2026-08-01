@@ -1,7 +1,8 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
-const serverAppRoot = ".next/server/app";
+const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
+const serverAppRoot = join(buildRoot, "server/app");
 const forbidden = ["@refinedev", "/src/admin/", "RefineAdminProvider"];
 
 async function filesUnder(directory) {
@@ -14,6 +15,43 @@ async function filesUnder(directory) {
   }
   return files;
 }
+
+async function assertFreshBuild() {
+  const buildIdPath = join(buildRoot, "BUILD_ID");
+  let buildIdStat;
+  try {
+    const buildId = (await readFile(buildIdPath, "utf8")).trim();
+    if (!buildId) throw new Error("BUILD_ID is empty");
+    buildIdStat = await stat(buildIdPath);
+  } catch {
+    throw new Error(
+      `Public bundle check requires a fresh production build; ${buildIdPath} is missing or invalid. Run pnpm build first.`,
+    );
+  }
+  const inputRoots = ["src", "scripts", "package.json", "pnpm-lock.yaml", "next.config.ts"];
+  const inputFiles = [];
+  for (const input of inputRoots) {
+    const details = await stat(input);
+    if (details.isDirectory()) inputFiles.push(...(await filesUnder(input)));
+    else inputFiles.push(input);
+  }
+  let newest = 0;
+  let newestPath = "";
+  for (const input of inputFiles) {
+    const details = await stat(input);
+    if (details.mtimeMs > newest) {
+      newest = details.mtimeMs;
+      newestPath = input;
+    }
+  }
+  if (newest > buildIdStat.mtimeMs) {
+    throw new Error(
+      `Public bundle check refused a stale build: ${newestPath} is newer than ${buildIdPath}. Run pnpm build again.`,
+    );
+  }
+}
+
+await assertFreshBuild();
 
 const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
   const name = relative(serverAppRoot, path).replaceAll("\\", "/");
@@ -38,7 +76,7 @@ for (const manifestPath of manifests) {
   }
   const chunkPaths = manifest.match(/static\/chunks\/[^"'\\]+\.js/g) ?? [];
   for (const chunkPath of chunkPaths) {
-    const localPath = join(".next", chunkPath);
+    const localPath = join(buildRoot, chunkPath);
     if (checked.has(localPath)) continue;
     checked.add(localPath);
     const chunk = await readFile(localPath, "utf8");

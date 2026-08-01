@@ -13,14 +13,15 @@ export interface InquiryNotification {
 }
 
 export interface EmailNotifier {
-  notifyInquiry(input: InquiryNotification): Promise<void>;
+  notifyInquiry(input: InquiryNotification, deliveryKey?: string): Promise<void>;
 }
 
 class DevelopmentEmailNotifier implements EmailNotifier {
-  async notifyInquiry(input: InquiryNotification): Promise<void> {
+  async notifyInquiry(input: InquiryNotification, deliveryKey?: string): Promise<void> {
     process.stdout.write(
       `[development-email] inquiry ${input.inquiryId} notification captured; PII omitted from log.\n`,
     );
+    void deliveryKey;
   }
 }
 
@@ -34,7 +35,7 @@ class SmtpEmailNotifier implements EmailNotifier {
       : {}),
   });
 
-  async notifyInquiry(input: InquiryNotification): Promise<void> {
+  async notifyInquiry(input: InquiryNotification, deliveryKey?: string): Promise<void> {
     if (!env.EMAIL_FROM || !env.INQUIRY_NOTIFICATION_TO) {
       throw new Error("Production inquiry notification addresses are missing.");
     }
@@ -53,6 +54,9 @@ class SmtpEmailNotifier implements EmailNotifier {
       to: env.INQUIRY_NOTIFICATION_TO,
       subject: `New CWT inquiry ${input.inquiryId}`,
       text: lines.join("\n"),
+      ...(deliveryKey
+        ? { messageId: `<${deliveryKey.replace(/[^a-z0-9.-]/gi, "-")}@cwt.invalid>` }
+        : {}),
     });
   }
 }

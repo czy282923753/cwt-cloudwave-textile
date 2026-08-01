@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { and, asc, count, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
@@ -12,6 +13,7 @@ import {
   inquiryAssets,
   inquiryStatusHistory,
   notificationOutbox,
+  uploadIntents,
   users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
@@ -37,6 +39,10 @@ const statusTransitions: Readonly<Record<InquiryStatus, ReadonlySet<InquiryStatu
 
 export function normalizeContactEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+export function createPublicInquiryReference(): string {
+  return `CWT-${randomBytes(10).toString("hex").toUpperCase()}`;
 }
 
 export function assertInquiryStatusTransition(
@@ -79,6 +85,7 @@ export interface CreateInquiryInput {
   sessionId?: string | null;
   requestId?: string | null;
   idempotencyKey: string;
+  reservedUploadIntentIds?: readonly string[];
 }
 
 export async function findInquiryByIdempotencyKey<
@@ -92,6 +99,20 @@ export async function findInquiryByIdempotencyKey<
   return rows[0]?.id ?? null;
 }
 
+export async function findInquiryReferenceByIdempotencyKey<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  idempotencyKey: string,
+): Promise<{ id: string; publicReference: string } | null> {
+  const rows = await db
+    .select({ id: inquiries.id, publicReference: inquiries.publicReference })
+    .from(inquiries)
+    .where(eq(inquiries.idempotencyKey, idempotencyKey))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   notifier: EmailNotifier,
@@ -102,6 +123,7 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   const description = input.description?.trim() || null;
   const idempotencyKey = input.idempotencyKey.trim();
   const assetIds = [...new Set(input.assetIds)];
+  const reservedIntentIds = [...new Set(input.reservedUploadIntentIds ?? [])];
   if (!name || !email) throw new Error("Name and Email are required.");
   if (!idempotencyKey || idempotencyKey.length > 200) {
     throw new Error("A valid Idempotency Key is required.");
@@ -110,6 +132,9 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   if (existingInquiryId) return existingInquiryId;
   if (!description && assetIds.length === 0) {
     throw new Error("Provide a description or upload at least one image.");
+  }
+  if (reservedIntentIds.length > 0 && reservedIntentIds.length !== assetIds.length) {
+    throw new Error("Reserved Upload Tokens must exactly match Inquiry attachments.");
   }
   if (assetIds.length > 0) {
     const validAssets = await db
@@ -134,6 +159,25 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   let result: { inquiryId: string; contactId: string };
   try {
     result = await db.transaction(async (transaction) => {
+    if (reservedIntentIds.length > 0) {
+      const reservedRows = await transaction
+        .select({ id: uploadIntents.id, assetId: uploadIntents.assetId })
+        .from(uploadIntents)
+        .where(
+          and(
+            inArray(uploadIntents.id, reservedIntentIds),
+            eq(uploadIntents.status, "consumed"),
+            eq(uploadIntents.isConsumed, false),
+          ),
+        );
+      const expectedAssets = new Set(assetIds);
+      if (
+        reservedRows.length !== reservedIntentIds.length ||
+        reservedRows.some((row) => !row.assetId || !expectedAssets.has(row.assetId))
+      ) {
+        throw new Error("Reserved Upload Tokens do not match Inquiry attachments.");
+      }
+    }
     const insertedContacts = await transaction
       .insert(contacts)
       .values({
@@ -157,6 +201,7 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
     const inquiryRows = await transaction
       .insert(inquiries)
       .values({
+        publicReference: createPublicInquiryReference(),
         contactId,
         status: "new",
         description,
@@ -187,6 +232,27 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         assetIds.map((assetId) => ({ inquiryId, assetId })),
       );
     }
+    if (reservedIntentIds.length > 0) {
+      const finalized = await transaction
+        .update(uploadIntents)
+        .set({
+          isConsumed: true,
+          consumedByInquiryId: inquiryId,
+          usedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            inArray(uploadIntents.id, reservedIntentIds),
+            eq(uploadIntents.status, "consumed"),
+            eq(uploadIntents.isConsumed, false),
+          ),
+        )
+        .returning({ id: uploadIntents.id });
+      if (finalized.length !== reservedIntentIds.length) {
+        throw new Error("Reserved Upload Tokens could not be finalized atomically.");
+      }
+    }
     await transaction.insert(inquiryStatusHistory).values({
       inquiryId,
       fromStatus: null,
@@ -197,6 +263,7 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
       kind: "inquiry_notification",
       aggregateType: "inquiry",
       aggregateId: inquiryId,
+      deliveryKey: `inquiry_notification:${inquiryId}`,
       payload: {
         inquiryId,
         name,
@@ -223,6 +290,18 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   } catch (error) {
     const racedInquiryId = await findInquiryByIdempotencyKey(db, idempotencyKey);
     if (!racedInquiryId) throw error;
+    if (reservedIntentIds.length > 0) {
+      await db
+        .update(uploadIntents)
+        .set({ status: "passed", updatedAt: new Date() })
+        .where(
+          and(
+            inArray(uploadIntents.id, reservedIntentIds),
+            eq(uploadIntents.status, "consumed"),
+            eq(uploadIntents.isConsumed, false),
+          ),
+        );
+    }
     await deliverInquiryNotification(db, notifier, racedInquiryId);
     return racedInquiryId;
   }
@@ -243,6 +322,7 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
     .select({
       status: inquiries.status,
       contactId: inquiries.contactId,
+      publicReference: inquiries.publicReference,
       sessionId: inquiries.sessionId,
       sourcePagePath: inquiries.sourcePagePath,
       landingPagePath: inquiries.landingPagePath,
@@ -311,7 +391,7 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
             : null;
     if (conversionName && current.sessionId) {
       await recordConversionEvent(transaction, {
-        eventId: `${conversionName}:${inquiryId}:${toStatus}`,
+        eventId: `${conversionName}:${current.publicReference}:${toStatus}`,
         eventName: conversionName,
         anonymousSessionId: current.sessionId,
         routePath: current.sourcePagePath,
@@ -346,6 +426,7 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
   const inquiryRows = await db
     .select({
       contactId: inquiries.contactId,
+      publicReference: inquiries.publicReference,
       sessionId: inquiries.sessionId,
       sourcePagePath: inquiries.sourcePagePath,
       landingPagePath: inquiries.landingPagePath,
@@ -427,7 +508,7 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
           : null;
     if (conversionName && inquiry.sessionId) {
       await recordConversionEvent(transaction, {
-        eventId: `${conversionName}:${inquiryId}:${activityId}`,
+        eventId: `${conversionName}:${inquiry.publicReference}:${activityId.slice(0, 12)}`,
         eventName: conversionName,
         anonymousSessionId: inquiry.sessionId,
         routePath: inquiry.sourcePagePath,

@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { assets, authors, contentAssets, contents, users } from "@/db/schema";
@@ -147,14 +148,51 @@ describe("public Asset delivery boundary", () => {
       "boundary/quarantine.jpg",
       "boundary/draft.jpg",
     ]) {
-      await expect(findPublicAssetForDelivery(connection.db, key)).resolves.toBeNull();
+      await expect(findPublicAssetForDelivery(connection.db, idByKey.get(key)!)).resolves.toBeNull();
     }
     await expect(
-      findPublicAssetForDelivery(connection.db, "boundary/eligible.jpg"),
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
     ).resolves.toMatchObject({
       objectKey: "boundary/eligible.jpg",
       partition: "public",
     });
+    await connection.db
+      .update(assets)
+      .set({
+        sourceDeclarationEnabled: true,
+        publicUsePermission: "not_allowed",
+      })
+      .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toBeNull();
+    await connection.db
+      .update(assets)
+      .set({
+        sourceDeclarationEnabled: false,
+        publicUsePermission: null,
+      })
+      .where(eq(assets.id, idByKey.get("boundary/eligible.jpg")!));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toMatchObject({ objectKey: "boundary/eligible.jpg" });
+    await connection.db
+      .update(contents)
+      .set({ status: "archived" })
+      .where(eq(contents.id, publishedId));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toBeNull();
+    await connection.db
+      .update(contents)
+      .set({ status: "published" })
+      .where(eq(contents.id, publishedId));
+    await connection.db
+      .delete(contentAssets)
+      .where(eq(contentAssets.assetId, idByKey.get("boundary/eligible.jpg")!));
+    await expect(
+      findPublicAssetForDelivery(connection.db, idByKey.get("boundary/eligible.jpg")!),
+    ).resolves.toBeNull();
     await connection.close();
   });
 });

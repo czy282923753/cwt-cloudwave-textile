@@ -7,7 +7,13 @@ import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { createTestDatabase } from "@/test/database";
 
 import { DevelopmentFileScanner } from "./scanner";
-import { cleanupUnlinkedInquiryAssets, updateSourceDeclaration, uploadAsset } from "./service";
+import {
+  adminOverrideSourceDeclaration,
+  cleanupUnlinkedInquiryAssets,
+  reviewSourceDeclaration,
+  updateSourceDeclaration,
+  uploadAsset,
+} from "./service";
 
 async function testJpeg(): Promise<Buffer> {
   return sharp({
@@ -175,23 +181,24 @@ describe("secure asset upload", () => {
         uploadedByUserId: userId,
       },
     );
+    await updateSourceDeclaration(
+      connection.db,
+      assetId,
+      { userId, role: "product_editor" },
+      { enabled: true, rightsStatus: "claimed" },
+    );
     await expect(
-      updateSourceDeclaration(
+      reviewSourceDeclaration(
         connection.db,
         assetId,
-        { userId, role: "product_editor" },
-        {
-          enabled: true,
-          rightsStatus: "claimed",
-          declarationReviewerUserId: userId,
-          declarationReviewDate: new Date(),
-        },
+        { userId, role: "admin" },
+        "approved",
       ),
-    ).rejects.toThrow(/reviewer authority/);
+    ).rejects.toThrow(/last Source Declaration editor/);
     const rows = await connection.db.select().from(assets).where(eq(assets.id, assetId));
     expect(rows[0]).toMatchObject({
-      sourceDeclarationEnabled: false,
-      rightsStatus: null,
+      sourceDeclarationEnabled: true,
+      rightsStatus: "claimed",
       declarationReviewerUserId: null,
       declarationReviewDate: null,
     });
@@ -228,16 +235,11 @@ describe("secure asset upload", () => {
         rightsStatus: "reviewed",
       },
     );
-    const reviewedAt = new Date();
-    await updateSourceDeclaration(
+    await reviewSourceDeclaration(
       connection.db,
       assetId,
       { userId: reviewerId, role: "reviewer_publisher" },
-      {
-        enabled: true,
-        declarationReviewerUserId: reviewerId,
-        declarationReviewDate: reviewedAt,
-      },
+      "approved",
     );
     await updateSourceDeclaration(
       connection.db,
@@ -250,7 +252,35 @@ describe("secure asset upload", () => {
       rightsStatus: "changed-by-editor",
       declarationReviewerUserId: null,
       declarationReviewDate: null,
+      declarationReviewDecision: null,
     });
+    await connection.close();
+  });
+
+  it("records an explicit Admin Override with a mandatory reason", async () => {
+    const connection = await createTestDatabase();
+    const usersCreated = await connection.db.insert(users).values({
+      email: "override-admin@example.test",
+      displayName: "Override Admin",
+      role: "admin",
+      passwordHash: "test",
+    }).returning({ id: users.id });
+    const adminId = usersCreated[0]!.id;
+    const assetId = await uploadAsset(connection.db, new InMemoryObjectStorage(), new DevelopmentFileScanner(), {
+      fileName: "override.jpg",
+      declaredMimeType: "image/jpeg",
+      bytes: await testJpeg(),
+      category: "product",
+      purpose: "public_asset",
+      uploadedByUserId: adminId,
+    });
+    await updateSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, { enabled: true, rightsStatus: "restricted" });
+    await expect(adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "")).rejects.toThrow(/reason/);
+    await adminOverrideSourceDeclaration(connection.db, assetId, { userId: adminId, role: "admin" }, "Urgent verified exception for test.");
+    const rows = await connection.db.select().from(assets).where(eq(assets.id, assetId));
+    expect(rows[0]).toMatchObject({ declarationReviewDecision: "admin_override", declarationReviewerUserId: adminId });
+    const audits = await connection.db.select().from(auditLogs).where(eq(auditLogs.entityId, assetId));
+    expect(audits.some((row) => row.action === "asset.source_declaration.admin_override")).toBe(true);
     await connection.close();
   });
 

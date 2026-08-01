@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, ne, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
@@ -49,12 +49,12 @@ export async function getVerifiedPublicCompanyFacts() {
     : listVerifiedPublicCompanyFacts(databaseConnection.db);
 }
 
-async function assetUrl(partition: string, objectKey: string): Promise<string> {
+async function assetUrl(partition: string, assetId: string): Promise<string> {
   if (partition !== "public") {
     throw new Error("Public pages cannot create non-public Asset URLs.");
   }
   const storage = createObjectStorage();
-  return storage.createPublicUrl(objectKey);
+  return storage.createPublicUrl(assetId);
 }
 
 async function toPublicAsset(row: {
@@ -65,6 +65,9 @@ async function toPublicAsset(row: {
   status: typeof assets.$inferSelect.status;
   scanStatus: typeof assets.$inferSelect.scanStatus;
   deletedAt: Date | null;
+  sourceDeclarationEnabled: boolean;
+  publicUsePermission: typeof assets.$inferSelect.publicUsePermission;
+  declarationExpiryDate: Date | null;
   altText: string | null;
   width: number | null;
   height: number | null;
@@ -72,7 +75,7 @@ async function toPublicAsset(row: {
   assertPublicAssetCandidate(row);
   return {
     id: row.id,
-    url: await assetUrl(row.storagePartition, row.objectKey),
+    url: await assetUrl(row.storagePartition, row.id),
     alt: row.altText ?? "",
     width: row.width,
     height: row.height,
@@ -97,6 +100,9 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
       assetStatus: assets.status,
       assetScanStatus: assets.scanStatus,
       assetDeletedAt: assets.deletedAt,
+      assetSourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      assetPublicUsePermission: assets.publicUsePermission,
+      assetDeclarationExpiryDate: assets.declarationExpiryDate,
       altText: assets.altText,
       width: assets.width,
       height: assets.height,
@@ -131,6 +137,8 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
         eq(assets.status, "ready"),
         eq(assets.scanStatus, "passed"),
         isNull(assets.deletedAt),
+        or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
+        or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
       ),
     )
     .where(eq(products.status, "published"))
@@ -158,6 +166,9 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
               status: row.assetStatus,
               scanStatus: row.assetScanStatus,
               deletedAt: row.assetDeletedAt,
+              sourceDeclarationEnabled: row.assetSourceDeclarationEnabled ?? false,
+              publicUsePermission: row.assetPublicUsePermission,
+              declarationExpiryDate: row.assetDeclarationExpiryDate,
               altText: row.altText,
               width: row.width,
               height: row.height,
@@ -234,6 +245,9 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
           status: assets.status,
           scanStatus: assets.scanStatus,
           deletedAt: assets.deletedAt,
+          sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+          publicUsePermission: assets.publicUsePermission,
+          declarationExpiryDate: assets.declarationExpiryDate,
           altText: assets.altText,
           width: assets.width,
           height: assets.height,
@@ -248,6 +262,8 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
             eq(assets.storagePartition, "public"),
             eq(assets.scanStatus, "passed"),
             isNull(assets.deletedAt),
+            or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
+            or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
           ),
         )
         .orderBy(asc(productAssets.sortOrder)),
@@ -466,6 +482,9 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
       assetStatus: assets.status,
       assetScanStatus: assets.scanStatus,
       assetDeletedAt: assets.deletedAt,
+      assetSourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      assetPublicUsePermission: assets.publicUsePermission,
+      assetDeclarationExpiryDate: assets.declarationExpiryDate,
       altText: assets.altText,
       width: assets.width,
       height: assets.height,
@@ -506,6 +525,8 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
         eq(assets.status, "ready"),
         eq(assets.scanStatus, "passed"),
         isNull(assets.deletedAt),
+        or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
+        or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
       ),
     )
     .where(eq(fabricLibraryEntries.status, "published"));
@@ -527,6 +548,9 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
               status: row.assetStatus,
               scanStatus: row.assetScanStatus,
               deletedAt: row.assetDeletedAt,
+              sourceDeclarationEnabled: row.assetSourceDeclarationEnabled ?? false,
+              publicUsePermission: row.assetPublicUsePermission,
+              declarationExpiryDate: row.assetDeclarationExpiryDate,
               altText: row.altText,
               width: row.width,
               height: row.height,
@@ -626,6 +650,9 @@ export async function getPublishedContentByPath(path: string) {
         status: assets.status,
         scanStatus: assets.scanStatus,
         deletedAt: assets.deletedAt,
+        sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+        publicUsePermission: assets.publicUsePermission,
+        declarationExpiryDate: assets.declarationExpiryDate,
         altText: assets.altText,
         width: assets.width,
         height: assets.height,
@@ -640,6 +667,8 @@ export async function getPublishedContentByPath(path: string) {
           eq(assets.status, "ready"),
           eq(assets.scanStatus, "passed"),
           isNull(assets.deletedAt),
+          or(eq(assets.sourceDeclarationEnabled, false), isNull(assets.publicUsePermission), ne(assets.publicUsePermission, "not_allowed")),
+          or(isNull(assets.declarationExpiryDate), gt(assets.declarationExpiryDate, new Date())),
         ),
       )
       .where(eq(contentAssets.contentId, content.id))

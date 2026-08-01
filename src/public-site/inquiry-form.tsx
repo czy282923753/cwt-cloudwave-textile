@@ -22,24 +22,81 @@ export function InquiryForm({
     setState({ kind: "submitting" });
     const attribution = captureAttribution();
     idempotencyKey.current ??= crypto.randomUUID();
-    formData.set("idempotencyKey", idempotencyKey.current);
-    formData.set("sourcePagePath", pathname);
-    formData.set("landingPagePath", attribution.landingPagePath);
-    formData.set("referrer", attribution.referrerOrigin);
-    formData.set("utmSource", attribution.utmSource);
-    formData.set("utmMedium", attribution.utmMedium);
-    formData.set("utmCampaign", attribution.utmCampaign);
-    formData.set("lastNonDirectSource", attribution.lastNonDirectSource);
-    formData.set("lastNonDirectMedium", attribution.lastNonDirectMedium);
-    formData.set("lastNonDirectCampaign", attribution.lastNonDirectCampaign);
-    formData.set("attributionConfidence", attribution.attributionConfidence);
-    formData.set("analyticsConsentState", attribution.consentState);
-    formData.set("sessionId", attribution.anonymousSessionId);
     try {
+      const files = formData
+        .getAll("images")
+        .filter((value): value is File => value instanceof File && value.size > 0);
+      const uploadTokens: string[] = [];
+      for (const file of files) {
+        const intentResponse = await fetch("/api/upload-intents/", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-cwt-upload-session": attribution.anonymousSessionId,
+          },
+          body: JSON.stringify({
+            anonymousSessionId: attribution.anonymousSessionId,
+            fileName: file.name,
+            declaredMimeType: file.type,
+            declaredByteSize: file.size,
+          }),
+        });
+        const intent = (await intentResponse.json()) as {
+          ok?: boolean;
+          token?: string;
+          uploadUrl?: string;
+          error?: string;
+        };
+        if (!intentResponse.ok || intent.ok !== true || !intent.token || !intent.uploadUrl) {
+          throw new Error(intent.error ?? "Image upload could not be prepared.");
+        }
+        const uploadResponse = await fetch(intent.uploadUrl, {
+          method: "PUT",
+          headers: {
+            "content-type": file.type,
+            "x-cwt-upload-session": attribution.anonymousSessionId,
+          },
+          body: file,
+        });
+        if (!uploadResponse.ok) {
+          const uploadResult = (await uploadResponse.json()) as { error?: string };
+          throw new Error(uploadResult.error ?? "Image upload failed.");
+        }
+        uploadTokens.push(intent.token);
+      }
+      const stringField = (name: string): string => {
+        const value = formData.get(name);
+        return typeof value === "string" ? value : "";
+      };
       const response = await fetch("/api/inquiries/", {
         method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey.current },
-        body: formData,
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": idempotencyKey.current,
+          "x-cwt-upload-session": attribution.anonymousSessionId,
+        },
+        body: JSON.stringify({
+          name: stringField("name"),
+          email: stringField("email"),
+          countryCode: stringField("countryCode") || null,
+          whatsapp: stringField("whatsapp") || null,
+          description: stringField("description") || null,
+          uploadTokens,
+          sourcePagePath: pathname,
+          landingPagePath: attribution.landingPagePath || null,
+          referrer: attribution.referrerOrigin || null,
+          utmSource: attribution.utmSource || null,
+          utmMedium: attribution.utmMedium || null,
+          utmCampaign: attribution.utmCampaign || null,
+          lastNonDirectSource: attribution.lastNonDirectSource || null,
+          lastNonDirectMedium: attribution.lastNonDirectMedium || null,
+          lastNonDirectCampaign: attribution.lastNonDirectCampaign || null,
+          attributionConfidence: attribution.attributionConfidence,
+          analyticsConsentState: attribution.consentState,
+          anonymousSessionId: attribution.anonymousSessionId,
+          idempotencyKey: idempotencyKey.current,
+          website: stringField("website") || null,
+        }),
       });
       const result = (await response.json()) as unknown;
       if (

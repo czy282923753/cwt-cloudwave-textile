@@ -51,18 +51,27 @@ export async function findPublicAssetForDelivery<
   TQueryResult extends PgQueryResultHKT,
 >(
   db: AppDatabase<TQueryResult>,
-  objectKey: string,
-): Promise<{ id: string; objectKey: string; partition: "public" } | null> {
+  assetId: string,
+): Promise<{
+  id: string;
+  objectKey: string;
+  partition: "public";
+  detectedMimeType: string;
+} | null> {
   const rows = await db
     .select({
       id: assets.id,
       objectKey: assets.objectKey,
       partition: assets.storagePartition,
+      detectedMimeType: assets.detectedMimeType,
+      sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      publicUsePermission: assets.publicUsePermission,
+      declarationExpiryDate: assets.declarationExpiryDate,
     })
     .from(assets)
     .where(
       and(
-        eq(assets.objectKey, objectKey),
+        eq(assets.id, assetId),
         eq(assets.storagePartition, "public"),
         eq(assets.access, "public"),
         eq(assets.status, "ready"),
@@ -73,6 +82,20 @@ export async function findPublicAssetForDelivery<
     .limit(1);
   const asset = rows[0];
   if (!asset || asset.partition !== "public") return null;
+  if (!asset.detectedMimeType?.startsWith("image/")) return null;
+  if (
+    asset.sourceDeclarationEnabled &&
+    (asset.publicUsePermission === "not_allowed" ||
+      (asset.declarationExpiryDate !== null &&
+        asset.declarationExpiryDate.getTime() <= Date.now()))
+  ) {
+    return null;
+  }
   if (!(await hasPublishedEntityRelation(db, asset.id))) return null;
-  return { id: asset.id, objectKey: asset.objectKey, partition: "public" };
+  return {
+    id: asset.id,
+    objectKey: asset.objectKey,
+    partition: "public",
+    detectedMimeType: asset.detectedMimeType,
+  };
 }

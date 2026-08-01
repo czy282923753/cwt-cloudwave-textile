@@ -11,8 +11,8 @@ export class InMemoryObjectStorage implements ObjectStorage {
     return `${partition}:${objectKey}`;
   }
 
-  createPublicUrl(objectKey: string): string {
-    return `memory://public/${objectKey}`;
+  createPublicUrl(assetId: string): string {
+    return `/api/public-assets/${encodeURIComponent(assetId)}/`;
   }
 
   async put(

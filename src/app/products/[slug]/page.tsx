@@ -27,6 +27,13 @@ export async function generateMetadata({
     description: product.metaDescription ?? product.shortDescription ?? undefined,
     alternates: { canonical: product.canonicalPath ?? product.path },
     robots: { index: indexAllowed, follow: indexAllowed },
+    openGraph: {
+      type: "website",
+      title: product.seoTitle ?? product.name,
+      description: product.metaDescription ?? product.shortDescription ?? undefined,
+      url: product.canonicalPath ?? product.path,
+      images: product.images[0]?.url ? [{ url: product.images[0].url }] : undefined,
+    },
   };
 }
 
@@ -87,7 +94,7 @@ export default async function ProductPage({
   };
   return (
     <PublicShell>
-      <ProductViewTracker path={product.path} productId={product.id} />
+      <ProductViewTracker path={product.path} />
       <main>
         <div className="site-container py-6 text-sm text-stone-500"><Link href="/products/">Products</Link><span className="mx-2">/</span><span>{product.name}</span></div>
         <section className="site-container grid gap-10 pb-20 pt-4 lg:grid-cols-[1.05fr_.95fr]">

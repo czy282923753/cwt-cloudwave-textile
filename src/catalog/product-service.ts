@@ -47,6 +47,13 @@ export interface CreateProductDraftInput {
   requestedSlug?: string;
 }
 
+export const eligibleProductImageMimeTypes = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+] as const;
+
 const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("editorial_copy"),
@@ -180,6 +187,7 @@ async function assertDraftAssets<TQueryResult extends PgQueryResultHKT>(
         eq(assets.access, "public"),
         eq(assets.storagePartition, "public"),
         eq(assets.scanStatus, "passed"),
+        inArray(assets.detectedMimeType, eligibleProductImageMimeTypes),
         isNull(assets.deletedAt),
       ),
     );
@@ -938,7 +946,16 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
   productId: string,
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
-  const [localizations, imageCount] = await Promise.all([
+  const [productRows, localizations, imageCount] = await Promise.all([
+    db
+      .select({
+        realProductBasis: products.realProductBasis,
+        confirmedBy: products.realProductConfirmedByUserId,
+        confirmedAt: products.realProductConfirmedAt,
+      })
+      .from(products)
+      .where(eq(products.id, productId))
+      .limit(1),
     db
       .select({ name: productLocalizations.name })
       .from(productLocalizations)
@@ -960,11 +977,19 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
           eq(assets.access, "public"),
           eq(assets.storagePartition, "public"),
           eq(assets.scanStatus, "passed"),
+          inArray(assets.detectedMimeType, eligibleProductImageMimeTypes),
           isNull(assets.deletedAt),
         ),
       ),
   ]);
-  if (!localizations[0]?.name.trim() || Number(imageCount[0]?.count ?? 0) < 1) {
+  const product = productRows[0];
+  if (
+    !product?.realProductBasis ||
+    !product.confirmedBy ||
+    !product.confirmedAt ||
+    !localizations[0]?.name.trim() ||
+    Number(imageCount[0]?.count ?? 0) < 1
+  ) {
     throw new ProductValidationError("Product publication requirements are incomplete.");
   }
   const updated = await db

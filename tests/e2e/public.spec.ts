@@ -3,6 +3,14 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const fixtureProductPath = "/products/test-fixture-fabric-01/";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (window.sessionStorage.getItem("cwt_e2e_verify_unset_consent") !== "true") {
+      window.localStorage.setItem("cwt_analytics_consent", "denied");
+    }
+  });
+});
+
 async function loginAsLocalAdmin(page: Page) {
   await page.goto("/operations-login/");
   await page.getByLabel("Email", { exact: true }).fill("admin@example.test");
@@ -97,8 +105,48 @@ test("@all fixture Product renders governed metadata, schema, and no empty speci
   const schemaText = await page.locator('script[type="application/ld+json"]').textContent();
   expect(schemaText).toContain('"Product"');
   expect(schemaText).toContain('"BreadcrumbList"');
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /TEST FIXTURE/);
+  const image = page.locator("img").first();
+  await expect(image).toHaveAttribute("src", /^\/api\/public-assets\/[0-9a-f-]{36}\/$/i);
+  const imagePath = await image.getAttribute("src");
+  if (!imagePath) throw new Error("Fixture Product image is missing its governed media path.");
+  const imageResponse = await page.request.get(imagePath);
+  expect(imageResponse.status()).toBe(200);
+  expect(imageResponse.headers()["cache-control"]).toContain("no-store");
+  const publicHtml = await response!.text();
+  expect(publicHtml).not.toMatch(/amazonaws\.com|r2\.cloudflarestorage\.com|\.storage\/public|object_key/i);
   await expect(page.getByText("Product Code", { exact: true })).toHaveCount(0);
   await expect(page.getByText("MOQ", { exact: true })).toHaveCount(0);
+});
+
+test("@desktop dynamic Application, taxonomy, and Fabric Library pages expose OG and Breadcrumb metadata", async ({ page }) => {
+  for (const path of [
+    "/applications/test-fixture-sportswear/",
+    "/fabric-types/fixture-polyester/",
+    "/fabric-library/test-fixture-entry/",
+  ]) {
+    const response = await page.goto(path);
+    expect(response?.status(), `${path} should be available`).toBe(200);
+    await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", /TEST FIXTURE/);
+    const schemas = await page.locator('script[type="application/ld+json"]').allTextContents();
+    expect(schemas.join("\n")).toContain('"BreadcrumbList"');
+  }
+});
+
+test("@desktop analytics consent defaults off and can be granted then withdrawn", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    window.sessionStorage.setItem("cwt_e2e_verify_unset_consent", "true");
+    window.localStorage.removeItem("cwt_analytics_consent");
+  });
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: "Analytics privacy choices" })).toBeVisible();
+  expect(await page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBeNull();
+  await page.getByRole("button", { name: "Allow analytics" }).click();
+  expect(await page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBe("granted");
+  await page.getByRole("button", { name: "Privacy choices" }).click();
+  await page.getByRole("button", { name: "Withdraw consent" }).click();
+  expect(await page.evaluate(() => window.localStorage.getItem("cwt_analytics_consent"))).toBe("denied");
 });
 
 test("@mobile mobile viewport uses the compact header and fixed inquiry action", async ({

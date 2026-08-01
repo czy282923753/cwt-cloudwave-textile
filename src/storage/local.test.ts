@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LocalObjectStorage, verifyLocalReadGrant } from "./local";
+import { S3ObjectStorage } from "./s3";
 import { assertSafeObjectKey } from "./safe-key";
 
 describe("local object access grants", () => {
@@ -26,5 +27,15 @@ describe("local object access grants", () => {
   it("rejects traversal and absolute object keys", () => {
     expect(() => assertSafeObjectKey("../private/customer.jpg")).toThrow();
     expect(() => assertSafeObjectKey("/absolute/customer.jpg")).toThrow();
+  });
+
+  it("uses the same revocable application media route for local and S3", () => {
+    const assetId = "11111111-1111-4111-8111-111111111111";
+    for (const storage of [new LocalObjectStorage(), new S3ObjectStorage()]) {
+      const url = storage.createPublicUrl(assetId);
+      expect(url).toBe(`/api/public-assets/${assetId}/`);
+      expect(url).not.toContain("2026/01/original-object.jpg");
+      expect(url).not.toMatch(/^https?:\/\//);
+    }
   });
 });

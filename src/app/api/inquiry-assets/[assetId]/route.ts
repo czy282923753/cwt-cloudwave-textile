@@ -11,9 +11,10 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ assetId: string }> },
 ): Promise<NextResponse> {
-  const user = await requireCurrentUser("inquiries.read");
-  const { assetId } = await context.params;
-  const asset = databaseConnection.kind === "pglite"
+  try {
+    const user = await requireCurrentUser("inquiries.read");
+    const { assetId } = await context.params;
+    const asset = databaseConnection.kind === "pglite"
     ? await authorizeInquiryAssetRecord(
         databaseConnection.db,
         { userId: user.id, role: user.role },
@@ -24,25 +25,28 @@ export async function GET(
         { userId: user.id, role: user.role },
         assetId,
       );
-  if (databaseConnection.kind === "pglite") {
+    if (databaseConnection.kind === "pglite") {
     await writeAuditLog(databaseConnection.db, {
       actorUserId: user.id,
       action: "private_file.access_granted",
       entityType: "asset",
       entityId: asset.id,
     });
-  } else {
+    } else {
     await writeAuditLog(databaseConnection.db, {
       actorUserId: user.id,
       action: "private_file.access_granted",
       entityType: "asset",
       entityId: asset.id,
     });
+    }
+    const url = await createObjectStorage().createReadUrl(
+      asset.partition as StoragePartition,
+      asset.objectKey,
+      env.PRIVATE_URL_TTL_SECONDS,
+    );
+    return NextResponse.redirect(new URL(url, env.NEXT_PUBLIC_SITE_URL));
+  } catch {
+    return new NextResponse("Not found", { status: 404 });
   }
-  const url = await createObjectStorage().createReadUrl(
-    asset.partition as StoragePartition,
-    asset.objectKey,
-    env.PRIVATE_URL_TTL_SECONDS,
-  );
-  return NextResponse.redirect(new URL(url, env.NEXT_PUBLIC_SITE_URL));
 }

@@ -104,16 +104,17 @@ export function trackPublicEvent(
   safeProperties: Readonly<Record<string, string | number | boolean>> = {},
   entity?: Readonly<{
     entityType: "product" | "application" | "fabric_entry" | "content";
-    entityId: string;
+    entityPath: string;
   }>,
 ): void {
   const attribution = captureAttribution();
+  if (attribution.consentState !== "granted") return;
   void fetch("/api/conversion-events/", {
     method: "POST",
     headers: { "content-type": "application/json" },
     keepalive: true,
     body: JSON.stringify({
-      eventId: crypto.randomUUID(),
+      eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
       eventName,
       routePath,
       landingPagePath: attribution.landingPagePath,

@@ -28,7 +28,7 @@ export async function contentMetadata(channel: Channel, slug: string) {
   const content = await getPublishedContentByPath(path);
   if (!content) return { title: "Article not found", robots: { index: false } };
   const index = publicIndexingAllowed() && content.indexStatus === "index";
-  return { title: { absolute: content.seoTitle ?? `${content.title} | CloudWave Textile` }, description: content.metaDescription ?? content.excerpt ?? undefined, alternates: { canonical: content.canonicalPath ?? content.path }, robots: { index, follow: index } };
+  return { title: { absolute: content.seoTitle ?? `${content.title} | CloudWave Textile` }, description: content.metaDescription ?? content.excerpt ?? undefined, alternates: { canonical: content.canonicalPath ?? content.path }, robots: { index, follow: index }, openGraph: { type: "article" as const, title: content.seoTitle ?? content.title, description: content.metaDescription ?? content.excerpt ?? undefined, url: content.canonicalPath ?? content.path, images: content.images[0]?.url ? [{ url: content.images[0].url }] : undefined } };
 }
 
 export async function ContentArticlePage({ channel, slug }: Readonly<{ channel: Channel; slug: string }>) {

@@ -134,6 +134,20 @@ describe("Product workflow", () => {
       { userId: editorId, role: "product_editor" },
       productId,
     );
+    await expect(
+      publishReviewedProduct(
+        connection.db,
+        { userId: publisherId, role: "reviewer_publisher" },
+        productId,
+      ),
+    ).rejects.toThrow(/publication requirements/);
+    await confirmRealProductBasis(
+      connection.db,
+      { userId: publisherId, role: "reviewer_publisher" },
+      productId,
+      "physical_sample",
+      "Synthetic test confirmation only",
+    );
     await publishReviewedProduct(
       connection.db,
       { userId: publisherId, role: "reviewer_publisher" },
@@ -173,13 +187,6 @@ describe("Product workflow", () => {
       .update(assets)
       .set({ altText: "Test fixture blue fabric surface" })
       .where(eq(assets.id, assetId));
-    await confirmRealProductBasis(
-      connection.db,
-      { userId: publisherId, role: "reviewer_publisher" },
-      productId,
-      "physical_sample",
-      "Synthetic test confirmation only",
-    );
     const applicationRows = await connection.db
       .insert(applications)
       .values({ internalKey: "test-sportswear", status: "published" })
@@ -250,6 +257,27 @@ describe("Product workflow", () => {
       .where(eq(productLocalizations.productId, productId));
     expect(localized[0]?.name).toBe("Test Real Nylon Mesh");
     expect(localized[0]?.shortDescription).toContain("Fixture description");
+    await connection.close();
+  }, 15_000);
+
+  it("does not allow a PDF or certificate to satisfy the published Product image gate", async () => {
+    const connection = await createTestDatabase();
+    const actorRows = await connection.db.insert(users).values([
+      { email: "mime-editor@example.test", displayName: "MIME Editor", role: "product_editor", passwordHash: "test" },
+      { email: "mime-reviewer@example.test", displayName: "MIME Reviewer", role: "reviewer_publisher", passwordHash: "test" },
+    ]).returning({ id: users.id, role: users.role });
+    const editorId = actorRows.find((row) => row.role === "product_editor")!.id;
+    const reviewerId = actorRows.find((row) => row.role === "reviewer_publisher")!.id;
+    const categoryRows = await connection.db.insert(taxonomyTerms).values({ internalKey: "mime-test", dimension: "material_fiber" }).returning({ id: taxonomyTerms.id });
+    const categoryId = categoryRows[0]!.id;
+    const imageRows = await connection.db.insert(assets).values({
+      originalFileName: "eligible.jpg", storageProvider: "test", storagePartition: "public", objectKey: "mime/eligible.jpg", access: "public", category: "product", status: "ready", scanStatus: "passed", declaredMimeType: "image/jpeg", detectedMimeType: "image/jpeg", byteSize: 10, sha256: "mime-image",
+    }).returning({ id: assets.id });
+    const productId = await createProductDraft(connection.db, { userId: editorId, role: "product_editor" }, { name: "MIME Gate Product", primaryTaxonomyTermId: categoryId, assetIds: [imageRows[0]!.id] });
+    await connection.db.update(assets).set({ declaredMimeType: "application/pdf", detectedMimeType: "application/pdf" }).where(eq(assets.id, imageRows[0]!.id));
+    await submitProductForReview(connection.db, { userId: editorId, role: "product_editor" }, productId);
+    await confirmRealProductBasis(connection.db, { userId: reviewerId, role: "reviewer_publisher" }, productId, "physical_product", "Synthetic fact confirmation");
+    await expect(publishReviewedProduct(connection.db, { userId: reviewerId, role: "reviewer_publisher" }, productId)).rejects.toThrow(/publication requirements/);
     await connection.close();
   });
 });

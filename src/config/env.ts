@@ -41,10 +41,15 @@ const environmentSchema = z.object({
   S3_PUBLIC_BUCKET: z.string().default(""),
   S3_PRIVATE_BUCKET: z.string().default(""),
   S3_IMPORT_BUCKET: z.string().default(""),
-  PUBLIC_ASSET_BASE_URL: z.string().default(""),
   MAX_PUBLIC_FILE_BYTES: positiveIntegerString(12_582_912),
   MAX_INQUIRY_FILE_BYTES: positiveIntegerString(12_582_912),
   MAX_FILES_PER_UPLOAD: positiveIntegerString(8),
+  MAX_UPLOAD_INTENT_JSON_BYTES: positiveIntegerString(8_192),
+  MAX_INQUIRY_JSON_BYTES: positiveIntegerString(32_768),
+  UPLOAD_INTENT_TTL_SECONDS: positiveIntegerString(900),
+  TRUSTED_PROXY_MODE: z
+    .enum(["none", "cloudflare", "vercel"])
+    .default("none"),
   FILE_SCAN_DRIVER: z.enum(["development", "http"]).default("development"),
   FILE_SCAN_ENDPOINT: z.string().default(""),
   FILE_SCAN_TOKEN: z.string().default(""),
@@ -96,9 +101,6 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
   ) {
     failures.push("separate public, private, and import buckets are required");
   }
-  if (!environment.PUBLIC_ASSET_BASE_URL) {
-    failures.push("a CDN/public asset base URL is required");
-  }
   if (environment.FILE_SCAN_DRIVER !== "http" || !environment.FILE_SCAN_ENDPOINT) {
     failures.push("a fail-closed production malware scanner is required");
   }
@@ -107,6 +109,9 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
     !environment.UPLOAD_RATE_LIMIT_ENDPOINT
   ) {
     failures.push("a shared production upload rate limiter is required");
+  }
+  if (environment.TRUSTED_PROXY_MODE === "none") {
+    failures.push("an explicit trusted proxy mode is required");
   }
   if (
     environment.EMAIL_DRIVER !== "smtp" ||

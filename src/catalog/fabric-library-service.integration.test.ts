@@ -20,6 +20,7 @@ import {
   submitFabricLibraryEntryForReview,
 } from "./fabric-library-service";
 import {
+  confirmRealProductBasis,
   createProductDraft,
   publishReviewedProduct,
   submitProductForReview,
@@ -120,6 +121,13 @@ describe("Fabric Library boundary", () => {
       connection.db,
       { userId, role: "product_editor" },
       publishedProductId,
+    );
+    await confirmRealProductBasis(
+      connection.db,
+      { userId: publisherId, role: "reviewer_publisher" },
+      publishedProductId,
+      "physical_sample",
+      "Synthetic test confirmation",
     );
     await publishReviewedProduct(
       connection.db,

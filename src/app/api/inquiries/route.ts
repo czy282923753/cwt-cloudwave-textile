@@ -1,270 +1,190 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { recordConversionEvent } from "@/analytics/conversion-service";
 import { assertSameOrigin } from "@/auth/request-security";
 import { env } from "@/config/env";
-import { createInquiry, findInquiryByIdempotencyKey } from "@/crm/inquiry-service";
+import {
+  createInquiry,
+  findInquiryReferenceByIdempotencyKey,
+} from "@/crm/inquiry-service";
 import { databaseConnection } from "@/db/client";
+import type { AppDatabase } from "@/db/types";
 import { createEmailNotifier } from "@/integrations/email";
 import { normalizePath } from "@/seo/path";
-import { createObjectStorage } from "@/storage";
-import { createUploadRateLimiter } from "@/uploads/rate-limit";
-import { createFileScanner } from "@/uploads/scanner";
-import { cleanupUnlinkedInquiryAssets, uploadAsset } from "@/uploads/service";
+import { publicUploadRateLimiter as limiter } from "@/uploads/rate-limit";
+import {
+  assertRequestLength,
+  preBodyRateLimitKeys,
+} from "@/uploads/request-guard";
+import {
+  releaseReservedInquiryUploadTokens,
+  reserveInquiryUploadTokens,
+} from "@/uploads/upload-intent-service";
 
-const limiter = createUploadRateLimiter();
+const inputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    email: z.email().max(254),
+    countryCode: z.string().trim().max(2).nullable().optional(),
+    whatsapp: z.string().trim().max(80).nullable().optional(),
+    description: z.string().trim().max(5_000).nullable().optional(),
+    uploadTokens: z.array(z.string().min(32).max(100)).max(env.MAX_FILES_PER_UPLOAD),
+    sourcePagePath: z.string().max(500),
+    landingPagePath: z.string().max(500).nullable().optional(),
+    referrer: z.string().max(500).nullable().optional(),
+    utmSource: z.string().max(100).nullable().optional(),
+    utmMedium: z.string().max(100).nullable().optional(),
+    utmCampaign: z.string().max(100).nullable().optional(),
+    lastNonDirectSource: z.string().max(200).nullable().optional(),
+    lastNonDirectMedium: z.string().max(100).nullable().optional(),
+    lastNonDirectCampaign: z.string().max(100).nullable().optional(),
+    attributionConfidence: z.enum(["high", "medium", "low", "unavailable"]),
+    analyticsConsentState: z.enum(["unknown", "granted", "denied"]),
+    anonymousSessionId: z.uuid(),
+    idempotencyKey: z.string().min(16).max(200),
+    website: z.string().max(200).nullable().optional(),
+  })
+  .strict();
 
-function stringValue(form: FormData, key: string, maximum = 500): string | null {
-  const value = form.get(key);
-  return typeof value === "string" && value.trim()
-    ? value.trim().slice(0, maximum)
-    : null;
-}
-
-function safeReferrer(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return `${url.origin}${url.pathname}`.slice(0, 500);
-  } catch {
-    return null;
-  }
-}
-
-async function createWithCurrentDatabase(
-  input: Parameters<typeof createInquiry>[2],
-): Promise<string> {
-  const notifier = createEmailNotifier();
-  if (databaseConnection.kind === "pglite") {
-    return createInquiry(databaseConnection.db, notifier, input);
-  }
-  return createInquiry(databaseConnection.db, notifier, input);
+async function withDatabase<TResult>(
+  operation: <TQueryResult extends PgQueryResultHKT>(
+    db: AppDatabase<TQueryResult>,
+  ) => Promise<TResult>,
+): Promise<TResult> {
+  if (databaseConnection.kind === "pglite") return operation(databaseConnection.db);
+  return operation(databaseConnection.db);
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
   const requestId = randomUUID();
-  const createdAssetIds: string[] = [];
-  const storage = createObjectStorage();
+  let reservedIntentIds: string[] = [];
   try {
     assertSameOrigin(request);
-    const form = await request.formData();
-    const idempotencyKey = z
-      .string()
-      .min(16)
-      .max(200)
-      .parse(request.headers.get("idempotency-key") ?? stringValue(form, "idempotencyKey", 200));
-    const existingInquiryId = databaseConnection.kind === "pglite"
-      ? await findInquiryByIdempotencyKey(databaseConnection.db, idempotencyKey)
-      : await findInquiryByIdempotencyKey(databaseConnection.db, idempotencyKey);
-    if (existingInquiryId) {
-      return NextResponse.json({ ok: true, reference: existingInquiryId }, { status: 200 });
+    assertRequestLength(request, env.MAX_INQUIRY_JSON_BYTES, { required: true });
+    for (const key of preBodyRateLimitKeys(request)) {
+      if (!(await limiter.consume(key, "upload"))) {
+        return NextResponse.json({ ok: false, error: "Try again later." }, { status: 429 });
+      }
     }
-    if (stringValue(form, "website")) {
-      return NextResponse.json({ ok: true, reference: requestId }, { status: 202 });
+    const input = inputSchema.parse(await request.json());
+    if (request.headers.get("x-cwt-upload-session") !== input.anonymousSessionId) {
+      return NextResponse.json({ ok: false, error: "Upload Session mismatch." }, { status: 403 });
     }
-    const name = z.string().min(1).max(120).parse(stringValue(form, "name", 120));
-    const email = z.email().max(254).parse(stringValue(form, "email", 254));
-    const description = stringValue(form, "description", 5_000);
-    const files = form
-      .getAll("images")
-      .filter((value): value is File => value instanceof File && value.size > 0);
-    if (!description && files.length === 0) {
+    const headerKey = request.headers.get("idempotency-key");
+    if (headerKey !== input.idempotencyKey) {
+      return NextResponse.json({ ok: false, error: "Idempotency Key mismatch." }, { status: 400 });
+    }
+    const existing = await withDatabase((db) =>
+      findInquiryReferenceByIdempotencyKey(db, input.idempotencyKey),
+    );
+    if (existing) {
+      return NextResponse.json({ ok: true, reference: existing.publicReference }, { status: 200 });
+    }
+    if (input.website) {
+      return NextResponse.json({ ok: true, reference: `CWT-${requestId.slice(0, 8)}` }, { status: 202 });
+    }
+    if (!input.description && input.uploadTokens.length === 0) {
       return NextResponse.json(
         { ok: false, error: "Provide a description or upload an image." },
         { status: 400 },
       );
     }
-    if (files.length > env.MAX_FILES_PER_UPLOAD) {
-      return NextResponse.json({ ok: false, error: "Too many files." }, { status: 400 });
-    }
-    const clientKey = createHash("sha256")
-      .update(
-        `${request.headers.get("x-forwarded-for") ?? "local"}:${
-          request.headers.get("user-agent") ?? "unknown"
-        }`,
-      )
-      .digest("hex");
-    if (!(await limiter.consume(clientKey))) {
-      return NextResponse.json({ ok: false, error: "Try again later." }, { status: 429 });
-    }
-
-    const scanner = createFileScanner();
-    const assetIds = createdAssetIds;
-    const sessionId = z.uuid().catch(randomUUID()).parse(stringValue(form, "sessionId"));
-    const analyticsConsentState = z
-      .enum(["unknown", "granted", "denied"])
-      .catch("unknown")
-      .parse(stringValue(form, "analyticsConsentState", 20));
-    const retentionExpiresAt = env.INQUIRY_FILE_RETENTION_DAYS
-      ? new Date(Date.now() + env.INQUIRY_FILE_RETENTION_DAYS * 86_400_000)
-      : null;
-    for (const file of files) {
-      const assetId =
-        databaseConnection.kind === "pglite"
-          ? await uploadAsset(databaseConnection.db, storage, scanner, {
-              fileName: file.name,
-              declaredMimeType: file.type,
-              bytes: new Uint8Array(await file.arrayBuffer()),
-              category: "inquiry",
-              purpose: "inquiry",
-              retentionExpiresAt,
-            })
-          : await uploadAsset(databaseConnection.db, storage, scanner, {
-              fileName: file.name,
-              declaredMimeType: file.type,
-              bytes: new Uint8Array(await file.arrayBuffer()),
-              category: "inquiry",
-              purpose: "inquiry",
-              retentionExpiresAt,
-            });
-      assetIds.push(assetId);
-    }
-    if (assetIds.length > 0) {
-      const uploadEvent = {
-        eventId: `image_upload:${createHash("sha256").update(idempotencyKey).digest("hex")}`,
-        eventName: "image_upload_completed" as const,
-        anonymousSessionId: sessionId,
-        routePath: normalizePath(
-          stringValue(form, "sourcePagePath") ?? "/get-quote",
-        ),
-        safeProperties: { file_count: assetIds.length },
-        consentState: analyticsConsentState,
-      };
-      if (databaseConnection.kind === "pglite") {
-        await recordConversionEvent(databaseConnection.db, uploadEvent);
-      } else {
-        await recordConversionEvent(databaseConnection.db, uploadEvent);
-      }
-    }
-    const sourcePagePath = normalizePath(stringValue(form, "sourcePagePath") ?? "/get-quote");
-    const landingPagePath = stringValue(form, "landingPagePath");
-    const referrer = safeReferrer(stringValue(form, "referrer", 500));
-    const utmSource = stringValue(form, "utmSource", 100);
-    const utmMedium = stringValue(form, "utmMedium", 100);
-    const utmCampaign = stringValue(form, "utmCampaign", 100);
-    const attributionConfidence = z
-      .enum(["high", "medium", "low", "unavailable"])
-      .catch("unavailable")
-      .parse(stringValue(form, "attributionConfidence", 20));
-    const inquiryId = await createWithCurrentDatabase({
-      name,
-      email,
-      countryCode: stringValue(form, "countryCode", 2),
-      whatsapp: stringValue(form, "whatsapp", 80),
-      description,
-      assetIds,
-      sourcePagePath,
-      landingPagePath: landingPagePath ? normalizePath(landingPagePath) : null,
-      referrer,
-      utmSource,
-      utmMedium,
-      utmCampaign,
-      lastNonDirectSource: stringValue(form, "lastNonDirectSource", 200),
-      lastNonDirectMedium: stringValue(form, "lastNonDirectMedium", 100),
-      lastNonDirectCampaign: stringValue(form, "lastNonDirectCampaign", 100),
-      attributionConfidence,
-      analyticsConsentState,
-      sessionId,
-      requestId,
-      idempotencyKey,
-    });
-    if (createdAssetIds.length > 0) {
-      if (databaseConnection.kind === "pglite") {
-        await cleanupUnlinkedInquiryAssets(
-          databaseConnection.db,
-          storage,
-          createdAssetIds,
-          requestId,
-        );
-      } else {
-        await cleanupUnlinkedInquiryAssets(
-          databaseConnection.db,
-          storage,
-          createdAssetIds,
-          requestId,
-        );
-      }
-    }
-    if (databaseConnection.kind === "pglite") {
-      await recordConversionEvent(databaseConnection.db, {
-        eventId: `inquiry_created:${inquiryId}`,
-        eventName: "inquiry_created",
-        anonymousSessionId: sessionId,
-        routePath: sourcePagePath,
-        inquiryId,
-        consentState: analyticsConsentState,
-        landingPagePath: landingPagePath ? normalizePath(landingPagePath) : null,
-        utmSource,
-        utmMedium,
-        utmCampaign,
-        lastNonDirectSource: stringValue(form, "lastNonDirectSource", 200),
-        lastNonDirectMedium: stringValue(form, "lastNonDirectMedium", 100),
-        lastNonDirectCampaign: stringValue(form, "lastNonDirectCampaign", 100),
-        attributionConfidence,
-        submitSourcePagePath: sourcePagePath,
-      });
-    } else {
-      await recordConversionEvent(databaseConnection.db, {
-        eventId: `inquiry_created:${inquiryId}`,
-        eventName: "inquiry_created",
-        anonymousSessionId: sessionId,
-        routePath: sourcePagePath,
-        inquiryId,
-        consentState: analyticsConsentState,
-        landingPagePath: landingPagePath ? normalizePath(landingPagePath) : null,
-        utmSource,
-        utmMedium,
-        utmCampaign,
-        lastNonDirectSource: stringValue(form, "lastNonDirectSource", 200),
-        lastNonDirectMedium: stringValue(form, "lastNonDirectMedium", 100),
-        lastNonDirectCampaign: stringValue(form, "lastNonDirectCampaign", 100),
-        attributionConfidence,
-        submitSourcePagePath: sourcePagePath,
-      });
-    }
-    return NextResponse.json({ ok: true, reference: inquiryId }, { status: 201 });
-  } catch (error) {
-    try {
-      if (databaseConnection.kind === "pglite") {
-        await cleanupUnlinkedInquiryAssets(
-          databaseConnection.db,
-          storage,
-          createdAssetIds,
-          requestId,
-        );
-      } else {
-        await cleanupUnlinkedInquiryAssets(
-          databaseConnection.db,
-          storage,
-          createdAssetIds,
-          requestId,
-        );
-      }
-    } catch {
-      process.stderr.write(
-        `[inquiry-cleanup-error] request ${requestId}; details omitted.\n`,
-      );
-    }
-    const rawMessage = error instanceof Error ? error.message : "";
-    const safePatterns = [
-      /Name and Email are required/,
-      /Provide a description or upload/,
-      /File exceeds the configured size limit/,
-      /File type is not permitted/,
-      /Declared MIME type does not match/,
-      /Image decoding validation failed/,
-      /File was rejected by malware scanning/,
-    ];
-    const message = safePatterns.some((pattern) => pattern.test(rawMessage))
-      ? rawMessage
-      : "Inquiry could not be submitted. Please try again or use another file.";
-    process.stderr.write(
-      `[inquiry-error] request ${requestId}; category ${
-        error instanceof Error ? error.name : "unknown"
-      }; details omitted to protect customer data.\n`,
+    const reserved = await withDatabase((db) =>
+      reserveInquiryUploadTokens(db, input.anonymousSessionId, input.uploadTokens),
     );
-    return NextResponse.json({ ok: false, error: message, reference: requestId }, { status: 400 });
+    reservedIntentIds = reserved.intentIds;
+    const sourcePagePath = normalizePath(input.sourcePagePath);
+    const landingPagePath = input.landingPagePath
+      ? normalizePath(input.landingPagePath)
+      : null;
+    const inquiryId = await withDatabase((db) =>
+      createInquiry(db, createEmailNotifier(), {
+        name: input.name,
+        email: input.email,
+        countryCode: input.countryCode || null,
+        whatsapp: input.whatsapp || null,
+        description: input.description || null,
+        assetIds: reserved.assetIds,
+        sourcePagePath,
+        landingPagePath,
+        referrer: input.referrer || null,
+        utmSource: input.utmSource || null,
+        utmMedium: input.utmMedium || null,
+        utmCampaign: input.utmCampaign || null,
+        lastNonDirectSource: input.lastNonDirectSource || null,
+        lastNonDirectMedium: input.lastNonDirectMedium || null,
+        lastNonDirectCampaign: input.lastNonDirectCampaign || null,
+        attributionConfidence: input.attributionConfidence,
+        analyticsConsentState: input.analyticsConsentState,
+        sessionId: input.anonymousSessionId,
+        requestId,
+        idempotencyKey: input.idempotencyKey,
+        reservedUploadIntentIds: reservedIntentIds,
+      }),
+    );
+    const created = await withDatabase((db) =>
+      findInquiryReferenceByIdempotencyKey(db, input.idempotencyKey),
+    );
+    if (!created || created.id !== inquiryId) {
+      throw new Error("Inquiry public reference could not be resolved.");
+    }
+    if (input.analyticsConsentState === "granted") {
+      try {
+        if (reserved.assetIds.length > 0) {
+          await withDatabase((db) =>
+            recordConversionEvent(db, {
+              eventId: `image_upload:${created.publicReference}`,
+              eventName: "image_upload_completed",
+              anonymousSessionId: input.anonymousSessionId,
+              routePath: sourcePagePath,
+              consentState: "granted",
+              safeProperties: { file_count: reserved.assetIds.length },
+            }),
+          );
+        }
+        await withDatabase((db) =>
+          recordConversionEvent(db, {
+            eventId: `inquiry_created:${created.publicReference}`,
+            eventName: "inquiry_created",
+            anonymousSessionId: input.anonymousSessionId,
+            routePath: sourcePagePath,
+            inquiryId,
+            consentState: "granted",
+            landingPagePath,
+            referrerOrigin: input.referrer || null,
+            utmSource: input.utmSource || null,
+            utmMedium: input.utmMedium || null,
+            utmCampaign: input.utmCampaign || null,
+            lastNonDirectSource: input.lastNonDirectSource || null,
+            lastNonDirectMedium: input.lastNonDirectMedium || null,
+            lastNonDirectCampaign: input.lastNonDirectCampaign || null,
+            attributionConfidence: input.attributionConfidence,
+            submitSourcePagePath: sourcePagePath,
+          }),
+        );
+      } catch {
+        process.stderr.write(`[analytics-rejected] request ${requestId}; details omitted.\n`);
+      }
+    }
+    return NextResponse.json({ ok: true, reference: created.publicReference }, { status: 201 });
+  } catch (error) {
+    if (reservedIntentIds.length) {
+      try {
+        await withDatabase((db) =>
+          releaseReservedInquiryUploadTokens(db, reservedIntentIds),
+        );
+      } catch {
+        process.stderr.write(`[upload-token-release-error] request ${requestId}.\n`);
+      }
+    }
+    const raw = error instanceof Error ? error.message : "";
+    const safe = /Name and Email|required|description|upload|Intent|Session|Idempotency|size|limit/i.test(raw)
+      ? raw
+      : "Inquiry could not be submitted. Please try again.";
+    process.stderr.write(`[inquiry-error] request ${requestId}; details omitted.\n`);
+    return NextResponse.json({ ok: false, error: safe }, { status: 400 });
   }
 }

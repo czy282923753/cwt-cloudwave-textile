@@ -40,11 +40,12 @@ describe("private Inquiry Asset API authorization", () => {
       new Error("Inquiry record access denied."),
     );
 
-    await expect(
-      GET(new Request("http://localhost:3000/api/inquiry-assets/private-asset/"), {
+    const response = await GET(
+      new Request("http://localhost:3000/api/inquiry-assets/private-asset/"), {
         params: Promise.resolve({ assetId: "private-asset" }),
-      }),
-    ).rejects.toThrow(/access denied/);
+      },
+    );
+    expect(response.status).toBe(404);
 
     expect(mocks.authorizeInquiryAssetRecord).toHaveBeenCalledWith(
       { test: true },

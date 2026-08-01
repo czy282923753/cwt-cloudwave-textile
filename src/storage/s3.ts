@@ -33,12 +33,8 @@ export class S3ObjectStorage implements ObjectStorage {
     },
   });
 
-  createPublicUrl(objectKey: string): string {
-    assertSafeObjectKey(objectKey);
-    if (!env.PUBLIC_ASSET_BASE_URL) {
-      throw new Error("Public asset base URL is required.");
-    }
-    return new URL(objectKey, `${env.PUBLIC_ASSET_BASE_URL.replace(/\/$/, "")}/`).toString();
+  createPublicUrl(assetId: string): string {
+    return `/api/public-assets/${encodeURIComponent(assetId)}/`;
   }
 
   async put(

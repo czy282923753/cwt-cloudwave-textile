@@ -13,7 +13,7 @@ export class MemoryUploadRateLimiter implements UploadRateLimiter {
   private readonly buckets = new Map<string, Bucket>();
 
   constructor(
-    private readonly maximumAttempts = 12,
+    private readonly maximumAttempts = 30,
     private readonly windowMilliseconds = 60_000,
   ) {}
 
@@ -71,3 +71,5 @@ export function createUploadRateLimiter(): UploadRateLimiter {
     ? new HttpUploadRateLimiter()
     : new MemoryUploadRateLimiter();
 }
+
+export const publicUploadRateLimiter = createUploadRateLimiter();
