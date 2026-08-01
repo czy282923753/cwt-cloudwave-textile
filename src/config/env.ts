@@ -8,10 +8,18 @@ const booleanString = z
 const positiveIntegerString = (fallback: number) =>
   z.coerce.number().int().positive().default(fallback);
 
+const optionalPositiveIntegerString = z
+  .union([z.literal(""), z.coerce.number().int().positive()])
+  .default("")
+  .transform((value) => (value === "" ? null : value));
+
 const environmentSchema = z.object({
   APP_ENV: z.enum(["local", "test", "preview", "production"]).default("local"),
   NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3000"),
-  NON_PRODUCTION_NOINDEX: booleanString,
+  NON_PRODUCTION_NOINDEX: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
   DATABASE_DRIVER: z.enum(["pglite", "postgres"]).default("pglite"),
   DATABASE_URL: z.string().default(""),
   PGLITE_DATA_DIR: z.string().default(".data/pglite"),
@@ -33,6 +41,7 @@ const environmentSchema = z.object({
   S3_PUBLIC_BUCKET: z.string().default(""),
   S3_PRIVATE_BUCKET: z.string().default(""),
   S3_IMPORT_BUCKET: z.string().default(""),
+  PUBLIC_ASSET_BASE_URL: z.string().default(""),
   MAX_PUBLIC_FILE_BYTES: positiveIntegerString(12_582_912),
   MAX_INQUIRY_FILE_BYTES: positiveIntegerString(12_582_912),
   MAX_FILES_PER_UPLOAD: positiveIntegerString(8),
@@ -40,12 +49,20 @@ const environmentSchema = z.object({
   FILE_SCAN_ENDPOINT: z.string().default(""),
   FILE_SCAN_TOKEN: z.string().default(""),
   PRIVATE_URL_TTL_SECONDS: positiveIntegerString(300),
+  INQUIRY_FILE_RETENTION_DAYS: optionalPositiveIntegerString,
+  CUSTOMER_DATA_RETENTION_DAYS: optionalPositiveIntegerString,
+  AUDIT_LOG_RETENTION_DAYS: optionalPositiveIntegerString,
   UPLOAD_RATE_LIMIT_DRIVER: z.enum(["memory", "http"]).default("memory"),
   UPLOAD_RATE_LIMIT_ENDPOINT: z.string().default(""),
   UPLOAD_RATE_LIMIT_TOKEN: z.string().default(""),
   EMAIL_DRIVER: z.enum(["log", "smtp"]).default("log"),
   EMAIL_FROM: z.string().default(""),
   INQUIRY_NOTIFICATION_TO: z.string().default(""),
+  SMTP_HOST: z.string().default(""),
+  SMTP_PORT: positiveIntegerString(587),
+  SMTP_SECURE: booleanString,
+  SMTP_USER: z.string().default(""),
+  SMTP_PASSWORD: z.string().default(""),
   WHATSAPP_NUMBER: z.string().default(""),
   ANALYTICS_DRIVER: z.enum(["disabled", "ga4"]).default("disabled"),
   NEXT_PUBLIC_GA4_MEASUREMENT_ID: z.string().default(""),
@@ -66,6 +83,9 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
   if (environment.DATABASE_DRIVER !== "postgres" || !environment.DATABASE_URL) {
     failures.push("a dedicated PostgreSQL DATABASE_URL is required");
   }
+  if (new URL(environment.NEXT_PUBLIC_SITE_URL).hostname === "localhost") {
+    failures.push("a formal public site URL is required");
+  }
   if (environment.STORAGE_DRIVER !== "s3") {
     failures.push("S3-compatible isolated storage is required");
   }
@@ -76,6 +96,9 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
   ) {
     failures.push("separate public, private, and import buckets are required");
   }
+  if (!environment.PUBLIC_ASSET_BASE_URL) {
+    failures.push("a CDN/public asset base URL is required");
+  }
   if (environment.FILE_SCAN_DRIVER !== "http" || !environment.FILE_SCAN_ENDPOINT) {
     failures.push("a fail-closed production malware scanner is required");
   }
@@ -85,8 +108,23 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
   ) {
     failures.push("a shared production upload rate limiter is required");
   }
-  if (environment.EMAIL_DRIVER !== "smtp" || !environment.INQUIRY_NOTIFICATION_TO) {
+  if (
+    environment.EMAIL_DRIVER !== "smtp" ||
+    !environment.INQUIRY_NOTIFICATION_TO ||
+    !environment.EMAIL_FROM ||
+    !environment.SMTP_HOST
+  ) {
     failures.push("a production inquiry email path is required");
+  }
+  if (!environment.WHATSAPP_NUMBER) {
+    failures.push("the confirmed public WhatsApp number is required");
+  }
+  if (
+    !environment.INQUIRY_FILE_RETENTION_DAYS ||
+    !environment.CUSTOMER_DATA_RETENTION_DAYS ||
+    !environment.AUDIT_LOG_RETENTION_DAYS
+  ) {
+    failures.push("approved production retention periods are required");
   }
   if (environment.MONITORING_DRIVER !== "external") {
     failures.push("external production monitoring is required");

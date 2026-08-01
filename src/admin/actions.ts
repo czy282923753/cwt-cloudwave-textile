@@ -23,9 +23,24 @@ import {
   updateProductFacts,
 } from "@/catalog/product-service";
 import { env } from "@/config/env";
+import {
+  addCustomerActivity,
+  assignInquiry,
+  changeInquiryStatus,
+} from "@/crm/inquiry-service";
 import { createContentDraft } from "@/content/content-service";
 import { databaseConnection } from "@/db/client";
-import { assetUploadBatches, authors, companyFacts } from "@/db/schema";
+import {
+  assetUploadBatches,
+  authors,
+  companyFacts,
+  contacts,
+  contentAssets,
+  fabricLibraryEntryAssets,
+  organizations,
+  productAssets,
+} from "@/db/schema";
+import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/types";
 import { createObjectStorage } from "@/storage";
 import { createUploadRateLimiter } from "@/uploads/rate-limit";
@@ -367,6 +382,34 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
       uploadBatchId,
       sourceDeclarationEnabled,
     });
+    const association = optionalString(form, "association");
+    const role = z
+      .enum(["hero", "gallery", "detail", "thumbnail", "inline", "document"])
+      .parse(requiredString(form, "role"));
+    const sortOrder = z.coerce.number().int().min(0).parse(form.get("sortOrder") ?? 0);
+    if (association) {
+      const separator = association.indexOf(":");
+      const associationType = association.slice(0, separator);
+      const entityId = association.slice(separator + 1);
+      if (!entityId) throw new Error("Asset association is invalid.");
+      if (associationType === "product") {
+        requirePermission(actor.role, "products.write");
+        await db.insert(productAssets).values({ productId: entityId, assetId, role, sortOrder });
+      } else if (associationType === "fabric") {
+        requirePermission(actor.role, "products.write");
+        await db.insert(fabricLibraryEntryAssets).values({
+          fabricEntryId: entityId,
+          assetId,
+          role,
+          sortOrder,
+        });
+      } else if (associationType === "content") {
+        requirePermission(actor.role, "content.write");
+        await db.insert(contentAssets).values({ contentId: entityId, assetId, role, sortOrder });
+      } else {
+        throw new Error("Asset association type is invalid.");
+      }
+    }
     if (sourceDeclarationEnabled) {
       const subjectRelationship = z
         .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
@@ -418,4 +461,155 @@ export async function uploadAssetsAction(form: FormData): Promise<void> {
   await withDatabase((db) => performAssetUpload(db, actor, form));
   revalidatePath("/admin/assets");
   redirect("/admin/assets");
+}
+
+export async function updateAssetDeclarationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  requirePermission(actor.role, "assets.write");
+  const assetId = requiredString(form, "assetId");
+  const enabled = form.get("enabled") === "on";
+  const markReviewed = form.get("markReviewed") === "on";
+  if (markReviewed) requirePermission(actor.role, "assets.declaration.review");
+  const subjectRelationship = z
+    .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
+    .optional()
+    .parse(optionalString(form, "subjectRelationship"));
+  const publicUsePermission = z
+    .enum(["unknown", "allowed", "not_allowed", "restricted"])
+    .optional()
+    .parse(optionalString(form, "publicUsePermission"));
+  const editingPermission = z
+    .enum(["unknown", "allowed", "not_allowed", "restricted"])
+    .optional()
+    .parse(optionalString(form, "editingPermission"));
+  await withDatabase((db) =>
+    updateSourceDeclaration(db, assetId, actor.userId, {
+      enabled,
+      sourceType: optionalString(form, "sourceType") ?? null,
+      sourceProvider: optionalString(form, "sourceProvider") ?? null,
+      rightsStatus: optionalString(form, "rightsStatus") ?? null,
+      subjectRelationship: subjectRelationship ?? null,
+      publicUsePermission: publicUsePermission ?? null,
+      editingPermission: editingPermission ?? null,
+      usageRestrictions: optionalString(form, "usageRestrictions") ?? null,
+      permissionEvidence: optionalString(form, "permissionEvidence") ?? null,
+      declarationReviewerUserId: markReviewed ? actor.userId : null,
+      declarationReviewDate: markReviewed ? new Date() : null,
+      declarationExpiryDate: optionalString(form, "declarationExpiryDate")
+        ? new Date(requiredString(form, "declarationExpiryDate"))
+        : null,
+      isCwtOwnedFacility:
+        form.get("isCwtOwnedFacility") === "yes"
+          ? true
+          : form.get("isCwtOwnedFacility") === "no"
+            ? false
+            : null,
+    }),
+  );
+  revalidatePath(`/admin/assets/${assetId}`);
+  revalidatePath("/admin/assets");
+}
+
+export async function changeInquiryStatusAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const inquiryId = requiredString(form, "inquiryId");
+  const status = z
+    .enum([
+      "new",
+      "reviewing",
+      "qualified",
+      "quoted",
+      "sample",
+      "negotiation",
+      "won",
+      "lost",
+      "spam",
+      "archived",
+    ])
+    .parse(requiredString(form, "status"));
+  await withDatabase((db) =>
+    changeInquiryStatus(db, actor, inquiryId, status, optionalString(form, "reason")),
+  );
+  revalidatePath(`/admin/inquiries/${inquiryId}`);
+  revalidatePath("/admin/inquiries");
+}
+
+export async function addCustomerActivityAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const inquiryId = requiredString(form, "inquiryId");
+  const type = z
+    .enum(["note", "email", "whatsapp", "quote", "sample", "status_change"])
+    .parse(requiredString(form, "type"));
+  await withDatabase((db) =>
+    addCustomerActivity(db, actor, inquiryId, {
+      type,
+      content: requiredString(form, "content"),
+    }),
+  );
+  revalidatePath(`/admin/inquiries/${inquiryId}`);
+}
+
+export async function assignInquiryAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const inquiryId = requiredString(form, "inquiryId");
+  const priority = z
+    .enum(["low", "normal", "high", "urgent"])
+    .parse(requiredString(form, "priority"));
+  const qualificationStatus = z
+    .enum(["unassessed", "qualified", "unqualified", "needs_information"])
+    .parse(requiredString(form, "qualificationStatus"));
+  await withDatabase((db) =>
+    assignInquiry(db, actor, inquiryId, {
+      ownerUserId: optionalString(form, "ownerUserId") ?? null,
+      priority,
+      qualificationStatus,
+    }),
+  );
+  revalidatePath(`/admin/inquiries/${inquiryId}`);
+  revalidatePath("/admin/inquiries");
+}
+
+export async function createOrganizationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  requirePermission(actor.role, "crm.manage");
+  await withDatabase(async (db) => {
+    const rows = await db
+      .insert(organizations)
+      .values({
+        name: requiredString(form, "name"),
+        website: optionalString(form, "website") ?? null,
+        countryCode: optionalString(form, "countryCode") ?? null,
+      })
+      .returning({ id: organizations.id });
+    const organizationId = rows[0]?.id;
+    if (!organizationId) throw new Error("Organization insert failed.");
+    await writeAuditLog(db, {
+      actorUserId: actor.userId,
+      action: "organization.created",
+      entityType: "organization",
+      entityId: organizationId,
+    });
+  });
+  revalidatePath("/admin/contacts");
+}
+
+export async function assignContactOrganizationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  requirePermission(actor.role, "crm.manage");
+  const contactId = requiredString(form, "contactId");
+  const organizationId = optionalString(form, "organizationId") ?? null;
+  await withDatabase(async (db) => {
+    await db
+      .update(contacts)
+      .set({ organizationId, updatedAt: new Date() })
+      .where(eq(contacts.id, contactId));
+    await writeAuditLog(db, {
+      actorUserId: actor.userId,
+      action: "contact.organization.assigned",
+      entityType: "contact",
+      entityId: contactId,
+      afterSummary: { organizationId },
+    });
+  });
+  revalidatePath("/admin/contacts");
 }

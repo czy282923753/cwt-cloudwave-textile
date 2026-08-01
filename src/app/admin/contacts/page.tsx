@@ -1,0 +1,13 @@
+import { assignContactOrganizationAction, createOrganizationAction } from "@/admin/actions";
+import { AdminPageHeader } from "@/admin/components/admin-table";
+import { listAdminContacts, listAdminOrganizations } from "@/admin/data";
+import { requireCurrentUser } from "@/auth/current-user";
+
+export default async function AdminContactsPage() {
+  await requireCurrentUser("inquiries.read");
+  const [contacts, organizations] = await Promise.all([
+    listAdminContacts(),
+    listAdminOrganizations(),
+  ]);
+  return <main className="mx-auto max-w-7xl px-6 py-10"><AdminPageHeader description="Exact normalized email links repeat inquiries to one Contact. Organizations are optional and may contain multiple Contacts." title="Contacts & Organizations" /><div className="grid gap-8 lg:grid-cols-[1fr_24rem]"><div className="overflow-x-auto rounded-2xl border border-white/10"><table className="w-full min-w-3xl text-left text-sm"><thead className="bg-slate-900"><tr>{["Contact", "Country", "WhatsApp", "Organization"].map((label) => <th className="px-4 py-3" key={label}>{label}</th>)}</tr></thead><tbody className="divide-y divide-white/10">{contacts.map((contact) => <tr key={contact.id}><td className="px-4 py-3">{contact.name}<span className="block text-xs text-slate-400">{contact.email}</span></td><td className="px-4 py-3">{contact.countryCode ?? "—"}</td><td className="px-4 py-3">{contact.whatsapp ?? "—"}</td><td className="px-4 py-3"><form action={assignContactOrganizationAction} className="flex gap-2"><input name="contactId" type="hidden" value={contact.id} /><select className="rounded-lg bg-slate-950 p-2" defaultValue={contact.organizationId ?? ""} name="organizationId"><option value="">None</option>{organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}</select><button className="rounded-lg border border-white/20 px-3" type="submit">Save</button></form></td></tr>)}</tbody></table></div><form action={createOrganizationAction} className="grid content-start gap-4 rounded-2xl border border-white/10 bg-slate-900 p-5"><h2 className="text-xl font-semibold">Add lightweight Organization</h2><input className="rounded-lg bg-slate-950 p-3" name="name" placeholder="Organization name" required /><input className="rounded-lg bg-slate-950 p-3" name="website" placeholder="Website, optional" type="url" /><input className="rounded-lg bg-slate-950 p-3" maxLength={2} name="countryCode" placeholder="Country code" /><button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Create Organization</button></form></div></main>;
+}

@@ -14,6 +14,7 @@ const resources = [
   { name: "company-facts", list: "/admin/company-facts" },
   { name: "seo", list: "/admin/seo" },
   { name: "inquiries", list: "/admin/inquiries" },
+  { name: "contacts", list: "/admin/contacts" },
 ] as const;
 
 export function RefineAdminProvider({

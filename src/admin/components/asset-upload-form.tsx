@@ -6,7 +6,11 @@ import { uploadAssetsAction } from "@/admin/actions";
 
 const fieldClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 
-export function AssetUploadForm() {
+export function AssetUploadForm({
+  associations,
+}: Readonly<{
+  associations: readonly { value: string; label: string; group: string }[];
+}>) {
   const [declarationEnabled, setDeclarationEnabled] = useState(false);
   return (
     <form action={uploadAssetsAction} className="grid gap-5 rounded-2xl border border-white/10 bg-slate-900 p-6">
@@ -18,6 +22,8 @@ export function AssetUploadForm() {
       </div>
       <label className="grid gap-2">Files<input accept="image/jpeg,image/png,image/webp,image/avif,application/pdf" className={fieldClass} multiple name="files" required type="file" /></label>
       <label className="grid gap-2">Asset Category<select className={fieldClass} name="category" required><option value="product">Product</option><option value="fabric">Fabric</option><option value="market">Market</option><option value="company">Company</option><option value="factory">Factory</option><option value="application">Application</option><option value="certificate">Certificate</option><option value="content">Content</option><option value="other">Other</option></select></label>
+      <label className="grid gap-2">Associate with<select className={fieldClass} name="association"><option value="">No association yet</option>{associations.map((association) => <option key={association.value} value={association.value}>{association.group} · {association.label}</option>)}</select></label>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-2">Image role<select className={fieldClass} defaultValue="gallery" name="role"><option value="hero">Hero</option><option value="gallery">Gallery</option><option value="detail">Detail</option><option value="thumbnail">Thumbnail</option><option value="inline">Inline</option><option value="document">Document</option></select></label><label className="grid gap-2">Sort order<input className={fieldClass} defaultValue={0} min={0} name="sortOrder" type="number" /></label></div>
       <label className="flex items-center gap-3 rounded-xl border border-white/10 p-4">
         <input
           checked={declarationEnabled}

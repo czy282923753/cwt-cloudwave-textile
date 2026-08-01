@@ -23,6 +23,7 @@ export interface UploadAssetInput {
   uploadedByUserId?: string | null;
   uploadBatchId?: string | null;
   sourceDeclarationEnabled?: boolean;
+  retentionExpiresAt?: Date | null;
 }
 
 function fileExtension(mimeType: string): string {
@@ -105,6 +106,7 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
       height: validated.height,
       sourceDeclarationEnabled: input.sourceDeclarationEnabled ?? false,
       nonBlockingRiskHints: inferNonBlockingRiskHints(input.fileName),
+      retentionExpiresAt: input.retentionExpiresAt ?? null,
     })
     .returning({ id: assets.id });
   const asset = inserted[0];
@@ -208,31 +210,79 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
       sourceDeclarationEnabled: update.enabled,
       ...(update.enabled
         ? {
-            sourceType: update.sourceType ?? before.sourceType,
-            sourceProvider: update.sourceProvider ?? before.sourceProvider,
-            rightsStatus: update.rightsStatus ?? before.rightsStatus,
+            sourceType:
+              "sourceType" in update ? update.sourceType ?? null : before.sourceType,
+            sourceProvider:
+              "sourceProvider" in update
+                ? update.sourceProvider ?? null
+                : before.sourceProvider,
+            rightsStatus:
+              "rightsStatus" in update
+                ? update.rightsStatus ?? null
+                : before.rightsStatus,
             subjectRelationship:
-              update.subjectRelationship ?? before.subjectRelationship,
+              "subjectRelationship" in update
+                ? update.subjectRelationship ?? null
+                : before.subjectRelationship,
             publicUsePermission:
-              update.publicUsePermission ?? before.publicUsePermission,
-            editingPermission: update.editingPermission ?? before.editingPermission,
+              "publicUsePermission" in update
+                ? update.publicUsePermission ?? null
+                : before.publicUsePermission,
+            editingPermission:
+              "editingPermission" in update
+                ? update.editingPermission ?? null
+                : before.editingPermission,
             usageRestrictions:
-              update.usageRestrictions ?? before.usageRestrictions,
+              "usageRestrictions" in update
+                ? update.usageRestrictions ?? null
+                : before.usageRestrictions,
             permissionEvidence:
-              update.permissionEvidence ?? before.permissionEvidence,
+              "permissionEvidence" in update
+                ? update.permissionEvidence ?? null
+                : before.permissionEvidence,
             declarationReviewerUserId:
-              update.declarationReviewerUserId ?? before.declarationReviewerUserId,
+              "declarationReviewerUserId" in update
+                ? update.declarationReviewerUserId ?? null
+                : before.declarationReviewerUserId,
             declarationReviewDate:
-              update.declarationReviewDate ?? before.declarationReviewDate,
+              "declarationReviewDate" in update
+                ? update.declarationReviewDate ?? null
+                : before.declarationReviewDate,
             declarationExpiryDate:
-              update.declarationExpiryDate ?? before.declarationExpiryDate,
+              "declarationExpiryDate" in update
+                ? update.declarationExpiryDate ?? null
+                : before.declarationExpiryDate,
             isCwtOwnedFacility:
-              update.isCwtOwnedFacility ?? before.isCwtOwnedFacility,
+              "isCwtOwnedFacility" in update
+                ? update.isCwtOwnedFacility ?? null
+                : before.isCwtOwnedFacility,
           }
         : {}),
       updatedAt: new Date(),
     })
     .where(eq(assets.id, assetId));
+
+  const afterRows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  const after = afterRows[0];
+  if (!after) throw new Error("Asset disappeared during declaration update.");
+  const declarationFields = [
+    "sourceDeclarationEnabled",
+    "sourceType",
+    "sourceProvider",
+    "rightsStatus",
+    "subjectRelationship",
+    "publicUsePermission",
+    "editingPermission",
+    "usageRestrictions",
+    "permissionEvidence",
+    "declarationReviewerUserId",
+    "declarationReviewDate",
+    "declarationExpiryDate",
+    "isCwtOwnedFacility",
+  ] as const;
+  const changedFields = declarationFields.filter(
+    (field) => String(before[field]) !== String(after[field]),
+  );
 
   await writeAuditLog(db, {
     actorUserId,
@@ -240,6 +290,6 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
     entityType: "asset",
     entityId: assetId,
     beforeSummary: { enabled: before.sourceDeclarationEnabled },
-    afterSummary: { enabled: update.enabled },
+    afterSummary: { enabled: update.enabled, changedFields },
   });
 }

@@ -11,6 +11,7 @@ import {
 import { assets } from "./assets";
 import {
   activityTypeEnum,
+  attributionConfidenceEnum,
   inquiryStatusEnum,
   priorityEnum,
   qualificationStatusEnum,
@@ -70,6 +71,12 @@ export const inquiries = pgTable(
     utmSource: text("utm_source"),
     utmMedium: text("utm_medium"),
     utmCampaign: text("utm_campaign"),
+    lastNonDirectSource: text("last_non_direct_source"),
+    lastNonDirectMedium: text("last_non_direct_medium"),
+    lastNonDirectCampaign: text("last_non_direct_campaign"),
+    attributionConfidence: attributionConfidenceEnum("attribution_confidence")
+      .notNull()
+      .default("unavailable"),
     sessionId: text("session_id"),
     requestId: text("request_id"),
     firstResponseAt: timestamp("first_response_at", { withTimezone: true }),

@@ -44,6 +44,11 @@ export function verifyLocalReadGrant(
 }
 
 export class LocalObjectStorage implements ObjectStorage {
+  createPublicUrl(objectKey: string): string {
+    assertSafeObjectKey(objectKey);
+    return `/api/public-assets/${objectKey}`;
+  }
+
   async put(
     partition: StoragePartition,
     objectKey: string,

@@ -20,4 +20,5 @@ export interface ObjectStorage {
     objectKey: string,
     expiresInSeconds: number,
   ): Promise<string>;
+  createPublicUrl(objectKey: string): string;
 }

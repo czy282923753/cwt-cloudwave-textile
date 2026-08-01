@@ -186,6 +186,13 @@ export const qualificationStatusEnum = pgEnum("qualification_status", [
 
 export const priorityEnum = pgEnum("priority", ["low", "normal", "high", "urgent"]);
 
+export const attributionConfidenceEnum = pgEnum("attribution_confidence", [
+  "high",
+  "medium",
+  "low",
+  "unavailable",
+]);
+
 export const activityTypeEnum = pgEnum("activity_type", [
   "note",
   "email",

@@ -6,8 +6,10 @@ const areas = [
   ["Products", "/admin/products"],
   ["Applications", "/admin/applications"],
   ["Assets", "/admin/assets"],
+  ["Fabric Library", "/admin/fabric-library"],
   ["Contents", "/admin/contents"],
   ["Inquiries", "/admin/inquiries"],
+  ["Contacts", "/admin/contacts"],
 ] as const;
 
 export default async function AdminHomePage() {

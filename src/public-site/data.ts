@@ -1,0 +1,564 @@
+import { and, asc, desc, eq } from "drizzle-orm";
+import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+
+import {
+  applicationLocalizations,
+  applications,
+  assets,
+  authors,
+  contentLocalizations,
+  contents,
+  fabricLibraryEntries,
+  fabricLibraryEntryAssets,
+  fabricLibraryEntryLocalizations,
+  fabricLibraryEntryProducts,
+  productApplications,
+  productAssets,
+  productFaqs,
+  productFeatures,
+  productFieldReviews,
+  productLocalizations,
+  products,
+  productTaxonomyTerms,
+  redirects,
+  routes,
+  seoMetadata,
+  taxonomyTermLocalizations,
+  taxonomyTerms,
+} from "@/db/schema";
+import { databaseConnection } from "@/db/client";
+import type { AppDatabase } from "@/db/types";
+import { createObjectStorage } from "@/storage";
+import type { StoragePartition } from "@/storage";
+
+import { resolveVisibleProductFields } from "./product-visibility";
+
+export interface PublicAsset {
+  id: string;
+  url: string;
+  alt: string;
+  width: number | null;
+  height: number | null;
+}
+
+async function assetUrl(partition: string, objectKey: string): Promise<string> {
+  const storage = createObjectStorage();
+  if (partition === "public") return storage.createPublicUrl(objectKey);
+  return storage.createReadUrl(partition as StoragePartition, objectKey, 300);
+}
+
+async function toPublicAsset(row: {
+  id: string;
+  objectKey: string;
+  storagePartition: string;
+  altText: string | null;
+  width: number | null;
+  height: number | null;
+}): Promise<PublicAsset> {
+  return {
+    id: row.id,
+    url: await assetUrl(row.storagePartition, row.objectKey),
+    alt: row.altText ?? "",
+    width: row.width,
+    height: row.height,
+  };
+}
+
+async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  limit = 100,
+) {
+  const rows = await db
+    .select({
+      id: products.id,
+      name: productLocalizations.name,
+      shortDescription: productLocalizations.shortDescription,
+      path: routes.path,
+      indexStatus: seoMetadata.indexStatus,
+      assetId: assets.id,
+      objectKey: assets.objectKey,
+      storagePartition: assets.storagePartition,
+      altText: assets.altText,
+      width: assets.width,
+      height: assets.height,
+    })
+    .from(products)
+    .innerJoin(
+      productLocalizations,
+      and(
+        eq(productLocalizations.productId, products.id),
+        eq(productLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "product"),
+        eq(routes.entityId, products.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .leftJoin(
+      productAssets,
+      and(eq(productAssets.productId, products.id), eq(productAssets.role, "hero")),
+    )
+    .leftJoin(
+      assets,
+      and(eq(assets.id, productAssets.assetId), eq(assets.status, "ready")),
+    )
+    .where(eq(products.status, "published"))
+    .orderBy(desc(products.publishedAt))
+    .limit(limit);
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      name: row.name,
+      shortDescription: row.shortDescription,
+      path: row.path,
+      indexStatus: row.indexStatus,
+      image:
+        row.assetId && row.objectKey && row.storagePartition
+          ? await toPublicAsset({
+              id: row.assetId,
+              objectKey: row.objectKey,
+              storagePartition: row.storagePartition,
+              altText: row.altText,
+              width: row.width,
+              height: row.height,
+            })
+          : null,
+    })),
+  );
+}
+
+export async function listPublishedProducts(limit?: number) {
+  return databaseConnection.kind === "pglite"
+    ? queryPublishedProducts(databaseConnection.db, limit)
+    : queryPublishedProducts(databaseConnection.db, limit);
+}
+
+async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  path: string,
+) {
+  const rows = await db
+    .select({
+      id: products.id,
+      name: productLocalizations.name,
+      shortDescription: productLocalizations.shortDescription,
+      fullDescription: productLocalizations.fullDescription,
+      composition: products.composition,
+      weightGsm: products.weightGsm,
+      widthCm: products.widthCm,
+      colorOptions: products.colorOptions,
+      customAvailable: products.customAvailable,
+      sampleAvailable: products.sampleAvailable,
+      colorOptionsDisplay: products.colorOptionsDisplay,
+      customAvailableDisplay: products.customAvailableDisplay,
+      sampleAvailableDisplay: products.sampleAvailableDisplay,
+      routeId: routes.id,
+      path: routes.path,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      indexStatus: seoMetadata.indexStatus,
+      canonicalPath: seoMetadata.canonicalPath,
+    })
+    .from(products)
+    .innerJoin(
+      productLocalizations,
+      and(
+        eq(productLocalizations.productId, products.id),
+        eq(productLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "product"),
+        eq(routes.entityId, products.id),
+        eq(routes.isCurrent, true),
+        eq(routes.path, path),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(eq(products.status, "published"))
+    .limit(1);
+  const product = rows[0];
+  if (!product) return null;
+  const [imageRows, featureRows, faqRows, reviewRows, applicationRows, taxonomyRows] =
+    await Promise.all([
+      db
+        .select({
+          id: assets.id,
+          objectKey: assets.objectKey,
+          storagePartition: assets.storagePartition,
+          altText: assets.altText,
+          width: assets.width,
+          height: assets.height,
+        })
+        .from(productAssets)
+        .innerJoin(assets, eq(assets.id, productAssets.assetId))
+        .where(
+          and(
+            eq(productAssets.productId, product.id),
+            eq(assets.status, "ready"),
+            eq(assets.access, "public"),
+          ),
+        )
+        .orderBy(asc(productAssets.sortOrder)),
+      db
+        .select({ label: productFeatures.label })
+        .from(productFeatures)
+        .where(
+          and(eq(productFeatures.productId, product.id), eq(productFeatures.locale, "en")),
+        )
+        .orderBy(asc(productFeatures.sortOrder)),
+      db
+        .select({ question: productFaqs.question, answer: productFaqs.answer })
+        .from(productFaqs)
+        .where(and(eq(productFaqs.productId, product.id), eq(productFaqs.locale, "en")))
+        .orderBy(asc(productFaqs.sortOrder)),
+      db
+        .select({ fieldName: productFieldReviews.fieldName })
+        .from(productFieldReviews)
+        .where(
+          and(
+            eq(productFieldReviews.productId, product.id),
+            eq(productFieldReviews.verificationStatus, "verified"),
+          ),
+        ),
+      db
+        .select({ name: applicationLocalizations.name, path: routes.path })
+        .from(productApplications)
+        .innerJoin(applications, eq(applications.id, productApplications.applicationId))
+        .innerJoin(
+          applicationLocalizations,
+          and(
+            eq(applicationLocalizations.applicationId, applications.id),
+            eq(applicationLocalizations.locale, "en"),
+          ),
+        )
+        .leftJoin(
+          routes,
+          and(
+            eq(routes.entityType, "application"),
+            eq(routes.entityId, applications.id),
+            eq(routes.isCurrent, true),
+          ),
+        )
+        .where(eq(productApplications.productId, product.id)),
+      db
+        .select({ name: taxonomyTermLocalizations.name, path: routes.path })
+        .from(productTaxonomyTerms)
+        .innerJoin(
+          taxonomyTerms,
+          eq(taxonomyTerms.id, productTaxonomyTerms.taxonomyTermId),
+        )
+        .innerJoin(
+          taxonomyTermLocalizations,
+          and(
+            eq(taxonomyTermLocalizations.taxonomyTermId, taxonomyTerms.id),
+            eq(taxonomyTermLocalizations.locale, "en"),
+          ),
+        )
+        .leftJoin(
+          routes,
+          and(
+            eq(routes.entityType, "taxonomy"),
+            eq(routes.entityId, taxonomyTerms.id),
+            eq(routes.isCurrent, true),
+          ),
+        )
+        .where(eq(productTaxonomyTerms.productId, product.id)),
+    ]);
+  const verified = new Set(reviewRows.map((row) => row.fieldName));
+  const visibleFields = resolveVisibleProductFields(product, verified);
+  return {
+    ...product,
+    ...visibleFields,
+    images: await Promise.all(imageRows.map(toPublicAsset)),
+    features: featureRows,
+    faqs: faqRows,
+    applications: applicationRows,
+    taxonomy: taxonomyRows,
+  };
+}
+
+export async function getPublishedProductByPath(path: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryProductByPath(databaseConnection.db, path)
+    : queryProductByPath(databaseConnection.db, path);
+}
+
+async function queryRedirect<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  path: string,
+) {
+  const rows = await db
+    .select({ destinationPath: redirects.destinationPath })
+    .from(redirects)
+    .where(and(eq(redirects.sourcePath, path), eq(redirects.isActive, true)))
+    .limit(1);
+  return rows[0]?.destinationPath ?? null;
+}
+
+export async function findRedirect(path: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryRedirect(databaseConnection.db, path)
+    : queryRedirect(databaseConnection.db, path);
+}
+
+async function queryApplications<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+) {
+  return db
+    .select({
+      id: applications.id,
+      name: applicationLocalizations.name,
+      shortDescription: applicationLocalizations.shortDescription,
+      body: applicationLocalizations.body,
+      path: routes.path,
+      indexStatus: seoMetadata.indexStatus,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      canonicalPath: seoMetadata.canonicalPath,
+    })
+    .from(applications)
+    .innerJoin(
+      applicationLocalizations,
+      and(
+        eq(applicationLocalizations.applicationId, applications.id),
+        eq(applicationLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "application"),
+        eq(routes.entityId, applications.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(eq(applications.status, "published"));
+}
+
+export async function listPublishedApplications() {
+  return databaseConnection.kind === "pglite"
+    ? queryApplications(databaseConnection.db)
+    : queryApplications(databaseConnection.db);
+}
+
+export async function getPublishedApplicationByPath(path: string) {
+  const all = await listPublishedApplications();
+  return all.find((application) => application.path === path) ?? null;
+}
+
+async function queryProductsForApplication<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  applicationId: string,
+) {
+  const productIds = await db
+    .select({ id: productApplications.productId })
+    .from(productApplications)
+    .where(eq(productApplications.applicationId, applicationId));
+  if (productIds.length === 0) return [];
+  const productsForApplication = await queryPublishedProducts(db);
+  const allowed = new Set(productIds.map((item) => item.id));
+  return productsForApplication.filter((product) => allowed.has(product.id));
+}
+
+export async function listProductsForApplication(applicationId: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryProductsForApplication(databaseConnection.db, applicationId)
+    : queryProductsForApplication(databaseConnection.db, applicationId);
+}
+
+async function queryProductsForTaxonomy<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  taxonomyTermId: string,
+) {
+  const productIds = await db
+    .select({ id: productTaxonomyTerms.productId })
+    .from(productTaxonomyTerms)
+    .where(eq(productTaxonomyTerms.taxonomyTermId, taxonomyTermId));
+  if (productIds.length === 0) return [];
+  const allProducts = await queryPublishedProducts(db);
+  const allowed = new Set(productIds.map((item) => item.id));
+  return allProducts.filter((product) => allowed.has(product.id));
+}
+
+export async function listProductsForTaxonomy(taxonomyTermId: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryProductsForTaxonomy(databaseConnection.db, taxonomyTermId)
+    : queryProductsForTaxonomy(databaseConnection.db, taxonomyTermId);
+}
+
+async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+) {
+  const rows = await db
+    .select({
+      id: fabricLibraryEntries.id,
+      title: fabricLibraryEntryLocalizations.title,
+      description: fabricLibraryEntryLocalizations.description,
+      path: routes.path,
+      indexStatus: seoMetadata.indexStatus,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      canonicalPath: seoMetadata.canonicalPath,
+      assetId: assets.id,
+      objectKey: assets.objectKey,
+      storagePartition: assets.storagePartition,
+      altText: assets.altText,
+      width: assets.width,
+      height: assets.height,
+    })
+    .from(fabricLibraryEntries)
+    .innerJoin(
+      fabricLibraryEntryLocalizations,
+      and(
+        eq(
+          fabricLibraryEntryLocalizations.fabricEntryId,
+          fabricLibraryEntries.id,
+        ),
+        eq(fabricLibraryEntryLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "fabric_entry"),
+        eq(routes.entityId, fabricLibraryEntries.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .leftJoin(
+      fabricLibraryEntryAssets,
+      and(
+        eq(fabricLibraryEntryAssets.fabricEntryId, fabricLibraryEntries.id),
+        eq(fabricLibraryEntryAssets.role, "hero"),
+      ),
+    )
+    .leftJoin(assets, eq(assets.id, fabricLibraryEntryAssets.assetId))
+    .where(eq(fabricLibraryEntries.status, "published"));
+  return Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      image:
+        row.assetId && row.objectKey && row.storagePartition
+          ? await toPublicAsset({
+              id: row.assetId,
+              objectKey: row.objectKey,
+              storagePartition: row.storagePartition,
+              altText: row.altText,
+              width: row.width,
+              height: row.height,
+            })
+          : null,
+    })),
+  );
+}
+
+export async function listPublishedFabricEntries() {
+  return databaseConnection.kind === "pglite"
+    ? queryFabricEntries(databaseConnection.db)
+    : queryFabricEntries(databaseConnection.db);
+}
+
+export async function getPublishedFabricEntryByPath(path: string) {
+  const entries = await listPublishedFabricEntries();
+  const entry = entries.find((item) => item.path === path);
+  if (!entry) return null;
+  const relatedProducts = databaseConnection.kind === "pglite"
+    ? await databaseConnection.db
+        .select({ id: products.id, name: productLocalizations.name, path: routes.path })
+        .from(fabricLibraryEntryProducts)
+        .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
+        .innerJoin(productLocalizations, eq(productLocalizations.productId, products.id))
+        .innerJoin(routes, and(eq(routes.entityId, products.id), eq(routes.entityType, "product")))
+        .where(eq(fabricLibraryEntryProducts.fabricEntryId, entry.id))
+    : await databaseConnection.db
+        .select({ id: products.id, name: productLocalizations.name, path: routes.path })
+        .from(fabricLibraryEntryProducts)
+        .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
+        .innerJoin(productLocalizations, eq(productLocalizations.productId, products.id))
+        .innerJoin(routes, and(eq(routes.entityId, products.id), eq(routes.entityType, "product")))
+        .where(eq(fabricLibraryEntryProducts.fabricEntryId, entry.id));
+  return { ...entry, relatedProducts };
+}
+
+async function queryContents<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  channel?: typeof contents.$inferSelect.channel,
+) {
+  const base = db
+    .select({
+      id: contents.id,
+      channel: contents.channel,
+      type: contents.type,
+      title: contentLocalizations.title,
+      excerpt: contentLocalizations.excerpt,
+      body: contentLocalizations.body,
+      authorName: authors.displayName,
+      publishedAt: contents.publishedAt,
+      path: routes.path,
+      indexStatus: seoMetadata.indexStatus,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      canonicalPath: seoMetadata.canonicalPath,
+    })
+    .from(contents)
+    .innerJoin(contentLocalizations, and(eq(contentLocalizations.contentId, contents.id), eq(contentLocalizations.locale, "en")))
+    .innerJoin(authors, eq(authors.id, contents.authorId))
+    .innerJoin(routes, and(eq(routes.entityType, "content"), eq(routes.entityId, contents.id), eq(routes.isCurrent, true)))
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(
+      channel
+        ? and(eq(contents.status, "published"), eq(contents.channel, channel))
+        : eq(contents.status, "published"),
+    )
+    .orderBy(desc(contents.publishedAt));
+  return base;
+}
+
+export async function listPublishedContents(channel?: typeof contents.$inferSelect.channel) {
+  return databaseConnection.kind === "pglite"
+    ? queryContents(databaseConnection.db, channel)
+    : queryContents(databaseConnection.db, channel);
+}
+
+export async function getPublishedContentByPath(path: string) {
+  const all = await listPublishedContents();
+  return all.find((content) => content.path === path) ?? null;
+}
+
+export async function listPublishedTaxonomyTerms() {
+  const query = async <TQueryResult extends PgQueryResultHKT>(
+    db: AppDatabase<TQueryResult>,
+  ) =>
+    db
+      .select({
+        id: taxonomyTerms.id,
+        name: taxonomyTermLocalizations.name,
+        description: taxonomyTermLocalizations.description,
+        dimension: taxonomyTerms.dimension,
+        path: routes.path,
+        indexStatus: seoMetadata.indexStatus,
+      })
+      .from(taxonomyTerms)
+      .innerJoin(taxonomyTermLocalizations, and(eq(taxonomyTermLocalizations.taxonomyTermId, taxonomyTerms.id), eq(taxonomyTermLocalizations.locale, "en")))
+      .innerJoin(routes, and(eq(routes.entityType, "taxonomy"), eq(routes.entityId, taxonomyTerms.id), eq(routes.isCurrent, true)))
+      .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+      .where(eq(taxonomyTerms.isActive, true));
+  return databaseConnection.kind === "pglite"
+    ? query(databaseConnection.db)
+    : query(databaseConnection.db);
+}
+
+export async function getPublishedTaxonomyByPath(path: string) {
+  const terms = await listPublishedTaxonomyTerms();
+  return terms.find((term) => term.path === path) ?? null;
+}

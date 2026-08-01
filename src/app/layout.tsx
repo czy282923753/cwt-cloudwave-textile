@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { env } from "@/config/env";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,6 +23,17 @@ export const metadata: Metadata = {
   },
   description:
     "CloudWave Textile helps global brands source suitable fabric materials from China.",
+  robots:
+    env.APP_ENV === "production"
+      ? { index: true, follow: true }
+      : { index: false, follow: false, noarchive: true, nosnippet: false },
+  openGraph: {
+    type: "website",
+    siteName: "CloudWave Textile",
+    title: "CloudWave Textile | Professional Fabric Supplier in China",
+    description:
+      "Multi-category fabric sourcing, matching, sampling, and export support from China.",
+  },
 };
 
 export default function RootLayout({

@@ -11,6 +11,10 @@ export class InMemoryObjectStorage implements ObjectStorage {
     return `${partition}:${objectKey}`;
   }
 
+  createPublicUrl(objectKey: string): string {
+    return `memory://public/${objectKey}`;
+  }
+
   async put(
     partition: StoragePartition,
     objectKey: string,
