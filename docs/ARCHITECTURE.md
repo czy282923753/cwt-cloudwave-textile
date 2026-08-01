@@ -30,6 +30,13 @@ CWT is a modular monolith: one deployable Next.js application with explicit publ
 - Routes are centrally registered; changing a published path creates a redirect transactionally.
 - Public and private file access policies are separate.
 
+## Final local remediation boundaries
+
+- A Server Action is a transport adapter only: parse/validate, call one Domain Service, map a known error, and revalidate or redirect. Author, Company Fact, Asset relation/batch, Organization, Contact and Feature Flag writes are domain-owned.
+- Required Audit Logs share the exact transaction with the mutation and relationship/status writes. A failed Audit insert fails the operation. Permission and target-state checks run again inside the Domain Service transaction.
+- `publicProductEligibilityConditions` is the single Product public-truth predicate. Correlated helpers expose it to Taxonomy, Application and Fabric Library queries without copying a weaker Published-only condition.
+- Admin uploads use a three-step boundary: small authenticated Intent JSON; a raw bounded binary PUT into Private/Internal staging with MIME, signature, decode and scan; then small finalize JSON. Finalize copies inaccessible objects first, commits Public activation, variants, relations, Intent consumption, Batch completion and Audit atomically, and deletes copied Public objects if the transaction fails.
+
 ## Technology baseline
 
 Use the current patched Next.js Active LTS line verified at initialization, React compatible with it, Node.js 24 LTS, strict TypeScript, Tailwind CSS, PostgreSQL 18 or a compatible supported 17 release, Drizzle stable releases pinned exactly, an S3-compatible storage interface, and Sharp-compatible image processing.

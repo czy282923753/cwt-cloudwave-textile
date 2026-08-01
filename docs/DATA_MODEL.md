@@ -1,5 +1,12 @@
 # CWT data model — Phase 1A baseline
 
+## Final local remediation additions
+
+- `asset_upload_batches` now records authenticated Session binding, declared/completed counts, lifecycle status, expiry/completion/failure and the optional batch declaration payload. Its ordinary declaration state remains OFF with a null payload.
+- `upload_intents.kind = admin_asset` adds User, Auth Session, Upload Batch, category, role, association and sort binding to the existing short-lived/single-use Intent model. Inquiry and Admin Intents remain distinguishable and cannot cross-consume.
+- `conversion_events_public_only_check` is declared in Drizzle Schema and the current Snapshot as well as its original forward Migration.
+- `products_product_code_nonblank_check` permits null and rejects every non-null all-whitespace value; the existing partial-null unique behavior remains.
+
 ## Round 3 additions
 
 - `products.publication_remediation_required/reason` records historical public records demoted by the real-Product fail-closed migration.
@@ -52,7 +59,7 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 
 - One path per locale.
 - One current route per localized routable entity.
-- Product Code is unique when present.
+- Product Code is null or nonblank, and unique when present. Empty, space-only, tab-only and newline-only direct writes fail at the database boundary.
 - `product_taxonomy_terms` is the only Product/Taxonomy authority. A deferred database constraint requires exactly one Primary Category for every Product and prevents concurrent dual-primary writes.
 - Join rows are compound-unique.
 - Draft save validation requires name, Primary Category, and one product image.
@@ -80,7 +87,7 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 - Contact, lightweight Organization, Inquiry, private asset, activity, status history, and persistent notification-outbox tables implement repeat inquiries and accountable/retryable sales follow-up.
 - Conversion Events records a consent-aware, deduplicated, PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
 
-Phase 1A has 52 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides.
+Phase 1A has 52 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides. Migration `0010_soft_marrow.sql` adds the Admin Upload Intent/Batch state and Product Code database check; the already-deployed conversion-event check is represented in Schema/Snapshot without being added a second time.
 
 Source declaration is independent from security scanning, access class, and storage context.
 

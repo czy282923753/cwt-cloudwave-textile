@@ -69,6 +69,11 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Analytics is off until explicit server-persisted consent; client state cannot override Unknown, Denied, or Revoked. Upload Intents are private, short-lived, Session-bound, scanned and single-use; arbitrary `x-forwarded-for` is never trusted.
 - Binary uploads are bounded while streaming actual bytes. Missing Content-Length is accepted only with the stream hard limit; mismatched, interrupted, or oversized bodies do not consume an Intent or create a storage object.
 - Hero, Gallery, Cover, Thumbnail, Detail, and Inline roles require an allowed image MIME. PDF is accepted only as Document/Download and can never satisfy Product, Fabric Entry, or Content image readiness.
+- Server Actions parse input, call a Domain Service, translate errors, and revalidate/redirect only. They never write a business table, relationship, workflow state, or Audit Log directly.
+- Business mutation, relationship changes, status transitions, and their required Audit Logs commit in one Domain Service transaction. Domain Services always recheck permissions; Audit failure rolls the mutation back.
+- Taxonomy, Application, Fabric Library, related-Product, sitemap, keyword-owner quality and readiness decisions all reuse the authoritative public real-Product eligibility predicate. A bare `products.status = published` is never sufficient for a derived SEO surface.
+- Admin Asset Library files use authenticated, User-and-Auth-Session-bound Upload Intents and a bounded binary API. Server Actions and multipart `FormData` are not a binary upload transport. Release to Public storage and relationship activation happen only after scan/decode and an atomic finalize transaction.
+- Drizzle Schema, generated Snapshot and forward Migration must agree on database Check Constraints. Product Code is nullable, unique when present, and database-rejected when non-null but entirely whitespace.
 
 ## Quality gates
 

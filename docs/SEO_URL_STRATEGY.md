@@ -41,6 +41,10 @@ English remains at root. Reserved future language prefixes are `/es/`, `/vi/`, `
 - Each primary search intent has one primary indexable owner page.
 - Tags do not automatically create indexable pages.
 
+### Derived-page Product authority
+
+Taxonomy, Application and Fabric Library Index gates, XML sitemap rows, related-Product queries, primary keyword-owner quality and database readiness all reuse the same real-Product public predicate used by Product public reads. It requires Published state, verified real basis by a currently active Admin/Reviewer-Publisher and time, a current nonblank English localization and current route, plus a Public/Ready/Passed allowed image with effective rights. An invalid direct database `Published` row cannot qualify a derived page. If the last eligible Product is removed, the route is excluded from the sitemap immediately and readiness fails any stale Index flag.
+
 ## Structured data
 
 Use only properties supported by visible verified content. Organization, Product, Article, FAQ, and Breadcrumb data never invent price, offers, ratings, technical facts, facilities, or certifications. Structured data eligibility is not presented as a ranking or rich-result guarantee.

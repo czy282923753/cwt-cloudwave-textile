@@ -30,3 +30,7 @@ Product operations include Primary/Additional Taxonomy, Applications, Tags, orde
 ## Audit scope
 
 Authentication, user state, publish/index, route/redirect, fact verification, source-declaration changes, private-file access, CRM assignment/status, deletion, feature flags, and system settings are audited without storing secrets or unnecessary PII.
+
+## Mutation adapter rule
+
+Admin Server Actions contain no direct `insert`, `update`, `delete`, relationship mutation or Audit writer. Author and Company Fact operations join Organization, Contact and Feature Flag operations as transaction-owning Domain Services. The Asset Library uses authenticated API handlers as transport adapters, but User/Session validation, permissions, association state, batch lifecycle, release and Audit rules remain in the Asset Domain Service. Direct service calls are authorization-tested and do not trust the UI.

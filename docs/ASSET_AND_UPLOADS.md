@@ -8,6 +8,10 @@ Public images are delivered only through `/api/public-assets/{assetId}/`. The ro
 
 Public Inquiry uploads use Upload Intent → bounded private upload → scan/decode → Session-bound Asset Token → small Inquiry JSON. Intent, Session, TTL, rate, declared MIME and any supplied Content-Length are checked before streaming. Actual bytes are counted during the stream and aborted immediately above the Intent limit. Missing Content-Length is supported; mismatched, interrupted or oversized bodies create no object, do not consume the Intent and remain retryable. Only a fully bounded body enters private quarantine and scan. Tokens expire, are single-use and are finalized in the Inquiry transaction. Expired and failed Intents and their Assets are handled by retention. The public Inquiry route never uses `arrayBuffer`, `blob`, `formData`, or large multipart parsing.
 
+Admin Asset Library uploads use a separate `admin_asset` Intent kind: create an authenticated Batch bound to the acting User and active Auth Session; send each file to a raw binary PUT; scan it into Private/Internal staging; then finalize with small JSON. Category, association target, role, order, declared MIME/size and optional declaration state are server-bound before bytes arrive and revalidated at finalization. Each Intent is TTL-limited and single-use; cross-User, cross-Session, replay and expired requests fail. Expiry retention deletes staged objects and marks the Batch expired.
+
+Public release occurs only after every Batch Intent passes. Object copies and image derivatives remain unaddressable until one database transaction activates Public storage/access, optional declaration statement, relation rows, consumed Intents, completed Batch and Audit Logs. A transaction or relation/Audit failure deletes the copied Public objects and leaves the original staged Asset nonpublic. The Admin UI never sends file bytes through a Server Action, multipart Server Action body, `file.arrayBuffer()`, or large finalize JSON.
+
 ## Default operator experience
 
 Ordinary asset upload asks only for the file, asset category, optional Product/Fabric Entry/Content association, image role, and sort order.

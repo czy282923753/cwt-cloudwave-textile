@@ -1,5 +1,11 @@
 # Testing and Phase 1A acceptance
 
+## Final local remediation gates
+
+Acceptance additionally requires: static proof that `src/admin/actions.ts` has no direct business/Audit writes or buffered file path; Author, Company Fact, Asset relation/batch, Organization, Contact and Feature Flag permission/transaction/Audit rollback tests; one shared Product eligibility definition across derived SEO and direct-database fail-closed tests; Admin Upload Intent size, streaming guard, TTL, replay, User/Session, scan, declaration-null and public-orphan rollback tests; Drizzle Check/Snapshot parity; and direct Product Code null/unique/whitespace constraint tests.
+
+Final local evidence: environment diagnosis, zero-warning ESLint, strict TypeScript and Drizzle Check pass; Drizzle Generate reports no remaining schema delta; 39 Vitest files/91 tests pass; a fresh Next.js 16.2.12 build completes 40 units/routes; public Bundle isolation passes 20 public manifests/29 files; dependency audit reports no known production vulnerability; Playwright passes 16/16 across Desktop Chromium and Pixel 7, including the authenticated Admin Asset Intent upload. Home has zero Axe Critical/Serious findings, Pixel 7 has no horizontal overflow, and all 11 principal public paths return HTTP 200. Real PostgreSQL and provider validation remain external.
+
 ## Remediation Round 3 gates
 
 Acceptance adds historical/direct-database Product fail-closed reads, migration demotion queue, Effective Rights independent of declaration UI state, optimistic Source Declaration record versions and atomic Audit rollback, public analytics/CRM separation, server-persisted revocable Consent, streaming actual-byte limits, and Fabric/Content role-MIME readiness. Original assertions remain; no critical test is skipped.
