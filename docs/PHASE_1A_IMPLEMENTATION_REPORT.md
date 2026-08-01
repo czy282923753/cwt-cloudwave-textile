@@ -152,6 +152,7 @@ Not executed: real PostgreSQL query-plan/locking/migration rehearsal; R2/S3 acce
 ## 16. Git record
 
 - `3101b3d` — `fix: complete phase 1a final local remediation`
+- `4822294` — `test: stabilize admin upload limit coverage`
 - Documentation/evidence commit: the commit containing this report; use local `git log` for its immutable hash.
 
 No external push, provider call, Preview/Production deployment, production database/key, DNS mutation or formal data import occurred.
