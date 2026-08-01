@@ -2,23 +2,40 @@ import { and, desc, eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { databaseConnection } from "@/db/client";
+import type { Actor } from "@/catalog/product-service";
+import { requireInquiryRecordAccess } from "@/crm/authorization";
 import {
   applicationLocalizations,
   applications,
   assets,
+  auditLogs,
   authors,
   contentLocalizations,
+  contentAssets,
   contents,
   companyFacts,
+  editorialRevisions,
   fabricLibraryEntries,
+  fabricLibraryEntryApplications,
+  fabricLibraryEntryAssets,
   fabricLibraryEntryLocalizations,
+  fabricLibraryEntryProducts,
+  featureFlags,
   contacts,
   customerActivities,
   inquiries,
   inquiryAssets,
   inquiryStatusHistory,
   organizations,
+  productApplications,
+  productAssets,
+  productFaqs,
+  productFeatures,
+  productFieldReviews,
   productLocalizations,
+  productTagAssignments,
+  productTags,
+  productTaxonomyTerms,
   products,
   routes,
   seoMetadata,
@@ -87,6 +104,10 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
       moqNote: products.moqNote,
       customAvailable: products.customAvailable,
       sampleAvailable: products.sampleAvailable,
+      colorOptionsDisplay: products.colorOptionsDisplay,
+      customAvailableDisplay: products.customAvailableDisplay,
+      sampleAvailableDisplay: products.sampleAvailableDisplay,
+      moqNoteDisplay: products.moqNoteDisplay,
       realProductBasis: products.realProductBasis,
       realProductEvidenceNote: products.realProductEvidenceNote,
       routeId: routes.id,
@@ -115,7 +136,59 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
     .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
     .where(eq(products.id, productId))
     .limit(1);
-  return rows[0] ?? null;
+  const product = rows[0];
+  if (!product) return null;
+  const [taxonomy, productApplicationRows, assetRows, tagRows, featureRows, faqRows, reviewRows, revisions] =
+    await Promise.all([
+      db
+        .select({ taxonomyTermId: productTaxonomyTerms.taxonomyTermId, isPrimary: productTaxonomyTerms.isPrimary })
+        .from(productTaxonomyTerms)
+        .where(eq(productTaxonomyTerms.productId, productId)),
+      db
+        .select({ applicationId: productApplications.applicationId })
+        .from(productApplications)
+        .where(eq(productApplications.productId, productId)),
+      db
+        .select({ assetId: productAssets.assetId, role: productAssets.role, sortOrder: productAssets.sortOrder })
+        .from(productAssets)
+        .where(eq(productAssets.productId, productId))
+        .orderBy(productAssets.sortOrder),
+      db
+        .select({ name: productTags.name })
+        .from(productTagAssignments)
+        .innerJoin(productTags, eq(productTags.id, productTagAssignments.tagId))
+        .where(eq(productTagAssignments.productId, productId)),
+      db
+        .select({ label: productFeatures.label })
+        .from(productFeatures)
+        .where(eq(productFeatures.productId, productId))
+        .orderBy(productFeatures.sortOrder),
+      db
+        .select({ question: productFaqs.question, answer: productFaqs.answer })
+        .from(productFaqs)
+        .where(eq(productFaqs.productId, productId))
+        .orderBy(productFaqs.sortOrder),
+      db
+        .select({ fieldName: productFieldReviews.fieldName, status: productFieldReviews.verificationStatus })
+        .from(productFieldReviews)
+        .where(eq(productFieldReviews.productId, productId)),
+      db
+        .select({ id: editorialRevisions.id, versionNumber: editorialRevisions.versionNumber, status: editorialRevisions.status, kind: editorialRevisions.snapshot, changeSummary: editorialRevisions.changeSummary, createdAt: editorialRevisions.createdAt })
+        .from(editorialRevisions)
+        .where(and(eq(editorialRevisions.entityType, "product"), eq(editorialRevisions.entityId, productId)))
+        .orderBy(desc(editorialRevisions.versionNumber)),
+    ]);
+  return {
+    ...product,
+    taxonomy,
+    applicationIds: productApplicationRows.map((row) => row.applicationId),
+    assets: assetRows,
+    tags: tagRows.map((row) => row.name),
+    features: featureRows.map((row) => row.label),
+    faqs: faqRows,
+    fieldReviews: reviewRows,
+    revisions,
+  };
 }
 
 export async function getAdminProduct(productId: string) {
@@ -131,7 +204,14 @@ async function queryTaxonomy<TQueryResult extends PgQueryResultHKT>(
     .select({
       id: taxonomyTerms.id,
       name: taxonomyTermLocalizations.name,
+      description: taxonomyTermLocalizations.description,
       dimension: taxonomyTerms.dimension,
+      isActive: taxonomyTerms.isActive,
+      routeId: routes.id,
+      path: routes.path,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      indexStatus: seoMetadata.indexStatus,
     })
     .from(taxonomyTerms)
     .innerJoin(
@@ -141,7 +221,15 @@ async function queryTaxonomy<TQueryResult extends PgQueryResultHKT>(
         eq(taxonomyTermLocalizations.locale, "en"),
       ),
     )
-    .where(eq(taxonomyTerms.isActive, true));
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "taxonomy"),
+        eq(routes.entityId, taxonomyTerms.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id));
 }
 
 export async function listAdminTaxonomy() {
@@ -160,6 +248,8 @@ async function queryReadyAssets<TQueryResult extends PgQueryResultHKT>(
       category: assets.category,
       access: assets.access,
       status: assets.status,
+      scanStatus: assets.scanStatus,
+      deletedAt: assets.deletedAt,
       sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
       createdAt: assets.createdAt,
     })
@@ -214,6 +304,74 @@ export async function listAdminApplications() {
     : queryApplications(databaseConnection.db);
 }
 
+async function queryApplicationDetail<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  applicationId: string,
+) {
+  const rows = await db
+    .select({
+      id: applications.id,
+      name: applicationLocalizations.name,
+      shortDescription: applicationLocalizations.shortDescription,
+      body: applicationLocalizations.body,
+      status: applications.status,
+      routeId: routes.id,
+      path: routes.path,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      focusKeyword: seoMetadata.focusKeyword,
+      indexStatus: seoMetadata.indexStatus,
+    })
+    .from(applications)
+    .innerJoin(
+      applicationLocalizations,
+      and(
+        eq(applicationLocalizations.applicationId, applications.id),
+        eq(applicationLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "application"),
+        eq(routes.entityId, applications.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(eq(applications.id, applicationId))
+    .limit(1);
+  const application = rows[0];
+  if (!application) return null;
+  const [relations, revisions] = await Promise.all([
+    db
+      .select({ productId: productApplications.productId })
+      .from(productApplications)
+      .where(eq(productApplications.applicationId, applicationId)),
+    db
+      .select()
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "application"),
+          eq(editorialRevisions.entityId, applicationId),
+        ),
+      )
+      .orderBy(desc(editorialRevisions.versionNumber)),
+  ]);
+  return {
+    ...application,
+    productIds: relations.map((relation) => relation.productId),
+    revisions,
+  };
+}
+
+export async function getAdminApplication(applicationId: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryApplicationDetail(databaseConnection.db, applicationId)
+    : queryApplicationDetail(databaseConnection.db, applicationId);
+}
+
 async function queryContents<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
 ) {
@@ -242,13 +400,83 @@ export async function listAdminContents() {
     : queryContents(databaseConnection.db);
 }
 
+async function queryContentDetail<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  contentId: string,
+) {
+  const rows = await db
+    .select({
+      id: contents.id,
+      channel: contents.channel,
+      type: contents.type,
+      status: contents.status,
+      authorId: contents.authorId,
+      title: contentLocalizations.title,
+      excerpt: contentLocalizations.excerpt,
+      body: contentLocalizations.body,
+      routeId: routes.id,
+      path: routes.path,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      focusKeyword: seoMetadata.focusKeyword,
+      indexStatus: seoMetadata.indexStatus,
+    })
+    .from(contents)
+    .innerJoin(
+      contentLocalizations,
+      and(
+        eq(contentLocalizations.contentId, contents.id),
+        eq(contentLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "content"),
+        eq(routes.entityId, contents.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(eq(contents.id, contentId))
+    .limit(1);
+  const content = rows[0];
+  if (!content) return null;
+  const [assetRows, revisions] = await Promise.all([
+    db
+      .select({ assetId: contentAssets.assetId, role: contentAssets.role, sortOrder: contentAssets.sortOrder })
+      .from(contentAssets)
+      .where(eq(contentAssets.contentId, contentId))
+      .orderBy(contentAssets.sortOrder),
+    db
+      .select()
+      .from(editorialRevisions)
+      .where(and(eq(editorialRevisions.entityType, "content"), eq(editorialRevisions.entityId, contentId)))
+      .orderBy(desc(editorialRevisions.versionNumber)),
+  ]);
+  return { ...content, assets: assetRows, revisions };
+}
+
+export async function getAdminContent(contentId: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryContentDetail(databaseConnection.db, contentId)
+    : queryContentDetail(databaseConnection.db, contentId);
+}
+
 async function queryAuthors<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
 ) {
   return db
-    .select({ id: authors.id, displayName: authors.displayName })
+    .select({
+      id: authors.id,
+      internalKey: authors.internalKey,
+      displayName: authors.displayName,
+      bio: authors.bio,
+      isOrganization: authors.isOrganization,
+      isActive: authors.isActive,
+    })
     .from(authors)
-    .where(eq(authors.isActive, true));
+    .orderBy(authors.displayName);
 }
 
 export async function listAdminAuthors() {
@@ -287,6 +515,90 @@ export async function listAdminFabricEntries() {
     : queryFabricEntries(databaseConnection.db);
 }
 
+async function queryFabricEntryDetail<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  entryId: string,
+) {
+  const rows = await db
+    .select({
+      id: fabricLibraryEntries.id,
+      status: fabricLibraryEntries.status,
+      title: fabricLibraryEntryLocalizations.title,
+      description: fabricLibraryEntryLocalizations.description,
+      independentValueConfirmedAt: fabricLibraryEntries.independentValueConfirmedAt,
+      routeId: routes.id,
+      path: routes.path,
+      seoTitle: seoMetadata.title,
+      metaDescription: seoMetadata.metaDescription,
+      focusKeyword: seoMetadata.focusKeyword,
+      indexStatus: seoMetadata.indexStatus,
+    })
+    .from(fabricLibraryEntries)
+    .innerJoin(
+      fabricLibraryEntryLocalizations,
+      and(
+        eq(fabricLibraryEntryLocalizations.fabricEntryId, fabricLibraryEntries.id),
+        eq(fabricLibraryEntryLocalizations.locale, "en"),
+      ),
+    )
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "fabric_entry"),
+        eq(routes.entityId, fabricLibraryEntries.id),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(eq(fabricLibraryEntries.id, entryId))
+    .limit(1);
+  const entry = rows[0];
+  if (!entry) return null;
+  const [assetRows, productRows, applicationRows, revisions] = await Promise.all([
+    db
+      .select({ assetId: fabricLibraryEntryAssets.assetId, role: fabricLibraryEntryAssets.role, sortOrder: fabricLibraryEntryAssets.sortOrder })
+      .from(fabricLibraryEntryAssets)
+      .where(eq(fabricLibraryEntryAssets.fabricEntryId, entryId))
+      .orderBy(fabricLibraryEntryAssets.sortOrder),
+    db
+      .select({ productId: fabricLibraryEntryProducts.productId })
+      .from(fabricLibraryEntryProducts)
+      .where(eq(fabricLibraryEntryProducts.fabricEntryId, entryId)),
+    db
+      .select({ applicationId: fabricLibraryEntryApplications.applicationId })
+      .from(fabricLibraryEntryApplications)
+      .where(eq(fabricLibraryEntryApplications.fabricEntryId, entryId)),
+    db
+      .select()
+      .from(editorialRevisions)
+      .where(and(eq(editorialRevisions.entityType, "fabric_entry"), eq(editorialRevisions.entityId, entryId)))
+      .orderBy(desc(editorialRevisions.versionNumber)),
+  ]);
+  return {
+    ...entry,
+    assets: assetRows,
+    productIds: productRows.map((row) => row.productId),
+    applicationIds: applicationRows.map((row) => row.applicationId),
+    revisions,
+  };
+}
+
+export async function getAdminFabricEntry(entryId: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryFabricEntryDetail(databaseConnection.db, entryId)
+    : queryFabricEntryDetail(databaseConnection.db, entryId);
+}
+
+export async function getAdminCompanyFact(factId: string) {
+  const query = async <TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQueryResult>) => {
+    const rows = await db.select().from(companyFacts).where(eq(companyFacts.id, factId)).limit(1);
+    return rows[0] ?? null;
+  };
+  return databaseConnection.kind === "pglite"
+    ? query(databaseConnection.db)
+    : query(databaseConnection.db);
+}
+
 async function queryCompanyFacts<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
 ) {
@@ -323,8 +635,45 @@ export async function listAdminSeoRoutes() {
     : querySeoRoutes(databaseConnection.db);
 }
 
+async function queryAuditLogs<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+) {
+  return db
+    .select({
+      id: auditLogs.id,
+      action: auditLogs.action,
+      entityType: auditLogs.entityType,
+      entityId: auditLogs.entityId,
+      actorUserId: auditLogs.actorUserId,
+      requestId: auditLogs.requestId,
+      createdAt: auditLogs.createdAt,
+    })
+    .from(auditLogs)
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(250);
+}
+
+export async function listAdminAuditLogs() {
+  return databaseConnection.kind === "pglite"
+    ? queryAuditLogs(databaseConnection.db)
+    : queryAuditLogs(databaseConnection.db);
+}
+
+async function queryFeatureFlags<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+) {
+  return db.select().from(featureFlags).orderBy(featureFlags.key);
+}
+
+export async function listAdminFeatureFlags() {
+  return databaseConnection.kind === "pglite"
+    ? queryFeatureFlags(databaseConnection.db)
+    : queryFeatureFlags(databaseConnection.db);
+}
+
 async function queryInquiries<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  actor: Actor,
 ) {
   return db
     .select({
@@ -341,19 +690,22 @@ async function queryInquiries<TQueryResult extends PgQueryResultHKT>(
     .from(inquiries)
     .innerJoin(contacts, eq(contacts.id, inquiries.contactId))
     .leftJoin(users, eq(users.id, inquiries.ownerUserId))
+    .where(actor.role === "admin" ? undefined : eq(inquiries.ownerUserId, actor.userId))
     .orderBy(desc(inquiries.createdAt));
 }
 
-export async function listAdminInquiries() {
+export async function listAdminInquiries(actor: Actor) {
   return databaseConnection.kind === "pglite"
-    ? queryInquiries(databaseConnection.db)
-    : queryInquiries(databaseConnection.db);
+    ? queryInquiries(databaseConnection.db, actor)
+    : queryInquiries(databaseConnection.db, actor);
 }
 
 async function queryInquiryDetail<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  actor: Actor,
   inquiryId: string,
 ) {
+  await requireInquiryRecordAccess(db, actor, inquiryId, "read");
   const rows = await db
     .select({
       id: inquiries.id,
@@ -362,6 +714,10 @@ async function queryInquiryDetail<TQueryResult extends PgQueryResultHKT>(
       email: contacts.email,
       countryCode: contacts.countryCode,
       whatsapp: contacts.whatsapp,
+      submittedName: inquiries.submittedName,
+      submittedEmail: inquiries.submittedEmail,
+      submittedCountryCode: inquiries.submittedCountryCode,
+      submittedWhatsapp: inquiries.submittedWhatsapp,
       description: inquiries.description,
       status: inquiries.status,
       priority: inquiries.priority,
@@ -392,6 +748,7 @@ async function queryInquiryDetail<TQueryResult extends PgQueryResultHKT>(
       .select({
         id: customerActivities.id,
         type: customerActivities.type,
+        direction: customerActivities.direction,
         content: customerActivities.content,
         operator: users.displayName,
         occurredAt: customerActivities.occurredAt,
@@ -420,10 +777,10 @@ async function queryInquiryDetail<TQueryResult extends PgQueryResultHKT>(
   return { ...inquiry, activities, history, files };
 }
 
-export async function getAdminInquiry(inquiryId: string) {
+export async function getAdminInquiry(actor: Actor, inquiryId: string) {
   return databaseConnection.kind === "pglite"
-    ? queryInquiryDetail(databaseConnection.db, inquiryId)
-    : queryInquiryDetail(databaseConnection.db, inquiryId);
+    ? queryInquiryDetail(databaseConnection.db, actor, inquiryId)
+    : queryInquiryDetail(databaseConnection.db, actor, inquiryId);
 }
 
 async function queryCrmOwners<TQueryResult extends PgQueryResultHKT>(

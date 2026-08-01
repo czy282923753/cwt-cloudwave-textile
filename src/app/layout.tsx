@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { env } from "@/config/env";
+import { publicIndexingAllowed } from "@/config/env";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   description:
     "CloudWave Textile helps global brands source suitable fabric materials from China.",
   robots:
-    env.APP_ENV === "production"
+    publicIndexingAllowed()
       ? { index: true, follow: true }
       : { index: false, follow: false, noarchive: true, nosnippet: false },
   openGraph: {

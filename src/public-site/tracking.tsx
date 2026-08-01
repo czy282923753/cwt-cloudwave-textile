@@ -27,6 +27,11 @@ export function captureAttribution(): {
   utmSource: string;
   utmMedium: string;
   utmCampaign: string;
+  lastNonDirectSource: string;
+  lastNonDirectMedium: string;
+  lastNonDirectCampaign: string;
+  attributionConfidence: "high" | "medium" | "low" | "unavailable";
+  consentState: "unknown" | "granted" | "denied";
 } {
   const landingKey = "cwt_landing_page";
   const currentPath = window.location.pathname;
@@ -39,13 +44,57 @@ export function captureAttribution(): {
   } catch {
     referrerOrigin = "";
   }
+  const firstReferrerKey = "cwt_first_referrer";
+  const firstSourceKey = "cwt_first_utm_source";
+  const firstMediumKey = "cwt_first_utm_medium";
+  const firstCampaignKey = "cwt_first_utm_campaign";
+  const currentSource = params.get("utm_source") ?? "";
+  const currentMedium = params.get("utm_medium") ?? "";
+  const currentCampaign = params.get("utm_campaign") ?? "";
+  const attributionInitializedKey = "cwt_attribution_initialized";
+  if (window.sessionStorage.getItem(attributionInitializedKey) !== "true") {
+    window.sessionStorage.setItem(firstReferrerKey, referrerOrigin);
+    window.sessionStorage.setItem(firstSourceKey, currentSource);
+    window.sessionStorage.setItem(firstMediumKey, currentMedium);
+    window.sessionStorage.setItem(firstCampaignKey, currentCampaign);
+    window.sessionStorage.setItem(attributionInitializedKey, "true");
+  }
+  const lastSourceKey = "cwt_last_non_direct_source";
+  const lastMediumKey = "cwt_last_non_direct_medium";
+  const lastCampaignKey = "cwt_last_non_direct_campaign";
+  const externalReferrer = referrerOrigin && referrerOrigin !== window.location.origin
+    ? referrerOrigin
+    : "";
+  if (currentSource || externalReferrer) {
+    window.sessionStorage.setItem(lastSourceKey, currentSource || externalReferrer);
+    window.sessionStorage.setItem(
+      lastMediumKey,
+      currentMedium || (externalReferrer ? "referral" : ""),
+    );
+    window.sessionStorage.setItem(lastCampaignKey, currentCampaign);
+  }
+  const firstSource = window.sessionStorage.getItem(firstSourceKey) ?? "";
+  const firstReferrer = window.sessionStorage.getItem(firstReferrerKey) ?? "";
+  const consent = window.localStorage.getItem("cwt_analytics_consent");
   return {
     anonymousSessionId: sessionId(),
     landingPagePath,
-    referrerOrigin,
-    utmSource: params.get("utm_source") ?? "",
-    utmMedium: params.get("utm_medium") ?? "",
-    utmCampaign: params.get("utm_campaign") ?? "",
+    referrerOrigin: firstReferrer,
+    utmSource: firstSource,
+    utmMedium: window.sessionStorage.getItem(firstMediumKey) ?? "",
+    utmCampaign: window.sessionStorage.getItem(firstCampaignKey) ?? "",
+    lastNonDirectSource: window.sessionStorage.getItem(lastSourceKey) ?? "",
+    lastNonDirectMedium: window.sessionStorage.getItem(lastMediumKey) ?? "",
+    lastNonDirectCampaign: window.sessionStorage.getItem(lastCampaignKey) ?? "",
+    attributionConfidence: firstSource
+      ? "high"
+      : firstReferrer
+        ? "medium"
+        : landingPagePath
+          ? "low"
+          : "unavailable",
+    consentState:
+      consent === "granted" || consent === "denied" ? consent : "unknown",
   };
 }
 
@@ -53,13 +102,18 @@ export function trackPublicEvent(
   eventName: PublicEventName,
   routePath: string,
   safeProperties: Readonly<Record<string, string | number | boolean>> = {},
+  entity?: Readonly<{
+    entityType: "product" | "application" | "fabric_entry" | "content";
+    entityId: string;
+  }>,
 ): void {
   const attribution = captureAttribution();
-  void fetch("/api/conversion-events", {
+  void fetch("/api/conversion-events/", {
     method: "POST",
     headers: { "content-type": "application/json" },
     keepalive: true,
     body: JSON.stringify({
+      eventId: crypto.randomUUID(),
       eventName,
       routePath,
       landingPagePath: attribution.landingPagePath,
@@ -67,8 +121,14 @@ export function trackPublicEvent(
       utmSource: attribution.utmSource || undefined,
       utmMedium: attribution.utmMedium || undefined,
       utmCampaign: attribution.utmCampaign || undefined,
+      lastNonDirectSource: attribution.lastNonDirectSource || undefined,
+      lastNonDirectMedium: attribution.lastNonDirectMedium || undefined,
+      lastNonDirectCampaign: attribution.lastNonDirectCampaign || undefined,
+      attributionConfidence: attribution.attributionConfidence,
+      consentState: attribution.consentState,
       anonymousSessionId: attribution.anonymousSessionId,
       safeProperties,
+      ...entity,
     }),
   });
 }

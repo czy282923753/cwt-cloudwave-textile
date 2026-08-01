@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
@@ -7,6 +7,7 @@ import {
   assets,
   authors,
   contentLocalizations,
+  contentAssets,
   contents,
   fabricLibraryEntries,
   fabricLibraryEntryAssets,
@@ -27,11 +28,12 @@ import {
   taxonomyTerms,
 } from "@/db/schema";
 import { databaseConnection } from "@/db/client";
+import { listVerifiedPublicCompanyFacts } from "@/content/company-facts-service";
 import type { AppDatabase } from "@/db/types";
 import { createObjectStorage } from "@/storage";
-import type { StoragePartition } from "@/storage";
 
 import { resolveVisibleProductFields } from "./product-visibility";
+import { assertPublicAssetCandidate } from "./public-asset-policy";
 
 export interface PublicAsset {
   id: string;
@@ -41,20 +43,33 @@ export interface PublicAsset {
   height: number | null;
 }
 
+export async function getVerifiedPublicCompanyFacts() {
+  return databaseConnection.kind === "pglite"
+    ? listVerifiedPublicCompanyFacts(databaseConnection.db)
+    : listVerifiedPublicCompanyFacts(databaseConnection.db);
+}
+
 async function assetUrl(partition: string, objectKey: string): Promise<string> {
+  if (partition !== "public") {
+    throw new Error("Public pages cannot create non-public Asset URLs.");
+  }
   const storage = createObjectStorage();
-  if (partition === "public") return storage.createPublicUrl(objectKey);
-  return storage.createReadUrl(partition as StoragePartition, objectKey, 300);
+  return storage.createPublicUrl(objectKey);
 }
 
 async function toPublicAsset(row: {
   id: string;
   objectKey: string;
   storagePartition: string;
+  access: typeof assets.$inferSelect.access;
+  status: typeof assets.$inferSelect.status;
+  scanStatus: typeof assets.$inferSelect.scanStatus;
+  deletedAt: Date | null;
   altText: string | null;
   width: number | null;
   height: number | null;
 }): Promise<PublicAsset> {
+  assertPublicAssetCandidate(row);
   return {
     id: row.id,
     url: await assetUrl(row.storagePartition, row.objectKey),
@@ -78,6 +93,10 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
       assetId: assets.id,
       objectKey: assets.objectKey,
       storagePartition: assets.storagePartition,
+      assetAccess: assets.access,
+      assetStatus: assets.status,
+      assetScanStatus: assets.scanStatus,
+      assetDeletedAt: assets.deletedAt,
       altText: assets.altText,
       width: assets.width,
       height: assets.height,
@@ -105,7 +124,14 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
     )
     .leftJoin(
       assets,
-      and(eq(assets.id, productAssets.assetId), eq(assets.status, "ready")),
+      and(
+        eq(assets.id, productAssets.assetId),
+        eq(assets.storagePartition, "public"),
+        eq(assets.access, "public"),
+        eq(assets.status, "ready"),
+        eq(assets.scanStatus, "passed"),
+        isNull(assets.deletedAt),
+      ),
     )
     .where(eq(products.status, "published"))
     .orderBy(desc(products.publishedAt))
@@ -118,11 +144,20 @@ async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
       path: row.path,
       indexStatus: row.indexStatus,
       image:
-        row.assetId && row.objectKey && row.storagePartition
+        row.assetId &&
+        row.objectKey &&
+        row.storagePartition &&
+        row.assetAccess &&
+        row.assetStatus &&
+        row.assetScanStatus
           ? await toPublicAsset({
               id: row.assetId,
               objectKey: row.objectKey,
               storagePartition: row.storagePartition,
+              access: row.assetAccess,
+              status: row.assetStatus,
+              scanStatus: row.assetScanStatus,
+              deletedAt: row.assetDeletedAt,
               altText: row.altText,
               width: row.width,
               height: row.height,
@@ -154,9 +189,11 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
       colorOptions: products.colorOptions,
       customAvailable: products.customAvailable,
       sampleAvailable: products.sampleAvailable,
+      moqNote: products.moqNote,
       colorOptionsDisplay: products.colorOptionsDisplay,
       customAvailableDisplay: products.customAvailableDisplay,
       sampleAvailableDisplay: products.sampleAvailableDisplay,
+      moqNoteDisplay: products.moqNoteDisplay,
       routeId: routes.id,
       path: routes.path,
       seoTitle: seoMetadata.title,
@@ -193,6 +230,10 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
           id: assets.id,
           objectKey: assets.objectKey,
           storagePartition: assets.storagePartition,
+          access: assets.access,
+          status: assets.status,
+          scanStatus: assets.scanStatus,
+          deletedAt: assets.deletedAt,
           altText: assets.altText,
           width: assets.width,
           height: assets.height,
@@ -204,6 +245,9 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
             eq(productAssets.productId, product.id),
             eq(assets.status, "ready"),
             eq(assets.access, "public"),
+            eq(assets.storagePartition, "public"),
+            eq(assets.scanStatus, "passed"),
+            isNull(assets.deletedAt),
           ),
         )
         .orderBy(asc(productAssets.sortOrder)),
@@ -245,9 +289,15 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
             eq(routes.entityType, "application"),
             eq(routes.entityId, applications.id),
             eq(routes.isCurrent, true),
+            eq(routes.locale, "en"),
           ),
         )
-        .where(eq(productApplications.productId, product.id)),
+        .where(
+          and(
+            eq(productApplications.productId, product.id),
+            eq(applications.status, "published"),
+          ),
+        ),
       db
         .select({ name: taxonomyTermLocalizations.name, path: routes.path })
         .from(productTaxonomyTerms)
@@ -268,6 +318,7 @@ async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
             eq(routes.entityType, "taxonomy"),
             eq(routes.entityId, taxonomyTerms.id),
             eq(routes.isCurrent, true),
+            eq(routes.locale, "en"),
           ),
         )
         .where(eq(productTaxonomyTerms.productId, product.id)),
@@ -411,6 +462,10 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
       assetId: assets.id,
       objectKey: assets.objectKey,
       storagePartition: assets.storagePartition,
+      assetAccess: assets.access,
+      assetStatus: assets.status,
+      assetScanStatus: assets.scanStatus,
+      assetDeletedAt: assets.deletedAt,
       altText: assets.altText,
       width: assets.width,
       height: assets.height,
@@ -442,17 +497,36 @@ async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
         eq(fabricLibraryEntryAssets.role, "hero"),
       ),
     )
-    .leftJoin(assets, eq(assets.id, fabricLibraryEntryAssets.assetId))
+    .leftJoin(
+      assets,
+      and(
+        eq(assets.id, fabricLibraryEntryAssets.assetId),
+        eq(assets.storagePartition, "public"),
+        eq(assets.access, "public"),
+        eq(assets.status, "ready"),
+        eq(assets.scanStatus, "passed"),
+        isNull(assets.deletedAt),
+      ),
+    )
     .where(eq(fabricLibraryEntries.status, "published"));
   return Promise.all(
     rows.map(async (row) => ({
       ...row,
       image:
-        row.assetId && row.objectKey && row.storagePartition
+        row.assetId &&
+        row.objectKey &&
+        row.storagePartition &&
+        row.assetAccess &&
+        row.assetStatus &&
+        row.assetScanStatus
           ? await toPublicAsset({
               id: row.assetId,
               objectKey: row.objectKey,
               storagePartition: row.storagePartition,
+              access: row.assetAccess,
+              status: row.assetStatus,
+              scanStatus: row.assetScanStatus,
+              deletedAt: row.assetDeletedAt,
               altText: row.altText,
               width: row.width,
               height: row.height,
@@ -472,22 +546,28 @@ export async function getPublishedFabricEntryByPath(path: string) {
   const entries = await listPublishedFabricEntries();
   const entry = entries.find((item) => item.path === path);
   if (!entry) return null;
-  const relatedProducts = databaseConnection.kind === "pglite"
-    ? await databaseConnection.db
-        .select({ id: products.id, name: productLocalizations.name, path: routes.path })
-        .from(fabricLibraryEntryProducts)
-        .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
-        .innerJoin(productLocalizations, eq(productLocalizations.productId, products.id))
-        .innerJoin(routes, and(eq(routes.entityId, products.id), eq(routes.entityType, "product")))
-        .where(eq(fabricLibraryEntryProducts.fabricEntryId, entry.id))
-    : await databaseConnection.db
-        .select({ id: products.id, name: productLocalizations.name, path: routes.path })
-        .from(fabricLibraryEntryProducts)
-        .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
-        .innerJoin(productLocalizations, eq(productLocalizations.productId, products.id))
-        .innerJoin(routes, and(eq(routes.entityId, products.id), eq(routes.entityType, "product")))
-        .where(eq(fabricLibraryEntryProducts.fabricEntryId, entry.id));
+  const relatedIds = databaseConnection.kind === "pglite"
+    ? await queryPublishedFabricRelatedProductIds(databaseConnection.db, entry.id)
+    : await queryPublishedFabricRelatedProductIds(databaseConnection.db, entry.id);
+  const publishedProducts = await listPublishedProducts();
+  const allowed = new Set(relatedIds.map((row) => row.id));
+  const relatedProducts = publishedProducts.filter((product) => allowed.has(product.id));
   return { ...entry, relatedProducts };
+}
+
+export async function queryPublishedFabricRelatedProductIds<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, entryId: string) {
+  return db
+    .select({ id: fabricLibraryEntryProducts.productId })
+    .from(fabricLibraryEntryProducts)
+    .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
+    .where(
+      and(
+        eq(fabricLibraryEntryProducts.fabricEntryId, entryId),
+        eq(products.status, "published"),
+      ),
+    );
 }
 
 async function queryContents<TQueryResult extends PgQueryResultHKT>(
@@ -532,7 +612,42 @@ export async function listPublishedContents(channel?: typeof contents.$inferSele
 
 export async function getPublishedContentByPath(path: string) {
   const all = await listPublishedContents();
-  return all.find((content) => content.path === path) ?? null;
+  const content = all.find((item) => item.path === path);
+  if (!content) return null;
+  const query = async <TQueryResult extends PgQueryResultHKT>(
+    db: AppDatabase<TQueryResult>,
+  ) =>
+    db
+      .select({
+        id: assets.id,
+        objectKey: assets.objectKey,
+        storagePartition: assets.storagePartition,
+        access: assets.access,
+        status: assets.status,
+        scanStatus: assets.scanStatus,
+        deletedAt: assets.deletedAt,
+        altText: assets.altText,
+        width: assets.width,
+        height: assets.height,
+      })
+      .from(contentAssets)
+      .innerJoin(
+        assets,
+        and(
+          eq(assets.id, contentAssets.assetId),
+          eq(assets.storagePartition, "public"),
+          eq(assets.access, "public"),
+          eq(assets.status, "ready"),
+          eq(assets.scanStatus, "passed"),
+          isNull(assets.deletedAt),
+        ),
+      )
+      .where(eq(contentAssets.contentId, content.id))
+      .orderBy(asc(contentAssets.sortOrder));
+  const imageRows = databaseConnection.kind === "pglite"
+    ? await query(databaseConnection.db)
+    : await query(databaseConnection.db);
+  return { ...content, images: await Promise.all(imageRows.map(toPublicAsset)) };
 }
 
 export async function listPublishedTaxonomyTerms() {

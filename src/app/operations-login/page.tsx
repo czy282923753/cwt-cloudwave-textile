@@ -24,7 +24,7 @@ export default async function OperationsLoginPage({
             Sign-in was not accepted. Check the credentials and try again.
           </p>
         ) : null}
-        <form action="/api/auth/login" className="mt-7 grid gap-5" method="post">
+        <form action="/api/auth/login/" className="mt-7 grid gap-5" method="post">
           <label className="grid gap-2 text-sm font-medium">
             Email
             <input

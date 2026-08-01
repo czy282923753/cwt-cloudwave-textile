@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -7,7 +7,10 @@ import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
 import {
   contentLocalizations,
+  contentAssets,
   contents,
+  authors,
+  assets,
   editorialRevisions,
   internalLinkRelations,
   keywordPageMappings,
@@ -22,6 +25,17 @@ const revisionSnapshotSchema = z.object({
   title: z.string().min(1),
   excerpt: z.string().nullable(),
   body: z.string().min(1),
+  authorId: z.uuid().optional(),
+  type: z.enum(["article", "pillar", "comparison", "how_to", "guide"]).optional(),
+  assetIds: z.array(z.uuid()).optional(),
+  seo: z
+    .object({
+      routeId: z.uuid(),
+      title: z.string().nullable(),
+      metaDescription: z.string().nullable(),
+      focusKeyword: z.string().nullable(),
+    })
+    .optional(),
 });
 
 type ContentChannel = typeof contents.$inferInsert.channel;
@@ -50,7 +64,7 @@ export async function createContentDraft<TQueryResult extends PgQueryResultHKT>(
   const title = input.title.trim();
   const body = input.body.trim();
   if (!title || !body) throw new Error("Content title and body are required.");
-  const path = `/${channelPrefix(input.channel)}/${slugify(title)}`;
+  const path = `/${channelPrefix(input.channel)}/${slugify(title)}/`;
   const collision = await db.select({ id: routes.id }).from(routes).where(eq(routes.path, path));
   if (collision[0]) throw new Error("Content URL already exists.");
 
@@ -110,13 +124,161 @@ export async function createContentDraft<TQueryResult extends PgQueryResultHKT>(
   });
 }
 
+export async function updateContent<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  contentId: string,
+  input: {
+    title: string;
+    excerpt?: string | null;
+    body: string;
+    authorId: string;
+    type: typeof contents.$inferInsert.type;
+    seoTitle?: string | null;
+    metaDescription?: string | null;
+    focusKeyword?: string | null;
+    assetIds?: readonly string[];
+    changeSummary?: string;
+  },
+): Promise<string | null> {
+  requirePermission(actor.role, "content.write");
+  const snapshot = revisionSnapshotSchema.parse({
+    title: input.title.trim(),
+    excerpt: input.excerpt?.trim() || null,
+    body: input.body.trim(),
+    authorId: input.authorId,
+    type: input.type,
+    ...(input.assetIds ? { assetIds: [...new Set(input.assetIds)] } : {}),
+  });
+  const [contentRows, authorRows] = await Promise.all([
+    db
+      .select({ status: contents.status, routeId: routes.id })
+      .from(contents)
+      .innerJoin(
+        routes,
+        and(
+          eq(routes.entityType, "content"),
+          eq(routes.entityId, contents.id),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        ),
+      )
+      .where(eq(contents.id, contentId))
+      .limit(1),
+    db
+      .select({ id: authors.id })
+      .from(authors)
+      .where(and(eq(authors.id, input.authorId), eq(authors.isActive, true)))
+      .limit(1),
+  ]);
+  const status = contentRows[0]?.status;
+  if (!status) throw new Error("Content was not found.");
+  if (!authorRows[0]) throw new Error("Content Author must be active.");
+  if (snapshot.assetIds?.length) {
+    const assetRows = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          inArray(assets.id, snapshot.assetIds),
+          eq(assets.storagePartition, "public"),
+          eq(assets.access, "public"),
+          eq(assets.status, "ready"),
+          eq(assets.scanStatus, "passed"),
+          isNull(assets.deletedAt),
+        ),
+      );
+    if (assetRows.length !== snapshot.assetIds.length) {
+      throw new Error("Content Assets must be ready, scanned public Assets.");
+    }
+  }
+  if (status === "archived") throw new Error("Archived Content cannot be edited.");
+  const seo = {
+    routeId: contentRows[0]!.routeId,
+    title: input.seoTitle?.trim() || null,
+    metaDescription: input.metaDescription?.trim() || null,
+    focusKeyword: input.focusKeyword?.trim() || null,
+  };
+  if (status === "published") {
+    return proposePublishedContentRevision(db, actor, contentId, {
+      title: snapshot.title,
+      excerpt: snapshot.excerpt,
+      body: snapshot.body,
+      authorId: input.authorId,
+      type: input.type,
+      ...(snapshot.assetIds ? { assetIds: snapshot.assetIds } : {}),
+      seo,
+      changeSummary: input.changeSummary?.trim() || "Published Content update",
+    });
+  }
+  await db.transaction(async (transaction) => {
+    await transaction
+      .update(contentLocalizations)
+      .set({ title: snapshot.title, excerpt: snapshot.excerpt, body: snapshot.body })
+      .where(
+        and(
+          eq(contentLocalizations.contentId, contentId),
+          eq(contentLocalizations.locale, "en"),
+        ),
+      );
+    await transaction
+      .update(contents)
+      .set({ authorId: input.authorId, type: input.type, updatedAt: new Date() })
+      .where(eq(contents.id, contentId));
+    if (snapshot.assetIds) {
+      await transaction.delete(contentAssets).where(eq(contentAssets.contentId, contentId));
+      if (snapshot.assetIds.length) {
+        await transaction.insert(contentAssets).values(
+          snapshot.assetIds.map((assetId, sortOrder) => ({
+            contentId,
+            assetId,
+            role: sortOrder === 0 ? ("hero" as const) : ("inline" as const),
+            sortOrder,
+          })),
+        );
+      }
+    }
+    await transaction
+      .update(seoMetadata)
+      .set({
+        title: seo.title,
+        metaDescription: seo.metaDescription,
+        focusKeyword: seo.focusKeyword,
+        updatedByUserId: actor.userId,
+        updatedAt: new Date(),
+      })
+      .where(eq(seoMetadata.routeId, seo.routeId));
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "content.updated",
+      entityType: "content",
+      entityId: contentId,
+    });
+  });
+  return null;
+}
+
 export async function proposePublishedContentRevision<
   TQueryResult extends PgQueryResultHKT,
 >(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   contentId: string,
-  input: { title: string; excerpt?: string | null; body: string; changeSummary: string },
+  input: {
+    title: string;
+    excerpt?: string | null;
+    body: string;
+    authorId?: string;
+    type?: typeof contents.$inferInsert.type;
+    assetIds?: readonly string[];
+    seo?: {
+      routeId: string;
+      title: string | null;
+      metaDescription: string | null;
+      focusKeyword: string | null;
+    };
+    changeSummary: string;
+  },
 ): Promise<string> {
   requirePermission(actor.role, "content.write");
   const contentRows = await db
@@ -143,6 +305,10 @@ export async function proposePublishedContentRevision<
     title: input.title.trim(),
     excerpt: input.excerpt?.trim() || null,
     body: input.body.trim(),
+    ...(input.authorId ? { authorId: input.authorId } : {}),
+    ...(input.type ? { type: input.type } : {}),
+    ...(input.assetIds ? { assetIds: [...new Set(input.assetIds)] } : {}),
+    ...(input.seo ? { seo: input.seo } : {}),
   });
   const rows = await db
     .insert(editorialRevisions)
@@ -205,10 +371,55 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
     if (!revision || revision.entityType !== "content" || revision.status !== "in_review") {
       throw new Error("Revision is not eligible for approval.");
     }
+    const newer = await transaction
+      .select({ id: editorialRevisions.id })
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "content"),
+          eq(editorialRevisions.entityId, revision.entityId),
+          eq(editorialRevisions.locale, revision.locale),
+          gt(editorialRevisions.versionNumber, revision.versionNumber),
+        ),
+      )
+      .limit(1);
+    if (newer[0]) {
+      throw new Error("A newer Content revision exists; this revision is stale.");
+    }
     const snapshot = revisionSnapshotSchema.parse(revision.snapshot);
+    if (snapshot.authorId) {
+      const authorRows = await transaction
+        .select({ id: authors.id })
+        .from(authors)
+        .where(and(eq(authors.id, snapshot.authorId), eq(authors.isActive, true)))
+        .limit(1);
+      if (!authorRows[0]) throw new Error("Content revision Author must still be active.");
+    }
+    if (snapshot.assetIds?.length) {
+      const assetRows = await transaction
+        .select({ id: assets.id })
+        .from(assets)
+        .where(
+          and(
+            inArray(assets.id, snapshot.assetIds),
+            eq(assets.storagePartition, "public"),
+            eq(assets.access, "public"),
+            eq(assets.status, "ready"),
+            eq(assets.scanStatus, "passed"),
+            isNull(assets.deletedAt),
+          ),
+        );
+      if (assetRows.length !== snapshot.assetIds.length) {
+        throw new Error("Content revision Assets are no longer publicly eligible.");
+      }
+    }
     await transaction
       .update(contentLocalizations)
-      .set(snapshot)
+      .set({
+        title: snapshot.title,
+        excerpt: snapshot.excerpt,
+        body: snapshot.body,
+      })
       .where(
         and(
           eq(contentLocalizations.contentId, revision.entityId),
@@ -221,8 +432,54 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
       .where(eq(editorialRevisions.id, revisionId));
     await transaction
       .update(contents)
-      .set({ updatedAt: new Date(), reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .set({
+        ...(snapshot.authorId ? { authorId: snapshot.authorId } : {}),
+        ...(snapshot.type ? { type: snapshot.type } : {}),
+        updatedAt: new Date(),
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+      })
       .where(eq(contents.id, revision.entityId));
+    if (snapshot.assetIds) {
+      await transaction
+        .delete(contentAssets)
+        .where(eq(contentAssets.contentId, revision.entityId));
+      if (snapshot.assetIds.length) {
+        await transaction.insert(contentAssets).values(
+          snapshot.assetIds.map((assetId, sortOrder) => ({
+            contentId: revision.entityId,
+            assetId,
+            role: sortOrder === 0 ? ("hero" as const) : ("inline" as const),
+            sortOrder,
+          })),
+        );
+      }
+    }
+    if (snapshot.seo) {
+      const routeRows = await transaction
+        .select({ id: routes.id })
+        .from(routes)
+        .where(
+          and(
+            eq(routes.id, snapshot.seo.routeId),
+            eq(routes.entityType, "content"),
+            eq(routes.entityId, revision.entityId),
+            eq(routes.isCurrent, true),
+          ),
+        )
+        .limit(1);
+      if (!routeRows[0]) throw new Error("Content revision targets an invalid SEO route.");
+      await transaction
+        .update(seoMetadata)
+        .set({
+          title: snapshot.seo.title,
+          metaDescription: snapshot.seo.metaDescription,
+          focusKeyword: snapshot.seo.focusKeyword,
+          updatedByUserId: actor.userId,
+          updatedAt: new Date(),
+        })
+        .where(eq(seoMetadata.routeId, snapshot.seo.routeId));
+    }
     await writeAuditLog(transaction, {
       actorUserId: actor.userId,
       action: "content.revision.applied",
@@ -230,6 +487,56 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
       entityId: revisionId,
       afterSummary: { contentId: revision.entityId },
     });
+  });
+}
+
+export async function rejectContentReview<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  contentId: string,
+  reason: string,
+): Promise<void> {
+  requirePermission(actor.role, "content.review");
+  if (!reason.trim()) throw new Error("Review rejection requires a reason.");
+  const updated = await db
+    .update(contents)
+    .set({ status: "draft", reviewedByUserId: actor.userId, reviewedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(contents.id, contentId), eq(contents.status, "in_review")))
+    .returning({ id: contents.id });
+  if (!updated[0]) throw new Error("Only In Review Content can be rejected.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "content.review.rejected",
+    entityType: "content",
+    entityId: contentId,
+    afterSummary: { reason: reason.trim().slice(0, 500) },
+  });
+}
+
+export async function rejectContentRevision<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  revisionId: string,
+): Promise<void> {
+  requirePermission(actor.role, "content.publish");
+  const updated = await db
+    .update(editorialRevisions)
+    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+    .where(
+      and(
+        eq(editorialRevisions.id, revisionId),
+        eq(editorialRevisions.entityType, "content"),
+        eq(editorialRevisions.status, "in_review"),
+      ),
+    )
+    .returning({ contentId: editorialRevisions.entityId });
+  if (!updated[0]) throw new Error("Content revision cannot be rejected.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "content.revision.rejected",
+    entityType: "editorial_revision",
+    entityId: revisionId,
+    afterSummary: { contentId: updated[0].contentId },
   });
 }
 
@@ -341,5 +648,47 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
     entityType: "content",
     entityId: contentId,
     afterSummary: { indexStatus },
+  });
+}
+
+export async function archiveContent<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  contentId: string,
+  reason: string,
+): Promise<void> {
+  requirePermission(actor.role, "content.publish");
+  if (!reason.trim()) throw new Error("Archive requires a reason.");
+  await db.transaction(async (transaction) => {
+    const rows = await transaction
+      .select({ status: contents.status, routeId: routes.id })
+      .from(contents)
+      .innerJoin(
+        routes,
+        and(
+          eq(routes.entityType, "content"),
+          eq(routes.entityId, contents.id),
+          eq(routes.isCurrent, true),
+        ),
+      )
+      .where(eq(contents.id, contentId))
+      .limit(1);
+    const current = rows[0];
+    if (!current || current.status === "archived") throw new Error("Content cannot be archived.");
+    await transaction
+      .update(contents)
+      .set({ status: "archived", archivedAt: new Date(), updatedAt: new Date() })
+      .where(eq(contents.id, contentId));
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus: "noindex", updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, current.routeId));
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "content.archived",
+      entityType: "content",
+      entityId: contentId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
   });
 }

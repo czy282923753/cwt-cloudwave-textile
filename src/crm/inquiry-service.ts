@@ -1,9 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
 import { recordConversionEvent } from "@/analytics/conversion-service";
-import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
 import {
   assets,
@@ -12,9 +11,14 @@ import {
   inquiries,
   inquiryAssets,
   inquiryStatusHistory,
+  notificationOutbox,
+  users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { EmailNotifier } from "@/integrations/email";
+import { deliverInquiryNotification } from "@/integrations/notification-outbox";
+
+import { requireInquiryRecordAccess } from "./authorization";
 
 type InquiryStatus = typeof inquiries.$inferSelect.status;
 
@@ -44,6 +48,16 @@ export function assertInquiryStatusTransition(
   }
 }
 
+export async function countValidInquiries<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(inquiries)
+    .where(ne(inquiries.status, "spam"));
+  return Number(rows[0]?.value ?? 0);
+}
+
 export interface CreateInquiryInput {
   name: string;
   email: string;
@@ -61,8 +75,21 @@ export interface CreateInquiryInput {
   lastNonDirectMedium?: string | null;
   lastNonDirectCampaign?: string | null;
   attributionConfidence?: typeof inquiries.$inferInsert.attributionConfidence;
+  analyticsConsentState?: typeof inquiries.$inferInsert.analyticsConsentState;
   sessionId?: string | null;
   requestId?: string | null;
+  idempotencyKey: string;
+}
+
+export async function findInquiryByIdempotencyKey<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, idempotencyKey: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: inquiries.id })
+    .from(inquiries)
+    .where(eq(inquiries.idempotencyKey, idempotencyKey))
+    .limit(1);
+  return rows[0]?.id ?? null;
 }
 
 export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
@@ -73,8 +100,14 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   const name = input.name.trim();
   const email = normalizeContactEmail(input.email);
   const description = input.description?.trim() || null;
+  const idempotencyKey = input.idempotencyKey.trim();
   const assetIds = [...new Set(input.assetIds)];
   if (!name || !email) throw new Error("Name and Email are required.");
+  if (!idempotencyKey || idempotencyKey.length > 200) {
+    throw new Error("A valid Idempotency Key is required.");
+  }
+  const existingInquiryId = await findInquiryByIdempotencyKey(db, idempotencyKey);
+  if (existingInquiryId) return existingInquiryId;
   if (!description && assetIds.length === 0) {
     throw new Error("Provide a description or upload at least one image.");
   }
@@ -89,6 +122,8 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
           eq(assets.access, "private"),
           eq(assets.storagePartition, "private"),
           eq(assets.status, "ready"),
+          eq(assets.scanStatus, "passed"),
+          isNull(assets.deletedAt),
         ),
       );
     if (validAssets.length !== assetIds.length) {
@@ -96,8 +131,10 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
     }
   }
 
-  const result = await db.transaction(async (transaction) => {
-    const contactRows = await transaction
+  let result: { inquiryId: string; contactId: string };
+  try {
+    result = await db.transaction(async (transaction) => {
+    const insertedContacts = await transaction
       .insert(contacts)
       .values({
         name,
@@ -106,20 +143,16 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         countryCode: input.countryCode?.trim() || null,
         whatsapp: input.whatsapp?.trim() || null,
       })
-      .onConflictDoUpdate({
-        target: contacts.normalizedEmail,
-        set: {
-          name,
-          email,
-          ...(input.countryCode?.trim()
-            ? { countryCode: input.countryCode.trim() }
-            : {}),
-          ...(input.whatsapp?.trim() ? { whatsapp: input.whatsapp.trim() } : {}),
-          updatedAt: new Date(),
-        },
-      })
+      .onConflictDoNothing({ target: contacts.normalizedEmail })
       .returning({ id: contacts.id });
-    const contactId = contactRows[0]?.id;
+    const existingContacts = insertedContacts[0]
+      ? []
+      : await transaction
+          .select({ id: contacts.id })
+          .from(contacts)
+          .where(eq(contacts.normalizedEmail, email))
+          .limit(1);
+    const contactId = insertedContacts[0]?.id ?? existingContacts[0]?.id;
     if (!contactId) throw new Error("Contact upsert failed.");
     const inquiryRows = await transaction
       .insert(inquiries)
@@ -127,6 +160,11 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         contactId,
         status: "new",
         description,
+        submittedName: name,
+        submittedEmail: email,
+        submittedCountryCode: input.countryCode?.trim() || null,
+        submittedWhatsapp: input.whatsapp?.trim() || null,
+        idempotencyKey,
         sourcePagePath: input.sourcePagePath,
         landingPagePath: input.landingPagePath ?? null,
         referrer: input.referrer ?? null,
@@ -137,6 +175,7 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         lastNonDirectMedium: input.lastNonDirectMedium ?? null,
         lastNonDirectCampaign: input.lastNonDirectCampaign ?? null,
         attributionConfidence: input.attributionConfidence ?? "unavailable",
+        analyticsConsentState: input.analyticsConsentState ?? "unknown",
         sessionId: input.sessionId ?? null,
         requestId: input.requestId ?? null,
       })
@@ -154,6 +193,20 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
       toStatus: "new",
       reason: "Public inquiry received",
     });
+    await transaction.insert(notificationOutbox).values({
+      kind: "inquiry_notification",
+      aggregateType: "inquiry",
+      aggregateId: inquiryId,
+      payload: {
+        inquiryId,
+        name,
+        email,
+        countryCode: input.countryCode?.trim() || null,
+        whatsapp: input.whatsapp?.trim() || null,
+        description,
+        attachmentCount: assetIds.length,
+      },
+    });
     await writeAuditLog(transaction, {
       action: "inquiry.created",
       entityType: "inquiry",
@@ -165,18 +218,16 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         sourcePagePath: input.sourcePagePath,
       },
     });
-    return { inquiryId, contactId };
-  });
+      return { inquiryId, contactId };
+    });
+  } catch (error) {
+    const racedInquiryId = await findInquiryByIdempotencyKey(db, idempotencyKey);
+    if (!racedInquiryId) throw error;
+    await deliverInquiryNotification(db, notifier, racedInquiryId);
+    return racedInquiryId;
+  }
 
-  await notifier.notifyInquiry({
-    inquiryId: result.inquiryId,
-    name,
-    email,
-    countryCode: input.countryCode,
-    whatsapp: input.whatsapp,
-    description,
-    attachmentCount: assetIds.length,
-  });
+  await deliverInquiryNotification(db, notifier, result.inquiryId);
   return result.inquiryId;
 }
 
@@ -187,7 +238,7 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
   toStatus: InquiryStatus,
   reason?: string,
 ): Promise<void> {
-  requirePermission(actor.role, "crm.manage");
+  await requireInquiryRecordAccess(db, actor, inquiryId, "manage");
   const rows = await db
     .select({
       status: inquiries.status,
@@ -198,6 +249,12 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
       utmSource: inquiries.utmSource,
       utmMedium: inquiries.utmMedium,
       utmCampaign: inquiries.utmCampaign,
+      lastNonDirectSource: inquiries.lastNonDirectSource,
+      lastNonDirectMedium: inquiries.lastNonDirectMedium,
+      lastNonDirectCampaign: inquiries.lastNonDirectCampaign,
+      attributionConfidence: inquiries.attributionConfidence,
+      analyticsConsentState: inquiries.analyticsConsentState,
+      createdAt: inquiries.createdAt,
     })
     .from(inquiries)
     .where(eq(inquiries.id, inquiryId))
@@ -232,6 +289,7 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
       inquiryId,
       contactId: current.contactId,
       type: "status_change",
+      direction: "internal",
       content: `Status changed from ${current.status} to ${toStatus}.`,
       createdByUserId: actor.userId,
     });
@@ -253,14 +311,21 @@ export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>
             : null;
     if (conversionName && current.sessionId) {
       await recordConversionEvent(transaction, {
+        eventId: `${conversionName}:${inquiryId}:${toStatus}`,
         eventName: conversionName,
         anonymousSessionId: current.sessionId,
         routePath: current.sourcePagePath,
         inquiryId,
+        consentState: current.analyticsConsentState,
         landingPagePath: current.landingPagePath,
         utmSource: current.utmSource,
         utmMedium: current.utmMedium,
         utmCampaign: current.utmCampaign,
+        lastNonDirectSource: current.lastNonDirectSource,
+        lastNonDirectMedium: current.lastNonDirectMedium,
+        lastNonDirectCampaign: current.lastNonDirectCampaign,
+        attributionConfidence: current.attributionConfidence,
+        submitSourcePagePath: current.sourcePagePath,
       });
     }
   });
@@ -272,21 +337,27 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
   inquiryId: string,
   input: {
     type: typeof customerActivities.$inferInsert.type;
+    direction: typeof customerActivities.$inferInsert.direction;
     content: string;
     occurredAt?: Date;
   },
 ): Promise<string> {
-  requirePermission(actor.role, "crm.manage");
+  await requireInquiryRecordAccess(db, actor, inquiryId, "manage");
   const inquiryRows = await db
     .select({
       contactId: inquiries.contactId,
-      firstResponseAt: inquiries.firstResponseAt,
       sessionId: inquiries.sessionId,
       sourcePagePath: inquiries.sourcePagePath,
       landingPagePath: inquiries.landingPagePath,
       utmSource: inquiries.utmSource,
       utmMedium: inquiries.utmMedium,
       utmCampaign: inquiries.utmCampaign,
+      lastNonDirectSource: inquiries.lastNonDirectSource,
+      lastNonDirectMedium: inquiries.lastNonDirectMedium,
+      lastNonDirectCampaign: inquiries.lastNonDirectCampaign,
+      attributionConfidence: inquiries.attributionConfidence,
+      analyticsConsentState: inquiries.analyticsConsentState,
+      createdAt: inquiries.createdAt,
     })
     .from(inquiries)
     .where(eq(inquiries.id, inquiryId))
@@ -294,7 +365,19 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
   const inquiry = inquiryRows[0];
   if (!inquiry) throw new Error("Inquiry was not found.");
   const occurredAt = input.occurredAt ?? new Date();
-  const responseTypes = new Set(["email", "whatsapp", "quote", "sample"]);
+  if (!input.content.trim()) throw new Error("Customer Activity content is required.");
+  if (occurredAt.getTime() < inquiry.createdAt.getTime()) {
+    throw new Error("Customer Activity cannot predate the Inquiry.");
+  }
+  if (occurredAt.getTime() > Date.now() + 5 * 60_000) {
+    throw new Error("Customer Activity cannot be recorded in the future.");
+  }
+  if (input.type === "status_change" && input.direction !== "internal") {
+    throw new Error("Status Change activities must be Internal.");
+  }
+  if (input.type === "note" && input.direction === "outbound") {
+    throw new Error("Internal Notes cannot be outbound responses.");
+  }
   return db.transaction(async (transaction) => {
     const rows = await transaction
       .insert(customerActivities)
@@ -302,6 +385,7 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
         inquiryId,
         contactId: inquiry.contactId,
         type: input.type,
+        direction: input.direction,
         content: input.content.trim(),
         createdByUserId: actor.userId,
         occurredAt,
@@ -309,10 +393,23 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
       .returning({ id: customerActivities.id });
     const activityId = rows[0]?.id;
     if (!activityId) throw new Error("Customer Activity insert failed.");
-    if (!inquiry.firstResponseAt && responseTypes.has(input.type)) {
+    const responseRows = await transaction
+      .select({ occurredAt: customerActivities.occurredAt })
+      .from(customerActivities)
+      .where(
+        and(
+          eq(customerActivities.inquiryId, inquiryId),
+          eq(customerActivities.direction, "outbound"),
+          inArray(customerActivities.type, ["email", "whatsapp", "quote", "sample"]),
+        ),
+      )
+      .orderBy(asc(customerActivities.occurredAt))
+      .limit(1);
+    const firstResponseAt = responseRows[0]?.occurredAt ?? null;
+    if (firstResponseAt) {
       await transaction
         .update(inquiries)
-        .set({ firstResponseAt: occurredAt, updatedAt: new Date() })
+        .set({ firstResponseAt, updatedAt: new Date() })
         .where(eq(inquiries.id, inquiryId));
     }
     await writeAuditLog(transaction, {
@@ -320,7 +417,7 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
       action: "customer_activity.created",
       entityType: "customer_activity",
       entityId: activityId,
-      afterSummary: { inquiryId, type: input.type },
+      afterSummary: { inquiryId, type: input.type, direction: input.direction },
     });
     const conversionName =
       input.type === "quote"
@@ -330,14 +427,21 @@ export async function addCustomerActivity<TQueryResult extends PgQueryResultHKT>
           : null;
     if (conversionName && inquiry.sessionId) {
       await recordConversionEvent(transaction, {
+        eventId: `${conversionName}:${inquiryId}:${activityId}`,
         eventName: conversionName,
         anonymousSessionId: inquiry.sessionId,
         routePath: inquiry.sourcePagePath,
         inquiryId,
+        consentState: inquiry.analyticsConsentState,
         landingPagePath: inquiry.landingPagePath,
         utmSource: inquiry.utmSource,
         utmMedium: inquiry.utmMedium,
         utmCampaign: inquiry.utmCampaign,
+        lastNonDirectSource: inquiry.lastNonDirectSource,
+        lastNonDirectMedium: inquiry.lastNonDirectMedium,
+        lastNonDirectCampaign: inquiry.lastNonDirectCampaign,
+        attributionConfidence: inquiry.attributionConfidence,
+        submitSourcePagePath: inquiry.sourcePagePath,
       });
     }
     return activityId;
@@ -354,25 +458,50 @@ export async function assignInquiry<TQueryResult extends PgQueryResultHKT>(
     qualificationStatus: typeof inquiries.$inferInsert.qualificationStatus;
   },
 ): Promise<void> {
-  requirePermission(actor.role, "crm.manage");
-  await db
-    .update(inquiries)
-    .set({
-      ownerUserId: input.ownerUserId ?? null,
-      priority: input.priority,
-      qualificationStatus: input.qualificationStatus,
-      updatedAt: new Date(),
-    })
-    .where(eq(inquiries.id, inquiryId));
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "inquiry.assignment.updated",
-    entityType: "inquiry",
-    entityId: inquiryId,
-    afterSummary: {
-      ownerUserId: input.ownerUserId ?? null,
-      priority: input.priority,
-      qualificationStatus: input.qualificationStatus,
-    },
+  const current = await requireInquiryRecordAccess(db, actor, inquiryId, "manage");
+  if (actor.role !== "admin" && input.ownerUserId !== undefined && input.ownerUserId !== current.ownerUserId) {
+    throw new Error("Only an Admin can reassign an Inquiry.");
+  }
+  const ownerUserId = input.ownerUserId === undefined ? current.ownerUserId : input.ownerUserId;
+  if (ownerUserId) {
+    const ownerRows = await db
+      .select({ role: users.role, isActive: users.isActive })
+      .from(users)
+      .where(eq(users.id, ownerUserId))
+      .limit(1);
+    const owner = ownerRows[0];
+    if (!owner?.isActive || (owner.role !== "admin" && owner.role !== "sales")) {
+      throw new Error("Inquiry owner must be an active Sales or Admin user.");
+    }
+  }
+  if (current.status === "qualified" && input.qualificationStatus !== "qualified") {
+    throw new Error("A Qualified Inquiry must retain Qualified qualification status.");
+  }
+  await db.transaction(async (transaction) => {
+    await transaction
+      .update(inquiries)
+      .set({
+        ownerUserId,
+        priority: input.priority,
+        qualificationStatus: input.qualificationStatus,
+        updatedAt: new Date(),
+      })
+      .where(eq(inquiries.id, inquiryId));
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "inquiry.assignment.updated",
+      entityType: "inquiry",
+      entityId: inquiryId,
+      beforeSummary: {
+        ownerUserId: current.ownerUserId,
+        priority: current.priority,
+        qualificationStatus: current.qualificationStatus,
+      },
+      afterSummary: {
+        ownerUserId,
+        priority: input.priority,
+        qualificationStatus: input.qualificationStatus,
+      },
+    });
   });
 }

@@ -1,26 +1,24 @@
 import type { MetadataRoute } from "next";
 
-import { env } from "@/config/env";
+import { env, publicIndexingAllowed } from "@/config/env";
 import { listIndexableRoutes } from "@/seo/public-index";
 
 export const revalidate = 3600;
 
 const staticPaths = [
   "/",
-  "/products",
-  "/applications",
-  "/fabric-library",
-  "/resources",
-  "/fabric-knowledge",
-  "/china-textile-guide",
-  "/china-sourcing-guide",
-  "/about",
-  "/get-quote",
-  "/privacy",
+  "/products/",
+  "/applications/",
+  "/fabric-library/",
+  "/resources/",
+  "/fabric-knowledge/",
+  "/china-textile-guide/",
+  "/china-sourcing-guide/",
+  "/about/",
 ] as const;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  if (env.APP_ENV !== "production" || env.NON_PRODUCTION_NOINDEX) return [];
+  if (!publicIndexingAllowed()) return [];
   const dynamicRoutes = await listIndexableRoutes();
   const staticEntries = staticPaths.map((path) => ({
     url: new URL(path, env.NEXT_PUBLIC_SITE_URL).toString(),

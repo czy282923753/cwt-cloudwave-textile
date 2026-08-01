@@ -46,7 +46,7 @@ export function verifyLocalReadGrant(
 export class LocalObjectStorage implements ObjectStorage {
   createPublicUrl(objectKey: string): string {
     assertSafeObjectKey(objectKey);
-    return `/api/public-assets/${objectKey}`;
+    return `/api/public-assets/${objectKey}/`;
   }
 
   async put(
@@ -78,6 +78,6 @@ export class LocalObjectStorage implements ObjectStorage {
     assertSafeObjectKey(objectKey);
     const expires = Math.floor(Date.now() / 1000) + expiresInSeconds;
     const signature = signGrant(partition, objectKey, expires);
-    return `/api/storage/${partition}/${objectKey}?expires=${expires}&signature=${signature}`;
+    return `/api/storage/${partition}/${objectKey}/?expires=${expires}&signature=${signature}`;
   }
 }

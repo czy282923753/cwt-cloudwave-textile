@@ -15,6 +15,7 @@ import {
   assetAccessEnum,
   assetCategoryEnum,
   assetPermissionEnum,
+  assetScanStatusEnum,
   assetStatusEnum,
   sourceDeclarationSubjectEnum,
 } from "./enums";
@@ -56,6 +57,7 @@ export const assets = pgTable(
     height: integer("height"),
     altText: text("alt_text"),
     scanProvider: text("scan_provider"),
+    scanStatus: assetScanStatusEnum("scan_status").notNull().default("pending"),
     scanResult: text("scan_result"),
     scanCompletedAt: timestamp("scan_completed_at", { withTimezone: true }),
     sourceDeclarationEnabled: boolean("source_declaration_enabled")

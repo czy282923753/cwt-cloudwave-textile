@@ -4,7 +4,7 @@ import { listAdminContacts, listAdminOrganizations } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
 
 export default async function AdminContactsPage() {
-  await requireCurrentUser("inquiries.read");
+  await requireCurrentUser("users.manage");
   const [contacts, organizations] = await Promise.all([
     listAdminContacts(),
     listAdminOrganizations(),

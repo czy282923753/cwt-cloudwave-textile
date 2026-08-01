@@ -1,7 +1,7 @@
 import { env } from "@/config/env";
 
 export interface UploadRateLimiter {
-  consume(key: string): Promise<boolean>;
+  consume(key: string, action?: "upload" | "login" | "conversion"): Promise<boolean>;
 }
 
 interface Bucket {
@@ -17,7 +17,11 @@ export class MemoryUploadRateLimiter implements UploadRateLimiter {
     private readonly windowMilliseconds = 60_000,
   ) {}
 
-  async consume(key: string): Promise<boolean> {
+  async consume(
+    key: string,
+    action: "upload" | "login" | "conversion" = "upload",
+  ): Promise<boolean> {
+    void action;
     const now = Date.now();
     const current = this.buckets.get(key);
     if (!current || current.expiresAt <= now) {
@@ -34,7 +38,10 @@ export class MemoryUploadRateLimiter implements UploadRateLimiter {
 }
 
 export class HttpUploadRateLimiter implements UploadRateLimiter {
-  async consume(key: string): Promise<boolean> {
+  async consume(
+    key: string,
+    action: "upload" | "login" | "conversion" = "upload",
+  ): Promise<boolean> {
     if (!env.UPLOAD_RATE_LIMIT_ENDPOINT) {
       throw new Error("Upload rate-limit endpoint is required.");
     }
@@ -46,7 +53,7 @@ export class HttpUploadRateLimiter implements UploadRateLimiter {
           ? { authorization: `Bearer ${env.UPLOAD_RATE_LIMIT_TOKEN}` }
           : {}),
       },
-      body: JSON.stringify({ key, action: "upload" }),
+      body: JSON.stringify({ key, action }),
     });
     if (!response.ok) throw new Error("Upload rate limiter is unavailable.");
     const result = (await response.json()) as unknown;

@@ -2,6 +2,7 @@ import { createApplicationAction } from "@/admin/actions";
 import { AdminPageHeader, AdminTable } from "@/admin/components/admin-table";
 import { listAdminApplications } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
+import Link from "next/link";
 
 export default async function AdminApplicationsPage() {
   await requireCurrentUser("products.read");
@@ -16,7 +17,7 @@ export default async function AdminApplicationsPage() {
         <AdminTable
           headers={["Application", "Status", "Updated"]}
           rows={applications.map((application) => [
-            application.name,
+            <Link className="text-teal-300" href={`/admin/applications/${application.id}`} key={application.id}>{application.name}</Link>,
             application.status,
             application.updatedAt.toLocaleString("en-GB"),
           ])}

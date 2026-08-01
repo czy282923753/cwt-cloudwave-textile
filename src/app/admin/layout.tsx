@@ -21,7 +21,7 @@ export default async function AdminLayout({
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="flex items-center justify-between border-b border-white/10 px-6 py-3 text-sm">
         <span>CWT Operations · {user.displayName}</span>
-        <form action="/api/auth/logout" method="post">
+        <form action="/api/auth/logout/" method="post">
           <button className="rounded-lg border border-white/20 px-3 py-2" type="submit">
             Sign out
           </button>

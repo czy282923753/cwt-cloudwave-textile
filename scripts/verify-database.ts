@@ -30,12 +30,7 @@ async function verifyCurrentDatabase() {
         eq(productTaxonomyTerms.isPrimary, true),
       ),
     )
-    .where(
-      or(
-        isNull(productTaxonomyTerms.taxonomyTermId),
-        ne(productTaxonomyTerms.taxonomyTermId, products.primaryTaxonomyTermId),
-      ),
-    );
+    .where(isNull(productTaxonomyTerms.taxonomyTermId));
 
   const invalidInquiryAssets = await db
     .select({ assetId: inquiryAssets.assetId })

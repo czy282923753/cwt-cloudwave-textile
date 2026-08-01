@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  trailingSlash: true,
   serverExternalPackages: ["@electric-sql/pglite"],
   ...(process.env.DATABASE_DRIVER !== "postgres"
     ? { experimental: { cpus: 1 } }
@@ -12,6 +13,9 @@ const nextConfig: NextConfig = {
     remotePatterns: [],
   },
   async headers() {
+    const indexingAllowed =
+      process.env.APP_ENV === "production" &&
+      process.env.NON_PRODUCTION_NOINDEX !== "true";
     const securityHeaders = [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "X-Frame-Options", value: "DENY" },
@@ -41,7 +45,8 @@ const nextConfig: NextConfig = {
         key: "Strict-Transport-Security",
         value: "max-age=63072000; includeSubDomains; preload",
       });
-    } else {
+    }
+    if (!indexingAllowed) {
       securityHeaders.push({
         key: "X-Robots-Tag",
         value: "noindex, nofollow, noarchive",

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-
 import { env } from "@/config/env";
+import { databaseConnection } from "@/db/client";
+import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
 import { LocalObjectStorage } from "@/storage/local";
 
 function contentType(objectKey: string): string {
@@ -20,6 +21,10 @@ export async function GET(
   if (env.STORAGE_DRIVER !== "local") return new NextResponse("Not found", { status: 404 });
   const objectKey = (await context.params).objectKey.join("/");
   try {
+    const asset = databaseConnection.kind === "pglite"
+      ? await findPublicAssetForDelivery(databaseConnection.db, objectKey)
+      : await findPublicAssetForDelivery(databaseConnection.db, objectKey);
+    if (!asset) return new NextResponse("Not found", { status: 404 });
     const bytes = await new LocalObjectStorage().get("public", objectKey);
     return new NextResponse(Buffer.from(bytes), {
       headers: {

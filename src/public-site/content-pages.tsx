@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { notFound, permanentRedirect } from "next/navigation";
+import Image from "next/image";
+import { notFound } from "next/navigation";
 
-import { env } from "@/config/env";
+import { env, publicIndexingAllowed } from "@/config/env";
 
-import { findRedirect, getPublishedContentByPath, listPublishedContents } from "./data";
+import { getPublishedContentByPath, listPublishedContents } from "./data";
 import { PublicShell } from "./shell";
 import { TrackedLink } from "./tracking";
 
@@ -23,18 +24,18 @@ export async function ContentIndexPage({ channel }: Readonly<{ channel: Channel 
 
 export async function contentMetadata(channel: Channel, slug: string) {
   const information = channelData[channel];
-  const path = `/${information.prefix}/${slug.toLowerCase()}`;
+  const path = `/${information.prefix}/${slug.toLowerCase()}/`;
   const content = await getPublishedContentByPath(path);
   if (!content) return { title: "Article not found", robots: { index: false } };
-  const index = env.APP_ENV === "production" && content.indexStatus === "index";
+  const index = publicIndexingAllowed() && content.indexStatus === "index";
   return { title: { absolute: content.seoTitle ?? `${content.title} | CloudWave Textile` }, description: content.metaDescription ?? content.excerpt ?? undefined, alternates: { canonical: content.canonicalPath ?? content.path }, robots: { index, follow: index } };
 }
 
 export async function ContentArticlePage({ channel, slug }: Readonly<{ channel: Channel; slug: string }>) {
   const information = channelData[channel];
-  const path = `/${information.prefix}/${slug.toLowerCase()}`;
+  const path = `/${information.prefix}/${slug.toLowerCase()}/`;
   const content = await getPublishedContentByPath(path);
-  if (!content) { const destination = await findRedirect(path); if (destination) permanentRedirect(destination); notFound(); }
-  const schema = { "@context": "https://schema.org", "@graph": [{ "@type": "Article", headline: content.title, author: { "@type": "Organization", name: content.authorName }, publisher: { "@type": "Organization", name: "CloudWave Textile" }, datePublished: content.publishedAt?.toISOString() }, { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Home", item: env.NEXT_PUBLIC_SITE_URL }, { "@type": "ListItem", position: 2, name: information.title, item: new URL(`/${information.prefix}`, env.NEXT_PUBLIC_SITE_URL).toString() }, { "@type": "ListItem", position: 3, name: content.title, item: new URL(content.path, env.NEXT_PUBLIC_SITE_URL).toString() }] }] };
-  return <PublicShell><main><article><header className="bg-[#eadfce] py-20"><div className="site-container max-w-4xl"><p className="eyebrow">{information.title}</p><h1 className="mt-5 text-4xl font-semibold leading-tight tracking-[-0.045em] text-[#143a34] sm:text-6xl">{content.title}</h1>{content.excerpt ? <p className="mt-6 text-xl leading-8 text-stone-600">{content.excerpt}</p> : null}<p className="mt-8 text-sm text-stone-500">By {content.authorName}</p></div></header><div className="site-container max-w-4xl py-16"><div className="prose-cwt whitespace-pre-line text-lg">{content.body}</div><div className="mt-16 rounded-[2rem] bg-[#e6eee9] p-8"><h2 className="text-2xl font-semibold text-[#143a34]">Need help applying this to a real sourcing request?</h2><p className="mt-3 leading-7 text-stone-600">Share an application, description, or fabric image with CWT.</p><TrackedLink className="button-primary mt-6" eventName="quote_cta_click" href="/get-quote" placement="article_footer">Find Your Fabric Solution</TrackedLink></div></div></article></main><script dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replaceAll("<", "\\u003c") }} type="application/ld+json" /></PublicShell>;
+  if (!content) notFound();
+  const schema = { "@context": "https://schema.org", "@graph": [{ "@type": "Article", headline: content.title, author: { "@type": "Organization", name: content.authorName }, publisher: { "@type": "Organization", name: "CloudWave Textile" }, datePublished: content.publishedAt?.toISOString() }, { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Home", item: env.NEXT_PUBLIC_SITE_URL }, { "@type": "ListItem", position: 2, name: information.title, item: new URL(`/${information.prefix}/`, env.NEXT_PUBLIC_SITE_URL).toString() }, { "@type": "ListItem", position: 3, name: content.title, item: new URL(content.path, env.NEXT_PUBLIC_SITE_URL).toString() }] }] };
+  return <PublicShell><main><article><header className="bg-[#eadfce] py-20"><div className="site-container max-w-4xl"><p className="eyebrow">{information.title}</p><h1 className="mt-5 text-4xl font-semibold leading-tight tracking-[-0.045em] text-[#143a34] sm:text-6xl">{content.title}</h1>{content.excerpt ? <p className="mt-6 text-xl leading-8 text-stone-600">{content.excerpt}</p> : null}<p className="mt-8 text-sm text-stone-500">By {content.authorName}</p></div></header>{content.images[0] ? <div className="site-container max-w-5xl pt-12"><div className="relative aspect-[16/9] overflow-hidden rounded-[2rem] bg-stone-200"><Image alt={content.images[0].alt} className="object-cover" fill priority sizes="(max-width: 1024px) 100vw, 960px" src={content.images[0].url} unoptimized /></div></div> : null}<div className="site-container max-w-4xl py-16"><div className="prose-cwt whitespace-pre-line text-lg">{content.body}</div><div className="mt-16 rounded-[2rem] bg-[#e6eee9] p-8"><h2 className="text-2xl font-semibold text-[#143a34]">Need help applying this to a real sourcing request?</h2><p className="mt-3 leading-7 text-stone-600">Share an application, description, or fabric image with CWT.</p><TrackedLink className="button-primary mt-6" eventName="quote_cta_click" href="/get-quote/" placement="article_footer">Find Your Fabric Solution</TrackedLink></div></div></article></main><script dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replaceAll("<", "\\u003c") }} type="application/ld+json" /></PublicShell>;
 }

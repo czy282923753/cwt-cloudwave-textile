@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   title: "Fabric Products",
   description:
     "Browse published CloudWave Textile fabric records across multiple material, construction, collection, and surface categories.",
-  alternates: { canonical: "/products" },
+  alternates: { canonical: "/products/" },
 };
 
 export default async function ProductsPage() {

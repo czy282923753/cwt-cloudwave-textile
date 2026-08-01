@@ -17,8 +17,10 @@ import {
   users,
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
+import { queryIndexableRoutes } from "@/seo/public-index";
 
 import {
+  applyProductRevision,
   changeProductSlug,
   confirmRealProductBasis,
   createProductDraft,
@@ -75,6 +77,7 @@ describe("Product workflow", () => {
         access: "public",
         category: "product",
         status: "ready",
+        scanStatus: "passed",
         declaredMimeType: "image/jpeg",
         detectedMimeType: "image/jpeg",
         byteSize: 100,
@@ -114,6 +117,17 @@ describe("Product workflow", () => {
       .from(seoMetadata)
       .where(eq(seoMetadata.routeId, routeId));
     expect(initialSeo[0]?.indexStatus).toBe("noindex");
+    await connection.db
+      .update(seoMetadata)
+      .set({ indexStatus: "index" })
+      .where(eq(seoMetadata.routeId, routeId));
+    expect((await queryIndexableRoutes(connection.db)).map((row) => row.path)).not.toContain(
+      "/products/test-real-nylon-mesh/",
+    );
+    await connection.db
+      .update(seoMetadata)
+      .set({ indexStatus: "noindex" })
+      .where(eq(seoMetadata.routeId, routeId));
 
     await submitProductForReview(
       connection.db,
@@ -134,7 +148,7 @@ describe("Product workflow", () => {
       ),
     ).rejects.toThrow(/confirmed real Product/);
 
-    await updateProductEditorialCopy(
+    const revisionId = await updateProductEditorialCopy(
       connection.db,
       { userId: editorId, role: "product_editor" },
       productId,
@@ -143,6 +157,17 @@ describe("Product workflow", () => {
         shortDescription:
           "Fixture description proving that useful product copy is independent from factual textile specifications.",
       },
+    );
+    expect(revisionId).toBeTruthy();
+    const beforeApproval = await connection.db
+      .select({ shortDescription: productLocalizations.shortDescription })
+      .from(productLocalizations)
+      .where(eq(productLocalizations.productId, productId));
+    expect(beforeApproval[0]?.shortDescription).toBeNull();
+    await applyProductRevision(
+      connection.db,
+      { userId: publisherId, role: "reviewer_publisher" },
+      revisionId!,
     );
     await connection.db
       .update(assets)
@@ -187,6 +212,10 @@ describe("Product workflow", () => {
       .from(seoMetadata)
       .where(eq(seoMetadata.routeId, routeId));
     expect(indexed[0]?.indexStatus).toBe("index");
+    const sitemapRows = await queryIndexableRoutes(connection.db);
+    expect(sitemapRows.map((row) => row.path)).toContain(
+      "/products/test-real-nylon-mesh/",
+    );
 
     await changeProductSlug(
       connection.db,
@@ -206,12 +235,12 @@ describe("Product workflow", () => {
     expect(redirectRows).toEqual(
       expect.arrayContaining([
         {
-          source: "/products/test-real-nylon-mesh",
-          destination: "/products/test-renamed-twice",
+          source: "/products/test-real-nylon-mesh/",
+          destination: "/products/test-renamed-twice/",
         },
         {
-          source: "/products/test-renamed-once",
-          destination: "/products/test-renamed-twice",
+          source: "/products/test-renamed-once/",
+          destination: "/products/test-renamed-twice/",
         },
       ]),
     );
@@ -220,6 +249,7 @@ describe("Product workflow", () => {
       .from(productLocalizations)
       .where(eq(productLocalizations.productId, productId));
     expect(localized[0]?.name).toBe("Test Real Nylon Mesh");
+    expect(localized[0]?.shortDescription).toContain("Fixture description");
     await connection.close();
   });
 });

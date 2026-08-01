@@ -3,7 +3,7 @@ export function normalizePath(path: string): string {
   if (!withoutQuery.startsWith("/")) throw new Error("Paths must be absolute.");
   const collapsed = withoutQuery.replace(/\/{2,}/g, "/");
   if (collapsed === "/") return collapsed;
-  return collapsed.replace(/\/$/, "").toLowerCase();
+  return `${collapsed.replace(/\/+$/, "").toLowerCase()}/`;
 }
 
 export function slugify(value: string): string {

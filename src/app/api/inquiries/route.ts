@@ -5,14 +5,14 @@ import { z } from "zod";
 import { recordConversionEvent } from "@/analytics/conversion-service";
 import { assertSameOrigin } from "@/auth/request-security";
 import { env } from "@/config/env";
-import { createInquiry } from "@/crm/inquiry-service";
+import { createInquiry, findInquiryByIdempotencyKey } from "@/crm/inquiry-service";
 import { databaseConnection } from "@/db/client";
 import { createEmailNotifier } from "@/integrations/email";
 import { normalizePath } from "@/seo/path";
 import { createObjectStorage } from "@/storage";
 import { createUploadRateLimiter } from "@/uploads/rate-limit";
 import { createFileScanner } from "@/uploads/scanner";
-import { uploadAsset } from "@/uploads/service";
+import { cleanupUnlinkedInquiryAssets, uploadAsset } from "@/uploads/service";
 
 const limiter = createUploadRateLimiter();
 
@@ -45,9 +45,22 @@ async function createWithCurrentDatabase(
 
 export async function POST(request: Request): Promise<NextResponse> {
   const requestId = randomUUID();
+  const createdAssetIds: string[] = [];
+  const storage = createObjectStorage();
   try {
     assertSameOrigin(request);
     const form = await request.formData();
+    const idempotencyKey = z
+      .string()
+      .min(16)
+      .max(200)
+      .parse(request.headers.get("idempotency-key") ?? stringValue(form, "idempotencyKey", 200));
+    const existingInquiryId = databaseConnection.kind === "pglite"
+      ? await findInquiryByIdempotencyKey(databaseConnection.db, idempotencyKey)
+      : await findInquiryByIdempotencyKey(databaseConnection.db, idempotencyKey);
+    if (existingInquiryId) {
+      return NextResponse.json({ ok: true, reference: existingInquiryId }, { status: 200 });
+    }
     if (stringValue(form, "website")) {
       return NextResponse.json({ ok: true, reference: requestId }, { status: 202 });
     }
@@ -77,10 +90,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: "Try again later." }, { status: 429 });
     }
 
-    const storage = createObjectStorage();
     const scanner = createFileScanner();
-    const assetIds: string[] = [];
+    const assetIds = createdAssetIds;
     const sessionId = z.uuid().catch(randomUUID()).parse(stringValue(form, "sessionId"));
+    const analyticsConsentState = z
+      .enum(["unknown", "granted", "denied"])
+      .catch("unknown")
+      .parse(stringValue(form, "analyticsConsentState", 20));
     const retentionExpiresAt = env.INQUIRY_FILE_RETENTION_DAYS
       ? new Date(Date.now() + env.INQUIRY_FILE_RETENTION_DAYS * 86_400_000)
       : null;
@@ -107,12 +123,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
     if (assetIds.length > 0) {
       const uploadEvent = {
+        eventId: `image_upload:${createHash("sha256").update(idempotencyKey).digest("hex")}`,
         eventName: "image_upload_completed" as const,
         anonymousSessionId: sessionId,
         routePath: normalizePath(
           stringValue(form, "sourcePagePath") ?? "/get-quote",
         ),
         safeProperties: { file_count: assetIds.length },
+        consentState: analyticsConsentState,
       };
       if (databaseConnection.kind === "pglite") {
         await recordConversionEvent(databaseConnection.db, uploadEvent);
@@ -126,13 +144,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     const utmSource = stringValue(form, "utmSource", 100);
     const utmMedium = stringValue(form, "utmMedium", 100);
     const utmCampaign = stringValue(form, "utmCampaign", 100);
-    const attributionConfidence = utmSource
-      ? "high"
-      : referrer
-        ? "medium"
-        : landingPagePath
-          ? "low"
-          : "unavailable";
+    const attributionConfidence = z
+      .enum(["high", "medium", "low", "unavailable"])
+      .catch("unavailable")
+      .parse(stringValue(form, "attributionConfidence", 20));
     const inquiryId = await createWithCurrentDatabase({
       name,
       email,
@@ -146,38 +161,92 @@ export async function POST(request: Request): Promise<NextResponse> {
       utmSource,
       utmMedium,
       utmCampaign,
-      lastNonDirectSource: utmSource ?? referrer,
-      lastNonDirectMedium: utmMedium ?? (referrer ? "referral" : null),
-      lastNonDirectCampaign: utmCampaign,
+      lastNonDirectSource: stringValue(form, "lastNonDirectSource", 200),
+      lastNonDirectMedium: stringValue(form, "lastNonDirectMedium", 100),
+      lastNonDirectCampaign: stringValue(form, "lastNonDirectCampaign", 100),
       attributionConfidence,
+      analyticsConsentState,
       sessionId,
       requestId,
+      idempotencyKey,
     });
+    if (createdAssetIds.length > 0) {
+      if (databaseConnection.kind === "pglite") {
+        await cleanupUnlinkedInquiryAssets(
+          databaseConnection.db,
+          storage,
+          createdAssetIds,
+          requestId,
+        );
+      } else {
+        await cleanupUnlinkedInquiryAssets(
+          databaseConnection.db,
+          storage,
+          createdAssetIds,
+          requestId,
+        );
+      }
+    }
     if (databaseConnection.kind === "pglite") {
       await recordConversionEvent(databaseConnection.db, {
+        eventId: `inquiry_created:${inquiryId}`,
         eventName: "inquiry_created",
         anonymousSessionId: sessionId,
         routePath: sourcePagePath,
         inquiryId,
+        consentState: analyticsConsentState,
         landingPagePath: landingPagePath ? normalizePath(landingPagePath) : null,
         utmSource,
         utmMedium,
         utmCampaign,
+        lastNonDirectSource: stringValue(form, "lastNonDirectSource", 200),
+        lastNonDirectMedium: stringValue(form, "lastNonDirectMedium", 100),
+        lastNonDirectCampaign: stringValue(form, "lastNonDirectCampaign", 100),
+        attributionConfidence,
+        submitSourcePagePath: sourcePagePath,
       });
     } else {
       await recordConversionEvent(databaseConnection.db, {
+        eventId: `inquiry_created:${inquiryId}`,
         eventName: "inquiry_created",
         anonymousSessionId: sessionId,
         routePath: sourcePagePath,
         inquiryId,
+        consentState: analyticsConsentState,
         landingPagePath: landingPagePath ? normalizePath(landingPagePath) : null,
         utmSource,
         utmMedium,
         utmCampaign,
+        lastNonDirectSource: stringValue(form, "lastNonDirectSource", 200),
+        lastNonDirectMedium: stringValue(form, "lastNonDirectMedium", 100),
+        lastNonDirectCampaign: stringValue(form, "lastNonDirectCampaign", 100),
+        attributionConfidence,
+        submitSourcePagePath: sourcePagePath,
       });
     }
     return NextResponse.json({ ok: true, reference: inquiryId }, { status: 201 });
   } catch (error) {
+    try {
+      if (databaseConnection.kind === "pglite") {
+        await cleanupUnlinkedInquiryAssets(
+          databaseConnection.db,
+          storage,
+          createdAssetIds,
+          requestId,
+        );
+      } else {
+        await cleanupUnlinkedInquiryAssets(
+          databaseConnection.db,
+          storage,
+          createdAssetIds,
+          requestId,
+        );
+      }
+    } catch {
+      process.stderr.write(
+        `[inquiry-cleanup-error] request ${requestId}; details omitted.\n`,
+      );
+    }
     const rawMessage = error instanceof Error ? error.message : "";
     const safePatterns = [
       /Name and Email are required/,

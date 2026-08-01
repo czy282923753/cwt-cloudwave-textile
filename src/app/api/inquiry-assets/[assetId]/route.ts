@@ -1,51 +1,11 @@
-import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/audit/service";
 import { requireCurrentUser } from "@/auth/current-user";
 import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
-import { assets, inquiryAssets } from "@/db/schema";
 import { createObjectStorage, type StoragePartition } from "@/storage";
-
-async function authorizeAsset(assetId: string) {
-  const query = databaseConnection.kind === "pglite"
-    ? databaseConnection.db
-        .select({
-          id: assets.id,
-          objectKey: assets.objectKey,
-          partition: assets.storagePartition,
-        })
-        .from(assets)
-        .innerJoin(inquiryAssets, eq(inquiryAssets.assetId, assets.id))
-        .where(
-          and(
-            eq(assets.id, assetId),
-            eq(assets.category, "inquiry"),
-            eq(assets.access, "private"),
-            eq(assets.status, "ready"),
-          ),
-        )
-        .limit(1)
-    : databaseConnection.db
-        .select({
-          id: assets.id,
-          objectKey: assets.objectKey,
-          partition: assets.storagePartition,
-        })
-        .from(assets)
-        .innerJoin(inquiryAssets, eq(inquiryAssets.assetId, assets.id))
-        .where(
-          and(
-            eq(assets.id, assetId),
-            eq(assets.category, "inquiry"),
-            eq(assets.access, "private"),
-            eq(assets.status, "ready"),
-          ),
-        )
-        .limit(1);
-  return (await query)[0] ?? null;
-}
+import { authorizeInquiryAssetRecord } from "@/crm/authorization";
 
 export async function GET(
   _request: Request,
@@ -53,10 +13,17 @@ export async function GET(
 ): Promise<NextResponse> {
   const user = await requireCurrentUser("inquiries.read");
   const { assetId } = await context.params;
-  const asset = await authorizeAsset(assetId);
-  if (!asset || asset.partition !== "private") {
-    return new NextResponse("Not found", { status: 404 });
-  }
+  const asset = databaseConnection.kind === "pglite"
+    ? await authorizeInquiryAssetRecord(
+        databaseConnection.db,
+        { userId: user.id, role: user.role },
+        assetId,
+      )
+    : await authorizeInquiryAssetRecord(
+        databaseConnection.db,
+        { userId: user.id, role: user.role },
+        assetId,
+      );
   if (databaseConnection.kind === "pglite") {
     await writeAuditLog(databaseConnection.db, {
       actorUserId: user.id,

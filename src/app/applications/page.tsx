@@ -8,7 +8,7 @@ export const revalidate = 3600;
 export const metadata: Metadata = {
   title: "Fabric Applications",
   description: "Explore fabric sourcing by end use, from sportswear and activewear to fashion, underwear, and home textile applications.",
-  alternates: { canonical: "/applications" },
+  alternates: { canonical: "/applications/" },
 };
 
 export default async function ApplicationsPage() {

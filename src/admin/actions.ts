@@ -6,21 +6,52 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
-import { requirePermission } from "@/auth/permissions";
+import { hasPermission, requirePermission } from "@/auth/permissions";
+import {
+  applyApplicationRevision,
+  archiveApplication,
+  publishApplication,
+  rejectApplicationReview,
+  rejectApplicationRevision,
+  setApplicationIndexStatus,
+  submitApplicationForReview,
+  updateApplication,
+} from "@/catalog/application-service";
 import {
   createApplicationDraft,
   createTaxonomyTerm,
+  setTaxonomyActive,
+  setTaxonomyIndexStatus,
+  updateTaxonomyTerm,
 } from "@/catalog/taxonomy-service";
-import { createFabricLibraryEntry } from "@/catalog/fabric-library-service";
 import {
+  applyFabricLibraryRevision,
+  archiveFabricLibraryEntry,
+  confirmFabricEntryIndependentValue,
+  createFabricLibraryEntry,
+  publishFabricLibraryEntry,
+  rejectFabricLibraryEntryReview,
+  rejectFabricLibraryRevision,
+  setFabricEntryIndexStatus,
+  submitFabricLibraryEntryForReview,
+  updateFabricLibraryEntry,
+} from "@/catalog/fabric-library-service";
+import {
+  applyProductRevision,
+  archiveProduct,
   changeProductSlug,
   confirmRealProductBasis,
   createProductDraft,
   publishReviewedProduct,
+  rejectProductRevision,
+  rejectProductReview,
+  reviewProductField,
   setProductIndexStatus,
   submitProductForReview,
   updateProductEditorialCopy,
   updateProductFacts,
+  updateProductSeo,
+  updateProductStructure,
 } from "@/catalog/product-service";
 import { env } from "@/config/env";
 import {
@@ -28,25 +59,47 @@ import {
   assignInquiry,
   changeInquiryStatus,
 } from "@/crm/inquiry-service";
-import { createContentDraft } from "@/content/content-service";
+import {
+  applyContentRevision,
+  archiveContent,
+  createContentDraft,
+  publishContent,
+  rejectContentReview,
+  rejectContentRevision,
+  setContentIndexStatus,
+  submitContentForReview,
+  updateContent,
+} from "@/content/content-service";
+import {
+  rejectCompanyFact,
+  updateCompanyFact,
+  verifyCompanyFact,
+} from "@/content/company-facts-service";
 import { databaseConnection } from "@/db/client";
 import {
   assetUploadBatches,
+  assets,
   authors,
   companyFacts,
   contacts,
   contentAssets,
+  contents,
+  fabricLibraryEntries,
   fabricLibraryEntryAssets,
   organizations,
   productAssets,
+  products,
+  featureFlags,
 } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/types";
 import { createObjectStorage } from "@/storage";
+import { updateSeoMetadata } from "@/seo/metadata-service";
+import { changeEntityRoute } from "@/seo/redirects";
+import { slugify } from "@/seo/path";
 import { createUploadRateLimiter } from "@/uploads/rate-limit";
 import { createFileScanner } from "@/uploads/scanner";
 import { updateSourceDeclaration, uploadAsset } from "@/uploads/service";
-import { updateSeoMetadata } from "@/seo/metadata-service";
 
 import { currentActor } from "./actor";
 
@@ -74,7 +127,12 @@ export async function createProductAction(form: FormData): Promise<void> {
   const actor = await currentActor();
   const assetIds = form
     .getAll("assetIds")
-    .filter((value): value is string => typeof value === "string" && Boolean(value));
+    .filter((value): value is string => typeof value === "string" && Boolean(value))
+    .sort(
+      (left, right) =>
+        Number(form.get(`assetSort:${left}`) ?? 0) -
+        Number(form.get(`assetSort:${right}`) ?? 0),
+    );
   const productId = await withDatabase((db) =>
     createProductDraft(db, actor, {
       name: requiredString(form, "name"),
@@ -164,15 +222,135 @@ export async function confirmRealProductAction(form: FormData): Promise<void> {
 export async function updateProductSeoAction(form: FormData): Promise<void> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
-  const routeId = requiredString(form, "routeId");
   await withDatabase((db) =>
-    updateSeoMetadata(db, actor, routeId, {
+    updateProductSeo(db, actor, productId, {
       title: optionalString(form, "seoTitle") ?? null,
       metaDescription: optionalString(form, "metaDescription") ?? null,
       focusKeyword: optionalString(form, "focusKeyword") ?? null,
     }),
   );
   revalidatePath(`/admin/products/${productId}`);
+}
+
+export async function updateProductStructureAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  const assetIds = form
+    .getAll("assetIds")
+    .filter((value): value is string => typeof value === "string" && Boolean(value))
+    .sort(
+      (left, right) =>
+        Number(form.get(`assetSort:${left}`) ?? 0) -
+        Number(form.get(`assetSort:${right}`) ?? 0),
+    );
+  const primaryTaxonomyTermId = requiredString(form, "primaryTaxonomyTermId");
+  const taxonomyTermIds = form
+    .getAll("taxonomyTermIds")
+    .filter((value): value is string => typeof value === "string" && Boolean(value));
+  const applicationIds = form
+    .getAll("applicationIds")
+    .filter((value): value is string => typeof value === "string" && Boolean(value));
+  const lines = (key: string): string[] =>
+    (optionalString(form, key) ?? "")
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+  const faqs = lines("faqs").map((line) => {
+    const separator = line.indexOf("|");
+    if (separator < 1 || separator === line.length - 1) {
+      throw new Error("Each FAQ line must use Question | Answer.");
+    }
+    return {
+      question: line.slice(0, separator).trim(),
+      answer: line.slice(separator + 1).trim(),
+    };
+  });
+  await withDatabase((db) =>
+    updateProductStructure(db, actor, productId, {
+      primaryTaxonomyTermId,
+      additionalTaxonomyTermIds: taxonomyTermIds.filter(
+        (id) => id !== primaryTaxonomyTermId,
+      ),
+      applicationIds,
+      tagNames: (optionalString(form, "tagNames") ?? "")
+        .split(/[\n,]/)
+        .map((value) => value.trim())
+        .filter(Boolean),
+      assetIds,
+      heroAssetId: requiredString(form, "heroAssetId"),
+      features: lines("features"),
+      faqs,
+      colorOptionsDisplay: z
+        .enum(["inherit", "show", "hide"])
+        .parse(requiredString(form, "colorOptionsDisplay")),
+      customAvailableDisplay: z
+        .enum(["inherit", "show", "hide"])
+        .parse(requiredString(form, "customAvailableDisplay")),
+      sampleAvailableDisplay: z
+        .enum(["inherit", "show", "hide"])
+        .parse(requiredString(form, "sampleAvailableDisplay")),
+      moqNoteDisplay: z
+        .enum(["inherit", "show", "hide"])
+        .parse(requiredString(form, "moqNoteDisplay")),
+    }),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+  revalidatePath("/products/[slug]", "page");
+}
+
+export async function reviewProductFieldAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) =>
+    reviewProductField(
+      db,
+      actor,
+      productId,
+      z.enum(["composition", "weightGsm", "widthCm"]).parse(requiredString(form, "fieldName")),
+      z.enum(["verified", "rejected"]).parse(requiredString(form, "verificationStatus")),
+    ),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+  revalidatePath("/products/[slug]", "page");
+}
+
+export async function applyProductRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) =>
+    applyProductRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+  revalidatePath("/products/[slug]", "page");
+}
+
+export async function rejectProductRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) =>
+    rejectProductRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+}
+
+export async function rejectProductReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) =>
+    rejectProductReview(db, actor, productId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+}
+
+export async function archiveProductAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) =>
+    archiveProduct(db, actor, productId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+  revalidatePath("/products/[slug]", "page");
+  revalidatePath("/products/");
 }
 
 export async function setProductIndexAction(form: FormData): Promise<void> {
@@ -220,6 +398,77 @@ export async function createTaxonomyAction(form: FormData): Promise<void> {
   redirect("/admin/taxonomy");
 }
 
+export async function updateTaxonomyAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const termId = requiredString(form, "termId");
+  await withDatabase((db) =>
+    updateTaxonomyTerm(db, actor, termId, {
+      name: requiredString(form, "name"),
+      description: optionalString(form, "description") ?? null,
+      dimension: z
+        .enum([
+          "material_fiber",
+          "structure_construction",
+          "commercial_collection",
+          "surface_hand_feel",
+        ])
+        .parse(requiredString(form, "dimension")),
+    }),
+  );
+  await withDatabase((db) =>
+    updateSeoMetadata(db, actor, requiredString(form, "routeId"), {
+      title: optionalString(form, "seoTitle") ?? null,
+      metaDescription: optionalString(form, "metaDescription") ?? null,
+    }),
+  );
+  revalidatePath("/admin/taxonomy");
+  revalidatePath("/fabric-types/[slug]", "page");
+}
+
+export async function setTaxonomyIndexAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  await withDatabase((db) =>
+    setTaxonomyIndexStatus(
+      db,
+      actor,
+      requiredString(form, "termId"),
+      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+    ),
+  );
+  revalidatePath("/admin/taxonomy");
+}
+
+export async function setTaxonomyActiveAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  await withDatabase((db) =>
+    setTaxonomyActive(
+      db,
+      actor,
+      requiredString(form, "termId"),
+      requiredString(form, "active") === "true",
+    ),
+  );
+  revalidatePath("/admin/taxonomy");
+  revalidatePath("/fabric-types/[slug]", "page");
+}
+
+export async function changeTaxonomySlugAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const termId = requiredString(form, "termId");
+  await withDatabase((db) =>
+    changeEntityRoute(db, {
+      entityType: "taxonomy",
+      entityId: termId,
+      locale: "en",
+      newPath: `/fabric-types/${slugify(requiredString(form, "slug"))}/`,
+      actor,
+      reason: "Taxonomy slug changed in CMS",
+    }),
+  );
+  revalidatePath("/admin/taxonomy");
+  revalidatePath("/fabric-types/[slug]", "page");
+}
+
 export async function createApplicationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
   await withDatabase((db) =>
@@ -234,6 +483,113 @@ export async function createApplicationAction(form: FormData): Promise<void> {
   );
   revalidatePath("/admin/applications");
   redirect("/admin/applications");
+}
+
+export async function updateApplicationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    updateApplication(db, actor, applicationId, {
+      name: requiredString(form, "name"),
+      shortDescription: optionalString(form, "shortDescription") ?? null,
+      body: optionalString(form, "body") ?? null,
+      productIds: form
+        .getAll("productIds")
+        .filter((value): value is string => typeof value === "string" && Boolean(value)),
+      seo: {
+        routeId: requiredString(form, "routeId"),
+        title: optionalString(form, "seoTitle") ?? null,
+        metaDescription: optionalString(form, "metaDescription") ?? null,
+        focusKeyword: optionalString(form, "focusKeyword") ?? null,
+      },
+    }),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+  revalidatePath("/applications/[slug]", "page");
+}
+
+export async function submitApplicationReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) => submitApplicationForReview(db, actor, applicationId));
+  revalidatePath(`/admin/applications/${applicationId}`);
+}
+
+export async function publishApplicationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) => publishApplication(db, actor, applicationId));
+  revalidatePath(`/admin/applications/${applicationId}`);
+  revalidatePath("/applications/[slug]", "page");
+}
+
+export async function rejectApplicationReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    rejectApplicationReview(db, actor, applicationId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+}
+
+export async function applyApplicationRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    applyApplicationRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+  revalidatePath("/applications/[slug]", "page");
+}
+
+export async function rejectApplicationRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    rejectApplicationRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+}
+
+export async function setApplicationIndexAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    setApplicationIndexStatus(
+      db,
+      actor,
+      applicationId,
+      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+    ),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+}
+
+export async function archiveApplicationAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    archiveApplication(db, actor, applicationId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+  revalidatePath("/applications/[slug]", "page");
+}
+
+export async function changeApplicationSlugAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const applicationId = requiredString(form, "applicationId");
+  await withDatabase((db) =>
+    changeEntityRoute(db, {
+      entityType: "application",
+      entityId: applicationId,
+      locale: "en",
+      newPath: `/applications/${slugify(requiredString(form, "slug"))}/`,
+      actor,
+      reason: "Application slug changed in CMS",
+    }),
+  );
+  revalidatePath(`/admin/applications/${applicationId}`);
+  revalidatePath("/applications/[slug]", "page");
 }
 
 export async function createContentAction(form: FormData): Promise<void> {
@@ -260,6 +616,138 @@ export async function createContentAction(form: FormData): Promise<void> {
   redirect("/admin/contents");
 }
 
+export async function updateContentAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) =>
+    updateContent(db, actor, contentId, {
+      authorId: requiredString(form, "authorId"),
+      type: z
+        .enum(["article", "pillar", "comparison", "how_to", "guide"])
+        .parse(requiredString(form, "type")),
+      title: requiredString(form, "title"),
+      excerpt: optionalString(form, "excerpt") ?? null,
+      body: requiredString(form, "body"),
+      seoTitle: optionalString(form, "seoTitle") ?? null,
+      metaDescription: optionalString(form, "metaDescription") ?? null,
+      focusKeyword: optionalString(form, "focusKeyword") ?? null,
+      assetIds: form
+        .getAll("assetIds")
+        .filter((value): value is string => typeof value === "string" && Boolean(value))
+        .sort(
+          (left, right) =>
+            Number(form.get(`assetSort:${left}`) ?? 0) -
+            Number(form.get(`assetSort:${right}`) ?? 0),
+        ),
+      ...(optionalString(form, "changeSummary")
+        ? { changeSummary: requiredString(form, "changeSummary") }
+        : {}),
+    }),
+  );
+  revalidatePath(`/admin/contents/${contentId}`);
+  revalidatePath("/fabric-knowledge/[slug]", "page");
+  revalidatePath("/china-textile-guide/[slug]", "page");
+  revalidatePath("/china-sourcing-guide/[slug]", "page");
+}
+
+export async function submitContentReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) => submitContentForReview(db, actor, contentId));
+  revalidatePath(`/admin/contents/${contentId}`);
+}
+
+export async function publishContentAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) => publishContent(db, actor, contentId));
+  revalidatePath(`/admin/contents/${contentId}`);
+}
+
+export async function rejectContentReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) =>
+    rejectContentReview(db, actor, contentId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/contents/${contentId}`);
+}
+
+export async function applyContentRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) =>
+    applyContentRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/contents/${contentId}`);
+  revalidatePath("/fabric-knowledge/[slug]", "page");
+  revalidatePath("/china-textile-guide/[slug]", "page");
+  revalidatePath("/china-sourcing-guide/[slug]", "page");
+}
+
+export async function rejectContentRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) =>
+    rejectContentRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/contents/${contentId}`);
+}
+
+export async function setContentIndexAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) =>
+    setContentIndexStatus(
+      db,
+      actor,
+      contentId,
+      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+    ),
+  );
+  revalidatePath(`/admin/contents/${contentId}`);
+}
+
+export async function archiveContentAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase((db) =>
+    archiveContent(db, actor, contentId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/contents/${contentId}`);
+}
+
+export async function changeContentSlugAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const contentId = requiredString(form, "contentId");
+  await withDatabase(async (db) => {
+    const rows = await db
+      .select({ channel: contents.channel })
+      .from(contents)
+      .where(eq(contents.id, contentId))
+      .limit(1);
+    const channel = rows[0]?.channel;
+    if (!channel) throw new Error("Content was not found.");
+    const prefix = {
+      fabric_knowledge: "fabric-knowledge",
+      china_textile_guide: "china-textile-guide",
+      china_sourcing_guide: "china-sourcing-guide",
+    }[channel];
+    await changeEntityRoute(db, {
+      entityType: "content",
+      entityId: contentId,
+      locale: "en",
+      newPath: `/${prefix}/${slugify(requiredString(form, "slug"))}/`,
+      actor,
+      reason: "Content slug changed in CMS",
+    });
+  });
+  revalidatePath(`/admin/contents/${contentId}`);
+  revalidatePath("/fabric-knowledge/[slug]", "page");
+  revalidatePath("/china-textile-guide/[slug]", "page");
+  revalidatePath("/china-sourcing-guide/[slug]", "page");
+}
+
 export async function createFabricEntryAction(form: FormData): Promise<void> {
   const actor = await currentActor();
   const assetIds = form
@@ -276,6 +764,127 @@ export async function createFabricEntryAction(form: FormData): Promise<void> {
   );
   revalidatePath("/admin/fabric-library");
   redirect("/admin/fabric-library");
+}
+
+export async function updateFabricEntryAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  const values = (key: string) =>
+    form
+      .getAll(key)
+      .filter((value): value is string => typeof value === "string" && Boolean(value));
+  const assetIds = values("assetIds").sort(
+    (left, right) =>
+      Number(form.get(`assetSort:${left}`) ?? 0) -
+      Number(form.get(`assetSort:${right}`) ?? 0),
+  );
+  await withDatabase((db) =>
+    updateFabricLibraryEntry(db, actor, entryId, {
+      title: requiredString(form, "title"),
+      description: optionalString(form, "description") ?? null,
+      assetIds,
+      productIds: values("productIds"),
+      applicationIds: values("applicationIds"),
+      seo: {
+        routeId: requiredString(form, "routeId"),
+        title: optionalString(form, "seoTitle") ?? null,
+        metaDescription: optionalString(form, "metaDescription") ?? null,
+        focusKeyword: optionalString(form, "focusKeyword") ?? null,
+      },
+    }),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+  revalidatePath("/fabric-library/[slug]", "page");
+}
+
+export async function submitFabricEntryReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) => submitFabricLibraryEntryForReview(db, actor, entryId));
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+}
+
+export async function publishFabricEntryAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) => publishFabricLibraryEntry(db, actor, entryId));
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+}
+
+export async function rejectFabricEntryReviewAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) =>
+    rejectFabricLibraryEntryReview(db, actor, entryId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+}
+
+export async function confirmFabricEntryValueAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) => confirmFabricEntryIndependentValue(db, actor, entryId));
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+}
+
+export async function setFabricEntryIndexAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) =>
+    setFabricEntryIndexStatus(
+      db,
+      actor,
+      entryId,
+      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+    ),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+}
+
+export async function applyFabricEntryRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) =>
+    applyFabricLibraryRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+  revalidatePath("/fabric-library/[slug]", "page");
+}
+
+export async function rejectFabricEntryRevisionAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) =>
+    rejectFabricLibraryRevision(db, actor, requiredString(form, "revisionId")),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+}
+
+export async function archiveFabricEntryAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) =>
+    archiveFabricLibraryEntry(db, actor, entryId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+  revalidatePath("/fabric-library/[slug]", "page");
+}
+
+export async function changeFabricEntrySlugAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const entryId = requiredString(form, "entryId");
+  await withDatabase((db) =>
+    changeEntityRoute(db, {
+      entityType: "fabric_entry",
+      entityId: entryId,
+      locale: "en",
+      newPath: `/fabric-library/${slugify(requiredString(form, "slug"))}/`,
+      actor,
+      reason: "Fabric Library slug changed in CMS",
+    }),
+  );
+  revalidatePath(`/admin/fabric-library/${entryId}`);
+  revalidatePath("/fabric-library/[slug]", "page");
 }
 
 export async function createAuthorAction(form: FormData): Promise<void> {
@@ -298,6 +907,35 @@ export async function createAuthorAction(form: FormData): Promise<void> {
       action: "author.created",
       entityType: "author",
       entityId: authorId,
+    });
+  });
+  revalidatePath("/admin/authors");
+}
+
+export async function updateAuthorAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  requirePermission(actor.role, "content.write");
+  const authorId = requiredString(form, "authorId");
+  await withDatabase(async (db) => {
+    const before = await db.select().from(authors).where(eq(authors.id, authorId)).limit(1);
+    if (!before[0]) throw new Error("Author was not found.");
+    await db
+      .update(authors)
+      .set({
+        displayName: requiredString(form, "displayName"),
+        bio: optionalString(form, "bio") ?? null,
+        isOrganization: form.get("isOrganization") === "on",
+        isActive: form.get("isActive") === "on",
+        updatedAt: new Date(),
+      })
+      .where(eq(authors.id, authorId));
+    await writeAuditLog(db, {
+      actorUserId: actor.userId,
+      action: "author.updated",
+      entityType: "author",
+      entityId: authorId,
+      beforeSummary: { isActive: before[0].isActive },
+      afterSummary: { isActive: form.get("isActive") === "on" },
     });
   });
   revalidatePath("/admin/authors");
@@ -332,6 +970,44 @@ export async function createCompanyFactAction(form: FormData): Promise<void> {
   revalidatePath("/admin/company-facts");
 }
 
+export async function updateCompanyFactAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const factId = requiredString(form, "factId");
+  await withDatabase((db) =>
+    updateCompanyFact(db, actor, factId, {
+      subject: requiredString(form, "subject"),
+      statement: requiredString(form, "statement"),
+      relationshipToCwt: optionalString(form, "relationshipToCwt") ?? null,
+      evidenceReference: optionalString(form, "evidenceReference") ?? null,
+    }),
+  );
+  revalidatePath(`/admin/company-facts/${factId}`);
+  revalidatePath("/", "layout");
+}
+
+export async function verifyCompanyFactAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const factId = requiredString(form, "factId");
+  await withDatabase((db) =>
+    verifyCompanyFact(db, actor, factId, {
+      evidenceReference: requiredString(form, "evidenceReference"),
+      publicUseAllowed: form.get("publicUseAllowed") === "on",
+    }),
+  );
+  revalidatePath(`/admin/company-facts/${factId}`);
+  revalidatePath("/", "layout");
+}
+
+export async function rejectCompanyFactAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  const factId = requiredString(form, "factId");
+  await withDatabase((db) =>
+    rejectCompanyFact(db, actor, factId, requiredString(form, "reason")),
+  );
+  revalidatePath(`/admin/company-facts/${factId}`);
+  revalidatePath("/", "layout");
+}
+
 const uploadRateLimiter = createUploadRateLimiter();
 
 const categorySchema = z.enum([
@@ -362,6 +1038,63 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
     throw new Error("Upload file count is outside the configured limit.");
   }
   const sourceDeclarationEnabled = form.get("sourceDeclarationEnabled") === "on";
+  const association = optionalString(form, "association");
+  let associationType: "product" | "fabric" | "content" | null = null;
+  let associationEntityId: string | null = null;
+  if (association) {
+    const separator = association.indexOf(":");
+    const rawType = association.slice(0, separator);
+    associationEntityId = association.slice(separator + 1);
+    if (
+      !associationEntityId ||
+      (rawType !== "product" && rawType !== "fabric" && rawType !== "content")
+    ) {
+      throw new Error("Asset association is invalid.");
+    }
+    associationType = rawType;
+    if (associationType === "content") {
+      requirePermission(actor.role, "content.write");
+      const rows = await db
+        .select({ status: contents.status })
+        .from(contents)
+        .where(eq(contents.id, associationEntityId))
+        .limit(1);
+      if (!rows[0] || rows[0].status === "archived") {
+        throw new Error("Asset association target is unavailable.");
+      }
+      if (rows[0].status === "published") {
+        throw new Error("Published Content Assets must change through an Editorial Revision.");
+      }
+    } else if (associationType === "product") {
+      requirePermission(actor.role, "products.write");
+      const rows = await db
+        .select({ status: products.status })
+        .from(products)
+        .where(eq(products.id, associationEntityId))
+        .limit(1);
+      if (!rows[0] || rows[0].status === "archived") {
+        throw new Error("Asset association target is unavailable.");
+      }
+      if (rows[0].status === "published") {
+        throw new Error("Published Product Assets must change through an Editorial Revision.");
+      }
+    } else {
+      requirePermission(actor.role, "products.write");
+      const rows = await db
+        .select({ status: fabricLibraryEntries.status })
+        .from(fabricLibraryEntries)
+        .where(eq(fabricLibraryEntries.id, associationEntityId))
+        .limit(1);
+      if (!rows[0] || rows[0].status === "archived") {
+        throw new Error("Asset association target is unavailable.");
+      }
+      if (rows[0].status === "published") {
+        throw new Error(
+          "Published Fabric Library Assets must change through an Editorial Revision.",
+        );
+      }
+    }
+  }
   const batchRows = await db
     .insert(assetUploadBatches)
     .values({ createdByUserId: actor.userId, sourceDeclarationEnabled })
@@ -382,32 +1115,22 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
       uploadBatchId,
       sourceDeclarationEnabled,
     });
-    const association = optionalString(form, "association");
     const role = z
       .enum(["hero", "gallery", "detail", "thumbnail", "inline", "document"])
       .parse(requiredString(form, "role"));
     const sortOrder = z.coerce.number().int().min(0).parse(form.get("sortOrder") ?? 0);
-    if (association) {
-      const separator = association.indexOf(":");
-      const associationType = association.slice(0, separator);
-      const entityId = association.slice(separator + 1);
-      if (!entityId) throw new Error("Asset association is invalid.");
+    if (associationType && associationEntityId) {
       if (associationType === "product") {
-        requirePermission(actor.role, "products.write");
-        await db.insert(productAssets).values({ productId: entityId, assetId, role, sortOrder });
+        await db.insert(productAssets).values({ productId: associationEntityId, assetId, role, sortOrder });
       } else if (associationType === "fabric") {
-        requirePermission(actor.role, "products.write");
         await db.insert(fabricLibraryEntryAssets).values({
-          fabricEntryId: entityId,
+          fabricEntryId: associationEntityId,
           assetId,
           role,
           sortOrder,
         });
       } else if (associationType === "content") {
-        requirePermission(actor.role, "content.write");
-        await db.insert(contentAssets).values({ contentId: entityId, assetId, role, sortOrder });
-      } else {
-        throw new Error("Asset association type is invalid.");
+        await db.insert(contentAssets).values({ contentId: associationEntityId, assetId, role, sortOrder });
       }
     }
     if (sourceDeclarationEnabled) {
@@ -415,7 +1138,11 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
         .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
         .optional()
         .parse(optionalString(form, "subjectRelationship"));
-      await updateSourceDeclaration(db, assetId, actor.userId, {
+      const markReviewed = form.get("markReviewed") === "on";
+      if (markReviewed) {
+        requirePermission(actor.role, "assets.declaration.review");
+      }
+      await updateSourceDeclaration(db, assetId, actor, {
         enabled: true,
         sourceType: optionalString(form, "sourceType") ?? null,
         sourceProvider: optionalString(form, "sourceProvider") ?? null,
@@ -431,10 +1158,12 @@ async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
           .parse(optionalString(form, "editingPermission")) ?? null,
         usageRestrictions: optionalString(form, "usageRestrictions") ?? null,
         permissionEvidence: optionalString(form, "permissionEvidence") ?? null,
-        declarationReviewerUserId:
-          form.get("markReviewed") === "on" ? actor.userId : null,
-        declarationReviewDate:
-          form.get("markReviewed") === "on" ? new Date() : null,
+        ...(markReviewed
+          ? {
+              declarationReviewerUserId: actor.userId,
+              declarationReviewDate: new Date(),
+            }
+          : {}),
         declarationExpiryDate: optionalString(form, "declarationExpiryDate")
           ? new Date(requiredString(form, "declarationExpiryDate"))
           : null,
@@ -465,10 +1194,30 @@ export async function uploadAssetsAction(form: FormData): Promise<void> {
 
 export async function updateAssetDeclarationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "assets.write");
   const assetId = requiredString(form, "assetId");
   const enabled = form.get("enabled") === "on";
   const markReviewed = form.get("markReviewed") === "on";
+  if (!hasPermission(actor.role, "assets.write")) {
+    requirePermission(actor.role, "assets.declaration.review");
+    if (!markReviewed || !enabled) {
+      throw new Error("A review-only operator can only record an enabled declaration review.");
+    }
+    await withDatabase(async (db) => {
+      const rows = await db
+        .select({ enabled: assets.sourceDeclarationEnabled })
+        .from(assets)
+        .where(eq(assets.id, assetId))
+        .limit(1);
+      if (!rows[0]?.enabled) throw new Error("Source Declaration must be enabled before review.");
+      await updateSourceDeclaration(db, assetId, actor, {
+        enabled: true,
+        declarationReviewerUserId: actor.userId,
+        declarationReviewDate: new Date(),
+      });
+    });
+    revalidatePath(`/admin/assets/${assetId}`);
+    return;
+  }
   if (markReviewed) requirePermission(actor.role, "assets.declaration.review");
   const subjectRelationship = z
     .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
@@ -483,7 +1232,7 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
     .optional()
     .parse(optionalString(form, "editingPermission"));
   await withDatabase((db) =>
-    updateSourceDeclaration(db, assetId, actor.userId, {
+    updateSourceDeclaration(db, assetId, actor, {
       enabled,
       sourceType: optionalString(form, "sourceType") ?? null,
       sourceProvider: optionalString(form, "sourceProvider") ?? null,
@@ -493,8 +1242,12 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
       editingPermission: editingPermission ?? null,
       usageRestrictions: optionalString(form, "usageRestrictions") ?? null,
       permissionEvidence: optionalString(form, "permissionEvidence") ?? null,
-      declarationReviewerUserId: markReviewed ? actor.userId : null,
-      declarationReviewDate: markReviewed ? new Date() : null,
+      ...(markReviewed
+        ? {
+            declarationReviewerUserId: actor.userId,
+            declarationReviewDate: new Date(),
+          }
+        : {}),
       declarationExpiryDate: optionalString(form, "declarationExpiryDate")
         ? new Date(requiredString(form, "declarationExpiryDate"))
         : null,
@@ -540,9 +1293,13 @@ export async function addCustomerActivityAction(form: FormData): Promise<void> {
   const type = z
     .enum(["note", "email", "whatsapp", "quote", "sample", "status_change"])
     .parse(requiredString(form, "type"));
+  const direction = z
+    .enum(["inbound", "outbound", "internal"])
+    .parse(requiredString(form, "direction"));
   await withDatabase((db) =>
     addCustomerActivity(db, actor, inquiryId, {
       type,
+      direction,
       content: requiredString(form, "content"),
     }),
   );
@@ -560,7 +1317,9 @@ export async function assignInquiryAction(form: FormData): Promise<void> {
     .parse(requiredString(form, "qualificationStatus"));
   await withDatabase((db) =>
     assignInquiry(db, actor, inquiryId, {
-      ownerUserId: optionalString(form, "ownerUserId") ?? null,
+      ...(actor.role === "admin"
+        ? { ownerUserId: optionalString(form, "ownerUserId") ?? null }
+        : {}),
       priority,
       qualificationStatus,
     }),
@@ -571,7 +1330,7 @@ export async function assignInquiryAction(form: FormData): Promise<void> {
 
 export async function createOrganizationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "crm.manage");
+  requirePermission(actor.role, "users.manage");
   await withDatabase(async (db) => {
     const rows = await db
       .insert(organizations)
@@ -595,7 +1354,7 @@ export async function createOrganizationAction(form: FormData): Promise<void> {
 
 export async function assignContactOrganizationAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "crm.manage");
+  requirePermission(actor.role, "users.manage");
   const contactId = requiredString(form, "contactId");
   const organizationId = optionalString(form, "organizationId") ?? null;
   await withDatabase(async (db) => {
@@ -612,4 +1371,32 @@ export async function assignContactOrganizationAction(form: FormData): Promise<v
     });
   });
   revalidatePath("/admin/contacts");
+}
+
+export async function setFeatureFlagAction(form: FormData): Promise<void> {
+  const actor = await currentActor();
+  requirePermission(actor.role, "settings.manage");
+  const flagId = requiredString(form, "flagId");
+  const enabled = requiredString(form, "enabled") === "true";
+  await withDatabase(async (db) => {
+    const before = await db
+      .select({ enabled: featureFlags.enabled, key: featureFlags.key })
+      .from(featureFlags)
+      .where(eq(featureFlags.id, flagId))
+      .limit(1);
+    if (!before[0]) throw new Error("Feature Flag was not found.");
+    await db
+      .update(featureFlags)
+      .set({ enabled, updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(featureFlags.id, flagId));
+    await writeAuditLog(db, {
+      actorUserId: actor.userId,
+      action: "feature_flag.changed",
+      entityType: "feature_flag",
+      entityId: flagId,
+      beforeSummary: { enabled: before[0].enabled },
+      afterSummary: { key: before[0].key, enabled },
+    });
+  });
+  revalidatePath("/admin/settings");
 }

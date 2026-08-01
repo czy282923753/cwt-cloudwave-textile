@@ -23,6 +23,7 @@ describe("inquiry Asset retention", () => {
         access: "private",
         category: "inquiry",
         status: "ready",
+        scanStatus: "passed",
         declaredMimeType: "image/jpeg",
         detectedMimeType: "image/jpeg",
         byteSize: 3,

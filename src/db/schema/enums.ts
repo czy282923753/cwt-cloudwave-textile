@@ -82,6 +82,13 @@ export const assetStatusEnum = pgEnum("asset_status", [
   "deleted",
 ]);
 
+export const assetScanStatusEnum = pgEnum("asset_scan_status", [
+  "pending",
+  "passed",
+  "failed",
+  "error",
+]);
+
 export const assetRoleEnum = pgEnum("asset_role", [
   "hero",
   "gallery",
@@ -200,6 +207,26 @@ export const activityTypeEnum = pgEnum("activity_type", [
   "quote",
   "sample",
   "status_change",
+]);
+
+export const activityDirectionEnum = pgEnum("activity_direction", [
+  "inbound",
+  "outbound",
+  "internal",
+]);
+
+export const consentStateEnum = pgEnum("consent_state", [
+  "unknown",
+  "granted",
+  "denied",
+]);
+
+export const outboxStatusEnum = pgEnum("outbox_status", [
+  "pending",
+  "processing",
+  "sent",
+  "failed",
+  "dead",
 ]);
 
 export const conversionEventEnum = pgEnum("conversion_event", [

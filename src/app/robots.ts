@@ -1,9 +1,9 @@
 import type { MetadataRoute } from "next";
 
-import { env } from "@/config/env";
+import { env, publicIndexingAllowed } from "@/config/env";
 
 export default function robots(): MetadataRoute.Robots {
-  if (env.APP_ENV !== "production" || env.NON_PRODUCTION_NOINDEX) {
+  if (!publicIndexingAllowed()) {
     return { rules: { userAgent: "*", disallow: "/" } };
   }
   return {

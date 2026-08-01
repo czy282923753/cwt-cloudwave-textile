@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { captureAttribution, trackPublicEvent } from "./tracking";
 
@@ -10,6 +10,7 @@ export function InquiryForm({
   initialDescription = "",
 }: Readonly<{ compact?: boolean; initialDescription?: string }>) {
   const pathname = usePathname();
+  const idempotencyKey = useRef<string | null>(null);
   const [state, setState] = useState<
     | { kind: "idle" }
     | { kind: "submitting" }
@@ -20,15 +21,26 @@ export function InquiryForm({
   async function submit(formData: FormData): Promise<void> {
     setState({ kind: "submitting" });
     const attribution = captureAttribution();
+    idempotencyKey.current ??= crypto.randomUUID();
+    formData.set("idempotencyKey", idempotencyKey.current);
     formData.set("sourcePagePath", pathname);
     formData.set("landingPagePath", attribution.landingPagePath);
-    formData.set("referrer", document.referrer);
+    formData.set("referrer", attribution.referrerOrigin);
     formData.set("utmSource", attribution.utmSource);
     formData.set("utmMedium", attribution.utmMedium);
     formData.set("utmCampaign", attribution.utmCampaign);
+    formData.set("lastNonDirectSource", attribution.lastNonDirectSource);
+    formData.set("lastNonDirectMedium", attribution.lastNonDirectMedium);
+    formData.set("lastNonDirectCampaign", attribution.lastNonDirectCampaign);
+    formData.set("attributionConfidence", attribution.attributionConfidence);
+    formData.set("analyticsConsentState", attribution.consentState);
     formData.set("sessionId", attribution.anonymousSessionId);
     try {
-      const response = await fetch("/api/inquiries", { method: "POST", body: formData });
+      const response = await fetch("/api/inquiries/", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey.current },
+        body: formData,
+      });
       const result = (await response.json()) as unknown;
       if (
         !response.ok ||

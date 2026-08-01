@@ -53,9 +53,16 @@ export async function resolveSession<TQueryResult extends PgQueryResultHKT>(
 export async function revokeSession<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   token: string,
-): Promise<void> {
-  await db
+): Promise<{ sessionId: string; userId: string } | null> {
+  const rows = await db
     .update(authSessions)
     .set({ revokedAt: new Date() })
-    .where(eq(authSessions.tokenHash, hashSessionToken(token)));
+    .where(
+      and(
+        eq(authSessions.tokenHash, hashSessionToken(token)),
+        isNull(authSessions.revokedAt),
+      ),
+    )
+    .returning({ sessionId: authSessions.id, userId: authSessions.userId });
+  return rows[0] ?? null;
 }

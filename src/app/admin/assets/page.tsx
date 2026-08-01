@@ -7,10 +7,11 @@ import {
   listAdminProducts,
 } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
+import { hasPermission } from "@/auth/permissions";
 import Link from "next/link";
 
 export default async function AdminAssetsPage() {
-  await requireCurrentUser("assets.read");
+  const user = await requireCurrentUser("assets.read");
   const [assets, products, contents, fabricEntries] = await Promise.all([
     listAdminAssets(),
     listAdminProducts(),
@@ -39,7 +40,7 @@ export default async function AdminAssetsPage() {
             asset.sourceDeclarationEnabled ? "Enabled" : "Off",
           ])}
         />
-        <AssetUploadForm associations={associations} />
+        {hasPermission(user.role, "assets.write") ? <AssetUploadForm associations={associations} canReviewDeclaration={hasPermission(user.role, "assets.declaration.review")} /> : <p className="rounded-2xl border border-white/10 bg-slate-900 p-6 text-slate-300">You have review-only Asset access. Open an Asset to review an enabled declaration.</p>}
       </div>
     </main>
   );

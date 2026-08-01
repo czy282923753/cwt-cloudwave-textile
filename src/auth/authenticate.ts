@@ -11,6 +11,21 @@ export async function authenticateUser<TQueryResult extends PgQueryResultHKT>(
   email: string,
   password: string,
 ): Promise<{ id: string } | null> {
+  const result = await authenticateUserAttempt(db, email, password);
+  return result.status === "success" ? { id: result.userId } : null;
+}
+
+export async function authenticateUserAttempt<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  email: string,
+  password: string,
+): Promise<
+  | { status: "success"; userId: string }
+  | { status: "invalid" }
+  | { status: "disabled"; userId: string }
+> {
   const normalizedEmail = email.trim().toLowerCase();
   const rows = await db
     .select({
@@ -22,6 +37,9 @@ export async function authenticateUser<TQueryResult extends PgQueryResultHKT>(
     .where(eq(users.email, normalizedEmail))
     .limit(1);
   const user = rows[0];
-  if (!user || !user.isActive) return null;
-  return (await verifyPassword(password, user.passwordHash)) ? { id: user.id } : null;
+  if (!user) return { status: "invalid" };
+  if (!user.isActive) return { status: "disabled", userId: user.id };
+  return (await verifyPassword(password, user.passwordHash))
+    ? { status: "success", userId: user.id }
+    : { status: "invalid" };
 }

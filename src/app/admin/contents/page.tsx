@@ -1,4 +1,5 @@
 import { createContentAction } from "@/admin/actions";
+import Link from "next/link";
 import { AdminPageHeader, AdminTable } from "@/admin/components/admin-table";
 import { listAdminAuthors, listAdminContents } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
@@ -19,7 +20,7 @@ export default async function AdminContentsPage() {
         <AdminTable
           headers={["Title", "Channel", "Status", "Updated"]}
           rows={contents.map((content) => [
-            content.title,
+            <Link className="text-teal-300" href={`/admin/contents/${content.id}`} key={content.id}>{content.title}</Link>,
             content.channel,
             content.status,
             content.updatedAt.toLocaleString("en-GB"),
@@ -36,7 +37,7 @@ export default async function AdminContentsPage() {
             <option value="article">Article</option><option value="pillar">Pillar</option><option value="comparison">Comparison</option><option value="how_to">How-to</option><option value="guide">Guide</option>
           </select>
           <select className="rounded-lg bg-slate-950 p-3" name="authorId" required>
-            {authors.map((author) => <option key={author.id} value={author.id}>{author.displayName}</option>)}
+            {authors.filter((author) => author.isActive).map((author) => <option key={author.id} value={author.id}>{author.displayName}</option>)}
           </select>
           <input className="rounded-lg bg-slate-950 p-3" name="title" placeholder="Title" required />
           <textarea className="rounded-lg bg-slate-950 p-3" name="excerpt" placeholder="Optional excerpt" rows={3} />

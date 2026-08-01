@@ -8,8 +8,10 @@ const fieldClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 
 export function AssetUploadForm({
   associations,
+  canReviewDeclaration,
 }: Readonly<{
   associations: readonly { value: string; label: string; group: string }[];
+  canReviewDeclaration: boolean;
 }>) {
   const [declarationEnabled, setDeclarationEnabled] = useState(false);
   return (
@@ -50,7 +52,7 @@ export function AssetUploadForm({
           <label className="grid gap-2 sm:col-span-2">Permission Evidence<input className={fieldClass} name="permissionEvidence" /></label>
           <label className="grid gap-2">Whether CWT-Owned Facility<select className={fieldClass} name="isCwtOwnedFacility"><option value="">Unspecified</option><option value="yes">Yes</option><option value="no">No</option></select></label>
           <label className="grid gap-2">Optional Expiry Date<input className={fieldClass} name="declarationExpiryDate" type="date" /></label>
-          <label className="flex items-center gap-3 sm:col-span-2"><input name="markReviewed" type="checkbox" />Record current operator and current date as reviewer</label>
+          {canReviewDeclaration ? <label className="flex items-center gap-3 sm:col-span-2"><input name="markReviewed" type="checkbox" />Record current operator and current date as reviewer</label> : null}
           <p className="text-sm text-amber-200 sm:col-span-2">
             Partner Factory + CWT-Owned Facility: No must never be described publicly as “Our Factory” or “CWT Factory”.
           </p>

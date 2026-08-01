@@ -9,9 +9,11 @@ const product = {
   colorOptions: "Custom colors",
   customAvailable: "yes" as const,
   sampleAvailable: "unknown" as const,
+  moqNote: "Test MOQ note",
   colorOptionsDisplay: "inherit" as const,
   customAvailableDisplay: "show" as const,
   sampleAvailableDisplay: "show" as const,
+  moqNoteDisplay: "hide" as const,
 };
 
 describe("public Product field visibility", () => {
@@ -23,6 +25,7 @@ describe("public Product field visibility", () => {
       colorOptions: null,
       customAvailable: "yes",
       sampleAvailable: "unknown",
+      moqNote: null,
     });
   });
 

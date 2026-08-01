@@ -1,4 +1,6 @@
 import {
+  integer,
+  jsonb,
   index,
   pgTable,
   primaryKey,
@@ -11,10 +13,13 @@ import {
 import { assets } from "./assets";
 import {
   activityTypeEnum,
+  activityDirectionEnum,
   attributionConfidenceEnum,
+  consentStateEnum,
   inquiryStatusEnum,
   priorityEnum,
   qualificationStatusEnum,
+  outboxStatusEnum,
 } from "./enums";
 import { users } from "./identity";
 
@@ -64,6 +69,11 @@ export const inquiries = pgTable(
       .notNull()
       .default("unassessed"),
     description: text("description"),
+    submittedName: text("submitted_name").notNull(),
+    submittedEmail: text("submitted_email").notNull(),
+    submittedCountryCode: text("submitted_country_code"),
+    submittedWhatsapp: text("submitted_whatsapp"),
+    idempotencyKey: text("idempotency_key").notNull(),
     lostReason: text("lost_reason"),
     sourcePagePath: text("source_page_path").notNull(),
     landingPagePath: text("landing_page_path"),
@@ -77,6 +87,9 @@ export const inquiries = pgTable(
     attributionConfidence: attributionConfidenceEnum("attribution_confidence")
       .notNull()
       .default("unavailable"),
+    analyticsConsentState: consentStateEnum("analytics_consent_state")
+      .notNull()
+      .default("unknown"),
     sessionId: text("session_id"),
     requestId: text("request_id"),
     firstResponseAt: timestamp("first_response_at", { withTimezone: true }),
@@ -88,6 +101,7 @@ export const inquiries = pgTable(
     index("inquiries_status_created_idx").on(table.status, table.createdAt),
     index("inquiries_owner_status_idx").on(table.ownerUserId, table.status),
     index("inquiries_contact_idx").on(table.contactId),
+    uniqueIndex("inquiries_idempotency_key_unique").on(table.idempotencyKey),
   ],
 );
 
@@ -115,6 +129,7 @@ export const customerActivities = pgTable(
       .notNull()
       .references(() => contacts.id, { onDelete: "restrict" }),
     type: activityTypeEnum("type").notNull(),
+    direction: activityDirectionEnum("direction").notNull().default("internal"),
     content: text("content").notNull(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
@@ -125,6 +140,33 @@ export const customerActivities = pgTable(
   (table) => [
     index("customer_activities_inquiry_idx").on(table.inquiryId, table.occurredAt),
     index("customer_activities_contact_idx").on(table.contactId),
+  ],
+);
+
+export const notificationOutbox = pgTable(
+  "notification_outbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    aggregateType: text("aggregate_type").notNull(),
+    aggregateId: uuid("aggregate_id").notNull(),
+    status: outboxStatusEnum("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    payload: jsonb("payload").notNull(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastErrorCode: text("last_error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("notification_outbox_kind_aggregate_unique").on(
+      table.kind,
+      table.aggregateType,
+      table.aggregateId,
+    ),
+    index("notification_outbox_delivery_idx").on(table.status, table.nextAttemptAt),
   ],
 );
 

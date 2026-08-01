@@ -1,4 +1,5 @@
 import { createCompanyFactAction } from "@/admin/actions";
+import Link from "next/link";
 import { AdminPageHeader, AdminTable } from "@/admin/components/admin-table";
 import { listAdminCompanyFacts } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
@@ -15,7 +16,7 @@ export default async function AdminCompanyFactsPage() {
       <div className="grid gap-8 xl:grid-cols-[1fr_28rem]">
         <AdminTable
           headers={["Key", "Subject", "Statement", "Status", "Public"]}
-          rows={facts.map((fact) => [fact.factKey, fact.subject, fact.statement, fact.verificationStatus, fact.publicUseAllowed ? "Allowed" : "No"])}
+          rows={facts.map((fact) => [<Link className="text-teal-300" href={`/admin/company-facts/${fact.id}`} key={fact.id}>{fact.factKey}</Link>, fact.subject, fact.statement, fact.verificationStatus, fact.publicUseAllowed ? "Allowed" : "No"])}
         />
         <form action={createCompanyFactAction} className="grid content-start gap-4 rounded-2xl border border-white/10 bg-slate-900 p-5">
           <h2 className="text-xl font-semibold">Record unverified fact</h2>

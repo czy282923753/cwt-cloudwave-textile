@@ -65,10 +65,7 @@ export async function seedCoreData<TQueryResult extends PgQueryResultHKT>(
     await db
       .insert(featureFlags)
       .values({ key, enabled, updatedByUserId: adminUserId })
-      .onConflictDoUpdate({
-        target: featureFlags.key,
-        set: { enabled, updatedByUserId: adminUserId, updatedAt: new Date() },
-      });
+      .onConflictDoNothing({ target: featureFlags.key });
   }
 
   return { adminUserId };

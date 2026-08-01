@@ -144,3 +144,7 @@ export function parseEnvironment(
 }
 
 export const env = parseEnvironment();
+
+export function publicIndexingAllowed(): boolean {
+  return env.APP_ENV === "production" && !env.NON_PRODUCTION_NOINDEX;
+}

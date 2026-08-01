@@ -93,9 +93,6 @@ export const products = pgTable(
   "products",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    primaryTaxonomyTermId: uuid("primary_taxonomy_term_id")
-      .notNull()
-      .references(() => taxonomyTerms.id, { onDelete: "restrict" }),
     status: recordStatusEnum("status").notNull().default("draft"),
     productCode: text("product_code"),
     realProductBasis: realProductBasisEnum("real_product_basis"),

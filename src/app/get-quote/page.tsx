@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { InquiryForm } from "@/public-site/inquiry-form";
 import { PublicShell } from "@/public-site/shell";
 
-export const metadata: Metadata = { title: "Find Your Fabric Solution", description: "Send CloudWave Textile a fabric description, reference image, or both. Name and Email are the only required identity fields.", alternates: { canonical: "/get-quote" } };
+export const metadata: Metadata = { title: "Find Your Fabric Solution", description: "Send CloudWave Textile a fabric description, reference image, or both. Name and Email are the only required identity fields.", alternates: { canonical: "/get-quote/" } };
 
 export default async function GetQuotePage({ searchParams }: Readonly<{ searchParams: Promise<{ product?: string }> }>) {
   const { product } = await searchParams;

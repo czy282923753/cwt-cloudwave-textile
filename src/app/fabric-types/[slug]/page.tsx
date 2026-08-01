@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { notFound, permanentRedirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
-import { env } from "@/config/env";
-import { findRedirect, getPublishedTaxonomyByPath, listProductsForTaxonomy } from "@/public-site/data";
+import { publicIndexingAllowed } from "@/config/env";
+import { getPublishedTaxonomyByPath, listProductsForTaxonomy } from "@/public-site/data";
 import { ProductCard } from "@/public-site/product-card";
 import { PublicShell } from "@/public-site/shell";
 import { TrackedLink } from "@/public-site/tracking";
@@ -10,16 +10,13 @@ import { TrackedLink } from "@/public-site/tracking";
 export const revalidate = 3600;
 
 async function resolveTerm(slug: string) {
-  const path = `/fabric-types/${slug.toLowerCase()}`;
-  const term = await getPublishedTaxonomyByPath(path);
-  if (!term) { const destination = await findRedirect(path); if (destination) permanentRedirect(destination); }
-  return term;
+  return getPublishedTaxonomyByPath(`/fabric-types/${slug.toLowerCase()}/`);
 }
 
 export async function generateMetadata({ params }: Readonly<{ params: Promise<{ slug: string }> }>): Promise<Metadata> {
   const term = await resolveTerm((await params).slug);
   if (!term) return { title: "Fabric type not found", robots: { index: false } };
-  const index = env.APP_ENV === "production" && term.indexStatus === "index";
+  const index = publicIndexingAllowed() && term.indexStatus === "index";
   return { title: term.name, description: term.description ?? undefined, alternates: { canonical: term.path }, robots: { index, follow: index } };
 }
 
@@ -27,5 +24,5 @@ export default async function FabricTypePage({ params }: Readonly<{ params: Prom
   const term = await resolveTerm((await params).slug);
   if (!term) notFound();
   const products = await listProductsForTaxonomy(term.id);
-  return <PublicShell><main><section className="bg-[#eadfce] py-20"><div className="site-container"><p className="eyebrow">{term.dimension.replaceAll("_", " ")}</p><h1 className="section-title mt-4">{term.name}</h1>{term.description ? <p className="mt-6 max-w-3xl text-lg leading-8 text-stone-600">{term.description}</p> : null}<TrackedLink className="button-primary mt-8" eventName="quote_cta_click" href="/get-quote" placement="taxonomy_hero">Ask About This Fabric Type</TrackedLink></div></section><section className="site-container py-16"><h2 className="section-title">Related products</h2>{products.length ? <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">{products.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <p className="mt-6 text-stone-600">No published product records are linked yet.</p>}</section></main></PublicShell>;
+  return <PublicShell><main><section className="bg-[#eadfce] py-20"><div className="site-container"><p className="eyebrow">{term.dimension.replaceAll("_", " ")}</p><h1 className="section-title mt-4">{term.name}</h1>{term.description ? <p className="mt-6 max-w-3xl text-lg leading-8 text-stone-600">{term.description}</p> : null}<TrackedLink className="button-primary mt-8" eventName="quote_cta_click" href="/get-quote/" placement="taxonomy_hero">Ask About This Fabric Type</TrackedLink></div></section><section className="site-container py-16"><h2 className="section-title">Related products</h2>{products.length ? <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">{products.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <p className="mt-6 text-stone-600">No published product records are linked yet.</p>}</section></main></PublicShell>;
 }

@@ -9,7 +9,7 @@ export function ProductViewTracker({
   path,
 }: Readonly<{ productId: string; path: string }>) {
   useEffect(() => {
-    trackPublicEvent("product_view", path, { entity_type: "product", product_id: productId });
+    trackPublicEvent("product_view", path, {}, { entityType: "product", entityId: productId });
   }, [path, productId]);
   return null;
 }

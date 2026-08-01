@@ -5,9 +5,11 @@ export interface ProductVisibilityInput {
   colorOptions: string | null;
   customAvailable: "unknown" | "yes" | "no";
   sampleAvailable: "unknown" | "yes" | "no";
+  moqNote: string | null;
   colorOptionsDisplay: "inherit" | "show" | "hide";
   customAvailableDisplay: "inherit" | "show" | "hide";
   sampleAvailableDisplay: "inherit" | "show" | "hide";
+  moqNoteDisplay: "inherit" | "show" | "hide";
 }
 
 export function resolveVisibleProductFields(
@@ -24,5 +26,6 @@ export function resolveVisibleProductFields(
       product.customAvailableDisplay === "show" ? product.customAvailable : null,
     sampleAvailable:
       product.sampleAvailableDisplay === "show" ? product.sampleAvailable : null,
+    moqNote: product.moqNoteDisplay === "show" ? product.moqNote : null,
   };
 }

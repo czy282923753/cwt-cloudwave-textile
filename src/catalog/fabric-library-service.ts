@@ -1,16 +1,20 @@
-import { and, count, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
 import { requirePermission } from "@/auth/permissions";
 import {
   assets,
+  applications,
+  editorialRevisions,
   fabricLibraryEntries,
   fabricLibraryEntryApplications,
   fabricLibraryEntryAssets,
   fabricLibraryEntryLocalizations,
   fabricLibraryEntryProducts,
   keywordPageMappings,
+  products,
   routes,
   seoMetadata,
 } from "@/db/schema";
@@ -18,6 +22,136 @@ import type { AppDatabase } from "@/db/types";
 import { slugify } from "@/seo/path";
 
 import type { Actor } from "./product-service";
+
+const fabricRevisionSchema = z.object({
+  title: z.string().min(1).max(300),
+  description: z.string().nullable(),
+  assetIds: z.array(z.uuid()).min(1),
+  productIds: z.array(z.uuid()),
+  applicationIds: z.array(z.uuid()),
+  seo: z
+    .object({
+      routeId: z.uuid(),
+      title: z.string().nullable(),
+      metaDescription: z.string().nullable(),
+      focusKeyword: z.string().nullable(),
+    })
+    .optional(),
+});
+
+type FabricRevisionSnapshot = z.infer<typeof fabricRevisionSchema>;
+
+async function validateFabricSnapshot<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  snapshot: FabricRevisionSnapshot,
+): Promise<void> {
+  const [assetRows, productRows, applicationRows] = await Promise.all([
+    db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          inArray(assets.id, snapshot.assetIds),
+          eq(assets.status, "ready"),
+          eq(assets.access, "public"),
+          eq(assets.storagePartition, "public"),
+          eq(assets.scanStatus, "passed"),
+          isNull(assets.deletedAt),
+        ),
+      ),
+    snapshot.productIds.length
+      ? db.select({ id: products.id }).from(products).where(inArray(products.id, snapshot.productIds))
+      : Promise.resolve([]),
+    snapshot.applicationIds.length
+      ? db
+          .select({ id: applications.id })
+          .from(applications)
+          .where(inArray(applications.id, snapshot.applicationIds))
+      : Promise.resolve([]),
+  ]);
+  if (assetRows.length !== new Set(snapshot.assetIds).size) {
+    throw new Error("Fabric Library images must be ready, scanned public Assets.");
+  }
+  if (productRows.length !== new Set(snapshot.productIds).size) {
+    throw new Error("A related Product does not exist.");
+  }
+  if (applicationRows.length !== new Set(snapshot.applicationIds).size) {
+    throw new Error("A related Application does not exist.");
+  }
+}
+
+async function applyFabricSnapshot<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actorUserId: string,
+  entryId: string,
+  snapshot: FabricRevisionSnapshot,
+): Promise<void> {
+  await db
+    .update(fabricLibraryEntryLocalizations)
+    .set({ title: snapshot.title, description: snapshot.description })
+    .where(
+      and(
+        eq(fabricLibraryEntryLocalizations.fabricEntryId, entryId),
+        eq(fabricLibraryEntryLocalizations.locale, "en"),
+      ),
+    );
+  await db
+    .delete(fabricLibraryEntryAssets)
+    .where(eq(fabricLibraryEntryAssets.fabricEntryId, entryId));
+  await db.insert(fabricLibraryEntryAssets).values(
+    [...new Set(snapshot.assetIds)].map((assetId, sortOrder) => ({
+      fabricEntryId: entryId,
+      assetId,
+      role: sortOrder === 0 ? ("hero" as const) : ("gallery" as const),
+      sortOrder,
+    })),
+  );
+  await db
+    .delete(fabricLibraryEntryProducts)
+    .where(eq(fabricLibraryEntryProducts.fabricEntryId, entryId));
+  if (snapshot.productIds.length) {
+    await db.insert(fabricLibraryEntryProducts).values(
+      [...new Set(snapshot.productIds)].map((productId) => ({ fabricEntryId: entryId, productId })),
+    );
+  }
+  await db
+    .delete(fabricLibraryEntryApplications)
+    .where(eq(fabricLibraryEntryApplications.fabricEntryId, entryId));
+  if (snapshot.applicationIds.length) {
+    await db.insert(fabricLibraryEntryApplications).values(
+      [...new Set(snapshot.applicationIds)].map((applicationId) => ({ fabricEntryId: entryId, applicationId })),
+    );
+  }
+  await db
+    .update(fabricLibraryEntries)
+    .set({ updatedAt: new Date() })
+    .where(eq(fabricLibraryEntries.id, entryId));
+  if (snapshot.seo) {
+    const routeRows = await db
+      .select({ id: routes.id })
+      .from(routes)
+      .where(
+        and(
+          eq(routes.id, snapshot.seo.routeId),
+          eq(routes.entityType, "fabric_entry"),
+          eq(routes.entityId, entryId),
+          eq(routes.isCurrent, true),
+        ),
+      )
+      .limit(1);
+    if (!routeRows[0]) throw new Error("Fabric Library revision targets an invalid route.");
+    await db
+      .update(seoMetadata)
+      .set({
+        title: snapshot.seo.title,
+        metaDescription: snapshot.seo.metaDescription,
+        focusKeyword: snapshot.seo.focusKeyword,
+        updatedByUserId: actorUserId,
+        updatedAt: new Date(),
+      })
+      .where(eq(seoMetadata.routeId, snapshot.seo.routeId));
+  }
+}
 
 export async function createFabricLibraryEntry<
   TQueryResult extends PgQueryResultHKT,
@@ -45,12 +179,15 @@ export async function createFabricLibraryEntry<
         inArray(assets.id, assetIds),
         eq(assets.status, "ready"),
         eq(assets.access, "public"),
+        eq(assets.storagePartition, "public"),
+        eq(assets.scanStatus, "passed"),
+        isNull(assets.deletedAt),
       ),
     );
   if (validAssets.length !== assetIds.length) {
     throw new Error("Fabric Library images must be ready public Assets.");
   }
-  const path = `/fabric-library/${slugify(title)}`;
+  const path = `/fabric-library/${slugify(title)}/`;
   const collision = await db.select({ id: routes.id }).from(routes).where(eq(routes.path, path));
   if (collision[0]) throw new Error("Fabric Library URL already exists.");
 
@@ -119,6 +256,131 @@ export async function createFabricLibraryEntry<
   });
 }
 
+export async function updateFabricLibraryEntry<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  entryId: string,
+  input: FabricRevisionSnapshot,
+): Promise<string | null> {
+  requirePermission(actor.role, "products.write");
+  const snapshot = fabricRevisionSchema.parse({
+    ...input,
+    title: input.title.trim(),
+    description: input.description?.trim() || null,
+    assetIds: [...new Set(input.assetIds)],
+    productIds: [...new Set(input.productIds)],
+    applicationIds: [...new Set(input.applicationIds)],
+  });
+  await validateFabricSnapshot(db, snapshot);
+  const statusRows = await db
+    .select({ status: fabricLibraryEntries.status })
+    .from(fabricLibraryEntries)
+    .where(eq(fabricLibraryEntries.id, entryId))
+    .limit(1);
+  const status = statusRows[0]?.status;
+  if (!status) throw new Error("Fabric Library Entry was not found.");
+  if (status === "archived") throw new Error("Archived Fabric Library Entries cannot be edited.");
+  if (status === "published") {
+    const latestRows = await db
+      .select({ versionNumber: editorialRevisions.versionNumber })
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "fabric_entry"),
+          eq(editorialRevisions.entityId, entryId),
+          eq(editorialRevisions.locale, "en"),
+        ),
+      )
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1);
+    const revisionRows = await db
+      .insert(editorialRevisions)
+      .values({
+        entityType: "fabric_entry",
+        entityId: entryId,
+        locale: "en",
+        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+        status: "in_review",
+        snapshot,
+        changeSummary: "Published Fabric Library Entry update",
+        createdByUserId: actor.userId,
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = revisionRows[0]?.id;
+    if (!revisionId) throw new Error("Fabric Library revision insert failed.");
+    await writeAuditLog(db, {
+      actorUserId: actor.userId,
+      action: "fabric_entry.revision.proposed",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { entryId },
+    });
+    return revisionId;
+  }
+  await db.transaction(async (transaction) => {
+    await applyFabricSnapshot(transaction, actor.userId, entryId, snapshot);
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "fabric_entry.updated",
+      entityType: "fabric_entry",
+      entityId: entryId,
+    });
+  });
+  return null;
+}
+
+export async function submitFabricLibraryEntryForReview<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, actor: Actor, entryId: string): Promise<void> {
+  requirePermission(actor.role, "products.write");
+  const updated = await db
+    .update(fabricLibraryEntries)
+    .set({ status: "in_review", updatedAt: new Date() })
+    .where(
+      and(eq(fabricLibraryEntries.id, entryId), eq(fabricLibraryEntries.status, "draft")),
+    )
+    .returning({ id: fabricLibraryEntries.id });
+  if (!updated[0]) throw new Error("Only a Draft Fabric Library Entry can enter review.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "fabric_entry.review.requested",
+    entityType: "fabric_entry",
+    entityId: entryId,
+  });
+}
+
+export async function rejectFabricLibraryEntryReview<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  entryId: string,
+  reason: string,
+): Promise<void> {
+  requirePermission(actor.role, "products.review");
+  if (!reason.trim()) throw new Error("Review rejection requires a reason.");
+  const updated = await db
+    .update(fabricLibraryEntries)
+    .set({ status: "draft", updatedAt: new Date() })
+    .where(
+      and(
+        eq(fabricLibraryEntries.id, entryId),
+        eq(fabricLibraryEntries.status, "in_review"),
+      ),
+    )
+    .returning({ id: fabricLibraryEntries.id });
+  if (!updated[0]) throw new Error("Fabric Library Entry cannot be rejected.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "fabric_entry.review.rejected",
+    entityType: "fabric_entry",
+    entityId: entryId,
+    afterSummary: { reason: reason.trim().slice(0, 500) },
+  });
+}
+
 export async function publishFabricLibraryEntry<
   TQueryResult extends PgQueryResultHKT,
 >(
@@ -127,16 +389,30 @@ export async function publishFabricLibraryEntry<
   entryId: string,
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
+  const assetRows = await db
+    .select({ count: count() })
+    .from(fabricLibraryEntryAssets)
+    .innerJoin(assets, eq(assets.id, fabricLibraryEntryAssets.assetId))
+    .where(
+      and(
+        eq(fabricLibraryEntryAssets.fabricEntryId, entryId),
+        eq(assets.storagePartition, "public"),
+        eq(assets.access, "public"),
+        eq(assets.status, "ready"),
+        eq(assets.scanStatus, "passed"),
+        isNull(assets.deletedAt),
+      ),
+    );
+  if (Number(assetRows[0]?.count ?? 0) < 1) {
+    throw new Error("Fabric Library publication requires a scanned public image.");
+  }
   const updated = await db
     .update(fabricLibraryEntries)
     .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
     .where(
       and(
         eq(fabricLibraryEntries.id, entryId),
-        or(
-          eq(fabricLibraryEntries.status, "draft"),
-          eq(fabricLibraryEntries.status, "in_review"),
-        ),
+        eq(fabricLibraryEntries.status, "in_review"),
       ),
     )
     .returning({ id: fabricLibraryEntries.id });
@@ -146,6 +422,139 @@ export async function publishFabricLibraryEntry<
     action: "fabric_entry.published",
     entityType: "fabric_entry",
     entityId: entryId,
+  });
+}
+
+export async function applyFabricLibraryRevision<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  revisionId: string,
+): Promise<string> {
+  requirePermission(actor.role, "products.publish");
+  return db.transaction(async (transaction) => {
+    const rows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(eq(editorialRevisions.id, revisionId))
+      .limit(1);
+    const revision = rows[0];
+    if (
+      !revision ||
+      revision.entityType !== "fabric_entry" ||
+      revision.status !== "in_review"
+    ) {
+      throw new Error("Fabric Library revision is not eligible for approval.");
+    }
+    const newer = await transaction
+      .select({ id: editorialRevisions.id })
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "fabric_entry"),
+          eq(editorialRevisions.entityId, revision.entityId),
+          eq(editorialRevisions.locale, revision.locale),
+          gt(editorialRevisions.versionNumber, revision.versionNumber),
+        ),
+      )
+      .limit(1);
+    if (newer[0]) {
+      throw new Error(
+        "A newer Fabric Library revision exists; this revision is stale.",
+      );
+    }
+    const snapshot = fabricRevisionSchema.parse(revision.snapshot);
+    await validateFabricSnapshot(transaction, snapshot);
+    await applyFabricSnapshot(
+      transaction,
+      actor.userId,
+      revision.entityId,
+      snapshot,
+    );
+    await transaction
+      .update(editorialRevisions)
+      .set({ status: "applied", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(eq(editorialRevisions.id, revisionId));
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "fabric_entry.revision.applied",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { entryId: revision.entityId },
+    });
+    return revision.entityId;
+  });
+}
+
+export async function rejectFabricLibraryRevision<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, actor: Actor, revisionId: string): Promise<void> {
+  requirePermission(actor.role, "products.publish");
+  const updated = await db
+    .update(editorialRevisions)
+    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+    .where(
+      and(
+        eq(editorialRevisions.id, revisionId),
+        eq(editorialRevisions.entityType, "fabric_entry"),
+        eq(editorialRevisions.status, "in_review"),
+      ),
+    )
+    .returning({ entryId: editorialRevisions.entityId });
+  if (!updated[0]) throw new Error("Fabric Library revision cannot be rejected.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "fabric_entry.revision.rejected",
+    entityType: "editorial_revision",
+    entityId: revisionId,
+    afterSummary: { entryId: updated[0].entryId },
+  });
+}
+
+export async function archiveFabricLibraryEntry<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  entryId: string,
+  reason: string,
+): Promise<void> {
+  requirePermission(actor.role, "products.publish");
+  if (!reason.trim()) throw new Error("Archive requires a reason.");
+  await db.transaction(async (transaction) => {
+    const routeRows = await transaction
+      .select({ routeId: routes.id, status: fabricLibraryEntries.status })
+      .from(fabricLibraryEntries)
+      .innerJoin(
+        routes,
+        and(
+          eq(routes.entityType, "fabric_entry"),
+          eq(routes.entityId, fabricLibraryEntries.id),
+          eq(routes.isCurrent, true),
+        ),
+      )
+      .where(eq(fabricLibraryEntries.id, entryId))
+      .limit(1);
+    const current = routeRows[0];
+    if (!current || current.status === "archived") {
+      throw new Error("Fabric Library Entry cannot be archived.");
+    }
+    await transaction
+      .update(fabricLibraryEntries)
+      .set({ status: "archived", updatedAt: new Date() })
+      .where(eq(fabricLibraryEntries.id, entryId));
+    await transaction
+      .update(seoMetadata)
+      .set({ indexStatus: "noindex", updatedByUserId: actor.userId, updatedAt: new Date() })
+      .where(eq(seoMetadata.routeId, current.routeId));
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "fabric_entry.archived",
+      entityType: "fabric_entry",
+      entityId: entryId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
   });
 }
 
@@ -221,6 +630,11 @@ export async function setFabricEntryIndexStatus<
         .where(
           and(
             eq(fabricLibraryEntryAssets.fabricEntryId, entryId),
+            eq(assets.storagePartition, "public"),
+            eq(assets.access, "public"),
+            eq(assets.status, "ready"),
+            eq(assets.scanStatus, "passed"),
+            isNull(assets.deletedAt),
             isNotNull(assets.altText),
             ne(assets.altText, ""),
           ),
@@ -228,11 +642,26 @@ export async function setFabricEntryIndexStatus<
       db
         .select({ count: count() })
         .from(fabricLibraryEntryProducts)
-        .where(eq(fabricLibraryEntryProducts.fabricEntryId, entryId)),
+        .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
+        .where(
+          and(
+            eq(fabricLibraryEntryProducts.fabricEntryId, entryId),
+            eq(products.status, "published"),
+          ),
+        ),
       db
         .select({ count: count() })
         .from(fabricLibraryEntryApplications)
-        .where(eq(fabricLibraryEntryApplications.fabricEntryId, entryId)),
+        .innerJoin(
+          applications,
+          eq(applications.id, fabricLibraryEntryApplications.applicationId),
+        )
+        .where(
+          and(
+            eq(fabricLibraryEntryApplications.fabricEntryId, entryId),
+            eq(applications.status, "published"),
+          ),
+        ),
       db
         .select({ count: count() })
         .from(keywordPageMappings)

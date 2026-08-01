@@ -2,6 +2,7 @@ import { and, eq, isNull, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
+import { requirePermission, type UserRole } from "@/auth/permissions";
 import { redirects, routes, seoMetadata } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 
@@ -44,45 +45,56 @@ export async function createRedirect<TQueryResult extends PgQueryResultHKT>(
     sourcePath: string;
     destinationPath: string;
     reason: string;
-    actorUserId: string;
+    actor: { userId: string; role: UserRole };
   },
 ): Promise<string> {
   const sourcePath = normalizePath(input.sourcePath);
   const destinationPath = normalizePath(input.destinationPath);
-  const [existing, routeConflicts] = await Promise.all([
-    db
-      .select({ sourcePath: redirects.sourcePath, destinationPath: redirects.destinationPath })
-      .from(redirects)
-      .where(eq(redirects.isActive, true)),
-    db
-      .select({ path: routes.path })
-      .from(routes)
-      .where(and(eq(routes.isCurrent, true), eq(routes.path, sourcePath)))
-      .limit(1),
-  ]);
-  if (routeConflicts[0]) {
-    throw new RedirectConflictError("A current route owns the redirect source.");
-  }
-  validateRedirectGraph(existing, sourcePath, destinationPath);
-  const rows = await db
-    .insert(redirects)
-    .values({
-      sourcePath,
-      destinationPath,
-      reason: input.reason,
-      createdByUserId: input.actorUserId,
-    })
-    .returning({ id: redirects.id });
-  const redirect = rows[0];
-  if (!redirect) throw new Error("Redirect insert did not return an ID.");
-  await writeAuditLog(db, {
-    actorUserId: input.actorUserId,
-    action: "redirect.created",
-    entityType: "redirect",
-    entityId: redirect.id,
-    afterSummary: { sourcePath, destinationPath },
+  requirePermission(input.actor.role, "seo.manage");
+  return db.transaction(async (transaction) => {
+    const [existing, routeConflicts, destinationRoutes] = await Promise.all([
+      transaction
+        .select({ sourcePath: redirects.sourcePath, destinationPath: redirects.destinationPath })
+        .from(redirects)
+        .where(eq(redirects.isActive, true)),
+      transaction
+        .select({ path: routes.path })
+        .from(routes)
+        .where(and(eq(routes.isCurrent, true), eq(routes.path, sourcePath)))
+        .limit(1),
+      transaction
+        .select({ id: routes.id })
+        .from(routes)
+        .where(and(eq(routes.isCurrent, true), eq(routes.path, destinationPath)))
+        .limit(1),
+    ]);
+    if (routeConflicts[0]) {
+      throw new RedirectConflictError("A current route owns the redirect source.");
+    }
+    if (!destinationRoutes[0]) {
+      throw new RedirectConflictError("Redirect destination must be a current route.");
+    }
+    validateRedirectGraph(existing, sourcePath, destinationPath);
+    const rows = await transaction
+      .insert(redirects)
+      .values({
+        sourcePath,
+        destinationPath,
+        reason: input.reason,
+        createdByUserId: input.actor.userId,
+      })
+      .returning({ id: redirects.id });
+    const redirect = rows[0];
+    if (!redirect) throw new Error("Redirect insert did not return an ID.");
+    await writeAuditLog(transaction, {
+      actorUserId: input.actor.userId,
+      action: "redirect.created",
+      entityType: "redirect",
+      entityId: redirect.id,
+      afterSummary: { sourcePath, destinationPath },
+    });
+    return redirect.id;
   });
-  return redirect.id;
 }
 
 export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
@@ -92,11 +104,12 @@ export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
     entityId: string;
     locale: string;
     newPath: string;
-    actorUserId: string;
+    actor: { userId: string; role: UserRole };
     reason: string;
   },
 ): Promise<void> {
   const newPath = normalizePath(input.newPath);
+  requirePermission(input.actor.role, "seo.manage");
   await db.transaction(async (transaction) => {
     const currentRows = await transaction
       .select()
@@ -128,16 +141,6 @@ export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
     }
 
     await transaction
-      .update(redirects)
-      .set({ destinationPath: newPath, updatedAt: new Date() })
-      .where(and(eq(redirects.destinationPath, oldPath), eq(redirects.isActive, true)));
-    await transaction.insert(redirects).values({
-      sourcePath: oldPath,
-      destinationPath: newPath,
-      reason: input.reason,
-      createdByUserId: input.actorUserId,
-    });
-    await transaction
       .update(routes)
       .set({ path: newPath, updatedAt: new Date() })
       .where(eq(routes.id, current.id));
@@ -150,9 +153,19 @@ export async function changeEntityRoute<TQueryResult extends PgQueryResultHKT>(
           or(eq(seoMetadata.canonicalPath, oldPath), isNull(seoMetadata.canonicalPath)),
         ),
       );
+    await transaction
+      .update(redirects)
+      .set({ destinationPath: newPath, updatedAt: new Date() })
+      .where(and(eq(redirects.destinationPath, oldPath), eq(redirects.isActive, true)));
+    await transaction.insert(redirects).values({
+      sourcePath: oldPath,
+      destinationPath: newPath,
+      reason: input.reason,
+      createdByUserId: input.actor.userId,
+    });
 
     await writeAuditLog(transaction, {
-      actorUserId: input.actorUserId,
+      actorUserId: input.actor.userId,
       action: "route.path.changed",
       entityType: input.entityType,
       entityId: input.entityId,

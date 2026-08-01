@@ -141,56 +141,57 @@ export async function seedFixtureProducts<TQueryResult extends PgQueryResultHKT>
       uploadedByUserId: adminUserId,
       sourceDeclarationEnabled: false,
     });
-    const inserted = await db
-      .insert(products)
-      .values({
-        primaryTaxonomyTermId: materialId,
-        productCode: fixture.code,
-        status: "published",
-        createdByUserId: adminUserId,
-        reviewedByUserId: adminUserId,
-        reviewedAt: new Date(),
-        publishedAt: new Date(),
-      })
-      .returning({ id: products.id });
-    const productId = inserted[0]?.id;
-    if (!productId) throw new Error("Unable to seed fixture product.");
+    await db.transaction(async (transaction) => {
+      const inserted = await transaction
+        .insert(products)
+        .values({
+          productCode: fixture.code,
+          status: "published",
+          createdByUserId: adminUserId,
+          reviewedByUserId: adminUserId,
+          reviewedAt: new Date(),
+          publishedAt: new Date(),
+        })
+        .returning({ id: products.id });
+      const productId = inserted[0]?.id;
+      if (!productId) throw new Error("Unable to seed fixture product.");
 
-    await db.insert(productLocalizations).values({
-      productId,
-      locale: "en",
-      name: fixture.name,
-      shortDescription:
-        "Synthetic fixture data used only to validate the CWT Phase 1A workflow.",
-    });
-    await db.insert(productTaxonomyTerms).values([
-      { productId, taxonomyTermId: materialId, isPrimary: true },
-      { productId, taxonomyTermId: structureId, isPrimary: false },
-    ]);
-    await db.insert(productApplications).values({ productId, applicationId });
-    await db.insert(productAssets).values({
-      productId,
-      assetId,
-      role: "hero",
-      sortOrder: 0,
-    });
-    const routeRows = await db
-      .insert(routes)
-      .values({
+      await transaction.insert(productLocalizations).values({
+        productId,
         locale: "en",
-        path: `/products/${fixture.slug}`,
-        entityType: "product",
-        entityId: productId,
-      })
-      .returning({ id: routes.id });
-    const routeId = routeRows[0]?.id;
-    if (!routeId) throw new Error("Unable to seed fixture product route.");
-    await db.insert(seoMetadata).values({
-      routeId,
-      title: `${fixture.name} | CloudWave Textile`,
-      metaDescription: "Noindex test fixture for local Phase 1A validation.",
-      indexStatus: "noindex",
-      canonicalPath: `/products/${fixture.slug}`,
+        name: fixture.name,
+        shortDescription:
+          "Synthetic fixture data used only to validate the CWT Phase 1A workflow.",
+      });
+      await transaction.insert(productTaxonomyTerms).values([
+        { productId, taxonomyTermId: materialId, isPrimary: true },
+        { productId, taxonomyTermId: structureId, isPrimary: false },
+      ]);
+      await transaction.insert(productApplications).values({ productId, applicationId });
+      await transaction.insert(productAssets).values({
+        productId,
+        assetId,
+        role: "hero",
+        sortOrder: 0,
+      });
+      const routeRows = await transaction
+        .insert(routes)
+        .values({
+          locale: "en",
+          path: `/products/${fixture.slug}/`,
+          entityType: "product",
+          entityId: productId,
+        })
+        .returning({ id: routes.id });
+      const routeId = routeRows[0]?.id;
+      if (!routeId) throw new Error("Unable to seed fixture product route.");
+      await transaction.insert(seoMetadata).values({
+        routeId,
+        title: `${fixture.name} | CloudWave Textile`,
+        metaDescription: "Noindex test fixture for local Phase 1A validation.",
+        indexStatus: "noindex",
+        canonicalPath: `/products/${fixture.slug}/`,
+      });
     });
     created += 1;
   }

@@ -1,19 +1,180 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import { z } from "zod";
 
 import { writeAuditLog } from "@/audit/service";
 import { requirePermission } from "@/auth/permissions";
 import {
   applicationLocalizations,
   applications,
+  editorialRevisions,
   keywordPageMappings,
   productApplications,
+  products,
   routes,
   seoMetadata,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 
 import type { Actor } from "./product-service";
+
+const applicationRevisionSchema = z.object({
+  name: z.string().trim().min(1).max(300),
+  shortDescription: z.string().nullable(),
+  body: z.string().nullable(),
+  productIds: z.array(z.uuid()),
+  seo: z.object({
+    routeId: z.uuid(),
+    title: z.string().nullable(),
+    metaDescription: z.string().nullable(),
+    focusKeyword: z.string().nullable(),
+  }),
+});
+
+type ApplicationSnapshot = z.infer<typeof applicationRevisionSchema>;
+
+async function validateApplicationSnapshot<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  applicationId: string,
+  snapshot: ApplicationSnapshot,
+): Promise<void> {
+  const routeRows = await db
+    .select({ id: routes.id })
+    .from(routes)
+    .where(
+      and(
+        eq(routes.id, snapshot.seo.routeId),
+        eq(routes.entityType, "application"),
+        eq(routes.entityId, applicationId),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .limit(1);
+  if (!routeRows[0]) throw new Error("Application revision targets an invalid route.");
+  const uniqueProductIds = [...new Set(snapshot.productIds)];
+  if (uniqueProductIds.length) {
+    const productRows = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(inArray(products.id, uniqueProductIds));
+    if (productRows.length !== uniqueProductIds.length) {
+      throw new Error("An Application relation references a missing Product.");
+    }
+  }
+}
+
+async function applyApplicationSnapshot<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  applicationId: string,
+  snapshot: ApplicationSnapshot,
+): Promise<void> {
+  await db
+    .update(applicationLocalizations)
+    .set({
+      name: snapshot.name,
+      shortDescription: snapshot.shortDescription,
+      body: snapshot.body,
+    })
+    .where(
+      and(
+        eq(applicationLocalizations.applicationId, applicationId),
+        eq(applicationLocalizations.locale, "en"),
+      ),
+    );
+  await db.delete(productApplications).where(eq(productApplications.applicationId, applicationId));
+  const productIds = [...new Set(snapshot.productIds)];
+  if (productIds.length) {
+    await db.insert(productApplications).values(
+      productIds.map((productId) => ({ productId, applicationId })),
+    );
+  }
+  await db
+    .update(seoMetadata)
+    .set({
+      title: snapshot.seo.title,
+      metaDescription: snapshot.seo.metaDescription,
+      focusKeyword: snapshot.seo.focusKeyword,
+      updatedByUserId: actor.userId,
+      updatedAt: new Date(),
+    })
+    .where(eq(seoMetadata.routeId, snapshot.seo.routeId));
+  await db
+    .update(applications)
+    .set({ updatedAt: new Date() })
+    .where(eq(applications.id, applicationId));
+}
+
+export async function updateApplication<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  applicationId: string,
+  input: ApplicationSnapshot,
+): Promise<string | null> {
+  requirePermission(actor.role, "taxonomy.manage");
+  const snapshot = applicationRevisionSchema.parse({
+    ...input,
+    productIds: [...new Set(input.productIds)],
+    shortDescription: input.shortDescription?.trim() || null,
+    body: input.body?.trim() || null,
+  });
+  const rows = await db
+    .select({ status: applications.status })
+    .from(applications)
+    .where(eq(applications.id, applicationId))
+    .limit(1);
+  const status = rows[0]?.status;
+  if (!status) throw new Error("Application was not found.");
+  if (status === "archived") throw new Error("Archived Applications cannot be edited.");
+  await validateApplicationSnapshot(db, applicationId, snapshot);
+  if (status === "published") {
+    const latestRows = await db
+      .select({ versionNumber: editorialRevisions.versionNumber })
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "application"),
+          eq(editorialRevisions.entityId, applicationId),
+          eq(editorialRevisions.locale, "en"),
+        ),
+      )
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1);
+    const inserted = await db
+      .insert(editorialRevisions)
+      .values({
+        entityType: "application",
+        entityId: applicationId,
+        locale: "en",
+        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+        status: "in_review",
+        snapshot,
+        changeSummary: "Published Application update",
+        createdByUserId: actor.userId,
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = inserted[0]?.id;
+    if (!revisionId) throw new Error("Application revision insert failed.");
+    await writeAuditLog(db, {
+      actorUserId: actor.userId,
+      action: "application.revision.proposed",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { applicationId },
+    });
+    return revisionId;
+  }
+  await db.transaction(async (transaction) => {
+    await applyApplicationSnapshot(transaction, actor, applicationId, snapshot);
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "application.updated",
+      entityType: "application",
+      entityId: applicationId,
+    });
+  });
+  return null;
+}
 
 export async function submitApplicationForReview<
   TQueryResult extends PgQueryResultHKT,
@@ -24,12 +185,37 @@ export async function submitApplicationForReview<
     .set({ status: "in_review", updatedAt: new Date() })
     .where(and(eq(applications.id, applicationId), eq(applications.status, "draft")))
     .returning({ id: applications.id });
-  if (!updated[0]) throw new Error("Only a draft Application can enter review.");
+  if (!updated[0]) throw new Error("Only a Draft Application can enter review.");
   await writeAuditLog(db, {
     actorUserId: actor.userId,
     action: "application.review.requested",
     entityType: "application",
     entityId: applicationId,
+  });
+}
+
+export async function rejectApplicationReview<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  applicationId: string,
+  reason: string,
+): Promise<void> {
+  requirePermission(actor.role, "products.review");
+  if (!reason.trim()) throw new Error("Application review rejection requires a reason.");
+  const updated = await db
+    .update(applications)
+    .set({ status: "draft", updatedAt: new Date() })
+    .where(
+      and(eq(applications.id, applicationId), eq(applications.status, "in_review")),
+    )
+    .returning({ id: applications.id });
+  if (!updated[0]) throw new Error("Only an In Review Application can be rejected.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "application.review.rejected",
+    entityType: "application",
+    entityId: applicationId,
+    afterSummary: { reason: reason.trim().slice(0, 500) },
   });
 }
 
@@ -39,6 +225,19 @@ export async function publishApplication<TQueryResult extends PgQueryResultHKT>(
   applicationId: string,
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
+  const localizationRows = await db
+    .select({ name: applicationLocalizations.name, body: applicationLocalizations.body })
+    .from(applicationLocalizations)
+    .where(
+      and(
+        eq(applicationLocalizations.applicationId, applicationId),
+        eq(applicationLocalizations.locale, "en"),
+      ),
+    )
+    .limit(1);
+  if (!localizationRows[0]?.name.trim() || !localizationRows[0].body?.trim()) {
+    throw new Error("Application publication requires an English name and useful body copy.");
+  }
   const updated = await db
     .update(applications)
     .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
@@ -46,12 +245,127 @@ export async function publishApplication<TQueryResult extends PgQueryResultHKT>(
       and(eq(applications.id, applicationId), eq(applications.status, "in_review")),
     )
     .returning({ id: applications.id });
-  if (!updated[0]) throw new Error("Only an in-review Application can be published.");
+  if (!updated[0]) throw new Error("Only an In Review Application can be published.");
   await writeAuditLog(db, {
     actorUserId: actor.userId,
     action: "application.published",
     entityType: "application",
     entityId: applicationId,
+  });
+}
+
+export async function applyApplicationRevision<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  revisionId: string,
+): Promise<string> {
+  requirePermission(actor.role, "products.publish");
+  return db.transaction(async (transaction) => {
+    const rows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(eq(editorialRevisions.id, revisionId))
+      .limit(1);
+    const revision = rows[0];
+    if (!revision || revision.entityType !== "application" || revision.status !== "in_review") {
+      throw new Error("Application revision is not eligible for approval.");
+    }
+    const newer = await transaction
+      .select({ id: editorialRevisions.id })
+      .from(editorialRevisions)
+      .where(
+        and(
+          eq(editorialRevisions.entityType, "application"),
+          eq(editorialRevisions.entityId, revision.entityId),
+          eq(editorialRevisions.locale, revision.locale),
+          gt(editorialRevisions.versionNumber, revision.versionNumber),
+        ),
+      )
+      .limit(1);
+    if (newer[0]) throw new Error("A newer Application revision exists; this revision is stale.");
+    const snapshot = applicationRevisionSchema.parse(revision.snapshot);
+    await validateApplicationSnapshot(transaction, revision.entityId, snapshot);
+    await applyApplicationSnapshot(transaction, actor, revision.entityId, snapshot);
+    await transaction
+      .update(editorialRevisions)
+      .set({ status: "applied", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(eq(editorialRevisions.id, revisionId));
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "application.revision.applied",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { applicationId: revision.entityId },
+    });
+    return revision.entityId;
+  });
+}
+
+export async function rejectApplicationRevision<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  revisionId: string,
+): Promise<void> {
+  requirePermission(actor.role, "products.review");
+  const updated = await db
+    .update(editorialRevisions)
+    .set({ status: "rejected", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+    .where(
+      and(
+        eq(editorialRevisions.id, revisionId),
+        eq(editorialRevisions.entityType, "application"),
+        eq(editorialRevisions.status, "in_review"),
+      ),
+    )
+    .returning({ entityId: editorialRevisions.entityId });
+  if (!updated[0]) throw new Error("Application revision cannot be rejected.");
+  await writeAuditLog(db, {
+    actorUserId: actor.userId,
+    action: "application.revision.rejected",
+    entityType: "editorial_revision",
+    entityId: revisionId,
+    afterSummary: { applicationId: updated[0].entityId },
+  });
+}
+
+export async function archiveApplication<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  applicationId: string,
+  reason: string,
+): Promise<void> {
+  requirePermission(actor.role, "products.publish");
+  if (!reason.trim()) throw new Error("Archive requires a reason.");
+  await db.transaction(async (transaction) => {
+    const routeRows = await transaction
+      .select({ id: routes.id })
+      .from(routes)
+      .where(
+        and(
+          eq(routes.entityType, "application"),
+          eq(routes.entityId, applicationId),
+          eq(routes.isCurrent, true),
+        ),
+      );
+    const updated = await transaction
+      .update(applications)
+      .set({ status: "archived", updatedAt: new Date() })
+      .where(and(eq(applications.id, applicationId), eq(applications.status, "published")))
+      .returning({ id: applications.id });
+    if (!updated[0]) throw new Error("Only a Published Application can be archived.");
+    for (const route of routeRows) {
+      await transaction
+        .update(seoMetadata)
+        .set({ indexStatus: "noindex", updatedByUserId: actor.userId, updatedAt: new Date() })
+        .where(eq(seoMetadata.routeId, route.id));
+    }
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "application.archived",
+      entityType: "application",
+      entityId: applicationId,
+      afterSummary: { reason: reason.trim().slice(0, 500) },
+    });
   });
 }
 
@@ -98,7 +412,13 @@ export async function setApplicationIndexStatus<
       db
         .select({ count: count() })
         .from(productApplications)
-        .where(eq(productApplications.applicationId, applicationId)),
+        .innerJoin(products, eq(products.id, productApplications.productId))
+        .where(
+          and(
+            eq(productApplications.applicationId, applicationId),
+            eq(products.status, "published"),
+          ),
+        ),
       db
         .select({ count: count() })
         .from(keywordPageMappings)
@@ -113,7 +433,7 @@ export async function setApplicationIndexStatus<
       Number(intentRows[0]?.count ?? 0) < 1
     ) {
       throw new Error(
-        "Indexable Applications require publication, useful copy, related products, metadata, and an owned search intent.",
+        "Indexable Applications require publication, useful copy, a published Product, metadata, and an owned search intent.",
       );
     }
   }

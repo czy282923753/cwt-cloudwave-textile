@@ -46,6 +46,7 @@ const rolePermissionMatrix: Readonly<Record<UserRole, ReadonlySet<Permission>>> 
     "products.write",
     "taxonomy.manage",
     "content.read",
+    "seo.manage",
   ]),
   content_editor: new Set([
     "admin.access",
@@ -81,7 +82,6 @@ const rolePermissionMatrix: Readonly<Record<UserRole, ReadonlySet<Permission>>> 
     "admin.access",
     "products.read",
     "content.read",
-    "inquiries.read",
     "analytics.read",
   ]),
 };

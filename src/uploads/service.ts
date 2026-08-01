@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
+import { hasPermission, type UserRole } from "@/auth/permissions";
 import { env } from "@/config/env";
-import { assets, assetVariants } from "@/db/schema";
+import { assets, assetVariants, inquiryAssets } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { ObjectStorage, StoragePartition } from "@/storage";
 
@@ -118,7 +119,11 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
   } catch (error) {
     await db
       .update(assets)
-      .set({ status: "quarantined", scanResult: "scanner_error" })
+      .set({
+        status: "quarantined",
+        scanStatus: "error",
+        scanResult: "scanner_error",
+      })
       .where(eq(assets.id, asset.id));
     throw error;
   }
@@ -128,6 +133,7 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
       .update(assets)
       .set({
         status: "rejected",
+        scanStatus: "failed",
         scanProvider: scanResult.provider,
         scanResult: scanResult.reference,
         scanCompletedAt: new Date(),
@@ -167,6 +173,7 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
       objectKey,
       access: target.access,
       status: "ready",
+      scanStatus: "passed",
       scanProvider: scanResult.provider,
       scanResult: scanResult.reference,
       scanCompletedAt: new Date(),
@@ -197,12 +204,60 @@ export interface SourceDeclarationUpdate {
 export async function updateSourceDeclaration<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   assetId: string,
-  actorUserId: string,
+  actor: { userId: string; role: UserRole },
   update: SourceDeclarationUpdate,
 ): Promise<void> {
   const beforeRows = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
   const before = beforeRows[0];
   if (!before) throw new Error("Asset was not found.");
+  const touchesReview =
+    "declarationReviewerUserId" in update || "declarationReviewDate" in update;
+  const updateKeys = Object.keys(update);
+  const isReviewOnlyUpdate = updateKeys.every((key) =>
+    ["enabled", "declarationReviewerUserId", "declarationReviewDate"].includes(key),
+  );
+  if (
+    !hasPermission(actor.role, "assets.write") &&
+    !(
+      touchesReview &&
+      isReviewOnlyUpdate &&
+      hasPermission(actor.role, "assets.declaration.review")
+    )
+  ) {
+    throw new Error("Source Declaration changes require Asset writer authority.");
+  }
+  if (touchesReview && !hasPermission(actor.role, "assets.declaration.review")) {
+    throw new Error("Source declaration review fields require reviewer authority.");
+  }
+  if (
+    update.declarationReviewerUserId &&
+    update.declarationReviewerUserId !== actor.userId
+  ) {
+    throw new Error("A source declaration reviewer can only record their own review.");
+  }
+  if (update.declarationReviewDate && !update.declarationReviewerUserId) {
+    throw new Error("A source declaration review date requires a reviewer.");
+  }
+  const substantiveFields = [
+    "sourceType",
+    "sourceProvider",
+    "rightsStatus",
+    "subjectRelationship",
+    "publicUsePermission",
+    "editingPermission",
+    "usageRestrictions",
+    "permissionEvidence",
+    "declarationExpiryDate",
+    "isCwtOwnedFacility",
+  ] as const;
+  const declarationContentChanged =
+    update.enabled &&
+    substantiveFields.some(
+      (field) =>
+        field in update && String(update[field] ?? null) !== String(before[field] ?? null),
+    );
+  const reviewExplicitlyRecorded =
+    Boolean(update.declarationReviewerUserId) && Boolean(update.declarationReviewDate);
 
   await db
     .update(assets)
@@ -243,11 +298,15 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
             declarationReviewerUserId:
               "declarationReviewerUserId" in update
                 ? update.declarationReviewerUserId ?? null
-                : before.declarationReviewerUserId,
+                : declarationContentChanged && !reviewExplicitlyRecorded
+                  ? null
+                  : before.declarationReviewerUserId,
             declarationReviewDate:
               "declarationReviewDate" in update
                 ? update.declarationReviewDate ?? null
-                : before.declarationReviewDate,
+                : declarationContentChanged && !reviewExplicitlyRecorded
+                  ? null
+                  : before.declarationReviewDate,
             declarationExpiryDate:
               "declarationExpiryDate" in update
                 ? update.declarationExpiryDate ?? null
@@ -285,11 +344,65 @@ export async function updateSourceDeclaration<TQueryResult extends PgQueryResult
   );
 
   await writeAuditLog(db, {
-    actorUserId,
+    actorUserId: actor.userId,
     action: "asset.source_declaration.updated",
     entityType: "asset",
     entityId: assetId,
     beforeSummary: { enabled: before.sourceDeclarationEnabled },
-    afterSummary: { enabled: update.enabled, changedFields },
+    afterSummary: {
+      enabled: update.enabled,
+      changedFields,
+      reviewInvalidated: declarationContentChanged && !reviewExplicitlyRecorded,
+    },
   });
+}
+
+export async function cleanupUnlinkedInquiryAssets<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  assetIds: readonly string[],
+  requestId: string,
+): Promise<number> {
+  const distinct = [...new Set(assetIds)];
+  if (distinct.length === 0) return 0;
+  const [assetRows, linkedRows] = await Promise.all([
+    db
+      .select({
+        id: assets.id,
+        partition: assets.storagePartition,
+        objectKey: assets.objectKey,
+      })
+      .from(assets)
+      .where(inArray(assets.id, distinct)),
+    db
+      .select({ assetId: inquiryAssets.assetId })
+      .from(inquiryAssets)
+      .where(inArray(inquiryAssets.assetId, distinct)),
+  ]);
+  const linked = new Set(linkedRows.map((row) => row.assetId));
+  const orphans = assetRows.filter((row) => !linked.has(row.id));
+  for (const orphan of orphans) {
+    if (
+      orphan.partition === "public" ||
+      orphan.partition === "private" ||
+      orphan.partition === "imports"
+    ) {
+      await storage.delete(orphan.partition, orphan.objectKey);
+    }
+    await db
+      .update(assets)
+      .set({ status: "deleted", deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(assets.id, orphan.id));
+  }
+  if (orphans.length > 0) {
+    await writeAuditLog(db, {
+      action: "inquiry_asset.orphan_cleanup",
+      entityType: "asset",
+      requestId,
+      afterSummary: { removedCount: orphans.length },
+    });
+  }
+  return orphans.length;
 }
