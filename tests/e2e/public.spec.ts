@@ -206,7 +206,7 @@ test("@desktop operations require authentication and local fixture login reaches
   await expect(page.getByText("auth.session.revoked").first()).toBeVisible();
 });
 
-test("@desktop governed admin actions announce success and refresh persisted data", async ({ page }) => {
+test("@desktop governed admin create returns a redirect intent and lands on persisted Author data", async ({ page }) => {
   await loginAsLocalAdmin(page);
   await page.goto("/admin/authors/");
   const suffix = Date.now();
@@ -215,8 +215,22 @@ test("@desktop governed admin actions announce success and refresh persisted dat
   await page.getByPlaceholder("stable-internal-key").fill(`test-fixture-author-${suffix}`);
   const createButton = page.getByRole("button", { name: "Create Author" });
   await createButton.click();
-  await expect(page.getByRole("status").filter({ hasText: "Author created." })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/authors\/\?created=[0-9a-f-]{36}$/i);
   await expect(page.locator(`input[name="displayName"][value="${displayName}"]`)).toBeVisible();
+});
+
+test("@desktop a create Action exposes a redirect intent and lands on persisted data", async ({ page }) => {
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/applications/");
+  const suffix = Date.now();
+  const name = `TEST FIXTURE Redirect Application ${suffix}`;
+  await page.getByPlaceholder("e.g. Sportswear").fill(name);
+  await page.getByPlaceholder("stable-internal-key").fill(`test-redirect-application-${suffix}`);
+  await page.getByPlaceholder("Landing page body").fill("Synthetic E2E-only Application body for Redirect Intent verification.");
+  await page.getByRole("button", { name: "Create noindex draft" }).click();
+  await expect(page).toHaveURL(/\/admin\/applications\/[0-9a-f-]{36}\/$/i);
+  await expect(page.locator('input[name="name"]')).toHaveValue(name);
+  await expect(page.getByText(/draft · noindex/i)).toBeVisible();
 });
 
 test("@desktop Asset Library opens a governed Asset with Source Declaration off by default", async ({ page }) => {

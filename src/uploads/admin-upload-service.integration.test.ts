@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { env } from "@/config/env";
 import { writeAuditLog } from "@/audit/service";
-import { assetUploadBatches, assets, assetVariants, auditLogs, authSessions, objectCleanupJobs, productAssets, products, productTaxonomyTerms, taxonomyTerms, uploadIntents, users } from "@/db/schema";
+import { assetUploadBatches, assets, assetVariants, auditLogs, authSessions, objectCleanupJobs, productAssets, products, productTaxonomyTerms, taxonomyTerms, uploadIntents, uploadRecoveryJobs, users } from "@/db/schema";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { createTestDatabase } from "@/test/database";
 import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
@@ -25,6 +25,7 @@ import {
   registerObjectCleanup,
 } from "./object-cleanup-service";
 import { DevelopmentFileScanner } from "./scanner";
+import { processPendingUploadRecoveryJobs } from "./upload-recovery-service";
 
 const allowLimiter = { consume: async () => true };
 const failingAudit = async (): Promise<string> => { throw new Error("TEST audit failure"); };
@@ -205,6 +206,12 @@ describe("Admin Asset Upload Intents", () => {
         files: [{ fileName: "scan-failure.jpg", declaredMimeType: "image/jpeg", declaredByteSize: infected.byteLength }], category: "product", role: "gallery", sortOrder: 0, sourceDeclarationEnabled: false,
       }, { rateLimiter: allowLimiter });
       await expect(completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: bad.intents[0]!.token, bytes: infected })).rejects.toThrow(/malware/i);
+      const failedRecovery = (await connection.db.select().from(uploadRecoveryJobs).where(eq(uploadRecoveryJobs.uploadBatchId, bad.batchId)))[0];
+      if (!failedRecovery?.leaseExpiresAt) throw new Error("Missing durable staging Recovery lease.");
+      await processPendingUploadRecoveryJobs(connection.db, storage, {
+        now: new Date(failedRecovery.leaseExpiresAt.getTime() + 1),
+        workerId: "scan-failure-recovery",
+      });
       expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, bad.batchId)))[0]?.status).toBe("failed");
 
       const [productA, productB] = await createDraftProducts(connection.db, "upload-product-rollback", 2);
@@ -279,7 +286,7 @@ describe("Admin Asset Upload Intents", () => {
       });
       expect(storage.objects.has(`public:${failedAsset.objectKey}`)).toBe(false);
       expect((await connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.id, cleanup.id)))[0]?.status).toBe("completed");
-      expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, failed.batch.batchId)))[0]?.status).toBe("ready_to_finalize");
+      expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, failed.batch.batchId)))[0]?.status).toBe("failed");
 
       for (const failureOffset of [2, 3]) {
         const partial = await stageImageBatch(
@@ -299,7 +306,7 @@ describe("Admin Asset Upload Intents", () => {
         )).rejects.toThrow(/persisted then failed/);
         expect([...storage.objects.keys()].filter((key) => key.startsWith(`public:${partialAsset.objectKey}`))).toEqual([]);
         expect((await connection.db.select().from(assetVariants).where(eq(assetVariants.sourceAssetId, partial.assetId)))).toHaveLength(0);
-        expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, partial.batch.batchId)))[0]?.status).toBe("ready_to_finalize");
+        expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, partial.batch.batchId)))[0]?.status).toBe("failed");
       }
 
       const leaseKey = "cleanup/lease-recovery.bin";

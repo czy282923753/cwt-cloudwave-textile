@@ -134,6 +134,37 @@ export const objectCleanupStatusEnum = pgEnum("object_cleanup_status", [
   "dead",
 ]);
 
+export const uploadRecoveryKindEnum = pgEnum("upload_recovery_kind", [
+  "staging",
+  "finalize",
+]);
+
+export const uploadRecoveryStatusEnum = pgEnum("upload_recovery_status", [
+  "pending",
+  "processing",
+  "retryable",
+  "cleanup_required",
+  "completed",
+  "dead",
+]);
+
+export const uploadRecoveryStageEnum = pgEnum("upload_recovery_stage", [
+  "preregistered",
+  "storage_writing",
+  "storage_written",
+  "scanning",
+  "scan_passed",
+  "claimed",
+  "source_copy_started",
+  "original_written",
+  "variants_processing",
+  "variants_written",
+  "database_finalizing",
+  "cleanup_required",
+  "failed",
+  "completed",
+]);
+
 export const assetRoleEnum = pgEnum("asset_role", [
   "hero",
   "gallery",

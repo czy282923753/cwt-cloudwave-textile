@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
-import { and, count, eq, gt, isNull } from "drizzle-orm";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -19,22 +19,31 @@ import {
   productAssets,
   products,
   uploadIntents,
+  uploadRecoveryJobs,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { ObjectStorage } from "@/storage";
 
 import { isRoleMimeCompatible } from "./asset-eligibility";
-import { acceptedPublicMimeTypes } from "./file-validation";
+import {
+  acceptedPublicMimeTypes,
+  inferNonBlockingRiskHints,
+  validateUploadedFile,
+} from "./file-validation";
 import { createImageDerivatives } from "./image-derivatives";
 import {
   FINALIZE_COMPENSATION_GRACE_MILLISECONDS,
   processPendingObjectCleanupJobs,
   registerObjectCleanup,
-  releaseBatchCleanupJobs,
 } from "./object-cleanup-service";
 import { createUploadRateLimiter, type UploadRateLimiter } from "./rate-limit";
 import type { FileScanner } from "./scanner";
-import { uploadAsset } from "./service";
+import {
+  advanceUploadRecoveryStage,
+  markFinalizeRecoveryRequired,
+  type UploadRecoveryLease,
+  UPLOAD_RECOVERY_LEASE_MILLISECONDS,
+} from "./upload-recovery-service";
 
 const categorySchema = z.enum([
   "product", "fabric", "market", "company", "factory", "application",
@@ -90,7 +99,21 @@ interface AdminUploadOptions {
   auditWriter?: typeof writeAuditLog;
   rateLimiter?: UploadRateLimiter;
   now?: Date;
+  workerId?: string;
+  leaseMilliseconds?: number;
+  faultInjector?: (point: AdminUploadFaultPoint) => void | Promise<void>;
 }
+
+export type AdminUploadFaultPoint =
+  | "before_recovery_job_insert"
+  | "before_preregister_commit"
+  | "after_staging_put"
+  | "after_scan_success"
+  | "before_asset_complete_update"
+  | "before_intent_complete_update"
+  | "before_batch_complete_update"
+  | "before_finalize_claim_commit"
+  | "after_finalize_claim";
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -98,6 +121,18 @@ function hashToken(token: string): string {
 
 function cleanOptional(value: string | null | undefined): string | null {
   return value?.trim() || null;
+}
+
+function safeExtension(mimeType: string): string {
+  const extension = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/avif": "avif",
+    "application/pdf": "pdf",
+  }[mimeType];
+  if (!extension) throw new Error("Upload MIME type has no safe extension.");
+  return extension;
 }
 
 async function assertActiveSession<TQueryResult extends PgQueryResultHKT>(
@@ -279,65 +314,257 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
 ): Promise<string> {
   const now = options.now ?? new Date();
   await assertActiveSession(db, actor, now);
-  const claimed = (await db.update(uploadIntents).set({ status: "uploading", updatedAt: now }).where(and(
-    eq(uploadIntents.tokenHash, hashToken(input.token)),
-    eq(uploadIntents.kind, "admin_asset"),
-    eq(uploadIntents.createdByUserId, actor.userId),
-    eq(uploadIntents.authSessionId, actor.authSessionId),
-    eq(uploadIntents.status, "created"),
-    gt(uploadIntents.expiresAt, now),
-  )).returning())[0];
-  if (!claimed?.uploadBatchId || !claimed.adminAssetCategory || !claimed.adminAssetRole) {
-    throw new Error("Admin Upload Intent is invalid, expired, or already used.");
-  }
-  if (input.bytes.byteLength !== claimed.declaredByteSize) {
-    const auditWriter = options.auditWriter ?? writeAuditLog;
-    await db.transaction(async (transaction) => {
-      await transaction.update(uploadIntents).set({ status: "failed", failureReason: "declared_size_mismatch", updatedAt: now }).where(eq(uploadIntents.id, claimed.id));
-      await transaction.update(assetUploadBatches).set({ status: "failed", failureReason: "declared_size_mismatch" }).where(eq(assetUploadBatches.id, claimed.uploadBatchId!));
-      await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.upload_batch.failed", entityType: "asset_upload_batch", entityId: claimed.uploadBatchId, afterSummary: { reason: "declared_size_mismatch" } });
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  const workerId = options.workerId ?? `staging-${randomUUID()}`;
+  const leaseMilliseconds = options.leaseMilliseconds ?? 5 * UPLOAD_RECOVERY_LEASE_MILLISECONDS;
+  const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
+  const expectedAssetId = randomUUID();
+  const datePrefix = now.toISOString().slice(0, 10).replaceAll("-", "/");
+
+  const preregistered = await db.transaction(async (transaction) => {
+    await assertActiveSession(transaction, actor, now);
+    const intent = (await transaction.select().from(uploadIntents).where(and(
+      eq(uploadIntents.tokenHash, hashToken(input.token)),
+      eq(uploadIntents.kind, "admin_asset"),
+      eq(uploadIntents.createdByUserId, actor.userId),
+      eq(uploadIntents.authSessionId, actor.authSessionId),
+      eq(uploadIntents.status, "created"),
+      gt(uploadIntents.expiresAt, now),
+    )).limit(1))[0];
+    if (!intent?.uploadBatchId || !intent.adminAssetCategory || !intent.adminAssetRole) {
+      throw new Error("Admin Upload Intent is invalid, expired, or already used.");
+    }
+    if (input.bytes.byteLength !== intent.declaredByteSize) {
+      await transaction.update(uploadIntents).set({
+        status: "failed",
+        failureReason: "declared_size_mismatch",
+        updatedAt: now,
+      }).where(eq(uploadIntents.id, intent.id));
+      await transaction.update(assetUploadBatches).set({
+        status: "failed",
+        failureReason: "declared_size_mismatch",
+      }).where(eq(assetUploadBatches.id, intent.uploadBatchId));
+      await auditWriter(transaction, {
+        actorUserId: actor.userId,
+        action: "asset.upload_batch.failed",
+        entityType: "asset_upload_batch",
+        entityId: intent.uploadBatchId,
+        afterSummary: { reason: "declared_size_mismatch" },
+      });
+      return { mismatch: true } as const;
+    }
+    const objectKey = `staging/admin/${datePrefix}/${randomUUID()}.${safeExtension(intent.declaredMimeType)}`;
+    const sha256 = createHash("sha256").update(input.bytes).digest("hex");
+    await transaction.insert(assets).values({
+      id: expectedAssetId,
+      uploadBatchId: intent.uploadBatchId,
+      uploadedByUserId: actor.userId,
+      originalFileName: intent.declaredFileName,
+      storageProvider: env.STORAGE_DRIVER,
+      storagePartition: "private",
+      objectKey,
+      access: "internal",
+      category: intent.adminAssetCategory,
+      status: "scanning",
+      declaredMimeType: intent.declaredMimeType,
+      byteSize: input.bytes.byteLength,
+      sha256,
+      sourceDeclarationEnabled: false,
+      nonBlockingRiskHints: inferNonBlockingRiskHints(intent.declaredFileName),
+      retentionExpiresAt: intent.expiresAt,
     });
+    await options.faultInjector?.("before_recovery_job_insert");
+    const recovery = (await transaction.insert(uploadRecoveryJobs).values({
+      kind: "staging",
+      uploadBatchId: intent.uploadBatchId,
+      uploadIntentId: intent.id,
+      assetId: expectedAssetId,
+      storagePartition: "private",
+      objectKey,
+      status: "processing",
+      stage: "preregistered",
+      attemptCount: 1,
+      nextAttemptAt: leaseExpiresAt,
+      lockedBy: workerId,
+      lockedAt: now,
+      leaseExpiresAt,
+      version: 1,
+      startedAt: now,
+      expiresAt: intent.expiresAt,
+    }).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version }))[0];
+    if (!recovery) throw new Error("Upload Recovery Job insert failed.");
+    await transaction.insert(objectCleanupJobs).values({
+      uploadBatchId: intent.uploadBatchId,
+      assetId: expectedAssetId,
+      storagePartition: "private",
+      objectKey,
+      reason: "admin_staging_saga_compensation",
+      status: "pending",
+      nextAttemptAt: leaseExpiresAt,
+    });
+    await transaction.update(uploadIntents).set({
+      assetId: expectedAssetId,
+      status: "uploading",
+      failureReason: null,
+      updatedAt: now,
+    }).where(eq(uploadIntents.id, intent.id));
+    await transaction.update(assetUploadBatches).set({
+      status: "uploading",
+      failureReason: null,
+    }).where(and(
+      eq(assetUploadBatches.id, intent.uploadBatchId),
+      inArray(assetUploadBatches.status, ["created", "uploading"]),
+    ));
+    await auditWriter(transaction, {
+      actorUserId: actor.userId,
+      action: "asset.upload.receiving",
+      entityType: "asset",
+      entityId: expectedAssetId,
+      afterSummary: {
+        uploadBatchId: intent.uploadBatchId,
+        uploadIntentId: intent.id,
+        recoveryJobId: recovery.id,
+      },
+    });
+    await options.faultInjector?.("before_preregister_commit");
+    return {
+      mismatch: false,
+      intent,
+      assetId: expectedAssetId,
+      objectKey,
+      recoveryLease: {
+        id: recovery.id,
+        workerId,
+        version: recovery.version,
+        leaseExpiresAt,
+      } satisfies UploadRecoveryLease,
+    } as const;
+  });
+  if (preregistered.mismatch) {
     throw new Error("Uploaded size does not match the Admin Upload Intent.");
   }
+
+  let recoveryLease = preregistered.recoveryLease;
   try {
-    const assetId = await uploadAsset(db, storage, scanner, {
-      fileName: claimed.declaredFileName,
-      declaredMimeType: claimed.declaredMimeType,
+    recoveryLease = await advanceUploadRecoveryStage(
+      db,
+      recoveryLease,
+      "storage_writing",
+      new Date(),
+      leaseMilliseconds,
+    );
+    await storage.put(
+      "private",
+      preregistered.objectKey,
+      input.bytes,
+      preregistered.intent.declaredMimeType,
+    );
+    await options.faultInjector?.("after_staging_put");
+    recoveryLease = await advanceUploadRecoveryStage(db, recoveryLease, "storage_written", new Date(), leaseMilliseconds);
+    const validated = await validateUploadedFile({
       bytes: input.bytes,
-      category: claimed.adminAssetCategory,
+      declaredMimeType: preregistered.intent.declaredMimeType,
+      maximumBytes: env.MAX_PUBLIC_FILE_BYTES,
       purpose: "admin_asset_staging",
-      uploadedByUserId: actor.userId,
-      uploadBatchId: claimed.uploadBatchId,
-      uploadIntentId: claimed.id,
-      sourceDeclarationEnabled: false,
-      retentionExpiresAt: claimed.expiresAt,
     });
-    const auditWriter = options.auditWriter ?? writeAuditLog;
+    recoveryLease = await advanceUploadRecoveryStage(db, recoveryLease, "scanning", new Date(), leaseMilliseconds);
+    const scanResult = await scanner.scan(input.bytes, preregistered.intent.declaredFileName);
+    if (!scanResult.clean) throw new Error("File was rejected by malware scanning.");
+    recoveryLease = await advanceUploadRecoveryStage(db, recoveryLease, "scan_passed", new Date(), leaseMilliseconds);
+    await options.faultInjector?.("after_scan_success");
     await db.transaction(async (transaction) => {
-      await transaction.update(uploadIntents).set({ assetId, status: "passed", failureReason: null, updatedAt: new Date() }).where(eq(uploadIntents.id, claimed.id));
+      const completedAt = new Date();
+      await options.faultInjector?.("before_asset_complete_update");
+      const assetUpdated = await transaction.update(assets).set({
+        status: "ready",
+        scanStatus: "passed",
+        detectedMimeType: validated.detectedMimeType,
+        width: validated.width,
+        height: validated.height,
+        scanProvider: scanResult.provider,
+        scanResult: scanResult.reference,
+        scanCompletedAt: completedAt,
+        updatedAt: completedAt,
+      }).where(and(
+        eq(assets.id, preregistered.assetId),
+        eq(assets.storagePartition, "private"),
+        eq(assets.access, "internal"),
+        eq(assets.status, "scanning"),
+      )).returning({ id: assets.id });
+      if (!assetUpdated[0]) throw new Error("Staging Asset changed before completion.");
+      await options.faultInjector?.("before_intent_complete_update");
+      const intentUpdated = await transaction.update(uploadIntents).set({
+        status: "passed",
+        failureReason: null,
+        updatedAt: completedAt,
+      }).where(and(
+        eq(uploadIntents.id, preregistered.intent.id),
+        eq(uploadIntents.status, "uploading"),
+        eq(uploadIntents.assetId, preregistered.assetId),
+      )).returning({ id: uploadIntents.id });
+      if (!intentUpdated[0]) throw new Error("Upload Intent changed before staging completion.");
       const totals = (await transaction.select({ value: count() }).from(uploadIntents).where(and(
-        eq(uploadIntents.uploadBatchId, claimed.uploadBatchId!), eq(uploadIntents.status, "passed"),
+        eq(uploadIntents.uploadBatchId, preregistered.intent.uploadBatchId!),
+        eq(uploadIntents.status, "passed"),
       )))[0];
       const passed = Number(totals?.value ?? 0);
-      await transaction.update(assetUploadBatches).set({
+      const declared = (await transaction.select({ value: assetUploadBatches.declaredFileCount })
+        .from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, preregistered.intent.uploadBatchId!))
+        .limit(1))[0]?.value;
+      if (declared === undefined) throw new Error("Upload Batch disappeared during staging completion.");
+      await options.faultInjector?.("before_batch_complete_update");
+      const batchUpdated = await transaction.update(assetUploadBatches).set({
         completedFileCount: passed,
-        status: passed >= (await transaction.select({ value: assetUploadBatches.declaredFileCount }).from(assetUploadBatches).where(eq(assetUploadBatches.id, claimed.uploadBatchId!)).limit(1))[0]!.value
-          ? "ready_to_finalize" : "uploading",
+        status: passed >= declared ? "ready_to_finalize" : "uploading",
         failureReason: null,
-      }).where(eq(assetUploadBatches.id, claimed.uploadBatchId!));
+      }).where(and(
+        eq(assetUploadBatches.id, preregistered.intent.uploadBatchId!),
+        eq(assetUploadBatches.status, "uploading"),
+      )).returning({ id: assetUploadBatches.id });
+      if (!batchUpdated[0]) throw new Error("Upload Batch changed before staging completion.");
+      const recoveryUpdated = await transaction.update(uploadRecoveryJobs).set({
+        status: "completed",
+        stage: "completed",
+        completedAt,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        version: sql`${uploadRecoveryJobs.version} + 1`,
+        updatedAt: completedAt,
+      }).where(and(
+        eq(uploadRecoveryJobs.id, recoveryLease.id),
+        eq(uploadRecoveryJobs.status, "processing"),
+        eq(uploadRecoveryJobs.lockedBy, recoveryLease.workerId),
+        eq(uploadRecoveryJobs.version, recoveryLease.version),
+        gt(uploadRecoveryJobs.leaseExpiresAt, completedAt),
+      )).returning({ id: uploadRecoveryJobs.id });
+      if (!recoveryUpdated[0]) throw new Error("Upload Recovery lease was lost before staging completion.");
+      await transaction.update(objectCleanupJobs).set({
+        nextAttemptAt: preregistered.intent.expiresAt,
+        updatedAt: completedAt,
+      }).where(and(
+        eq(objectCleanupJobs.assetId, preregistered.assetId),
+        eq(objectCleanupJobs.storagePartition, "private"),
+        eq(objectCleanupJobs.status, "pending"),
+      ));
       await auditWriter(transaction, {
-        actorUserId: actor.userId, action: "asset.upload.staged", entityType: "asset", entityId: assetId,
-        afterSummary: { uploadBatchId: claimed.uploadBatchId },
+        actorUserId: actor.userId,
+        action: "asset.upload.staged",
+        entityType: "asset",
+        entityId: preregistered.assetId,
+        afterSummary: {
+          uploadBatchId: preregistered.intent.uploadBatchId,
+          recoveryJobId: recoveryLease.id,
+        },
       });
     });
-    return assetId;
+    return preregistered.assetId;
   } catch (error) {
-    const auditWriter = options.auditWriter ?? writeAuditLog;
-    await db.transaction(async (transaction) => {
-      await transaction.update(uploadIntents).set({ status: "failed", failureReason: "upload_failed", updatedAt: new Date() }).where(eq(uploadIntents.id, claimed.id));
-      await transaction.update(assetUploadBatches).set({ status: "failed", failureReason: "upload_failed" }).where(eq(assetUploadBatches.id, claimed.uploadBatchId!));
-      await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.upload_batch.failed", entityType: "asset_upload_batch", entityId: claimed.uploadBatchId, afterSummary: { reason: "upload_failed" } });
-    });
+    // Phase A already committed the durable Asset, object key, cleanup record,
+    // Recovery Job and watchdog lease. Do not depend on a failing Audit writer
+    // to make compensation discoverable here; the Recovery Worker owns it.
     throw error;
   }
 }
@@ -410,30 +637,103 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
   await assertActiveSession(db, actor, now);
   const auditWriter = options.auditWriter ?? writeAuditLog;
   const parsedBatchId = z.uuid().parse(batchId);
-  const batch = await db.transaction(async (transaction) => {
+  const workerId = options.workerId ?? `finalize-${randomUUID()}`;
+  const leaseMilliseconds = options.leaseMilliseconds ?? UPLOAD_RECOVERY_LEASE_MILLISECONDS;
+  const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
+  const claim = await db.transaction(async (transaction) => {
     await assertActiveSession(transaction, actor, now);
-    const claimed = (await transaction
-      .update(assetUploadBatches)
-      .set({ status: "finalizing", failureReason: null })
-      .where(and(
-        eq(assetUploadBatches.id, parsedBatchId),
-        eq(assetUploadBatches.createdByUserId, actor.userId),
-        eq(assetUploadBatches.authSessionId, actor.authSessionId),
-        eq(assetUploadBatches.status, "ready_to_finalize"),
-        gt(assetUploadBatches.expiresAt, now),
-      ))
-      .returning())[0];
-    if (!claimed) {
+    const batch = (await transaction.select().from(assetUploadBatches).where(and(
+      eq(assetUploadBatches.id, parsedBatchId),
+      eq(assetUploadBatches.createdByUserId, actor.userId),
+      eq(assetUploadBatches.authSessionId, actor.authSessionId),
+      inArray(assetUploadBatches.status, ["ready_to_finalize", "failed"]),
+      gt(assetUploadBatches.expiresAt, now),
+    )).limit(1))[0];
+    if (!batch) {
       throw new Error("Admin Upload Batch is unavailable, incomplete, expired, or already finalized.");
     }
+    const existing = (await transaction.select().from(uploadRecoveryJobs).where(and(
+      eq(uploadRecoveryJobs.uploadBatchId, batch.id),
+      eq(uploadRecoveryJobs.kind, "finalize"),
+    )).limit(1))[0];
+    if (batch.status === "failed" && (
+      !existing ||
+      existing.status !== "retryable" ||
+      existing.nextAttemptAt > now
+    )) {
+      throw new Error("Admin Upload Batch recovery is not ready for another Finalize attempt.");
+    }
+    let recovery: { id: string; version: number } | undefined;
+    if (existing) {
+      recovery = (await transaction.update(uploadRecoveryJobs).set({
+        status: "processing",
+        stage: "claimed",
+        attemptCount: sql`${uploadRecoveryJobs.attemptCount} + 1`,
+        nextAttemptAt: leaseExpiresAt,
+        lockedBy: workerId,
+        lockedAt: now,
+        leaseExpiresAt,
+        version: sql`${uploadRecoveryJobs.version} + 1`,
+        lastError: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+      }).where(and(
+        eq(uploadRecoveryJobs.id, existing.id),
+        eq(uploadRecoveryJobs.status, "retryable"),
+        lte(uploadRecoveryJobs.nextAttemptAt, now),
+      )).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version }))[0];
+    } else {
+      recovery = (await transaction.insert(uploadRecoveryJobs).values({
+        kind: "finalize",
+        uploadBatchId: batch.id,
+        status: "processing",
+        stage: "claimed",
+        attemptCount: 1,
+        nextAttemptAt: leaseExpiresAt,
+        lockedBy: workerId,
+        lockedAt: now,
+        leaseExpiresAt,
+        version: 1,
+        startedAt: now,
+        expiresAt: batch.expiresAt ?? leaseExpiresAt,
+      }).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version }))[0];
+    }
+    if (!recovery) throw new Error("Finalize Recovery lease could not be claimed.");
+    const claimed = (await transaction.update(assetUploadBatches).set({
+      status: "finalizing",
+      failureReason: null,
+    }).where(and(
+      eq(assetUploadBatches.id, batch.id),
+      eq(assetUploadBatches.status, batch.status),
+    )).returning())[0];
+    if (!claimed) throw new Error("Admin Upload Batch changed during Finalize claim.");
     await auditWriter(transaction, {
       actorUserId: actor.userId,
       action: "asset.upload_batch.finalize_claimed",
       entityType: "asset_upload_batch",
       entityId: claimed.id,
+      afterSummary: {
+        recoveryJobId: recovery.id,
+        workerId,
+        attempt: existing ? existing.attemptCount + 1 : 1,
+        version: recovery.version,
+      },
     });
-    return claimed;
+    await options.faultInjector?.("before_finalize_claim_commit");
+    return {
+      batch: claimed,
+      recoveryLease: {
+        id: recovery.id,
+        workerId,
+        version: recovery.version,
+        leaseExpiresAt,
+      } satisfies UploadRecoveryLease,
+    };
   });
+  const batch = claim.batch;
+  let recoveryLease = claim.recoveryLease;
+  await options.faultInjector?.("after_finalize_claim");
   let staged: (typeof assets.$inferSelect)[] = [];
   try {
     const intents = await db.select().from(uploadIntents).where(and(
@@ -468,6 +768,13 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       }[];
     }[] = [];
     for (const asset of staged) {
+      recoveryLease = await advanceUploadRecoveryStage(
+        db,
+        recoveryLease,
+        "source_copy_started",
+        new Date(),
+        leaseMilliseconds,
+      );
       const bytes = await storage.get("private", asset.objectKey);
       await registerObjectCleanup(db, {
         uploadBatchId: batch.id,
@@ -478,6 +785,20 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         notBefore: compensationNotBefore,
       });
       await storage.put("public", asset.objectKey, bytes, asset.detectedMimeType ?? asset.declaredMimeType);
+      recoveryLease = await advanceUploadRecoveryStage(
+        db,
+        recoveryLease,
+        "original_written",
+        new Date(),
+        leaseMilliseconds,
+      );
+      recoveryLease = await advanceUploadRecoveryStage(
+        db,
+        recoveryLease,
+        "variants_processing",
+        new Date(),
+        leaseMilliseconds,
+      );
       const variants = asset.detectedMimeType?.startsWith("image/")
         ? (await createImageDerivatives(bytes)).map((variant) => ({
             key: `${asset.objectKey}.variants/${variant.key}.${variant.format}`,
@@ -498,15 +819,41 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         });
         await storage.put("public", variant.key, variant.bytes, `image/${variant.format}`);
       }
+      recoveryLease = await advanceUploadRecoveryStage(
+        db,
+        recoveryLease,
+        "variants_written",
+        new Date(),
+        leaseMilliseconds,
+      );
       copies.push({ objectKey: asset.objectKey, variants });
     }
+    recoveryLease = await advanceUploadRecoveryStage(
+      db,
+      recoveryLease,
+      "database_finalizing",
+      new Date(),
+      leaseMilliseconds,
+    );
     await db.transaction(async (transaction) => {
-      await assertActiveSession(transaction, actor, now);
+      const commitTime = new Date();
+      await assertActiveSession(transaction, actor, commitTime);
       const current = (await transaction.select().from(assetUploadBatches).where(and(
         eq(assetUploadBatches.id, batch.id), eq(assetUploadBatches.status, "finalizing"),
         eq(assetUploadBatches.createdByUserId, actor.userId), eq(assetUploadBatches.authSessionId, actor.authSessionId),
       )).limit(1))[0];
       if (!current) throw new Error("Admin Upload Batch changed before finalization.");
+      const validLease = (await transaction.select({ id: uploadRecoveryJobs.id })
+        .from(uploadRecoveryJobs)
+        .where(and(
+          eq(uploadRecoveryJobs.id, recoveryLease.id),
+          eq(uploadRecoveryJobs.kind, "finalize"),
+          eq(uploadRecoveryJobs.status, "processing"),
+          eq(uploadRecoveryJobs.lockedBy, recoveryLease.workerId),
+          eq(uploadRecoveryJobs.version, recoveryLease.version),
+          gt(uploadRecoveryJobs.leaseExpiresAt, commitTime),
+        )).limit(1))[0];
+      if (!validLease) throw new Error("Finalize lease or version changed before commit.");
       for (const intent of intents) {
         const asset = staged.find((candidate) => candidate.id === intent.assetId)!;
         const copy = copies.find((candidate) => candidate.objectKey === asset.objectKey)!;
@@ -525,8 +872,13 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
             declarationStatementVersion: 1, declarationRecordVersion: 1,
             declarationLastEditorUserId: actor.userId, effectiveRightsDecision: "pending_review" as const,
           } : {}),
-          updatedAt: now,
-        }).where(eq(assets.id, asset.id));
+          updatedAt: commitTime,
+        }).where(and(
+          eq(assets.id, asset.id),
+          eq(assets.storagePartition, "private"),
+          eq(assets.access, "internal"),
+          eq(assets.status, "ready"),
+        ));
         if (copy.variants.length) await transaction.insert(assetVariants).values(copy.variants.map((variant) => ({
           sourceAssetId: asset.id, format: variant.format, variantKey: variant.key.split("/").at(-1)!,
           objectKey: variant.key, byteSize: variant.bytes.byteLength, width: variant.width, height: variant.height,
@@ -538,7 +890,8 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
           role: roleSchema.parse(intent.adminAssetRole),
           sortOrder: intent.sortOrder ?? 0,
         });
-        await transaction.update(uploadIntents).set({ status: "consumed", isConsumed: true, usedAt: now, updatedAt: now }).where(and(eq(uploadIntents.id, intent.id), eq(uploadIntents.status, "passed")));
+        const consumed = await transaction.update(uploadIntents).set({ status: "consumed", isConsumed: true, usedAt: commitTime, updatedAt: commitTime }).where(and(eq(uploadIntents.id, intent.id), eq(uploadIntents.status, "passed"))).returning({ id: uploadIntents.id });
+        if (!consumed[0]) throw new Error("Upload Intent changed before Finalize commit.");
         await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.released_public", entityType: "asset", entityId: asset.id, afterSummary: { uploadBatchId: batch.id, associationType: intent.associationType } });
         await transaction.insert(objectCleanupJobs).values({
           uploadBatchId: batch.id,
@@ -547,7 +900,7 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
           objectKey: asset.objectKey,
           reason: "finalize_private_staging_released",
           status: "pending",
-          nextAttemptAt: now,
+          nextAttemptAt: commitTime,
         }).onConflictDoUpdate({
           target: [objectCleanupJobs.storagePartition, objectCleanupJobs.objectKey],
           set: {
@@ -556,13 +909,13 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
             reason: "finalize_private_staging_released",
             status: "pending",
             attemptCount: 0,
-            nextAttemptAt: now,
+            nextAttemptAt: commitTime,
             lockedBy: null,
             lockedAt: null,
             leaseExpiresAt: null,
             lastError: null,
             completedAt: null,
-            updatedAt: now,
+            updatedAt: commitTime,
           },
         });
       }
@@ -571,45 +924,59 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         lockedBy: null,
         lockedAt: null,
         leaseExpiresAt: null,
-        updatedAt: now,
+        updatedAt: commitTime,
       }).where(and(
         eq(objectCleanupJobs.uploadBatchId, batch.id),
         eq(objectCleanupJobs.storagePartition, "public"),
         eq(objectCleanupJobs.status, "pending"),
       ));
-      await transaction.update(assetUploadBatches).set({ status: "completed", completedAt: now, failureReason: null }).where(eq(assetUploadBatches.id, batch.id));
+      const completedRecovery = await transaction.update(uploadRecoveryJobs).set({
+        status: "completed",
+        stage: "completed",
+        completedAt: commitTime,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        version: sql`${uploadRecoveryJobs.version} + 1`,
+        updatedAt: commitTime,
+      }).where(and(
+        eq(uploadRecoveryJobs.id, recoveryLease.id),
+        eq(uploadRecoveryJobs.status, "processing"),
+        eq(uploadRecoveryJobs.lockedBy, recoveryLease.workerId),
+        eq(uploadRecoveryJobs.version, recoveryLease.version),
+        gt(uploadRecoveryJobs.leaseExpiresAt, commitTime),
+      )).returning({ id: uploadRecoveryJobs.id });
+      if (!completedRecovery[0]) throw new Error("Finalize lease or version changed before completion.");
+      const completedBatch = await transaction.update(assetUploadBatches).set({ status: "completed", completedAt: commitTime, failureReason: null }).where(and(
+        eq(assetUploadBatches.id, batch.id),
+        eq(assetUploadBatches.status, "finalizing"),
+      )).returning({ id: assetUploadBatches.id });
+      if (!completedBatch[0]) throw new Error("Upload Batch changed before Finalize completion.");
       await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.upload_batch.completed", entityType: "asset_upload_batch", entityId: batch.id, afterSummary: { fileCount: intents.length, sourceDeclarationEnabled: batch.sourceDeclarationEnabled } });
     });
     await processPendingObjectCleanupJobs(db, storage, {
       limit: Math.max(1, staged.length),
       workerId: `finalize-private-${batch.id}`,
-      now,
+      now: new Date(),
+      auditWriter,
     });
   } catch (error) {
-    await db.transaction(async (transaction) => {
-      const failed = await transaction.update(assetUploadBatches).set({
-        status: "failed",
-        failureReason: error instanceof Error ? error.message.slice(0, 500) : "finalize_failed",
-      }).where(and(
-        eq(assetUploadBatches.id, batch.id),
-        eq(assetUploadBatches.status, "finalizing"),
-      )).returning({ id: assetUploadBatches.id });
-      if (failed[0]) {
-        await writeAuditLog(transaction, {
-          actorUserId: actor.userId,
-          action: "asset.upload_batch.finalize_failed",
-          entityType: "asset_upload_batch",
-          entityId: batch.id,
-          afterSummary: { reason: "compensation_required" },
-        });
-      }
-    });
-    await releaseBatchCleanupJobs(db, batch.id, now);
-    await processPendingObjectCleanupJobs(db, storage, {
-      limit: Math.max(1, staged.length * 8),
-      workerId: `finalize-compensation-${batch.id}`,
-      now,
-    });
+    const recoveryState = await markFinalizeRecoveryRequired(
+      db,
+      recoveryLease,
+      batch.id,
+      error,
+      { auditWriter, now: new Date() },
+    );
+    if (recoveryState === "cleanup_required") {
+      await processPendingObjectCleanupJobs(db, storage, {
+        limit: Math.max(1, staged.length * 8),
+        workerId: `finalize-compensation-${batch.id}`,
+        now: new Date(),
+        auditWriter,
+      });
+    }
     throw error;
   }
   return { assetIds: staged.map((asset) => asset.id) };

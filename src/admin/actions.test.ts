@@ -8,7 +8,8 @@ vi.mock("./actor", () => ({
   }),
 }));
 
-import { updateAssetDeclarationAction } from "./actions";
+import { invokeAdminAction } from "./invoke-admin-action";
+import { createProductAction, updateAssetDeclarationAction } from "./actions";
 
 describe("Source Declaration action separation", () => {
   it("keeps Server Actions free of direct business writes, Audit writes, and buffered file reads", async () => {
@@ -17,6 +18,30 @@ describe("Source Declaration action separation", () => {
     expect(source).not.toContain("writeAuditLog");
     expect(source).not.toContain("arrayBuffer(");
     expect(source).not.toContain("formData(");
+    expect(source).not.toMatch(/\bredirect\s*\(/);
+    expect(source).not.toMatch(/export async function \w+Action\([^)]*\): Promise<void>/);
+    expect(source.match(/export async function \w+Action/g)?.length).toBe(
+      source.match(/return mutationResult\(/g)?.length,
+    );
+  });
+
+  it("returns simultaneous field-level Product Draft validation errors without a false redirect", async () => {
+    const result = await invokeAdminAction(
+      createProductAction,
+      new FormData(),
+      "Product created.",
+    );
+    expect(result).toMatchObject({
+      success: false,
+      errorCode: "VALIDATION_ERROR",
+      intent: "none",
+      fieldErrors: {
+        name: ["name is required."],
+        primaryTaxonomyTermId: ["primaryTaxonomyTermId is required."],
+        assetIds: ["assetIds is required."],
+      },
+    });
+    expect(result).not.toHaveProperty("redirectTo");
   });
   it("rejects a form that attempts to edit and review in the same request", async () => {
     const form = new FormData();

@@ -36,6 +36,6 @@ export async function PUT(request: Request, context: { params: Promise<{ token: 
     return NextResponse.json({ ok: true, assetId }, { status: 201 });
   } catch (error) {
     const failure = adminActionHttpFailure(error);
-    return NextResponse.json({ ok: false, error: failure.error, errorKind: failure.errorKind }, { status: failure.status });
+    return NextResponse.json({ ok: false, error: failure.error, errorCode: failure.errorCode }, { status: failure.status });
   }
 }

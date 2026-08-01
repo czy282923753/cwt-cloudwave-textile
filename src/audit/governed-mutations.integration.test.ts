@@ -244,6 +244,7 @@ describe("governed mutation Audit atomicity", () => {
       "src/settings/feature-flag-service.ts",
       "src/uploads/admin-upload-service.ts",
       "src/uploads/object-cleanup-service.ts",
+      "src/uploads/upload-recovery-service.ts",
       "src/uploads/retention-service.ts",
       "src/uploads/service.ts",
     ];
@@ -253,5 +254,7 @@ describe("governed mutation Audit atomicity", () => {
     }
     const adminActions = await readFile("src/admin/actions.ts", "utf8");
     expect(adminActions).not.toMatch(/\.insert\(|\.update\(|\.delete\(/);
+    expect(adminActions).not.toMatch(/\bredirect\s*\(/);
+    expect(adminActions).not.toMatch(/Promise<void>/);
   });
 });

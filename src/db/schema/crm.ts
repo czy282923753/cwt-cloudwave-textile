@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 import { assets, assetUploadBatches } from "./assets";
 import {
@@ -25,6 +26,9 @@ import {
   uploadIntentKindEnum,
   assetCategoryEnum,
   assetRoleEnum,
+  uploadRecoveryKindEnum,
+  uploadRecoveryStageEnum,
+  uploadRecoveryStatusEnum,
 } from "./enums";
 import { users } from "./identity";
 
@@ -160,6 +164,54 @@ export const uploadIntents = pgTable(
       table.status,
     ),
     index("upload_intents_batch_idx").on(table.uploadBatchId, table.status),
+  ],
+);
+
+/** Durable Saga state for Admin staging and Finalize external side effects. */
+export const uploadRecoveryJobs = pgTable(
+  "upload_recovery_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: uploadRecoveryKindEnum("kind").notNull(),
+    uploadBatchId: uuid("upload_batch_id")
+      .notNull()
+      .references(() => assetUploadBatches.id, { onDelete: "cascade" }),
+    uploadIntentId: uuid("upload_intent_id").references(
+      (): typeof uploadIntents.id => uploadIntents.id,
+      { onDelete: "cascade" },
+    ),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    storagePartition: text("storage_partition"),
+    objectKey: text("object_key"),
+    status: uploadRecoveryStatusEnum("status").notNull().default("pending"),
+    stage: uploadRecoveryStageEnum("stage").notNull().default("preregistered"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(8),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lockedBy: text("locked_by"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    version: integer("version").notNull().default(0),
+    lastError: text("last_error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("upload_recovery_jobs_intent_unique").on(table.uploadIntentId),
+    uniqueIndex("upload_recovery_jobs_finalize_batch_unique")
+      .on(table.uploadBatchId)
+      .where(sql`${table.kind} = 'finalize'`),
+    index("upload_recovery_jobs_work_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+    ),
+    index("upload_recovery_jobs_batch_idx").on(table.uploadBatchId, table.kind),
   ],
 );
 

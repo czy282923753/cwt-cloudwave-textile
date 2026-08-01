@@ -5,7 +5,6 @@ import {
   useEffect,
   useRef,
   useState,
-  useTransition,
   type FormEvent,
   type FormHTMLAttributes,
   type ReactNode,
@@ -38,16 +37,32 @@ export function AdminActionForm({
   ...formProps
 }: Readonly<AdminActionFormProps>) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
   const submittingRef = useRef(false);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
   const [result, setResult] = useState<AdminActionResult | null>(null);
 
   useEffect(() => {
-    if (result && !result.success) errorSummaryRef.current?.focus();
+    const form = formRef.current;
+    if (!form) return;
+    for (const element of form.querySelectorAll<HTMLElement>("[aria-invalid='true']")) {
+      element.removeAttribute("aria-invalid");
+      element.removeAttribute("aria-describedby");
+    }
+    if (result && !result.success) {
+      for (const field of Object.keys(result.fieldErrors)) {
+        const control = form.elements.namedItem(field);
+        if (control instanceof HTMLElement) {
+          control.setAttribute("aria-invalid", "true");
+          control.setAttribute("aria-describedby", `admin-field-error-${field}`);
+        }
+      }
+      errorSummaryRef.current?.focus();
+    }
   }, [result]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submittingRef.current || pending) return;
     const form = event.currentTarget;
@@ -57,23 +72,29 @@ export function AdminActionForm({
       return;
     }
     submittingRef.current = true;
+    setPending(true);
     setResult(null);
     const data = new FormData(form);
-    startTransition(async () => {
-      try {
-        const nextResult = await invokeAdminAction(action, data, successMessage);
-        setResult(nextResult);
-        if (nextResult.success && nextResult.intent === "refresh") router.refresh();
-      } catch {
-        setResult(adminNetworkFailure());
-      } finally {
-        submittingRef.current = false;
+    try {
+      const nextResult = await invokeAdminAction(action, data, successMessage);
+      setResult(nextResult);
+      if (nextResult.success && nextResult.intent === "refresh") {
+        setTimeout(() => router.refresh(), 0);
       }
-    });
+      if (nextResult.success && nextResult.intent === "redirect" && nextResult.redirectTo) {
+        const redirectTo = nextResult.redirectTo;
+        setTimeout(() => router.push(redirectTo), 0);
+      }
+    } catch {
+      setResult(adminNetworkFailure());
+    } finally {
+      submittingRef.current = false;
+      setPending(false);
+    }
   }
 
   return (
-    <form {...formProps} aria-busy={pending} onSubmit={submit}>
+    <form {...formProps} aria-busy={pending} onSubmit={submit} ref={formRef}>
       <fieldset className="contents" disabled={pending}>
         {children}
       </fieldset>
@@ -93,7 +114,11 @@ export function AdminActionForm({
           {Object.entries(result.fieldErrors).length ? (
             <ul className="mt-2 list-disc pl-5">
               {Object.entries(result.fieldErrors).flatMap(([field, messages]) =>
-                messages.map((message) => <li key={`${field}:${message}`}>{field}: {message}</li>),
+                messages.map((message, index) => (
+                  <li id={index === 0 ? `admin-field-error-${field}` : undefined} key={`${field}:${message}`}>
+                    {field}: {message}
+                  </li>
+                )),
               )}
             </ul>
           ) : null}

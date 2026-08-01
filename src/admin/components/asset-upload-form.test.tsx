@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const refresh = vi.fn();
@@ -21,6 +21,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe("AssetUploadForm feedback", () => {
   afterEach(() => {
+    cleanup();
     refresh.mockReset();
     vi.unstubAllGlobals();
   });
@@ -35,7 +36,7 @@ describe("AssetUploadForm feedback", () => {
       .mockResolvedValueOnce(jsonResponse({
         ok: false,
         error: "The operation failed safely; no partial change was committed.",
-        errorKind: "unknown",
+        errorCode: "UNKNOWN_ERROR",
       }, 500));
     vi.stubGlobal("fetch", fetchMock);
     render(<AssetUploadForm associations={[]} />);
@@ -49,9 +50,32 @@ describe("AssetUploadForm feedback", () => {
     if (!form) throw new Error("Missing Asset upload form.");
     fireEvent.submit(form);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveFocus();
+    await waitFor(() => expect(alert).toHaveFocus());
     expect(alert).toHaveTextContent("failed safely");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("announces successful Finalize before scheduling the persisted-list refresh", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        batchId: "test-success-batch",
+        intents: [{ uploadUrl: "/api/admin/upload-intents/test-success-token/" }],
+      }, 201))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, assetId: "test-success-asset" }, 201))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, assetIds: ["test-success-asset"] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AssetUploadForm associations={[]} />);
+    fireEvent.change(screen.getByLabelText("Files"), {
+      target: {
+        files: [new File([new Uint8Array([1, 2, 3])], "fixture-success.png", { type: "image/png" })],
+      },
+    });
+    const form = screen.getByRole("button", { name: "Upload and process" }).closest("form");
+    if (!form) throw new Error("Missing Asset upload form.");
+    fireEvent.submit(form);
+    expect(await screen.findByRole("status")).toHaveTextContent("1 asset uploaded and released");
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

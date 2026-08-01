@@ -3,11 +3,11 @@
 import {
   adminActionFailure,
   adminActionSuccess,
-  isNextRedirect,
   type AdminActionResult,
+  type AdminMutationOutcome,
 } from "./action-result";
 
-export type AdminMutation = (form: FormData) => Promise<void>;
+export type AdminMutation = (form: FormData) => Promise<AdminMutationOutcome>;
 
 export async function invokeAdminAction(
   action: AdminMutation,
@@ -15,10 +15,9 @@ export async function invokeAdminAction(
   successMessage: string,
 ): Promise<AdminActionResult> {
   try {
-    await action(form);
-    return adminActionSuccess(successMessage);
+    const outcome = await action(form);
+    return adminActionSuccess(successMessage, outcome);
   } catch (error) {
-    if (isNextRedirect(error)) throw error;
     return adminActionFailure(error);
   }
 }

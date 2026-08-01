@@ -2,7 +2,6 @@
 
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { requirePermission } from "@/auth/permissions";
@@ -97,11 +96,68 @@ import {
 } from "@/uploads/service";
 
 import { currentActor } from "./actor";
+import {
+  AdminFieldValidationError,
+  type AdminMutationOutcome,
+} from "./action-result";
 
 function requiredString(form: FormData, key: string): string {
   const value = form.get(key);
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} is required.`);
+  if (typeof value !== "string" || !value.trim()) {
+    throw new AdminFieldValidationError({ [key]: [`${key} is required.`] });
+  }
   return value.trim();
+}
+
+function requireFields(form: FormData, keys: readonly string[]): void {
+  const fieldErrors: Record<string, string[]> = {};
+  for (const key of keys) {
+    const value = form.get(key);
+    if (typeof value !== "string" || !value.trim()) {
+      fieldErrors[key] = [`${key} is required.`];
+    }
+  }
+  if (Object.keys(fieldErrors).length) {
+    throw new AdminFieldValidationError(fieldErrors);
+  }
+}
+
+function parseRequiredField<T>(
+  schema: z.ZodType<T>,
+  form: FormData,
+  key: string,
+): T {
+  const parsed = schema.safeParse(requiredString(form, key));
+  if (!parsed.success) {
+    throw new AdminFieldValidationError({
+      [key]: parsed.error.issues.map((issue) => issue.message),
+    });
+  }
+  return parsed.data;
+}
+
+function parseOptionalField<T>(
+  schema: z.ZodType<T>,
+  form: FormData,
+  key: string,
+): T {
+  const parsed = schema.safeParse(optionalString(form, key));
+  if (!parsed.success) {
+    throw new AdminFieldValidationError({
+      [key]: parsed.error.issues.map((issue) => issue.message),
+    });
+  }
+  return parsed.data;
+}
+
+function mutationResult(
+  entityId?: string,
+  redirectTo?: string,
+): AdminMutationOutcome {
+  return {
+    ...(entityId ? { entityId } : {}),
+    ...(redirectTo ? { redirectTo } : { refresh: true }),
+  };
 }
 
 function optionalString(form: FormData, key: string): string | undefined {
@@ -118,7 +174,8 @@ async function withDatabase<TResult>(
   return operation(databaseConnection.db);
 }
 
-export async function createProductAction(form: FormData): Promise<void> {
+export async function createProductAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["name", "primaryTaxonomyTermId", "assetIds"]);
   const actor = await currentActor();
   const assetIds = form
     .getAll("assetIds")
@@ -136,10 +193,10 @@ export async function createProductAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath("/admin/products");
-  redirect(`/admin/products/${productId}`);
+  return mutationResult(productId, `/admin/products/${productId}/`);
 }
 
-export async function updateProductEditorialAction(form: FormData): Promise<void> {
+export async function updateProductEditorialAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
@@ -150,9 +207,10 @@ export async function updateProductEditorialAction(form: FormData): Promise<void
     }),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function updateProductFactsAction(form: FormData): Promise<void> {
+export async function updateProductFactsAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
@@ -165,43 +223,44 @@ export async function updateProductFactsAction(form: FormData): Promise<void> {
       fabricStyle: optionalString(form, "fabricStyle") ?? null,
       colorOptions: optionalString(form, "colorOptions") ?? null,
       moqNote: optionalString(form, "moqNote") ?? null,
-      customAvailable: z
-        .enum(["unknown", "yes", "no"])
-        .parse(requiredString(form, "customAvailable")),
-      sampleAvailable: z
-        .enum(["unknown", "yes", "no"])
-        .parse(requiredString(form, "sampleAvailable")),
+      customAvailable: parseRequiredField(
+        z.enum(["unknown", "yes", "no"]), form, "customAvailable",
+      ),
+      sampleAvailable: parseRequiredField(
+        z.enum(["unknown", "yes", "no"]), form, "sampleAvailable",
+      ),
     }),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function submitProductReviewAction(form: FormData): Promise<void> {
+export async function submitProductReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) => submitProductForReview(db, actor, productId));
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function publishProductAction(form: FormData): Promise<void> {
+export async function publishProductAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) => publishReviewedProduct(db, actor, productId));
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function confirmRealProductAction(form: FormData): Promise<void> {
+export async function confirmRealProductAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
-  const basis = z
-    .enum([
+  const basis = parseRequiredField(z.enum([
       "physical_product",
       "physical_sample",
       "internal_product_code",
       "supply_specification",
       "explicit_specification_combination",
-    ])
-    .parse(requiredString(form, "basis"));
+    ]), form, "basis");
   await withDatabase((db) =>
     confirmRealProductBasis(
       db,
@@ -212,9 +271,10 @@ export async function confirmRealProductAction(form: FormData): Promise<void> {
     ),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function updateProductSeoAction(form: FormData): Promise<void> {
+export async function updateProductSeoAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
@@ -225,9 +285,10 @@ export async function updateProductSeoAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function updateProductStructureAction(form: FormData): Promise<void> {
+export async function updateProductStructureAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   const assetIds = form
@@ -275,25 +336,26 @@ export async function updateProductStructureAction(form: FormData): Promise<void
       heroAssetId: requiredString(form, "heroAssetId"),
       features: lines("features"),
       faqs,
-      colorOptionsDisplay: z
-        .enum(["inherit", "show", "hide"])
-        .parse(requiredString(form, "colorOptionsDisplay")),
-      customAvailableDisplay: z
-        .enum(["inherit", "show", "hide"])
-        .parse(requiredString(form, "customAvailableDisplay")),
-      sampleAvailableDisplay: z
-        .enum(["inherit", "show", "hide"])
-        .parse(requiredString(form, "sampleAvailableDisplay")),
-      moqNoteDisplay: z
-        .enum(["inherit", "show", "hide"])
-        .parse(requiredString(form, "moqNoteDisplay")),
+      colorOptionsDisplay: parseRequiredField(
+        z.enum(["inherit", "show", "hide"]), form, "colorOptionsDisplay",
+      ),
+      customAvailableDisplay: parseRequiredField(
+        z.enum(["inherit", "show", "hide"]), form, "customAvailableDisplay",
+      ),
+      sampleAvailableDisplay: parseRequiredField(
+        z.enum(["inherit", "show", "hide"]), form, "sampleAvailableDisplay",
+      ),
+      moqNoteDisplay: parseRequiredField(
+        z.enum(["inherit", "show", "hide"]), form, "moqNoteDisplay",
+      ),
     }),
   );
   revalidatePath(`/admin/products/${productId}`);
   revalidatePath("/products/[slug]", "page");
+  return mutationResult(productId);
 }
 
-export async function reviewProductFieldAction(form: FormData): Promise<void> {
+export async function reviewProductFieldAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
@@ -301,15 +363,16 @@ export async function reviewProductFieldAction(form: FormData): Promise<void> {
       db,
       actor,
       productId,
-      z.enum(["composition", "weightGsm", "widthCm"]).parse(requiredString(form, "fieldName")),
-      z.enum(["verified", "rejected"]).parse(requiredString(form, "verificationStatus")),
+      parseRequiredField(z.enum(["composition", "weightGsm", "widthCm"]), form, "fieldName"),
+      parseRequiredField(z.enum(["verified", "rejected"]), form, "verificationStatus"),
     ),
   );
   revalidatePath(`/admin/products/${productId}`);
   revalidatePath("/products/[slug]", "page");
+  return mutationResult(productId);
 }
 
-export async function applyProductRevisionAction(form: FormData): Promise<void> {
+export async function applyProductRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
@@ -317,27 +380,30 @@ export async function applyProductRevisionAction(form: FormData): Promise<void> 
   );
   revalidatePath(`/admin/products/${productId}`);
   revalidatePath("/products/[slug]", "page");
+  return mutationResult(productId);
 }
 
-export async function rejectProductRevisionAction(form: FormData): Promise<void> {
+export async function rejectProductRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
     rejectProductRevision(db, actor, requiredString(form, "revisionId")),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function rejectProductReviewAction(form: FormData): Promise<void> {
+export async function rejectProductReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
     rejectProductReview(db, actor, productId, requiredString(form, "reason")),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function archiveProductAction(form: FormData): Promise<void> {
+export async function archiveProductAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
@@ -346,40 +412,40 @@ export async function archiveProductAction(form: FormData): Promise<void> {
   revalidatePath(`/admin/products/${productId}`);
   revalidatePath("/products/[slug]", "page");
   revalidatePath("/products/");
+  return mutationResult(productId);
 }
 
-export async function setProductIndexAction(form: FormData): Promise<void> {
+export async function setProductIndexAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
-  const indexStatus = z
-    .enum(["index", "noindex"])
-    .parse(requiredString(form, "indexStatus"));
+  const indexStatus = parseRequiredField(z.enum(["index", "noindex"]), form, "indexStatus");
   await withDatabase((db) =>
     setProductIndexStatus(db, actor, productId, indexStatus),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function changeProductSlugAction(form: FormData): Promise<void> {
+export async function changeProductSlugAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
     changeProductSlug(db, actor, productId, requiredString(form, "slug")),
   );
   revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
 }
 
-export async function createTaxonomyAction(form: FormData): Promise<void> {
+export async function createTaxonomyAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["internalKey", "name", "dimension"]);
   const actor = await currentActor();
-  const dimension = z
-    .enum([
+  const dimension = parseRequiredField(z.enum([
       "material_fiber",
       "structure_construction",
       "commercial_collection",
       "surface_hand_feel",
-    ])
-    .parse(requiredString(form, "dimension"));
-  await withDatabase((db) =>
+    ]), form, "dimension");
+  const termId = await withDatabase((db) =>
     createTaxonomyTerm(db, actor, {
       internalKey: requiredString(form, "internalKey"),
       name: requiredString(form, "name"),
@@ -390,24 +456,22 @@ export async function createTaxonomyAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath("/admin/taxonomy");
-  redirect("/admin/taxonomy");
+  return mutationResult(termId, `/admin/taxonomy/?created=${termId}`);
 }
 
-export async function updateTaxonomyAction(form: FormData): Promise<void> {
+export async function updateTaxonomyAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const termId = requiredString(form, "termId");
   await withDatabase((db) =>
     updateTaxonomyTerm(db, actor, termId, {
       name: requiredString(form, "name"),
       description: optionalString(form, "description") ?? null,
-      dimension: z
-        .enum([
+      dimension: parseRequiredField(z.enum([
           "material_fiber",
           "structure_construction",
           "commercial_collection",
           "surface_hand_feel",
-        ])
-        .parse(requiredString(form, "dimension")),
+        ]), form, "dimension"),
     }),
   );
   await withDatabase((db) =>
@@ -418,22 +482,24 @@ export async function updateTaxonomyAction(form: FormData): Promise<void> {
   );
   revalidatePath("/admin/taxonomy");
   revalidatePath("/fabric-types/[slug]", "page");
+  return mutationResult(termId);
 }
 
-export async function setTaxonomyIndexAction(form: FormData): Promise<void> {
+export async function setTaxonomyIndexAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   await withDatabase((db) =>
     setTaxonomyIndexStatus(
       db,
       actor,
       requiredString(form, "termId"),
-      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+      parseRequiredField(z.enum(["index", "noindex"]), form, "indexStatus"),
     ),
   );
   revalidatePath("/admin/taxonomy");
+  return mutationResult(requiredString(form, "termId"));
 }
 
-export async function setTaxonomyActiveAction(form: FormData): Promise<void> {
+export async function setTaxonomyActiveAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   await withDatabase((db) =>
     setTaxonomyActive(
@@ -445,9 +511,10 @@ export async function setTaxonomyActiveAction(form: FormData): Promise<void> {
   );
   revalidatePath("/admin/taxonomy");
   revalidatePath("/fabric-types/[slug]", "page");
+  return mutationResult(requiredString(form, "termId"));
 }
 
-export async function changeTaxonomySlugAction(form: FormData): Promise<void> {
+export async function changeTaxonomySlugAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const termId = requiredString(form, "termId");
   await withDatabase((db) =>
@@ -462,11 +529,13 @@ export async function changeTaxonomySlugAction(form: FormData): Promise<void> {
   );
   revalidatePath("/admin/taxonomy");
   revalidatePath("/fabric-types/[slug]", "page");
+  return mutationResult(termId);
 }
 
-export async function createApplicationAction(form: FormData): Promise<void> {
+export async function createApplicationAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["internalKey", "name"]);
   const actor = await currentActor();
-  await withDatabase((db) =>
+  const applicationId = await withDatabase((db) =>
     createApplicationDraft(db, actor, {
       internalKey: requiredString(form, "internalKey"),
       name: requiredString(form, "name"),
@@ -477,10 +546,10 @@ export async function createApplicationAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath("/admin/applications");
-  redirect("/admin/applications");
+  return mutationResult(applicationId, `/admin/applications/${applicationId}/`);
 }
 
-export async function updateApplicationAction(form: FormData): Promise<void> {
+export async function updateApplicationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
@@ -501,33 +570,37 @@ export async function updateApplicationAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/applications/${applicationId}`);
   revalidatePath("/applications/[slug]", "page");
+  return mutationResult(applicationId);
 }
 
-export async function submitApplicationReviewAction(form: FormData): Promise<void> {
+export async function submitApplicationReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) => submitApplicationForReview(db, actor, applicationId));
   revalidatePath(`/admin/applications/${applicationId}`);
+  return mutationResult(applicationId);
 }
 
-export async function publishApplicationAction(form: FormData): Promise<void> {
+export async function publishApplicationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) => publishApplication(db, actor, applicationId));
   revalidatePath(`/admin/applications/${applicationId}`);
   revalidatePath("/applications/[slug]", "page");
+  return mutationResult(applicationId);
 }
 
-export async function rejectApplicationReviewAction(form: FormData): Promise<void> {
+export async function rejectApplicationReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
     rejectApplicationReview(db, actor, applicationId, requiredString(form, "reason")),
   );
   revalidatePath(`/admin/applications/${applicationId}`);
+  return mutationResult(applicationId);
 }
 
-export async function applyApplicationRevisionAction(form: FormData): Promise<void> {
+export async function applyApplicationRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
@@ -535,18 +608,20 @@ export async function applyApplicationRevisionAction(form: FormData): Promise<vo
   );
   revalidatePath(`/admin/applications/${applicationId}`);
   revalidatePath("/applications/[slug]", "page");
+  return mutationResult(applicationId);
 }
 
-export async function rejectApplicationRevisionAction(form: FormData): Promise<void> {
+export async function rejectApplicationRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
     rejectApplicationRevision(db, actor, requiredString(form, "revisionId")),
   );
   revalidatePath(`/admin/applications/${applicationId}`);
+  return mutationResult(applicationId);
 }
 
-export async function setApplicationIndexAction(form: FormData): Promise<void> {
+export async function setApplicationIndexAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
@@ -554,13 +629,14 @@ export async function setApplicationIndexAction(form: FormData): Promise<void> {
       db,
       actor,
       applicationId,
-      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+      parseRequiredField(z.enum(["index", "noindex"]), form, "indexStatus"),
     ),
   );
   revalidatePath(`/admin/applications/${applicationId}`);
+  return mutationResult(applicationId);
 }
 
-export async function archiveApplicationAction(form: FormData): Promise<void> {
+export async function archiveApplicationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
@@ -568,9 +644,10 @@ export async function archiveApplicationAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/applications/${applicationId}`);
   revalidatePath("/applications/[slug]", "page");
+  return mutationResult(applicationId);
 }
 
-export async function changeApplicationSlugAction(form: FormData): Promise<void> {
+export async function changeApplicationSlugAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
   await withDatabase((db) =>
@@ -585,17 +662,23 @@ export async function changeApplicationSlugAction(form: FormData): Promise<void>
   );
   revalidatePath(`/admin/applications/${applicationId}`);
   revalidatePath("/applications/[slug]", "page");
+  return mutationResult(applicationId);
 }
 
-export async function createContentAction(form: FormData): Promise<void> {
+export async function createContentAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["channel", "type", "authorId", "title", "body"]);
   const actor = await currentActor();
-  const channel = z
-    .enum(["fabric_knowledge", "china_textile_guide", "china_sourcing_guide"])
-    .parse(requiredString(form, "channel"));
-  const type = z
-    .enum(["article", "pillar", "comparison", "how_to", "guide"])
-    .parse(requiredString(form, "type"));
-  await withDatabase((db) =>
+  const channel = parseRequiredField(
+    z.enum(["fabric_knowledge", "china_textile_guide", "china_sourcing_guide"]),
+    form,
+    "channel",
+  );
+  const type = parseRequiredField(
+    z.enum(["article", "pillar", "comparison", "how_to", "guide"]),
+    form,
+    "type",
+  );
+  const contentId = await withDatabase((db) =>
     createContentDraft(db, actor, {
       channel,
       type,
@@ -608,18 +691,20 @@ export async function createContentAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath("/admin/contents");
-  redirect("/admin/contents");
+  return mutationResult(contentId, `/admin/contents/${contentId}/`);
 }
 
-export async function updateContentAction(form: FormData): Promise<void> {
+export async function updateContentAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) =>
     updateContent(db, actor, contentId, {
       authorId: requiredString(form, "authorId"),
-      type: z
-        .enum(["article", "pillar", "comparison", "how_to", "guide"])
-        .parse(requiredString(form, "type")),
+      type: parseRequiredField(
+        z.enum(["article", "pillar", "comparison", "how_to", "guide"]),
+        form,
+        "type",
+      ),
       title: requiredString(form, "title"),
       excerpt: optionalString(form, "excerpt") ?? null,
       body: requiredString(form, "body"),
@@ -643,32 +728,36 @@ export async function updateContentAction(form: FormData): Promise<void> {
   revalidatePath("/fabric-knowledge/[slug]", "page");
   revalidatePath("/china-textile-guide/[slug]", "page");
   revalidatePath("/china-sourcing-guide/[slug]", "page");
+  return mutationResult(contentId);
 }
 
-export async function submitContentReviewAction(form: FormData): Promise<void> {
+export async function submitContentReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) => submitContentForReview(db, actor, contentId));
   revalidatePath(`/admin/contents/${contentId}`);
+  return mutationResult(contentId);
 }
 
-export async function publishContentAction(form: FormData): Promise<void> {
+export async function publishContentAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) => publishContent(db, actor, contentId));
   revalidatePath(`/admin/contents/${contentId}`);
+  return mutationResult(contentId);
 }
 
-export async function rejectContentReviewAction(form: FormData): Promise<void> {
+export async function rejectContentReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) =>
     rejectContentReview(db, actor, contentId, requiredString(form, "reason")),
   );
   revalidatePath(`/admin/contents/${contentId}`);
+  return mutationResult(contentId);
 }
 
-export async function applyContentRevisionAction(form: FormData): Promise<void> {
+export async function applyContentRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) =>
@@ -678,18 +767,20 @@ export async function applyContentRevisionAction(form: FormData): Promise<void> 
   revalidatePath("/fabric-knowledge/[slug]", "page");
   revalidatePath("/china-textile-guide/[slug]", "page");
   revalidatePath("/china-sourcing-guide/[slug]", "page");
+  return mutationResult(contentId);
 }
 
-export async function rejectContentRevisionAction(form: FormData): Promise<void> {
+export async function rejectContentRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) =>
     rejectContentRevision(db, actor, requiredString(form, "revisionId")),
   );
   revalidatePath(`/admin/contents/${contentId}`);
+  return mutationResult(contentId);
 }
 
-export async function setContentIndexAction(form: FormData): Promise<void> {
+export async function setContentIndexAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) =>
@@ -697,22 +788,24 @@ export async function setContentIndexAction(form: FormData): Promise<void> {
       db,
       actor,
       contentId,
-      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+      parseRequiredField(z.enum(["index", "noindex"]), form, "indexStatus"),
     ),
   );
   revalidatePath(`/admin/contents/${contentId}`);
+  return mutationResult(contentId);
 }
 
-export async function archiveContentAction(form: FormData): Promise<void> {
+export async function archiveContentAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase((db) =>
     archiveContent(db, actor, contentId, requiredString(form, "reason")),
   );
   revalidatePath(`/admin/contents/${contentId}`);
+  return mutationResult(contentId);
 }
 
-export async function changeContentSlugAction(form: FormData): Promise<void> {
+export async function changeContentSlugAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
   await withDatabase(async (db) => {
@@ -741,14 +834,16 @@ export async function changeContentSlugAction(form: FormData): Promise<void> {
   revalidatePath("/fabric-knowledge/[slug]", "page");
   revalidatePath("/china-textile-guide/[slug]", "page");
   revalidatePath("/china-sourcing-guide/[slug]", "page");
+  return mutationResult(contentId);
 }
 
-export async function createFabricEntryAction(form: FormData): Promise<void> {
+export async function createFabricEntryAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["title", "assetIds"]);
   const actor = await currentActor();
   const assetIds = form
     .getAll("assetIds")
     .filter((value): value is string => typeof value === "string" && Boolean(value));
-  await withDatabase((db) =>
+  const entryId = await withDatabase((db) =>
     createFabricLibraryEntry(db, actor, {
       title: requiredString(form, "title"),
       ...(optionalString(form, "description")
@@ -758,10 +853,10 @@ export async function createFabricEntryAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath("/admin/fabric-library");
-  redirect("/admin/fabric-library");
+  return mutationResult(entryId, `/admin/fabric-library/${entryId}/`);
 }
 
-export async function updateFabricEntryAction(form: FormData): Promise<void> {
+export async function updateFabricEntryAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   const values = (key: string) =>
@@ -790,39 +885,44 @@ export async function updateFabricEntryAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
   revalidatePath("/fabric-library/[slug]", "page");
+  return mutationResult(entryId);
 }
 
-export async function submitFabricEntryReviewAction(form: FormData): Promise<void> {
+export async function submitFabricEntryReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) => submitFabricLibraryEntryForReview(db, actor, entryId));
   revalidatePath(`/admin/fabric-library/${entryId}`);
+  return mutationResult(entryId);
 }
 
-export async function publishFabricEntryAction(form: FormData): Promise<void> {
+export async function publishFabricEntryAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) => publishFabricLibraryEntry(db, actor, entryId));
   revalidatePath(`/admin/fabric-library/${entryId}`);
+  return mutationResult(entryId);
 }
 
-export async function rejectFabricEntryReviewAction(form: FormData): Promise<void> {
+export async function rejectFabricEntryReviewAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) =>
     rejectFabricLibraryEntryReview(db, actor, entryId, requiredString(form, "reason")),
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
+  return mutationResult(entryId);
 }
 
-export async function confirmFabricEntryValueAction(form: FormData): Promise<void> {
+export async function confirmFabricEntryValueAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) => confirmFabricEntryIndependentValue(db, actor, entryId));
   revalidatePath(`/admin/fabric-library/${entryId}`);
+  return mutationResult(entryId);
 }
 
-export async function setFabricEntryIndexAction(form: FormData): Promise<void> {
+export async function setFabricEntryIndexAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) =>
@@ -830,13 +930,14 @@ export async function setFabricEntryIndexAction(form: FormData): Promise<void> {
       db,
       actor,
       entryId,
-      z.enum(["index", "noindex"]).parse(requiredString(form, "indexStatus")),
+      parseRequiredField(z.enum(["index", "noindex"]), form, "indexStatus"),
     ),
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
+  return mutationResult(entryId);
 }
 
-export async function applyFabricEntryRevisionAction(form: FormData): Promise<void> {
+export async function applyFabricEntryRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) =>
@@ -844,18 +945,20 @@ export async function applyFabricEntryRevisionAction(form: FormData): Promise<vo
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
   revalidatePath("/fabric-library/[slug]", "page");
+  return mutationResult(entryId);
 }
 
-export async function rejectFabricEntryRevisionAction(form: FormData): Promise<void> {
+export async function rejectFabricEntryRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) =>
     rejectFabricLibraryRevision(db, actor, requiredString(form, "revisionId")),
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
+  return mutationResult(entryId);
 }
 
-export async function archiveFabricEntryAction(form: FormData): Promise<void> {
+export async function archiveFabricEntryAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) =>
@@ -863,9 +966,10 @@ export async function archiveFabricEntryAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
   revalidatePath("/fabric-library/[slug]", "page");
+  return mutationResult(entryId);
 }
 
-export async function changeFabricEntrySlugAction(form: FormData): Promise<void> {
+export async function changeFabricEntrySlugAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const entryId = requiredString(form, "entryId");
   await withDatabase((db) =>
@@ -880,20 +984,23 @@ export async function changeFabricEntrySlugAction(form: FormData): Promise<void>
   );
   revalidatePath(`/admin/fabric-library/${entryId}`);
   revalidatePath("/fabric-library/[slug]", "page");
+  return mutationResult(entryId);
 }
 
-export async function createAuthorAction(form: FormData): Promise<void> {
+export async function createAuthorAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["internalKey", "displayName"]);
   const actor = await currentActor();
-  await withDatabase((db) => createAuthor(db, actor, {
+  const authorId = await withDatabase((db) => createAuthor(db, actor, {
     internalKey: requiredString(form, "internalKey"),
     displayName: requiredString(form, "displayName"),
     bio: optionalString(form, "bio") ?? null,
     isOrganization: form.get("isOrganization") === "on",
   }));
   revalidatePath("/admin/authors");
+  return mutationResult(authorId, `/admin/authors/?created=${authorId}`);
 }
 
-export async function updateAuthorAction(form: FormData): Promise<void> {
+export async function updateAuthorAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const authorId = requiredString(form, "authorId");
   await withDatabase((db) => updateAuthor(db, actor, authorId, {
@@ -903,11 +1010,13 @@ export async function updateAuthorAction(form: FormData): Promise<void> {
     isActive: form.get("isActive") === "on",
   }));
   revalidatePath("/admin/authors");
+  return mutationResult(authorId);
 }
 
-export async function createCompanyFactAction(form: FormData): Promise<void> {
+export async function createCompanyFactAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["factKey", "subject", "statement"]);
   const actor = await currentActor();
-  await withDatabase((db) => createCompanyFact(db, actor, {
+  const factId = await withDatabase((db) => createCompanyFact(db, actor, {
     factKey: requiredString(form, "factKey"),
     subject: requiredString(form, "subject"),
     statement: requiredString(form, "statement"),
@@ -915,9 +1024,10 @@ export async function createCompanyFactAction(form: FormData): Promise<void> {
     evidenceReference: optionalString(form, "evidenceReference") ?? null,
   }));
   revalidatePath("/admin/company-facts");
+  return mutationResult(factId, `/admin/company-facts/${factId}/`);
 }
 
-export async function updateCompanyFactAction(form: FormData): Promise<void> {
+export async function updateCompanyFactAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const factId = requiredString(form, "factId");
   await withDatabase((db) =>
@@ -930,9 +1040,10 @@ export async function updateCompanyFactAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/company-facts/${factId}`);
   revalidatePath("/", "layout");
+  return mutationResult(factId);
 }
 
-export async function verifyCompanyFactAction(form: FormData): Promise<void> {
+export async function verifyCompanyFactAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const factId = requiredString(form, "factId");
   await withDatabase((db) =>
@@ -943,9 +1054,10 @@ export async function verifyCompanyFactAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/company-facts/${factId}`);
   revalidatePath("/", "layout");
+  return mutationResult(factId);
 }
 
-export async function rejectCompanyFactAction(form: FormData): Promise<void> {
+export async function rejectCompanyFactAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const factId = requiredString(form, "factId");
   await withDatabase((db) =>
@@ -953,9 +1065,10 @@ export async function rejectCompanyFactAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/company-facts/${factId}`);
   revalidatePath("/", "layout");
+  return mutationResult(factId);
 }
 
-export async function updateAssetDeclarationAction(form: FormData): Promise<void> {
+export async function updateAssetDeclarationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const assetId = requiredString(form, "assetId");
   const enabled = form.get("enabled") === "on";
@@ -963,22 +1076,25 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
   if (form.has("markReviewed") || form.has("reviewDecision")) {
     throw new Error("Declaration editing and review must be separate operations.");
   }
-  const subjectRelationship = z
-    .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
-    .optional()
-    .parse(optionalString(form, "subjectRelationship"));
-  const publicUsePermission = z
-    .enum(["unknown", "allowed", "not_allowed", "restricted"])
-    .optional()
-    .parse(optionalString(form, "publicUsePermission"));
-  const editingPermission = z
-    .enum(["unknown", "allowed", "not_allowed", "restricted"])
-    .optional()
-    .parse(optionalString(form, "editingPermission"));
+  const subjectRelationship = parseOptionalField(
+    z.enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"]).optional(),
+    form,
+    "subjectRelationship",
+  );
+  const publicUsePermission = parseOptionalField(
+    z.enum(["unknown", "allowed", "not_allowed", "restricted"]).optional(),
+    form,
+    "publicUsePermission",
+  );
+  const editingPermission = parseOptionalField(
+    z.enum(["unknown", "allowed", "not_allowed", "restricted"]).optional(),
+    form,
+    "editingPermission",
+  );
   await withDatabase((db) =>
     updateSourceDeclaration(db, assetId, actor, {
-      expectedVersion: z.coerce.number().int().min(0).parse(
-        requiredString(form, "expectedVersion"),
+      expectedVersion: parseRequiredField(
+        z.coerce.number().int().min(0), form, "expectedVersion",
       ),
       enabled,
       sourceType: optionalString(form, "sourceType") ?? null,
@@ -1002,17 +1118,20 @@ export async function updateAssetDeclarationAction(form: FormData): Promise<void
   );
   revalidatePath(`/admin/assets/${assetId}`);
   revalidatePath("/admin/assets");
+  return mutationResult(assetId);
 }
 
-export async function reviewAssetDeclarationAction(form: FormData): Promise<void> {
+export async function reviewAssetDeclarationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const assetId = requiredString(form, "assetId");
-  const decision = z
-    .enum(["approved", "rejected"])
-    .parse(requiredString(form, "decision"));
-  const effectiveDecision = z
-    .enum(["allowed", "restricted", "not_allowed", "revoked"])
-    .parse(requiredString(form, "effectiveDecision"));
+  const decision = parseRequiredField(
+    z.enum(["approved", "rejected"]), form, "decision",
+  );
+  const effectiveDecision = parseRequiredField(
+    z.enum(["allowed", "restricted", "not_allowed", "revoked"]),
+    form,
+    "effectiveDecision",
+  );
   const publicWebsite = optionalString(form, "rightsPublicWebsiteAllowed");
   await withDatabase((db) =>
     reviewSourceDeclaration(
@@ -1022,19 +1141,22 @@ export async function reviewAssetDeclarationAction(form: FormData): Promise<void
       decision,
       effectiveDecision,
       publicWebsite === "yes" ? true : publicWebsite === "no" ? false : null,
-      z.coerce.number().int().min(0).parse(requiredString(form, "expectedVersion")),
+      parseRequiredField(z.coerce.number().int().min(0), form, "expectedVersion"),
       optionalString(form, "reason") ?? null,
     ),
   );
   revalidatePath(`/admin/assets/${assetId}`);
+  return mutationResult(assetId);
 }
 
-export async function overrideAssetDeclarationAction(form: FormData): Promise<void> {
+export async function overrideAssetDeclarationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const assetId = requiredString(form, "assetId");
-  const effectiveDecision = z
-    .enum(["allowed", "restricted", "not_allowed", "revoked"])
-    .parse(requiredString(form, "effectiveDecision"));
+  const effectiveDecision = parseRequiredField(
+    z.enum(["allowed", "restricted", "not_allowed", "revoked"]),
+    form,
+    "effectiveDecision",
+  );
   const publicWebsite = optionalString(form, "rightsPublicWebsiteAllowed");
   await withDatabase((db) =>
     adminOverrideSourceDeclaration(
@@ -1043,18 +1165,18 @@ export async function overrideAssetDeclarationAction(form: FormData): Promise<vo
       actor,
       effectiveDecision,
       publicWebsite === "yes" ? true : publicWebsite === "no" ? false : null,
-      z.coerce.number().int().min(0).parse(requiredString(form, "expectedVersion")),
+      parseRequiredField(z.coerce.number().int().min(0), form, "expectedVersion"),
       requiredString(form, "reason"),
     ),
   );
   revalidatePath(`/admin/assets/${assetId}`);
+  return mutationResult(assetId);
 }
 
-export async function changeInquiryStatusAction(form: FormData): Promise<void> {
+export async function changeInquiryStatusAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const inquiryId = requiredString(form, "inquiryId");
-  const status = z
-    .enum([
+  const status = parseRequiredField(z.enum([
       "new",
       "reviewing",
       "qualified",
@@ -1065,25 +1187,28 @@ export async function changeInquiryStatusAction(form: FormData): Promise<void> {
       "lost",
       "spam",
       "archived",
-    ])
-    .parse(requiredString(form, "status"));
+    ]), form, "status");
   await withDatabase((db) =>
     changeInquiryStatus(db, actor, inquiryId, status, optionalString(form, "reason")),
   );
   revalidatePath(`/admin/inquiries/${inquiryId}`);
   revalidatePath("/admin/inquiries");
+  return mutationResult(inquiryId);
 }
 
-export async function addCustomerActivityAction(form: FormData): Promise<void> {
+export async function addCustomerActivityAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["inquiryId", "type", "direction", "content"]);
   const actor = await currentActor();
   const inquiryId = requiredString(form, "inquiryId");
-  const type = z
-    .enum(["note", "email", "whatsapp", "quote", "sample", "status_change"])
-    .parse(requiredString(form, "type"));
-  const direction = z
-    .enum(["inbound", "outbound", "internal"])
-    .parse(requiredString(form, "direction"));
-  await withDatabase((db) =>
+  const type = parseRequiredField(
+    z.enum(["note", "email", "whatsapp", "quote", "sample", "status_change"]),
+    form,
+    "type",
+  );
+  const direction = parseRequiredField(
+    z.enum(["inbound", "outbound", "internal"]), form, "direction",
+  );
+  const activityId = await withDatabase((db) =>
     addCustomerActivity(db, actor, inquiryId, {
       type,
       direction,
@@ -1091,17 +1216,20 @@ export async function addCustomerActivityAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath(`/admin/inquiries/${inquiryId}`);
+  return mutationResult(activityId);
 }
 
-export async function assignInquiryAction(form: FormData): Promise<void> {
+export async function assignInquiryAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const inquiryId = requiredString(form, "inquiryId");
-  const priority = z
-    .enum(["low", "normal", "high", "urgent"])
-    .parse(requiredString(form, "priority"));
-  const qualificationStatus = z
-    .enum(["unassessed", "qualified", "unqualified", "needs_information"])
-    .parse(requiredString(form, "qualificationStatus"));
+  const priority = parseRequiredField(
+    z.enum(["low", "normal", "high", "urgent"]), form, "priority",
+  );
+  const qualificationStatus = parseRequiredField(
+    z.enum(["unassessed", "qualified", "unqualified", "needs_information"]),
+    form,
+    "qualificationStatus",
+  );
   await withDatabase((db) =>
     assignInquiry(db, actor, inquiryId, {
       ...(actor.role === "admin"
@@ -1113,11 +1241,13 @@ export async function assignInquiryAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/inquiries/${inquiryId}`);
   revalidatePath("/admin/inquiries");
+  return mutationResult(inquiryId);
 }
 
-export async function createOrganizationAction(form: FormData): Promise<void> {
+export async function createOrganizationAction(form: FormData): Promise<AdminMutationOutcome> {
+  requireFields(form, ["name"]);
   const actor = await currentActor();
-  await withDatabase((db) =>
+  const organizationId = await withDatabase((db) =>
     createOrganization(db, actor, {
       name: requiredString(form, "name"),
       website: optionalString(form, "website") ?? null,
@@ -1125,9 +1255,10 @@ export async function createOrganizationAction(form: FormData): Promise<void> {
     }),
   );
   revalidatePath("/admin/contacts");
+  return mutationResult(organizationId);
 }
 
-export async function assignContactOrganizationAction(form: FormData): Promise<void> {
+export async function assignContactOrganizationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contactId = requiredString(form, "contactId");
   const organizationId = optionalString(form, "organizationId") ?? null;
@@ -1135,12 +1266,14 @@ export async function assignContactOrganizationAction(form: FormData): Promise<v
     assignContactOrganization(db, actor, contactId, organizationId),
   );
   revalidatePath("/admin/contacts");
+  return mutationResult(contactId);
 }
 
-export async function setFeatureFlagAction(form: FormData): Promise<void> {
+export async function setFeatureFlagAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const flagId = requiredString(form, "flagId");
   const enabled = requiredString(form, "enabled") === "true";
   await withDatabase((db) => setFeatureFlag(db, actor, flagId, enabled));
   revalidatePath("/admin/settings");
+  return mutationResult(flagId);
 }

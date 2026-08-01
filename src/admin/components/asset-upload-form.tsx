@@ -96,7 +96,7 @@ export function AssetUploadForm({ associations }: Readonly<{
       formElement.reset();
       setDeclarationEnabled(false);
       setFeedback({ kind: "success", message: `${files.length} asset${files.length === 1 ? "" : "s"} uploaded and released.` });
-      router.refresh();
+      setTimeout(() => router.refresh(), 0);
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Upload failed safely. Try again." });
     } finally {

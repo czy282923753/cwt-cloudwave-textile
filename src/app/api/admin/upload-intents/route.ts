@@ -47,6 +47,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true, ...result, expiresAt: result.expiresAt.toISOString() }, { status: 201 });
   } catch (error) {
     const failure = adminActionHttpFailure(error);
-    return NextResponse.json({ ok: false, error: failure.error, errorKind: failure.errorKind }, { status: failure.status });
+    return NextResponse.json({ ok: false, error: failure.error, errorCode: failure.errorCode }, { status: failure.status });
   }
 }

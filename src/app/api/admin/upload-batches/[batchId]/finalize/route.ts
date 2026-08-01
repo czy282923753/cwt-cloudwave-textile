@@ -27,6 +27,6 @@ export async function POST(request: Request, context: { params: Promise<{ batchI
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const failure = adminActionHttpFailure(error);
-    return NextResponse.json({ ok: false, error: failure.error, errorKind: failure.errorKind }, { status: failure.status });
+    return NextResponse.json({ ok: false, error: failure.error, errorCode: failure.errorCode }, { status: failure.status });
   }
 }

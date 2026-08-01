@@ -17,25 +17,37 @@ export interface AuditInput {
   userAgentSummary?: string | null;
 }
 
+export class AuditWriteError extends Error {
+  constructor(cause?: unknown) {
+    super("Required Audit log write failed.", { cause });
+    this.name = "AuditWriteError";
+  }
+}
+
 export async function writeAuditLog<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   input: AuditInput,
 ): Promise<string> {
-  const rows = await db
-    .insert(auditLogs)
-    .values({
-      actorUserId: input.actorUserId ?? null,
-      action: input.action,
-      entityType: input.entityType,
-      entityId: input.entityId ?? null,
-      beforeSummary: input.beforeSummary ?? null,
-      afterSummary: input.afterSummary ?? null,
-      requestId: input.requestId ?? null,
-      ipSummary: input.ipSummary ?? null,
-      userAgentSummary: input.userAgentSummary ?? null,
-    })
-    .returning({ id: auditLogs.id });
-  const row = rows[0];
-  if (!row) throw new Error("Audit log insert did not return an ID.");
-  return row.id;
+  try {
+    const rows = await db
+      .insert(auditLogs)
+      .values({
+        actorUserId: input.actorUserId ?? null,
+        action: input.action,
+        entityType: input.entityType,
+        entityId: input.entityId ?? null,
+        beforeSummary: input.beforeSummary ?? null,
+        afterSummary: input.afterSummary ?? null,
+        requestId: input.requestId ?? null,
+        ipSummary: input.ipSummary ?? null,
+        userAgentSummary: input.userAgentSummary ?? null,
+      })
+      .returning({ id: auditLogs.id });
+    const row = rows[0];
+    if (!row) throw new Error("Audit log insert did not return an ID.");
+    return row.id;
+  } catch (error) {
+    if (error instanceof AuditWriteError) throw error;
+    throw new AuditWriteError(error);
+  }
 }

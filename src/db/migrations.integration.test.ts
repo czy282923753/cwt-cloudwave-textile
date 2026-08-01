@@ -45,6 +45,7 @@ describe("database migrations", () => {
     expect(names).toContain("assets");
     expect(names).toContain("inquiries");
     expect(names).toContain("audit_logs");
+    expect(names).toContain("upload_recovery_jobs");
     await connection.close();
   }, 15_000);
 
@@ -229,6 +230,56 @@ describe("database migrations", () => {
     }
   });
 
+  it("creates the durable Upload Recovery lease model with its uniqueness and work indexes", async () => {
+    const connection = await createTestDatabase();
+    try {
+      const columns = await connection.db.execute<{ column_name: string }>(sql`
+        select column_name from information_schema.columns
+        where table_name = 'upload_recovery_jobs'
+      `);
+      const names = new Set(columns.rows.map((row) => row.column_name));
+      for (const required of [
+        "kind",
+        "upload_batch_id",
+        "upload_intent_id",
+        "asset_id",
+        "storage_partition",
+        "object_key",
+        "status",
+        "stage",
+        "attempt_count",
+        "next_attempt_at",
+        "locked_by",
+        "locked_at",
+        "lease_expires_at",
+        "version",
+        "last_error",
+        "started_at",
+        "completed_at",
+        "expires_at",
+      ]) {
+        expect(names, required).toContain(required);
+      }
+      const indexes = await connection.db.execute<{ indexname: string }>(sql`
+        select indexname from pg_indexes where tablename = 'upload_recovery_jobs'
+      `);
+      expect(indexes.rows.map((row) => row.indexname)).toEqual(expect.arrayContaining([
+        "upload_recovery_jobs_intent_unique",
+        "upload_recovery_jobs_finalize_batch_unique",
+        "upload_recovery_jobs_work_idx",
+        "upload_recovery_jobs_batch_idx",
+      ]));
+      const snapshot = await readFile("drizzle/meta/0012_snapshot.json", "utf8");
+      expect(snapshot).toContain('"upload_recovery_jobs"');
+      expect(snapshot).toContain('"upload_recovery_jobs_finalize_batch_unique"');
+      const migration = await readFile("drizzle/0012_nostalgic_calypso.sql", "utf8");
+      expect(migration).toContain('CREATE TABLE "upload_recovery_jobs"');
+      expect(migration).toContain('CREATE UNIQUE INDEX "upload_recovery_jobs_finalize_batch_unique"');
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("upgrades the pre-remediation schema without losing the authoritative primary category", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-migration-upgrade-"));
     const metaDirectory = join(temporaryRoot, "meta");
@@ -379,6 +430,11 @@ describe("database migrations", () => {
       expect(upgradedConstraint.rows[0]?.definition).toContain("event_name");
       expect(upgradedConstraint.rows[0]?.definition).toContain("entity_type");
       expect(upgradedConstraint.rows[0]?.definition).toContain("entity_id");
+      const upgradedRecoveryTable = await connection.db.execute<{ table_name: string }>(sql`
+        select table_name from information_schema.tables
+        where table_schema = 'public' and table_name = 'upload_recovery_jobs'
+      `);
+      expect(upgradedRecoveryTable.rows).toHaveLength(1);
     } finally {
       await connection.close();
       await rm(temporaryRoot, { recursive: true, force: true });
