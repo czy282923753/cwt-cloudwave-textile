@@ -8,3 +8,5 @@ ADRs explain decisions that affect architecture or the frozen baseline. A propos
 - ADR-0004: Storage isolation
 - ADR-0005: Publishing and indexing separation
 - ADR-0006: Phase 1A remediation invariants and fail-closed boundaries
+- ADR-0007: Historical Asset rescan and readiness gate
+- ADR-0008: Revocable public media delivery

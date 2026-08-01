@@ -45,6 +45,7 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Automated person/logo/document hints are non-blocking and never enable declarations automatically.
 - Closing a populated declaration does not delete history. Declaration changes are audited.
 - Declaration writers cannot self-review. Reviewer identity/date may only be set by the acting Reviewer/Publisher or Admin; later declaration edits invalidate the previous review until reviewed again.
+- Declaration editing and review are separate operations. Each statement records its version and last editor. Normal approval/rejection records a different reviewer, reviewed version, time, decision and reason; Admin Override is separate, Admin-only, reason-required and distinctly audited.
 - Source declaration convenience must not weaken MIME, magic-byte, decode, size/count, rate-limit, malware-scan, isolation, or private-access controls.
 
 ## Architecture and security
@@ -57,9 +58,12 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Local, test, preview, and production environments do not share databases, buckets, secrets, authentication, or analytics configuration.
 - Inquiry assets are private and cannot automatically enter public assets or any AI knowledge base.
 - Public Asset delivery requires a Public partition, Public access, Ready processing, Passed scan, no deletion, and an effective link to a currently Published public entity.
+- Historical Assets are never inferred Passed. Migration marks them for byte-backed rescan; missing or failed files remain nonpublic and broken Published/Inquiry links fail database readiness.
+- Public HTML may emit only application-controlled `/api/public-assets/{assetId}/` paths, never raw Object Keys or permanent Bucket/CDN URLs.
 - Admin may access all Inquiries. Sales may access only assigned records. Analyst, Reviewer/Publisher, Product Editor, and Content Editor receive no raw customer-record or private-file access through their other roles.
 - Public Inquiry retries use an Idempotency Key. Contact master data is not overwritten by unauthenticated submissions; submitted values stay on the Inquiry snapshot. Notification delivery uses the persistent outbox.
 - Conversion Events use per-event property allowlists, consent state, unique Event IDs, and no customer PII or private identifiers.
+- Analytics is off until explicit consent. Upload Intents are private, short-lived, Session-bound, scanned and single-use; arbitrary `x-forwarded-for` is never trusted.
 
 ## Quality gates
 

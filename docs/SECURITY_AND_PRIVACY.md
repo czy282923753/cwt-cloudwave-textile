@@ -1,5 +1,12 @@
 # Security and privacy baseline
 
+## Remediation Round 2 controls
+
+- Analytics remains disabled for `unknown` and `denied`; only `granted` events are stored or sent. Consent UI supports allow, decline, withdraw and modify.
+- Event replay must match the original event, and every attribution string is format/length/PII validated. Internal Inquiry UUIDs stay in the server-side FK; clients receive a random `CWT-…` reference. Public entity tracking submits a governed route path and resolves its internal ID only on the server.
+- Upload size and rate controls run before body parsing. `Content-Length` is mandatory for file transfer and small Inquiry/Intent JSON, and the binary length/MIME must match its Intent before the body is read. Trusted client IP headers require explicit Cloudflare or Vercel mode; arbitrary `x-forwarded-for` is ignored.
+- Notification jobs use leases, finite exponential retry, Dead state and a unique Delivery Key. SMTP receives a deterministic Message-ID; provider duplicate suppression after send-success/database-failure remains external validation.
+
 ## Data separation
 
 Public assets, private inquiry files, and internal imports use isolated storage contexts and credentials/policies. Inquiry files have no permanent public URL and cannot automatically become public assets or AI knowledge.

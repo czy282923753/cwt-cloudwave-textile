@@ -1,5 +1,16 @@
 # Operations runbook — Phase 1A
 
+## Upgrade order for existing Phase 1A data
+
+1. Back up the database and all storage partitions.
+2. Apply migration 0007. Do not serve traffic as ready.
+3. Run `pnpm assets:rescan-legacy`; stale interrupted claims older than 15 minutes are reclaimed automatically. Resolve every missing/rejected item required by a Published entity or Inquiry, then retry one repaired item with `pnpm assets:rescan-legacy --retry-manual {assetId}`.
+4. Run `pnpm db:verify`; it must not pass while a public/private relation is broken.
+5. Run retention preview for expired Upload Intents, then an approved execution.
+6. Run the full gate and external PostgreSQL/R2 checklist before deployment authorization.
+
+Outbox workers use 60-second leases and a stable Delivery Key. Monitor `processing` past lease, `failed` and `dead`; never manually mark Sent without provider evidence.
+
 ## Local release verification
 
 Use Node 24.14 and pnpm 11.9. Apply migrations, run both repeatable seeds as needed, run `db:verify`, then execute `check:all`. Synthetic fixtures are local/test-only and noindex. Never use the development user, PGlite database, local storage, log email, in-memory limiter, or development scanner in production.
@@ -18,7 +29,7 @@ Unknown or failed scans remain quarantined and are not publicly released. Verify
 
 ## Retention
 
-`pnpm retention:preview` reports expired private inquiry assets without deleting them. `pnpm retention:execute` deletes eligible stored objects, retains a deleted database record, and adds an Audit Log. Production scheduling and execution are blocked until the project/legal retention values are approved and a backup/restore policy exists.
+`pnpm retention:preview` reports expired private inquiry assets and abandoned/failed Upload Intents without deleting them. `pnpm retention:execute` deletes eligible stored objects, retains deleted database records, expires Intent state, and adds Audit Logs. Production scheduling and execution are blocked until the project/legal retention values are approved and a backup/restore policy exists.
 
 ## Inquiry and email incidents
 

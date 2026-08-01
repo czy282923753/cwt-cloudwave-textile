@@ -1,5 +1,14 @@
 # CWT data model — Phase 1A baseline
 
+## Round 2 additions
+
+- `assets`: scan failure reason, historical rescan state/attempt/time, declaration statement version, last editor, reviewed version, decision and reason.
+- `upload_intents`: hashed opaque token, anonymous Session binding, declared file facts, status, private Asset link, expiry, single-use and Inquiry consumption fields.
+- `inquiries.public_reference`: random unique client-safe reference, distinct from the internal UUID.
+- `notification_outbox`: unique Delivery Key, attempt count, lock owner/time, lease expiry, next attempt and safe last error.
+
+Migration 0007 backfills Inquiry public references and Outbox Delivery Keys before NOT NULL/unique constraints. It never backfills historical Asset scans as Passed.
+
 ## Principles
 
 - Relational fields are used for core searchable, filterable, constrained, and joined data.
@@ -65,7 +74,7 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 - Contact, lightweight Organization, Inquiry, private asset, activity, status history, and persistent notification-outbox tables implement repeat inquiries and accountable/retryable sales follow-up.
 - Conversion Events records a consent-aware, deduplicated, PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
 
-Phase 1A has 50 relational tables. Migration `0006_phase1a-remediation.sql` upgrades existing data by reconciling the former Product primary-category column into the authoritative join relation before dropping the duplicate column, then installs the new CRM, analytics, Asset-scan, route, and consistency constraints.
+Phase 1A has 51 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency.
 
 Source declaration is independent from security scanning, access class, and storage context.
 

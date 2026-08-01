@@ -1,5 +1,11 @@
 # CRM and attribution
 
+## Round 2 privacy and delivery rules
+
+The public confirmation exposes only `inquiries.public_reference`; the internal Inquiry UUID is never a client or GA4 event reference. Public behavioral events submit a current public entity path, never an internal entity UUID; the server resolves the path to an internal relation. Server-side Conversion Events may retain the Inquiry FK for CRM joins, but that FK is absent from public responses and event payloads. Analytics requires granted consent and independently validates paths, referrer origin, UTM/last-touch tokens, Event IDs and allowlisted properties for PII, internal identifiers, filenames, private URLs, type and length.
+
+Inquiry notification claims are atomic, lease-bound and reclaimable. A stable Delivery Key is passed to email as Message-ID. Five failed attempts lead to Dead. Provider behavior after an external send followed by a database failure remains documented rather than hidden.
+
 ## Inquiry contract
 
 Name and email are required. A description or one successfully stored image is required. Country and WhatsApp are optional.

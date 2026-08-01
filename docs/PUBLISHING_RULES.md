@@ -1,5 +1,9 @@
 # Publishing rules — frozen V1.1
 
+## Product public truth gate
+
+No Product may enter Published—even when Noindex—without Real Product Basis, human confirmation identity/time and one eligible real image Asset. Index remains a later, independent SEO decision. Historical Assets awaiting rescan cannot satisfy publication or readiness.
+
 ## States
 
 Entity workflow: Draft → In Review → Published → Archived.

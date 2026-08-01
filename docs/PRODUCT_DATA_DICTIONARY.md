@@ -1,5 +1,9 @@
 # Product data dictionary — frozen V1.1
 
+## Round 2 publication clarification
+
+Draft remains Name + one Primary Category + at least one eligible Public/Ready/Passed image. Published and Published+Noindex additionally require a controlled Real Product Basis, human confirmer and confirmation time, plus at least one Public/Ready/Passed image whose detected MIME is JPEG, PNG, WebP or AVIF. PDF, certificate and other non-image Assets never satisfy the Product image gate. Indexing adds the separate SEO quality gates.
+
 | Field | Draft rule | Public rule | AI rule |
 |---|---|---|---|
 | Product Name | Required | Shown | Draft suggestion allowed |
