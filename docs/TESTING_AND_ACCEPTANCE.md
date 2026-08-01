@@ -1,5 +1,9 @@
 # Testing and Phase 1A acceptance
 
+## Remediation Round 3 gates
+
+Acceptance adds historical/direct-database Product fail-closed reads, migration demotion queue, Effective Rights independent of declaration UI state, optimistic Source Declaration record versions and atomic Audit rollback, public analytics/CRM separation, server-persisted revocable Consent, streaming actual-byte limits, and Fabric/Content role-MIME readiness. Original assertions remain; no critical test is skipped.
+
 ## Remediation Round 2 gates
 
 Acceptance includes 0000–0005 Asset upgrade/rescan fixtures, Product real-basis and image-MIME publication gates, declaration separation/override, public media revocation, top-level analytics privacy/replay/consent, Outbox lease recovery, Upload Intent Session binding and pre-body guards, controlled private-attachment denial, consent UI, dynamic Open Graph/Breadcrumb output and stale-build rejection. Real PostgreSQL scenarios are in `POSTGRESQL_EXTERNAL_VALIDATION.md` and remain **External Validation Required**.
@@ -19,6 +23,19 @@ Synthetic fixtures validate the system only. Real product launch, authenticity, 
 ## Reporting
 
 Record command results, migrations, role tests, route/SEO checks, upload security, CRM flows, bundle checks, accessibility, performance, placeholders, known issues, and blocked external requirements.
+
+## Phase 1A Remediation Round 3 local evidence
+
+- Environment: Node 24.14.0 arm64, pnpm 11.9.0, Sharp 0.35.3, Lightning CSS 1.32.0 and Next SWC 16.2.12 native modules load successfully.
+- Static quality: ESLint has zero warnings; strict TypeScript passes; Drizzle schema check passes.
+- Vitest: 35 files and 81 tests pass, including all Migration, repeatable Seed, readiness, rights concurrency/rollback, Consent/privacy, upload stream and role/MIME cases.
+- Production build: all 39 static-generation units and dynamic routes complete under Next.js 16.2.12.
+- Public Bundle: 20 public page manifests and 29 manifest/chunk files contain no Refine/admin dependency.
+- Playwright: 15/15 pass across Desktop Chromium and Pixel 7. The original 14 scenarios remain active, plus governed Asset Library UI coverage. Home has no Critical/Serious Axe violation, mobile has no horizontal overflow, and all 11 principal public paths return HTTP 200.
+- Local persistent data: migrations 0000–0009 apply; core and Fixture Seed each repeat safely; 12 synthetic Products remain In Review/Noindex unless a test explicitly confirms and publishes inside an isolated E2E database; readiness has zero invalid relations.
+- Dependency audit: no known production vulnerabilities.
+
+Real PostgreSQL, provider storage, provider analytics and production field performance remain external validation, not local pass claims.
 
 ## Phase 1A Remediation Round 2 local evidence
 

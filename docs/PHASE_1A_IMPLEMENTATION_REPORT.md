@@ -1,111 +1,140 @@
-# CWT Phase 1A Remediation Round 2 implementation report
+# CWT Phase 1A Remediation Round 3 implementation report
 
-Date: 2026-08-01  
-Baseline: frozen CWT Product and Technical Architecture V1.1  
-Scope: the one Blocker, six High findings, and specified Medium findings only
+Date: 2026-08-02
 
-## 1. Blocker repair evidence
+Baseline: frozen CWT Product and Technical Architecture V1.1
 
-Migration `0007_phase1a-remediation-round2.sql` never infers a clean historical scan. Surviving old Assets become `pending/required`; deleted rows enter `manual_review`. `assets:rescan-legacy` reads the original Public, Private, or Import object, repeats file validation, image decode, and malware scan, then stores fresh provider/result/time evidence. Claims interrupted in `processing` for more than 15 minutes are automatically returned to work; a repaired manual item has an explicit single-Asset retry command. Missing, invalid, rejected, or deleted objects remain unavailable with a reason. `db:verify` fails when a Published Product, Fabric Entry, Content record, or Inquiry references an unusable Asset, and it also fails while any historical rescan remains `required`.
+Scope: third independent review findings only; no Phase 1B or external validation
 
-The integration fixture upgrades a real 0000–0005 database containing Public, Private Inquiry, Import, missing and deleted Assets, a Published Product relation, and an Inquiry attachment. Local persisted data upgraded successfully: 18/18 historical Assets rescanned to Passed and the manual-review list is empty. Fixtures are seeded only after the migration/rescan check and cannot manufacture scan evidence for old rows.
+## 1. Four High findings
 
-## 2. Six High findings
+1. **Historical Published Product gate — fixed.** Public list, detail, sitemap/index discovery, public Asset relation and analytics entity validation share a fail-closed Product boundary: Published, verified real basis, active Admin/Reviewer-Publisher confirmer, confirmation time, current English localization/route and eligible Public/Ready/Passed image. Published + Noindex and direct database legacy rows receive no exception.
+2. **Effective Rights Decision — fixed.** Declaration UI state is no longer an authorization input. Not Allowed, Revoked, Expired, Pending Review and Restricted without public-website permission remain unavailable when the declaration switch is OFF. Reviewer Allowed or an explicit Admin Override is required to replace the decision.
+3. **Analytics/CRM and Consent — fixed.** `conversion_events` has no Inquiry, Contact or private Asset foreign key. CRM outcomes remain in CRM tables. Anonymous Consent is server-persisted and versioned; Unknown, Denied and Revoked reject writes even if the client sends stale or forged state. Provider payload mapping omits database entity and Consent Session identifiers.
+4. **Actual upload bytes — fixed.** Binary bodies are read incrementally and aborted above the server Intent limit. Content-Length is only an early/exact check and may be absent. Mismatch, interruption or overflow does not create a storage object or consume the Intent.
 
-1. Product publication requires an allowed Real Product Basis, confirmer and time, plus at least one Public/Ready/Passed JPEG, PNG, WebP, or AVIF. PDF and certificate records cannot satisfy either Draft image or Published image requirements. Published + Noindex uses the same publication gate; Index remains a stricter later gate.
-2. Source Declaration content and review are separate actions. Every material edit increments Statement Version, records Last Editor, and invalidates the old review. The last editor cannot normally review the same version. Review records version, reviewer, time, decision and reason. Admin Override is a separate reason-required audited operation.
-3. Public HTML emits only `/api/public-assets/{assetId}/`, never Object Keys or permanent Bucket/CDN URLs. The route rechecks current Published association, public partition/access, Ready/Passed status, MIME, deletion, rights denial and expiry. Phase 1A uses `private, no-store`, so Archive, Unlink, Delete and Rights changes take effect on the next request. Local and S3 adapters share the same policy.
-4. Analytics stores only granted-consent events. Public entity tracking submits a current public path, not an internal entity UUID; server-side resolution establishes the relation. Inquiry responses/events use random `CWT-…` references while the internal Inquiry FK remains server-only. Every attribution string and allowlisted property has format, length, PII/private identifier and replay validation.
-5. Notification Outbox claims are conditional and lease-bound. Pending/failed due rows and expired processing leases are reclaimable; attempts use bounded exponential retry and Dead state. Delivery Key is unique and stable, and SMTP receives a deterministic Message-ID. Provider-level duplicate suppression after external success/database failure remains external validation.
-6. Public files use Upload Intent, mandatory pre-body Content-Length, declared length/MIME match, pre-body global/Session/trusted-IP limits, a Session-bound one-time token, private quarantine, scan/decode, and small strict Inquiry JSON. Arbitrary `x-forwarded-for` is ignored. Failed/interrupted Assets are linked to the Intent and retention can delete them after expiry.
+## 2. Two Medium findings
 
-## 3. Medium findings
+1. **Source Declaration concurrency and Audit atomicity — fixed.** Statement Version tracks content; Record Version increments on every edit, review and Admin Override. Stale operations fail. Business mutation and Audit Log share one database transaction, including injected Audit-failure rollback tests.
+2. **Fabric/Content role-MIME readiness — fixed.** Hero, Gallery, Cover, Detail, Thumbnail and Inline require JPEG/PNG/WebP/AVIF. PDF is allowed only as Document/Download and cannot satisfy Product, Fabric Entry or Content image readiness. Direct database corruption fails readiness and public read.
 
-Unauthorized private attachment access returns controlled 404. Organization, Contact assignment, and Feature Flag writes use Domain Services. Consent UI defaults analytics off and supports allow, decline, withdraw, and modify. Product, Application, Fabric Library, taxonomy, and Article dynamic pages provide Open Graph and Breadcrumb JSON-LD. Public Bundle verification refuses a missing or stale build.
+## 3. Historical Published Product strategy
 
-## 4. Asset upgrade and rescan strategy
+Migration 0008 chooses explicit remediation rather than silent masking alone: every invalid historical Published Product is forced Noindex, demoted to In Review, marked `publication_remediation_required` with a reason and given an Audit Log. Public reads independently recheck the boundary in case a future direct database write violates it. The admin Product list exposes the remediation queue. No basis, confirmer or technical fact is fabricated. Re-publication requires normal reviewer confirmation and workflow.
 
-ADR-0007 defines a two-stage forward migration: schema/state transition first, evidence-producing rescan second, readiness gate third. Public, Private Inquiry, and Import objects are read from their recorded partitions. Missing/deleted records are never silently restored. Recovery uses stale-claim reclamation, retryable `manual_review`, an attempt counter, failure reason, operator list, and explicit `--retry-manual {assetId}`. Production rollout requires database/storage backup and an isolated rehearsal.
+The 12 local synthetic Product fixtures remain In Review/Noindex after ordinary Seed. Isolated E2E scenarios may explicitly confirm and publish a fixture only to test the workflow. Real acceptance remains **Waiting for Real Product Data Validation**.
 
-## 5. Product publication changes
+## 4. Effective Rights Decision model
 
-Draft still requires only Product Name, Primary Category, and at least one eligible image. Real facts remain nullable and AI may not infer them. Publication additionally requires reviewed workflow state, confirmed Real Product Basis, and a usable public image. Index requires published state plus the existing SEO-quality and keyword-ownership checks. No facts were invented for real products; all 12 seeded Products remain explicit synthetic, Noindex fixtures.
+- UI state: `source_declaration_enabled`; visibility/edit convenience only.
+- Content: declaration fields plus Statement Version and Last Editor.
+- Effective decision: Allowed, Restricted, Not Allowed, Expired, Revoked or Pending Review.
+- Restricted use requires an explicit public-website boolean.
+- Expiry is evaluated at access time even after an earlier Allowed review.
+- The decision and declaration history survive switch-off.
+- Public SQL predicates and object-delivery policy use the same effective-rights rules.
 
-## 6. Source Declaration model
+## 5. Source Declaration concurrency and transaction strategy
 
-Default OFF still hides and leaves all source/rights fields null. Enabling does not infer any right. Normal edit, normal review, and Admin Override are separate server actions and UI panels. Closing a populated declaration preserves history and audits the switch. Optimistic version conditions prevent a stale review from being written after a concurrent edit.
+Every edit/review/override request carries expected Record Version. The SQL update predicate includes that version and increments it atomically. Content edits also increment Statement Version and invalidate old review fields/effective rights to Pending Review. Normal review records the reviewed Statement Version and cannot be performed by the last editor. Admin Override is separate, Admin-only and reason-required. Mutation, review invalidation/effective decision and Audit Log are one transaction; a failing Audit writer rolls everything back.
 
-## 7. Public media and CDN model
+## 6. Analytics and CRM separation
 
-ADR-0008 removes permanent origin URLs. Application authorization happens per request and both Local and S3 origin storage remain behind the route. Phase 1A deliberately disables shared media caching to make revocation immediate. R2/S3 public-access blocking, origin authentication, streaming/range behavior, and any future CDN purge/version mechanism are **External Validation Required** before production.
+Public/provider-safe behavior and aggregate conversion events live in `conversion_events`; the schema check permits only the public event set. The old Inquiry foreign key/column is removed. A random `CWT-…` external reference may be used but cannot reveal the internal Inquiry UUID. Name, email, WhatsApp, description, filenames, private URLs/IDs and UUID-like customer identifiers are rejected.
 
-## 8. Analytics privacy changes
+Inquiry creation, qualification, Quote, Sample, Won and Lost persist through Inquiry, Status History and Customer Activities regardless of optional analytics consent. They no longer write to the public analytics table and cannot enter the provider mapper.
 
-The public API is strict and accepts only public event names, granted consent, safe paths/origin, bounded UTM/last-touch tokens, safe Event IDs, public entity path, and per-event properties. Bare internal-style UUID Event IDs, customer emails/phones, private paths, filenames, unauthorized keys, oversized values, and mismatched replays are rejected. Analytics rejection never invalidates a successfully stored Inquiry.
+## 7. Server Consent model
 
-## 9. Outbox lease implementation
+`analytics_consents` stores anonymous Consent Session ID, status, version, Granted time, Revoked time and updated time. An HttpOnly, SameSite=Lax cookie holds only the random session ID. GET ensures an Unknown row; same-origin POST updates it with optimistic versioning. Conversion and Inquiry analytics resolve the cookie server-side. Client payload schemas do not accept consent authority. Unknown, Denied and Revoked write no analytics event; a stale page cannot override a later revocation.
 
-`locked_at`, `locked_by`, `lease_expires_at`, `attempt_count`, `next_attempt_at`, `last_error`, unique `delivery_key`, and Dead state govern delivery. Tests cover two-worker competition, worker crash/lease expiry, duplicate Delivery Key, retry ceiling, and provider success followed by a lost Sent update while reusing the same Delivery Key.
+## 8. Streaming Upload implementation
 
-## 10. Upload flow changes
+The binary route validates same-origin, rate keys, Upload Intent, Session binding, TTL, declared MIME and any supplied Content-Length before reading. `ReadableStream` chunks are counted against the server-side declared Intent size; the reader cancels on the first excess byte. Exact size is verified after end-of-stream before storage/scanning starts. Missing Content-Length and chunked bodies remain bounded. Oversized or interrupted bodies leave the Intent Created/retryable and storage empty. Completed bodies still enter Private Quarantine, decode/MIME checks and malware scan before single-use token release.
 
-The browser creates a small Intent, uploads one bounded binary per Intent, then sends only controlled tokens in the Inquiry JSON. The binary endpoint validates limits and rate keys before reading its body. The Intent is atomically linked to the quarantined Asset; reservation is Session-bound and expiry-bound; Inquiry creation validates exact Intent/Asset correspondence and consumes the tokens in the Inquiry transaction. Retention covers expired, failed, uploading, passed, and abandoned unconsumed states.
+## 9. Fabric/Content MIME role rules
 
-## 11. Migration changes
+Image roles: Hero, Gallery, Cover, Detail, Thumbnail, Inline. Allowed MIME: JPEG, PNG, WebP, AVIF. Attachment roles: Document, Download. Allowed attachment MIME: the image set plus PDF. Services validate on draft/revision/publish; readiness detects invalid direct writes; Fabric public queries require a usable Hero image; Content public image queries exclude PDF so image components never receive document URLs.
 
-The schema now has 51 tables and eight migrations (`0000`–`0007`). Round 2 adds Asset rescan evidence/state, declaration version/review decision, random Inquiry public reference, Upload Intents, and Outbox lease/idempotency fields plus their foreign keys and indexes. Drizzle schema/migration consistency passes. No production database or Migration was run.
+## 10. Migration changes
 
-## 12. File changes
+- `0008_phase1a-remediation-round3.sql`: adds Effective Rights enum/fields, Cover/Download roles, Revoked Consent, `analytics_consents`, analytics external reference, Product remediation fields, conservative rights backfill, removal of CRM-outcome analytics rows and Inquiry FK/column, public-event check, invalid historical Product Noindex/demotion queue and migration Audit Logs.
+- `0009_source-declaration-record-version.sql`: adds non-null optimistic declaration Record Version with zero default.
+- Drizzle snapshots 0008/0009 and journal are committed. Schema has 52 tables; migrations 0000–0009 apply repeatedly in PGlite. Drizzle schema check passes.
+- Real PostgreSQL execution was intentionally not started.
 
-Round 2 currently contains 66 modified tracked files, one deleted obsolete raw-object public route, and 28 new files. New deliverables include migration 0007 and snapshot, ADR-0007/0008, PostgreSQL external checklist, runtime diagnostics, rescan/readiness services, Upload Intent routes/services/tests, controlled public Asset route, Outbox tests, Consent UI/tests, Domain Services, and privacy/bundle tests. `git status` and the local commits are the authoritative complete file manifest.
+## 11. File changes
 
-## 13. Tests added or strengthened
+No file was deleted. New implementation files:
 
-Coverage now includes 0000–0005 upgrade/rescan, readiness failures, Real Product/MIME publication, self-review denial, stale review invalidation, Admin Override audit, public archive/unlink/rights revocation, no raw origin URL, public path-to-entity resolution, top-level PII/UUID/length checks, consent/replay, Outbox leases and recovery, binary pre-body rejection, Session-bound one-time tokens, failed upload cleanup, forged proxy headers, controlled private 404, dynamic OG/Breadcrumb, Consent UI, and stale Bundle refusal.
+- `drizzle/0008_phase1a-remediation-round3.sql`
+- `drizzle/0009_source-declaration-record-version.sql`
+- `drizzle/meta/0008_snapshot.json`
+- `drizzle/meta/0009_snapshot.json`
+- `src/analytics/consent-service.ts`
+- `src/analytics/consent-service.integration.test.ts`
+- `src/analytics/public-payload.ts`
+- `src/app/api/analytics-consent/route.ts`
+- `src/catalog/product-eligibility.ts`
+- `src/public-site/product-publication-boundary.integration.test.ts`
+- `src/uploads/asset-eligibility.ts`
+- `src/uploads/asset-role-readiness.integration.test.ts`
+- `docs/adr/ADR-0009-round3-fail-closed-boundaries.md`
 
-## 14. Build, lint, and TypeScript
+Modified implementation areas: environment sample/config; Drizzle journal and Product/Asset/Analytics enums/tables; Product/Fabric/Content services; readiness, fixture seed and migration tests; public Product/media/index reads; Source Declaration admin forms/actions; Consent UI and APIs; Conversion service/API/Inquiry integration; CRM outcome handling; upload request guard/route/services/tests; E2E scenarios. Modified governance documents: `AGENTS.md`, Data Model, Publishing, Security/Privacy, Asset/Uploads, CRM/Attribution, Analytics Dictionary, Environment, Operations, Testing/Acceptance, ADR index and this report.
 
-- `pnpm build`: pass under Next.js 16.2.12; 38 static-generation units completed and all dynamic routes compiled.
-- `pnpm lint`: pass with zero warnings.
-- `pnpm typecheck`: pass under strict TypeScript.
-- `pnpm audit --prod`: no known vulnerabilities.
+## 12. Tests added or changed
 
-## 15. Vitest and Playwright
+New assertions cover missing basis/confirmer/time/localization/route, PDF/non-image/Pending/Failed Product images, Published + Noindex and direct database violations, sitemap/public read/readiness rejection, migration demotion/audit, declaration switch-off after Not Allowed/Expired, Restricted purpose, explicit reviewer restoration, concurrent edits/reviews/override, stale versions, edit/review Audit rollback, server Consent lifecycle and forged client state, analytics schema/payload privacy, consent-independent CRM outcomes, missing/chunked/forged length, exact limit/+1/interrupted streaming, retry/no-storage, forged proxy/rate limits, PDF Fabric Hero, PDF Content Cover, valid attachment and direct role corruption.
 
-- Vitest: 32 files, 68 tests, all passed; no applicable test was skipped or deleted.
-- Playwright: 14 desktop/mobile tests, all passed; isolated database/storage/auth per run.
-- Public HTTP surfaces: 11 primary paths return 200 in E2E.
-- Business paths: text-only Inquiry, image-only Inquiry, private attachment, auth/audit, revision approval, 301, CRM ownership/status/activity all pass.
+The original test suites remain active. No critical test was deleted, skipped or weakened; no Fixture seed bypass automatically confirms real-Product truth.
 
-## 16. Public Bundle
+## 13. Build, lint and TypeScript
 
-The fresh-build checker inspected 20 non-admin public client manifests and 29 referenced manifest/chunk files. No Refine, `src/admin`, or `RefineAdminProvider` reference was found. The checker also has a negative test proving that absent/stale builds fail clearly.
+- Environment diagnosis: Node 24.14.0 arm64, pnpm 11.9.0, Sharp 0.35.3, Lightning CSS 1.32.0 and native Next SWC 16.2.12 load successfully.
+- ESLint: pass, zero warnings.
+- TypeScript strict: pass.
+- Production Build: pass; 39 static-generation units/dynamic routes completed.
+- Drizzle check: pass.
+- Production dependency audit: no known vulnerabilities.
 
-## 17. UI, Consent, mobile, accessibility, and performance
+## 14. Vitest, Playwright and Bundle
 
-Consent defaults off and was exercised through allow and withdrawal in unit and browser tests. Desktop and Pixel 7 projects have zero critical/serious Axe findings on Home; the discovered contrast defect was fixed rather than suppressed. Mobile has no horizontal overflow and retains fixed inquiry actions. Optimized production build and bounded public JavaScript are verified; production field Core Web Vitals remain dependent on real assets, host, origin storage, and domain and are not claimed locally.
+- Vitest: 35 files, 81 tests, all passed.
+- Migration tests: migrations create the complete schema, upgrade prior states and are repeatable.
+- Seed: core Seed twice and fixture Seed twice completed without duplicates; persisted readiness is zero across every reported invalid relation.
+- Playwright: 15/15 passed across Desktop Chromium and Pixel 7. The original 14 remain active; one governed Asset Library scenario was added.
+- Public Bundle: pass across 20 public page manifests and 29 manifest/chunk files; Refine/admin dependencies are absent.
 
-## 18. Reproducible environment
+## 15. UI and HTTP checks
 
-Locked runtime is Node 24.14.0 ARM64 and pnpm 11.9.0. `pnpm install --frozen-lockfile` succeeds. `env:diagnose` executes Sharp 0.35.3, Lightning CSS 1.32.0, and Next SWC 16.2.12 ARM bindings successfully. `.next` was deleted before the final production build. Framework versions were not upgraded during Round 2.
+All 11 principal public paths return HTTP 200. Historical/unreviewed synthetic Product detail returns controlled 404 on Desktop and Pixel 7 and is absent from Product listing. Product confirmation/publish/revision/301, Asset Library list/detail with declaration OFF, text-only Inquiry, image-only private Inquiry, authenticated CRM status/activity and public Consent grant/withdraw all pass in browser tests. Home has zero Axe Critical/Serious findings in both projects; Pixel 7 has no horizontal overflow and retains the fixed inquiry action.
 
-## 19. Real PostgreSQL validation
+Local checks are not production Core Web Vitals evidence. Real assets, CDN/storage latency, formal domain and hosting must be measured later.
 
-Status remains **External Validation Required**. No Docker/PostgreSQL system software was installed. `POSTGRESQL_EXTERNAL_VALIDATION.md` and `db:validate:postgres` define safety guards and checks for fresh/upgrade migrations, deferred constraints, PL/pgSQL triggers, partial indexes, advisory locks, route/primary/idempotency concurrency, multi-worker Outbox leases, token competition, FK/delete behavior, JSONB/enums/timezones, seed idempotency, query plans, failed migration recovery, backup/restore, and R2 origin/media revocation. The scripted check intentionally reports partial pass until multi-connection and restore evidence is witnessed.
+## 16. Remaining Blocker, High, Medium and Low
 
-## 20. Remaining findings and external dependencies
+- Local executable scope Blocker: none identified.
+- Known unresolved High: none in the third-review scope.
+- Known unresolved Medium: none in the third-review scope.
+- Low/operational: production provider behavior, retention values, monitoring thresholds and field performance remain external/project inputs; no local simulation is claimed as provider acceptance.
+- Business validation: **Waiting for Real Product Data Validation** for the first 10–15 real Products and authorized imagery.
 
-- Blocker: none remaining in the locally executable/PGlite scope.
-- High: none remaining in the locally executable scope; SMTP-provider deduplication and real R2/S3 revocation are external validation items.
-- Medium: none known from the specified Round 2 list.
-- External gate: real PostgreSQL matrix, backup/restore rehearsal, and provider-origin validation.
-- Business data: `Waiting for Real Product Data Validation`; no real 10–15 Product truth/SEO acceptance is claimed.
-- Production inputs still absent: formal domain/address/email/WhatsApp, verified company/factory facts, rights-cleared real assets, production accounts/keys, and approved retention periods.
+## 17. External validation items
 
-## 21. Git and deployment state
+Not executed: real PostgreSQL migration/constraint/locking rehearsal; R2/S3 policy, object limits and malware scanner; SMTP/outbox provider duplicate suppression; analytics provider delivery and consent configuration; formal domain/DNS; Preview/Production deployment; production backup/restore; approved file/customer/audit retention; real Product/Company Fact/rights review; production Core Web Vitals and crawl checks.
 
-Changes are committed locally in reviewable Round 2 commits. No external Git push, Preview, Production deployment, production database, production key, DNS change, or formal data import occurred.
+## 18. Git record
 
-## 22. Recommendation
+- `bda9a77` — `fix: enforce phase 1a round 3 fail-closed boundaries`
+- Documentation/evidence commit: the commit containing this report; use local `git log` for its immutable hash.
 
-Request a third independent read-only Phase 1A review against the Round 2 brief. Do not enter Phase 1B. Phase 1A external database acceptance remains pending until the real PostgreSQL and provider checklist has approved evidence.
+No external push, Preview/Production deployment, production database, production key, DNS mutation or formal data import occurred.
+
+## 19. Fourth targeted independent review
+
+Recommended. The review should diff from `bda9a77`, focus only on the five authorized Round 3 areas, inspect migrations 0008/0009 and verify that tests exercise public/direct-database fail-closed behavior rather than only Domain Service happy paths.
+
+## 20. Recommendation for real PostgreSQL external acceptance
+
+Do not begin it before the fourth targeted review passes. If that review finds no remaining Blocker/High/Medium in the authorized scope, proceed next with the already documented real PostgreSQL external validation checklist. Phase 1B remains paused until Phase 1A and that external acceptance are explicitly approved.

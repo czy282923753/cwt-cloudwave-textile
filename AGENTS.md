@@ -35,6 +35,7 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Published Product, Application, Fabric Library, and Content changes are revisions; public reads remain on the approved version until a Reviewer/Publisher or Admin applies the latest revision.
 - Route changes for published pages create an audited HTTP 301 redirect in the same transaction. Redirect loops, chains, route collisions, and missing destinations are rejected.
 - Search, ordinary filter results, and low-value Fabric Library entries are noindex by default.
+- Every public Product read, including Published + Noindex, rechecks real-product basis, an active authorized confirmer and confirmation time, a current English localization/route, and a usable public image. Historical failures are demoted to In Review, forced Noindex, audited, and placed in the remediation queue.
 
 ## Asset source declaration
 
@@ -46,6 +47,7 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Closing a populated declaration does not delete history. Declaration changes are audited.
 - Declaration writers cannot self-review. Reviewer identity/date may only be set by the acting Reviewer/Publisher or Admin; later declaration edits invalidate the previous review until reviewed again.
 - Declaration editing and review are separate operations. Each statement records its version and last editor. Normal approval/rejection records a different reviewer, reviewed version, time, decision and reason; Admin Override is separate, Admin-only, reason-required and distinctly audited.
+- Declaration UI state never overrides the effective rights decision. Every declaration mutation uses an optimistic record version; content/review/override and its Audit Log commit atomically. Only a current-version Reviewer/Publisher or Admin decision can replace an effective restriction.
 - Source declaration convenience must not weaken MIME, magic-byte, decode, size/count, rate-limit, malware-scan, isolation, or private-access controls.
 
 ## Architecture and security
@@ -63,7 +65,10 @@ An architecture change requires the reason, impact, schema/migration impact, SEO
 - Admin may access all Inquiries. Sales may access only assigned records. Analyst, Reviewer/Publisher, Product Editor, and Content Editor receive no raw customer-record or private-file access through their other roles.
 - Public Inquiry retries use an Idempotency Key. Contact master data is not overwritten by unauthenticated submissions; submitted values stay on the Inquiry snapshot. Notification delivery uses the persistent outbox.
 - Conversion Events use per-event property allowlists, consent state, unique Event IDs, and no customer PII or private identifiers.
-- Analytics is off until explicit consent. Upload Intents are private, short-lived, Session-bound, scanned and single-use; arbitrary `x-forwarded-for` is never trusted.
+- Public Conversion Events contain no Inquiry, Contact, or private Asset UUID. CRM outcomes remain only in CRM status/activity/history data and never enter the analytics adapter.
+- Analytics is off until explicit server-persisted consent; client state cannot override Unknown, Denied, or Revoked. Upload Intents are private, short-lived, Session-bound, scanned and single-use; arbitrary `x-forwarded-for` is never trusted.
+- Binary uploads are bounded while streaming actual bytes. Missing Content-Length is accepted only with the stream hard limit; mismatched, interrupted, or oversized bodies do not consume an Intent or create a storage object.
+- Hero, Gallery, Cover, Thumbnail, Detail, and Inline roles require an allowed image MIME. PDF is accepted only as Document/Download and can never satisfy Product, Fabric Entry, or Content image readiness.
 
 ## Quality gates
 

@@ -30,7 +30,7 @@ Only variable names and descriptions are committed. Startup validation rejects i
 
 - Runtime/indexing: `APP_ENV`, `NEXT_PUBLIC_SITE_URL`, `NON_PRODUCTION_NOINDEX`.
 - Database: `DATABASE_DRIVER`, `DATABASE_URL`, `PGLITE_DATA_DIR`.
-- Authentication: `AUTH_SESSION_SECRET`, `AUTH_COOKIE_NAME`, local-only admin fixture credentials.
+- Authentication/consent: `AUTH_SESSION_SECRET`, `AUTH_COOKIE_NAME`, `ANALYTICS_CONSENT_COOKIE_NAME`, local-only admin fixture credentials.
 - Storage: local roots or S3 endpoint/region/credentials and three isolated origin buckets. There is no permanent public Asset base URL.
 - Upload controls: public/inquiry byte limits, file-count limit, scanner endpoint/token, private URL TTL, retention periods, and rate-limiter endpoint/token.
 - Communications: log/SMTP adapter, sender, inquiry recipient, SMTP transport, and WhatsApp.

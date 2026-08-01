@@ -13,18 +13,18 @@
 
 ## Server/CRM events
 
-`inquiry_created`, `inquiry_qualified`, `quote_recorded`, `sample_recorded`, `inquiry_won`, and `inquiry_lost`.
+`inquiry_qualified`, `quote_recorded`, `sample_recorded`, `inquiry_won`, and `inquiry_lost` are CRM status/activity/history data only. They never enter `conversion_events` or an analytics adapter. A consented `inquiry_created` aggregate may enter public analytics with only an opaque `CWT-…` reference and no internal Inquiry UUID.
 
 ## Allowed context
 
-Event ID, anonymous session ID, timestamp, route/entity reference, referrer, UTM source/medium/campaign, landing page, CTA position, consent state, aggregate `file_count`, and a strict non-PII context map.
+Event ID, timestamp, public route/entity type, referrer origin, UTM source/medium/campaign, landing page, CTA position, aggregate `file_count`, and a strict non-PII context map. The server may retain its anonymous Consent Session key for enforcement, but the provider payload mapper omits that key and all database entity IDs.
 
-The only event-specific free properties are `placement` for Product/CTA/WhatsApp/submit events and integer `file_count` for upload events. All other event properties are rejected. Entity-linked events require the target entity to be currently Published. Repeated Event IDs are deduplicated. Denied consent writes no event.
+The only event-specific free properties are `placement` for Product/CTA/WhatsApp/submit events and integer `file_count` for upload events. All other event properties are rejected. Entity-linked events require the target entity to be currently Published and Product additionally passes its real-product public boundary. Repeated Event IDs are deduplicated. Unknown, Denied, and Revoked server consent write no event.
 
 ## Forbidden context
 
 Name, email, WhatsApp, description, filenames, file URLs, private Asset IDs, UUID-like customer identifiers, file content, secrets, or raw customer attachments. WhatsApp clicks are not treated as sent messages or qualified inquiries.
 
-## Delivery
+## Consent and delivery
 
-The application records first landing/referrer/UTM, last non-direct source/medium/campaign, submit source page, and an explicit attribution-confidence value. It sends only approved events/parameters through an analytics adapter. Disabled adapters are explicit in non-production environments.
+Consent is persisted server-side with status, monotonically increasing version, Granted time, Revoked time and updated time under an HttpOnly anonymous cookie. Client payloads cannot declare or override consent. The application records first landing/referrer/UTM, last non-direct source/medium/campaign, submit source page, and an explicit attribution-confidence value. It sends only approved events/parameters through the privacy mapper. Disabled adapters are explicit in non-production environments.

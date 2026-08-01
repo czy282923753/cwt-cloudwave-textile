@@ -4,9 +4,9 @@
 
 Historical Assets use ADR-0007's two-phase process: migration produces `required/pending`, `assets:rescan-legacy` reads the recorded Public, Private, or Import object and records fresh scanner evidence, and `db:verify` fails for broken Published or Inquiry relations. Deleted or missing objects are `manual_review`; migration and seed never mark them Passed.
 
-Public images are delivered only through `/api/public-assets/{assetId}/`. The route checks the current Published relation, scan/processing/deletion state, image MIME, declaration denial and declaration expiry before reading Local or S3 origin storage. Public HTML never contains an Object Key or permanent Bucket URL. Phase 1A responses are `private, no-store` so Archive, Unlink, Delete and Rights changes are effective on the next request. A production edge cache may be introduced only after explicit purge or delivery-version invalidation is verified.
+Public images are delivered only through `/api/public-assets/{assetId}/`. The route checks the current Published relation, scan/processing/deletion state, role/MIME compatibility and Effective Rights Decision before reading Local or S3 origin storage. The declaration UI switch is not an authorization input. Public HTML never contains an Object Key or permanent Bucket URL. Phase 1A responses are `private, no-store` so Archive, Unlink, Delete and Rights changes are effective on the next request. A production edge cache may be introduced only after explicit purge or delivery-version invalidation is verified.
 
-Public Inquiry uploads use Upload Intent → bounded private upload → scan/decode → Session-bound Asset Token → small Inquiry JSON. Declared length and MIME are checked before the binary body is read. The quarantined Asset is transactionally linked to its Intent before storage/scanning so failed or interrupted work remains discoverable. Tokens expire, are single-use and are finalized in the Inquiry transaction. Expired and failed Intents and their Assets are handled by retention. The public Inquiry route no longer parses large multipart requests.
+Public Inquiry uploads use Upload Intent → bounded private upload → scan/decode → Session-bound Asset Token → small Inquiry JSON. Intent, Session, TTL, rate, declared MIME and any supplied Content-Length are checked before streaming. Actual bytes are counted during the stream and aborted immediately above the Intent limit. Missing Content-Length is supported; mismatched, interrupted or oversized bodies create no object, do not consume the Intent and remain retryable. Only a fully bounded body enters private quarantine and scan. Tokens expire, are single-use and are finalized in the Inquiry transaction. Expired and failed Intents and their Assets are handled by retention. The public Inquiry route never uses `arrayBuffer`, `blob`, `formData`, or large multipart parsing.
 
 ## Default operator experience
 
@@ -35,5 +35,13 @@ When declared, a partner factory may use `Subject Relationship = Partner Factory
 Receive metadata → rate/limit checks → inspect MIME and signature → decode supported images → store in quarantine → malware scan → create safe derivatives → release to the appropriate public/private context. Failed or unknown production security states fail closed.
 
 Public delivery performs a second fail-closed authorization check: Public partition, Public access, Ready status, Passed scan, no deletion, and an effective association with a Published Product, Published Fabric Entry, or Published Content. Private and Import objects never receive public URLs. A generic upload cannot attach directly to a Published entity; relationship changes for live entities must travel through its revision workflow.
+
+## Role and MIME matrix
+
+Hero, Gallery, Cover, Detail, Thumbnail and Inline are image roles and accept only JPEG, PNG, WebP or AVIF. Document and Download accept those image types or PDF. PDF/certificate/document files cannot satisfy Product imagery, Fabric Entry Hero or Content Cover readiness, and public image queries filter them even if a direct database write creates an invalid relation.
+
+## Effective rights and concurrency
+
+`source_declaration_enabled` controls only field visibility/editability. Effective Rights Decision controls public use and survives switch-off. Declaration content has a statement version; every edit, review or Admin Override also increments an optimistic record version. Requests carry the expected record version. Content change, review invalidation and Audit Log—or review/override and Audit Log—commit in one transaction. A stale record version is rejected. Only an explicit current-version Reviewer/Publisher decision or reason-required Admin Override can replace an effective restriction.
 
 Inquiry uploads use the Private partition and private access route only. Failed requests and concurrent idempotent losers clean unlinked objects. Customer files cannot be linked to public entities or AI knowledge automatically.

@@ -10,3 +10,4 @@ ADRs explain decisions that affect architecture or the frozen baseline. A propos
 - ADR-0006: Phase 1A remediation invariants and fail-closed boundaries
 - ADR-0007: Historical Asset rescan and readiness gate
 - ADR-0008: Revocable public media delivery
+- ADR-0009: Round 3 fail-closed public boundaries

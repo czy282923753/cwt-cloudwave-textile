@@ -1,5 +1,11 @@
 # CWT data model — Phase 1A baseline
 
+## Round 3 additions
+
+- `products.publication_remediation_required/reason` records historical public records demoted by the real-Product fail-closed migration.
+- `assets.effective_rights_decision`, `rights_public_website_allowed`, and `declaration_record_version` separate public rights enforcement from the declaration UI and provide optimistic concurrency for every declaration operation.
+- `analytics_consents` persists anonymous server-side consent state and version. `conversion_events` no longer has an Inquiry foreign key; only an opaque public external reference is permitted.
+
 ## Round 2 additions
 
 - `assets`: scan failure reason, historical rescan state/attempt/time, declaration statement version, last editor, reviewed version, decision and reason.
@@ -40,7 +46,7 @@ Routes, SEO Metadata, Redirects, SEO Topics, Keyword Mappings, Topic Members, an
 
 ### CRM and analytics
 
-Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notification Outbox, Inquiry Status History, and Conversion Events.
+Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notification Outbox, Inquiry Status History, Analytics Consents, and Conversion Events.
 
 ## Key constraints
 
@@ -56,11 +62,11 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 - `idempotency_key` is unique per Inquiry; repeated public requests resolve to the same Inquiry.
 - Customer Activity contact must equal its Inquiry contact. Inquiry Owner must be an active Sales/Admin user; Qualified and Lost invariants are database-backed.
 - Route and Redirect namespaces are disjoint. Database triggers serialize route mutations, require real redirect destinations, and reject loops/chains.
-- Conversion Event ID is unique. Consent and first/last-touch attribution are stored in relational fields; only allowlisted non-PII properties use JSONB.
+- Conversion Event ID is unique. Consent and first/last-touch attribution are stored in relational fields; only allowlisted non-PII properties use JSONB. Public analytics has no Inquiry, Contact, or private Asset foreign key.
 
 ## Asset source declaration
 
-`source_declaration_enabled` defaults to false. For new ordinary uploads, declaration fields are null and hidden. Declaration fields include source type/provider, rights, subject relationship, public/edit permissions, restrictions, evidence, reviewer, review and expiry dates, and facility ownership. Disabling a populated declaration hides rather than erases its historical values. Writers cannot set reviewer/date without the declaration-review permission. A later content edit invalidates an older review. All changes are audited.
+`source_declaration_enabled` defaults to false. For new ordinary uploads, declaration fields are null and hidden. Declaration fields include source type/provider, rights, subject relationship, public/edit permissions, restrictions, evidence, reviewer, review and expiry dates, facility ownership and an Effective Rights Decision. Disabling a populated declaration hides rather than erases its historical values or decision. Writers cannot set reviewer/date without the declaration-review permission. A later content edit invalidates an older review. Statement Version tracks declaration content; Record Version protects every edit/review/override from concurrent overwrite. Business mutation and Audit Log are atomic.
 
 ## Phase 1A table use
 
@@ -74,7 +80,7 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 - Contact, lightweight Organization, Inquiry, private asset, activity, status history, and persistent notification-outbox tables implement repeat inquiries and accountable/retryable sales follow-up.
 - Conversion Events records a consent-aware, deduplicated, PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
 
-Phase 1A has 51 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency.
+Phase 1A has 52 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides.
 
 Source declaration is independent from security scanning, access class, and storage context.
 

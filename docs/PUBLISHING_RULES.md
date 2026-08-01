@@ -2,7 +2,9 @@
 
 ## Product public truth gate
 
-No Product may enter Published—even when Noindex—without Real Product Basis, human confirmation identity/time and one eligible real image Asset. Index remains a later, independent SEO decision. Historical Assets awaiting rescan cannot satisfy publication or readiness.
+No Product may enter or remain publicly readable—even when Published + Noindex—without Real Product Basis, an active Admin or Reviewer/Publisher confirmation identity/time, current English localization/route and one eligible real image Asset. Public list, detail, analytics entity resolution, sitemap and readiness reuse the same fail-closed eligibility boundary. Index remains a later, independent SEO decision. Historical Assets awaiting rescan cannot satisfy publication or readiness.
+
+Migration 0008 chooses the operationally explicit strategy: invalid historical Published Products are forced Noindex, demoted to In Review, marked for remediation and audited. It never invents a basis or confirmer. A valid current reviewer must re-confirm and republish through the normal workflow.
 
 ## States
 

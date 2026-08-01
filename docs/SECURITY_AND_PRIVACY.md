@@ -1,10 +1,17 @@
 # Security and privacy baseline
 
+## Remediation Round 3 controls
+
+- Public analytics consent is stored server-side under an HttpOnly anonymous Consent Session cookie with optimistic versioning. Unknown, Denied, and Revoked reject writes even if a stale client claims Granted.
+- Public `conversion_events` has no Inquiry, Contact, or private Asset foreign key. CRM outcomes remain in Inquiry Status History and Customer Activities and are never mapped to an analytics provider payload.
+- Binary uploads are read incrementally and aborted at the server-side actual-byte limit; Content-Length is only an early check and may be absent.
+- Effective Rights Decision is enforced independently from the declaration UI switch. Not Allowed, Revoked, Expired, Pending Review, and disallowed Restricted use fail closed.
+
 ## Remediation Round 2 controls
 
 - Analytics remains disabled for `unknown` and `denied`; only `granted` events are stored or sent. Consent UI supports allow, decline, withdraw and modify.
-- Event replay must match the original event, and every attribution string is format/length/PII validated. Internal Inquiry UUIDs stay in the server-side FK; clients receive a random `CWT-…` reference. Public entity tracking submits a governed route path and resolves its internal ID only on the server.
-- Upload size and rate controls run before body parsing. `Content-Length` is mandatory for file transfer and small Inquiry/Intent JSON, and the binary length/MIME must match its Intent before the body is read. Trusted client IP headers require explicit Cloudflare or Vercel mode; arbitrary `x-forwarded-for` is ignored.
+- Event replay must match the original event, and every attribution string is format/length/PII validated. Conversion Events have no Inquiry foreign key; clients and analytics receive only a random `CWT-…` reference. Public entity tracking submits a governed route path and resolves its internal ID only for server validation.
+- Upload intent, MIME and rate controls run before binary parsing. If supplied, `Content-Length` must be within the configured maximum and match the Intent; a missing header is handled by the same streaming actual-byte hard limit. Trusted client IP headers require explicit Cloudflare or Vercel mode; arbitrary `x-forwarded-for` is ignored.
 - Notification jobs use leases, finite exponential retry, Dead state and a unique Delivery Key. SMTP receives a deterministic Message-ID; provider duplicate suppression after send-success/database-failure remains external validation.
 
 ## Data separation
@@ -40,7 +47,7 @@ Source declaration is OFF by default and adds no upload confirmation. Its fields
 
 ## Authentication and analytics
 
-Login uses hashed account/network rate-limit keys and audits success, failure, disabled-user attempts, logout, and session revocation without credentials, tokens, or unnecessary PII. Conversion Events use unique Event IDs, consent state, published-entity validation, per-event property allowlists, server receiving limits, and content-level PII detection. Denied consent is not stored.
+Login uses hashed account/network rate-limit keys and audits success, failure, disabled-user attempts, logout, and session revocation without credentials, tokens, or unnecessary PII. Conversion Events use unique Event IDs, server-persisted consent, published-entity validation, per-event property allowlists, server receiving limits, and content-level PII detection. Unknown, Denied and Revoked consent write no event.
 
 ## Operational controls
 

@@ -1,8 +1,14 @@
 # CRM and attribution
 
+## Round 3 analytics/CRM separation
+
+`conversion_events` is exclusively the public/provider-safe analytics stream. It contains no Inquiry, Contact or private Asset foreign key. An optional random `CWT-…` external reference is not reversible to the internal Inquiry UUID and the analytics adapter omits database entity IDs and Consent Session identifiers. Inquiry creation, status, Quote, Sample, Won and Lost remain in CRM tables regardless of analytics consent and are never forwarded through the analytics adapter.
+
+Anonymous Consent is server-persisted with status, monotonically increasing version, Granted time, Revoked time and updated time. The HttpOnly cookie identifies only the Consent row. Unknown, Denied and Revoked block writes server-side; client request fields and stale browser state cannot override it.
+
 ## Round 2 privacy and delivery rules
 
-The public confirmation exposes only `inquiries.public_reference`; the internal Inquiry UUID is never a client or GA4 event reference. Public behavioral events submit a current public entity path, never an internal entity UUID; the server resolves the path to an internal relation. Server-side Conversion Events may retain the Inquiry FK for CRM joins, but that FK is absent from public responses and event payloads. Analytics requires granted consent and independently validates paths, referrer origin, UTM/last-touch tokens, Event IDs and allowlisted properties for PII, internal identifiers, filenames, private URLs, type and length.
+The public confirmation exposes only `inquiries.public_reference`; the internal Inquiry UUID is never a client or analytics event reference. Public behavioral events submit a current public entity path, never an internal entity UUID; the server resolves the path only for server validation. Analytics requires server-persisted Granted consent and independently validates paths, referrer origin, UTM/last-touch tokens, Event IDs and allowlisted properties for PII, internal identifiers, filenames, private URLs, type and length.
 
 Inquiry notification claims are atomic, lease-bound and reclaimable. A stable Delivery Key is passed to email as Message-ID. Five failed attempts lead to Dead. Provider behavior after an external send followed by a database failure remains documented rather than hidden.
 
