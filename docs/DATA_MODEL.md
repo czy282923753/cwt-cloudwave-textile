@@ -1,5 +1,12 @@
 # CWT data model — Phase 1A baseline
 
+## Final Closure Round 2 additions
+
+- `upload_recovery_jobs` is the durable Saga/lease authority for both `staging` and `finalize`. It links a Batch and, for staging, its Intent and placeholder Asset; records the expected partition/key; and persists status, phase, attempts, schedule, lease owner/times, optimistic version, safe error, start/completion and expiry.
+- Staging has one Recovery row per Intent. Finalize has one Recovery row per Batch. Partial unique indexes enforce both rules; the work index supports due/expired-lease scans.
+- Recovery status is `pending`, `processing`, `retryable`, `cleanup_required`, `completed`, or `dead`. Persisted stages cover preregistration, storage write, scan, Finalize copy/variant/database work, cleanup, failure and completion.
+- Migration `0012_nostalgic_calypso.sql` adds only these forward recovery types/table/indexes. It does not rewrite the semantics of Migrations 0000–0011. Fresh and current-latest Upgrade tests verify it.
+
 ## Final Closure additions
 
 - `asset_upload_batches.status` adds `finalizing` so one database compare-and-set claim serializes concurrent Finalize attempts.
@@ -48,7 +55,7 @@ Products, Product Localizations, Taxonomy Terms and Localizations, Product Taxon
 
 ### Assets and library
 
-Assets, Asset Variants, Asset Tags, Asset Upload Batches, Object Cleanup Jobs, Fabric Entries and Localizations, Fabric Entry Assets, Fabric Entry Products, and Fabric Entry Applications.
+Assets, Asset Variants, Asset Tags, Asset Upload Batches, Upload Recovery Jobs, Object Cleanup Jobs, Fabric Entries and Localizations, Fabric Entry Assets, Fabric Entry Products, and Fabric Entry Applications.
 
 ### Editorial
 
@@ -94,7 +101,7 @@ Organizations, Contacts, Inquiries, Inquiry Assets, Customer Activities, Notific
 - Contact, lightweight Organization, Inquiry, private asset, activity, status history, and persistent notification-outbox tables implement repeat inquiries and accountable/retryable sales follow-up.
 - Conversion Events records a consent-aware, deduplicated, PII-free first-party funnel. Aggregated analytics tables are intentionally deferred.
 
-Phase 1A has 53 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides. Migration `0010_soft_marrow.sql` adds the Admin Upload Intent/Batch state and Product Code database check. Migration `0011_clever_inertia.sql` adds serialized Finalize, durable object cleanup and the forward correction for the conversion-event Check Constraint.
+Phase 1A has 54 relational tables. Migration `0006_phase1a-remediation.sql` reconciles the former Product primary-category column into the authoritative join relation before dropping the duplicate column and installs the first remediation constraints. Migration `0007_phase1a-remediation-round2.sql` adds evidence-backed historical Asset rescan state, Source Declaration version/review state, random Inquiry public references, Upload Intents, and Outbox leases/idempotency. Migration `0008_phase1a-remediation-round3.sql` adds server Consent, external-only analytics linkage, effective rights, and historical Product remediation. Migration `0009_source-declaration-record-version.sql` adds one optimistic operation version shared by declaration edits, reviews, and Admin Overrides. Migration `0010_soft_marrow.sql` adds the Admin Upload Intent/Batch state and Product Code database check. Migration `0011_clever_inertia.sql` adds serialized Finalize, durable object cleanup and the forward correction for the conversion-event Check Constraint. Migration `0012_nostalgic_calypso.sql` adds persistent staging Saga state and fenced Finalize recovery/lease state.
 
 Source declaration is independent from security scanning, access class, and storage context.
 

@@ -43,6 +43,13 @@ CWT is a modular monolith: one deployable Next.js application with explicit publ
 - Governed admin mutations return a typed, sanitized Action Result. The client form owns pending state, repeat-submit suppression, result announcements, error focus and refresh/redirect intent; Domain Services remain the only business-write authority.
 - Database constraints with application policy meaning have one exported SQL expression. Migration 0011 replaces the old conversion-event constraint by forward migration and tests the actual `pg_get_constraintdef` result for both Fresh and Upgrade paths.
 
+## Final Closure Round 2 boundaries
+
+- Admin staging is a three-phase persistent Saga. Its preregistration transaction creates the expected key, nonpublic Asset placeholder, staging Recovery/Cleanup work, controlled Intent/Batch state and Audit before any external write. Storage/scan progress is persisted; the completion transaction makes the staged Asset ready and closes the Saga. A post-put failure always has a database recovery path.
+- Finalize claim is an atomic database operation that combines `finalizing`, a Finalize Recovery record, active lease owner/expiry/version, attempt count and Audit. Finalize persists progress, and every final commit is fenced by current owner, unexpired lease and version. Expired work can be reclaimed; the old worker is rejected.
+- Recovery and Cleanup workers use explicit system identity. Reconciliation state plus Audit is atomic. An Audit outage rolls the state transition back and leaves work retryable; it cannot manufacture a completed job.
+- Admin writes return `AdminActionResult` through the common adapter, never direct Server Action redirects or `void`. Success carries message, Entity ID and observable navigation intent; failures carry field/form feedback and a sanitized error code.
+
 ## Technology baseline
 
 Use the current patched Next.js Active LTS line verified at initialization, React compatible with it, Node.js 24 LTS, strict TypeScript, Tailwind CSS, PostgreSQL 18 or a compatible supported 17 release, Drizzle stable releases pinned exactly, an S3-compatible storage interface, and Sharp-compatible image processing.
