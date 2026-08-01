@@ -19,6 +19,7 @@ import { DevelopmentFileScanner } from "./scanner";
 
 const allowLimiter = { consume: async () => true };
 const failingAudit = async (): Promise<string> => { throw new Error("TEST audit failure"); };
+const cleanLimitScanner = { scan: async () => ({ clean: true, provider: "test-limit-scanner", reference: "test:clean" }) };
 
 async function jpegWithSize(size?: number): Promise<Uint8Array> {
   const base = new Uint8Array(await sharp({ create: { width: 16, height: 16, channels: 3, background: "teal" } }).jpeg().toBuffer());
@@ -117,7 +118,7 @@ describe("Admin Asset Upload Intents", () => {
         files: [{ fileName: "exact-limit.jpg", declaredMimeType: "image/jpeg", declaredByteSize: exact.byteLength }], category: "product", role: "gallery", sortOrder: 0, sourceDeclarationEnabled: false,
       }, { rateLimiter: allowLimiter });
       await expect(inspectAdminUploadIntent(connection.db, actor, batch.intents[0]!.token, new Date(batch.expiresAt.getTime() + 1))).rejects.toThrow(/invalid|expired/i);
-      await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: batch.intents[0]!.token, bytes: exact });
+      await completeAdminUploadIntent(connection.db, storage, cleanLimitScanner, actor, { token: batch.intents[0]!.token, bytes: exact });
       expect((await connection.db.select().from(uploadIntents).where(eq(uploadIntents.uploadBatchId, batch.batchId)))[0]?.status).toBe("passed");
     } finally { await connection.close(); }
   }, 30_000);
