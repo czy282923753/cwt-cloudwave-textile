@@ -3,6 +3,7 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
   assets,
+  applications,
   contentAssets,
   contents,
   fabricLibraryEntries,
@@ -14,6 +15,7 @@ import {
   productLocalizations,
   routes,
   seoMetadata,
+  taxonomyTerms,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import {
@@ -22,7 +24,12 @@ import {
   publicReadyImageSqlConditions,
   roleMimeSqlCondition,
 } from "@/uploads/asset-eligibility";
-import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import {
+  hasPubliclyEligibleProductForApplicationConditions,
+  hasPubliclyEligibleProductForFabricEntryConditions,
+  hasPubliclyEligibleProductForTaxonomyConditions,
+  publicProductEligibilityConditions,
+} from "@/catalog/product-eligibility";
 
 const unusableAsset = not(publicReadyAssetSqlConditions());
 
@@ -37,6 +44,9 @@ export interface DatabaseReadinessResult {
   publishedProductsWithoutUsableImage: number;
   historicalAssetsAwaitingRescan: number;
   historicalAssetsManualReview: number;
+  indexableTaxonomyWithoutEligibleProduct: number;
+  indexableApplicationWithoutEligibleProduct: number;
+  indexableFabricWithoutEligibleProduct: number;
 }
 
 export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResultHKT>(
@@ -76,6 +86,9 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
     missingProductImages,
     rescan,
     manual,
+    derivedTaxonomy,
+    derivedApplication,
+    derivedFabric,
   ] =
     await Promise.all([
       db
@@ -199,6 +212,42 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
         .select({ value: count() })
         .from(assets)
         .where(eq(assets.rescanStatus, "manual_review")),
+      db.select({ value: count() }).from(taxonomyTerms)
+        .innerJoin(routes, and(
+          eq(routes.entityType, "taxonomy"),
+          eq(routes.entityId, taxonomyTerms.id),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        ))
+        .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+        .where(and(
+          eq(seoMetadata.indexStatus, "index"),
+          not(hasPubliclyEligibleProductForTaxonomyConditions(db)),
+        )),
+      db.select({ value: count() }).from(applications)
+        .innerJoin(routes, and(
+          eq(routes.entityType, "application"),
+          eq(routes.entityId, applications.id),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        ))
+        .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+        .where(and(
+          eq(seoMetadata.indexStatus, "index"),
+          not(hasPubliclyEligibleProductForApplicationConditions(db)),
+        )),
+      db.select({ value: count() }).from(fabricLibraryEntries)
+        .innerJoin(routes, and(
+          eq(routes.entityType, "fabric_entry"),
+          eq(routes.entityId, fabricLibraryEntries.id),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        ))
+        .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+        .where(and(
+          eq(seoMetadata.indexStatus, "index"),
+          not(hasPubliclyEligibleProductForFabricEntryConditions(db)),
+        )),
     ]);
   return {
     invalidPrimaryTaxonomy: invalidPrimary.length,
@@ -217,6 +266,9 @@ export async function verifyDatabaseReadiness<TQueryResult extends PgQueryResult
     ),
     historicalAssetsAwaitingRescan: Number(rescan[0]?.value ?? 0),
     historicalAssetsManualReview: Number(manual[0]?.value ?? 0),
+    indexableTaxonomyWithoutEligibleProduct: Number(derivedTaxonomy[0]?.value ?? 0),
+    indexableApplicationWithoutEligibleProduct: Number(derivedApplication[0]?.value ?? 0),
+    indexableFabricWithoutEligibleProduct: Number(derivedFabric[0]?.value ?? 0),
   };
 }
 
@@ -233,6 +285,9 @@ export function assertDatabaseReady(result: DatabaseReadinessResult): void {
     publishedContentAssetFailures: result.publishedContentAssetFailures,
     publishedProductsWithoutUsableImage: result.publishedProductsWithoutUsableImage,
     historicalAssetsAwaitingRescan: result.historicalAssetsAwaitingRescan,
+    indexableTaxonomyWithoutEligibleProduct: result.indexableTaxonomyWithoutEligibleProduct,
+    indexableApplicationWithoutEligibleProduct: result.indexableApplicationWithoutEligibleProduct,
+    indexableFabricWithoutEligibleProduct: result.indexableFabricWithoutEligibleProduct,
   };
   if (Object.values(blockers).some((value) => value > 0)) {
     throw new Error(`Database readiness failed: ${JSON.stringify(blockers)}`);

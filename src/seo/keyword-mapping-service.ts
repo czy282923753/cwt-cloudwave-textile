@@ -1,11 +1,46 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
 import { requirePermission } from "@/auth/permissions";
-import { keywordPageMappings, routes } from "@/db/schema";
+import {
+  applications,
+  fabricLibraryEntries,
+  keywordPageMappings,
+  products,
+  routes,
+  taxonomyTerms,
+} from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { Actor } from "@/catalog/product-service";
+import {
+  hasPubliclyEligibleProductForApplicationConditions,
+  hasPubliclyEligibleProductForFabricEntryConditions,
+  hasPubliclyEligibleProductForTaxonomyConditions,
+  publicProductEligibilityConditions,
+} from "@/catalog/product-eligibility";
+
+async function assertEligiblePrimaryOwner<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  route: { entityType: typeof routes.$inferSelect.entityType; entityId: string | null },
+): Promise<void> {
+  if (!route.entityId) return;
+  let eligible = true;
+  if (route.entityType === "product") {
+    eligible = Boolean((await db.select({ id: products.id }).from(products)
+      .where(and(eq(products.id, route.entityId), publicProductEligibilityConditions(db))).limit(1))[0]);
+  } else if (route.entityType === "taxonomy") {
+    eligible = Boolean((await db.select({ id: taxonomyTerms.id }).from(taxonomyTerms)
+      .where(and(eq(taxonomyTerms.id, route.entityId), hasPubliclyEligibleProductForTaxonomyConditions(db))).limit(1))[0]);
+  } else if (route.entityType === "application") {
+    eligible = Boolean((await db.select({ id: applications.id }).from(applications)
+      .where(and(eq(applications.id, route.entityId), hasPubliclyEligibleProductForApplicationConditions(db))).limit(1))[0]);
+  } else if (route.entityType === "fabric_entry") {
+    eligible = Boolean((await db.select({ id: fabricLibraryEntries.id }).from(fabricLibraryEntries)
+      .where(and(eq(fabricLibraryEntries.id, route.entityId), hasPubliclyEligibleProductForFabricEntryConditions(db))).limit(1))[0]);
+  }
+  if (!eligible) throw new Error("Primary keyword owner is not backed by a publicly eligible real Product.");
+}
 
 export function normalizeKeyword(keyword: string): string {
   const normalized = keyword.trim().toLowerCase().replace(/\s+/g, " ");
@@ -28,11 +63,12 @@ export async function assignPrimaryKeywordOwner<
   requirePermission(actor.role, "seo.manage");
   const normalizedKeyword = normalizeKeyword(input.keyword);
   const routeRows = await db
-    .select({ id: routes.id })
+    .select({ id: routes.id, entityType: routes.entityType, entityId: routes.entityId })
     .from(routes)
     .where(eq(routes.id, input.routeId))
     .limit(1);
   if (!routeRows[0]) throw new Error("Keyword owner route was not found.");
+  await assertEligiblePrimaryOwner(db, routeRows[0]);
   const rows = await db
     .insert(keywordPageMappings)
     .values({

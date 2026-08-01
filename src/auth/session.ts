@@ -28,10 +28,11 @@ export async function createSession<TQueryResult extends PgQueryResultHKT>(
 export async function resolveSession<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   token: string,
-): Promise<{ id: string; email: string; displayName: string; role: typeof users.$inferSelect.role } | null> {
+): Promise<{ id: string; sessionId: string; email: string; displayName: string; role: typeof users.$inferSelect.role } | null> {
   const rows = await db
     .select({
       id: users.id,
+      sessionId: authSessions.id,
       email: users.email,
       displayName: users.displayName,
       role: users.role,

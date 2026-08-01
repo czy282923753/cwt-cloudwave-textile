@@ -50,7 +50,7 @@ interface ValidationInput {
   bytes: Uint8Array;
   declaredMimeType: string;
   maximumBytes: number;
-  purpose: "public_asset" | "inquiry" | "import";
+  purpose: "public_asset" | "admin_asset_staging" | "inquiry" | "import";
 }
 
 export interface ValidatedFile {

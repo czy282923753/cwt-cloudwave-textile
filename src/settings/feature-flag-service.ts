@@ -7,13 +7,17 @@ import type { Actor } from "@/catalog/product-service";
 import { featureFlags } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 
+interface FeatureFlagServiceOptions { auditWriter?: typeof writeAuditLog }
+
 export async function setFeatureFlag<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   flagId: string,
   enabled: boolean,
+  options: FeatureFlagServiceOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "settings.manage");
+  const auditWriter = options.auditWriter ?? writeAuditLog;
   await db.transaction(async (transaction) => {
     const before = await transaction
       .select({ enabled: featureFlags.enabled, key: featureFlags.key })
@@ -25,7 +29,7 @@ export async function setFeatureFlag<TQueryResult extends PgQueryResultHKT>(
       .update(featureFlags)
       .set({ enabled, updatedByUserId: actor.userId, updatedAt: new Date() })
       .where(eq(featureFlags.id, flagId));
-    await writeAuditLog(transaction, {
+    await auditWriter(transaction, {
       actorUserId: actor.userId,
       action: "feature_flag.changed",
       entityType: "feature_flag",

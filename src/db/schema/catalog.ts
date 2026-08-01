@@ -142,6 +142,10 @@ export const products = pgTable(
   },
   (table) => [
     uniqueIndex("products_product_code_unique").on(table.productCode),
+    check(
+      "products_product_code_nonblank_check",
+      sql`${table.productCode} is null or ${table.productCode} !~ '^[[:space:]]*$'`,
+    ),
     index("products_status_idx").on(table.status),
     check("products_weight_nonnegative", sql`${table.weightGsm} is null or ${table.weightGsm} > 0`),
     check("products_width_nonnegative", sql`${table.widthCm} is null or ${table.widthCm} > 0`),

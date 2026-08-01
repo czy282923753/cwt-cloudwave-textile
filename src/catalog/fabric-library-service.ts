@@ -14,11 +14,13 @@ import {
   fabricLibraryEntryLocalizations,
   fabricLibraryEntryProducts,
   keywordPageMappings,
+  productApplications,
   products,
   routes,
   seoMetadata,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { publicProductEligibilityConditions } from "./product-eligibility";
 import { slugify } from "@/seo/path";
 import { publicReadyImageSqlConditions } from "@/uploads/asset-eligibility";
 
@@ -633,22 +635,19 @@ export async function setFabricEntryIndexStatus<
         .where(
           and(
             eq(fabricLibraryEntryProducts.fabricEntryId, entryId),
-            eq(products.status, "published"),
+            publicProductEligibilityConditions(db),
           ),
         ),
-      db
-        .select({ count: count() })
-        .from(fabricLibraryEntryApplications)
-        .innerJoin(
-          applications,
-          eq(applications.id, fabricLibraryEntryApplications.applicationId),
-        )
-        .where(
-          and(
-            eq(fabricLibraryEntryApplications.fabricEntryId, entryId),
-            eq(applications.status, "published"),
-          ),
-        ),
+      db.select({ count: count() }).from(fabricLibraryEntryApplications)
+        .innerJoin(productApplications, eq(
+          productApplications.applicationId,
+          fabricLibraryEntryApplications.applicationId,
+        ))
+        .innerJoin(products, eq(products.id, productApplications.productId))
+        .where(and(
+          eq(fabricLibraryEntryApplications.fabricEntryId, entryId),
+          publicProductEligibilityConditions(db),
+        )),
       db
         .select({ count: count() })
         .from(keywordPageMappings)

@@ -1,12 +1,19 @@
-import { and, eq, exists, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
   assets,
+  fabricLibraryEntries,
+  fabricLibraryEntryApplications,
+  fabricLibraryEntryProducts,
   productAssets,
+  productApplications,
   productLocalizations,
+  productTaxonomyTerms,
   products,
   routes,
+  taxonomyTerms,
+  applications,
   users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
@@ -88,4 +95,57 @@ export function publicProductEligibilityConditions<
         ),
     ),
   )!;
+}
+
+/** Correlated predicates for every derived SEO surface that depends on a real public Product. */
+export function hasPubliclyEligibleProductForTaxonomyConditions<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, now = new Date()) {
+  return exists(
+    db.select({ id: products.id }).from(productTaxonomyTerms)
+      .innerJoin(products, eq(products.id, productTaxonomyTerms.productId))
+      .where(and(
+        eq(productTaxonomyTerms.taxonomyTermId, taxonomyTerms.id),
+        publicProductEligibilityConditions(db, now),
+      )),
+  );
+}
+
+export function hasPubliclyEligibleProductForApplicationConditions<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, now = new Date()) {
+  return exists(
+    db.select({ id: products.id }).from(productApplications)
+      .innerJoin(products, eq(products.id, productApplications.productId))
+      .where(and(
+        eq(productApplications.applicationId, applications.id),
+        publicProductEligibilityConditions(db, now),
+      )),
+  );
+}
+
+export function hasPubliclyEligibleProductForFabricEntryConditions<
+  TQueryResult extends PgQueryResultHKT,
+>(db: AppDatabase<TQueryResult>, now = new Date()) {
+  const direct = exists(
+    db.select({ id: products.id }).from(fabricLibraryEntryProducts)
+      .innerJoin(products, eq(products.id, fabricLibraryEntryProducts.productId))
+      .where(and(
+        eq(fabricLibraryEntryProducts.fabricEntryId, fabricLibraryEntries.id),
+        publicProductEligibilityConditions(db, now),
+      )),
+  );
+  const throughApplication = exists(
+    db.select({ id: products.id }).from(fabricLibraryEntryApplications)
+      .innerJoin(productApplications, eq(
+        productApplications.applicationId,
+        fabricLibraryEntryApplications.applicationId,
+      ))
+      .innerJoin(products, eq(products.id, productApplications.productId))
+      .where(and(
+        eq(fabricLibraryEntryApplications.fabricEntryId, fabricLibraryEntries.id),
+        publicProductEligibilityConditions(db, now),
+      )),
+  );
+  return or(direct, throughApplication)!;
 }

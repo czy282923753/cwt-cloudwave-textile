@@ -15,6 +15,7 @@ import {
   products,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { publicProductEligibilityConditions } from "./product-eligibility";
 import { slugify } from "@/seo/path";
 
 import type { Actor } from "./product-service";
@@ -245,7 +246,7 @@ export async function setTaxonomyIndexStatus<TQueryResult extends PgQueryResultH
         .where(
           and(
             eq(productTaxonomyTerms.taxonomyTermId, termId),
-            eq(products.status, "published"),
+            publicProductEligibilityConditions(db),
           ),
         ),
       db

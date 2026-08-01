@@ -111,6 +111,20 @@ export const uploadIntentStatusEnum = pgEnum("upload_intent_status", [
   "expired",
 ]);
 
+export const uploadIntentKindEnum = pgEnum("upload_intent_kind", [
+  "inquiry",
+  "admin_asset",
+]);
+
+export const assetUploadBatchStatusEnum = pgEnum("asset_upload_batch_status", [
+  "created",
+  "uploading",
+  "ready_to_finalize",
+  "completed",
+  "failed",
+  "expired",
+]);
+
 export const assetRoleEnum = pgEnum("asset_role", [
   "hero",
   "gallery",

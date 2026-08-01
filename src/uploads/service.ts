@@ -20,7 +20,7 @@ export interface UploadAssetInput {
   declaredMimeType: string;
   bytes: Uint8Array;
   category: AssetCategory;
-  purpose: "public_asset" | "inquiry" | "import";
+  purpose: "public_asset" | "admin_asset_staging" | "inquiry" | "import";
   uploadedByUserId?: string | null;
   uploadBatchId?: string | null;
   sourceDeclarationEnabled?: boolean;
@@ -48,6 +48,7 @@ function targetForPurpose(purpose: UploadAssetInput["purpose"]): {
 } {
   if (purpose === "public_asset") return { partition: "public", access: "public" };
   if (purpose === "import") return { partition: "imports", access: "internal" };
+  if (purpose === "admin_asset_staging") return { partition: "private", access: "internal" };
   return { partition: "private", access: "private" };
 }
 

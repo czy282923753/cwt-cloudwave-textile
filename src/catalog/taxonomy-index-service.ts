@@ -7,12 +7,14 @@ import type { Actor } from "@/catalog/product-service";
 import {
   keywordPageMappings,
   productTaxonomyTerms,
+  products,
   routes,
   seoMetadata,
   taxonomyTermLocalizations,
   taxonomyTerms,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { publicProductEligibilityConditions } from "./product-eligibility";
 
 export async function setTaxonomyIndexStatus<
   TQueryResult extends PgQueryResultHKT,
@@ -57,7 +59,11 @@ export async function setTaxonomyIndexStatus<
       db
         .select({ count: count() })
         .from(productTaxonomyTerms)
-        .where(eq(productTaxonomyTerms.taxonomyTermId, taxonomyTermId)),
+        .innerJoin(products, eq(products.id, productTaxonomyTerms.productId))
+        .where(and(
+          eq(productTaxonomyTerms.taxonomyTermId, taxonomyTermId),
+          publicProductEligibilityConditions(db),
+        )),
       db
         .select({ count: count() })
         .from(keywordPageMappings)

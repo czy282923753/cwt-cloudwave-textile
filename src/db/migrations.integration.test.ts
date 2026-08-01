@@ -145,6 +145,41 @@ describe("database migrations", () => {
     await connection.close();
   });
 
+  it("keeps authoritative Check Constraints in Schema/Snapshot and rejects blank Product Codes at the database boundary", async () => {
+    const connection = await createTestDatabase();
+    try {
+      const constraints = await connection.db.execute<{ conname: string }>(sql`
+        select conname from pg_constraint
+        where conname in ('conversion_events_public_only_check', 'products_product_code_nonblank_check')
+      `);
+      expect(constraints.rows.map((row) => row.conname).sort()).toEqual([
+        "conversion_events_public_only_check",
+        "products_product_code_nonblank_check",
+      ]);
+      const [taxonomy] = await connection.db.insert(taxonomyTerms).values({ internalKey: "product-code-constraint", dimension: "material_fiber" }).returning({ id: taxonomyTerms.id });
+      if (!taxonomy) throw new Error("Missing Taxonomy.");
+      const insertCode = (productCode: string | null) => connection.db.transaction(async (transaction) => {
+        const [product] = await transaction.insert(products).values({ productCode }).returning({ id: products.id });
+        if (!product) throw new Error("Missing Product.");
+        await transaction.insert(productTaxonomyTerms).values({ productId: product.id, taxonomyTermId: taxonomy.id, isPrimary: true });
+      });
+      await expect(insertCode(null)).resolves.toBeUndefined();
+      await expect(insertCode("TEST-CODE-001")).resolves.toBeUndefined();
+      await expect(insertCode("TEST-CODE-001")).rejects.toThrow();
+      for (const blank of ["", "   ", "\t", "\n", " \t\n "]) {
+        await expect(insertCode(blank), JSON.stringify(blank)).rejects.toThrow();
+      }
+      const snapshot = await readFile("drizzle/meta/0010_snapshot.json", "utf8");
+      expect(snapshot).toContain('"conversion_events_public_only_check"');
+      expect(snapshot).toContain('"products_product_code_nonblank_check"');
+      const migration = await readFile("drizzle/0010_soft_marrow.sql", "utf8");
+      expect(migration).not.toContain('ADD CONSTRAINT "conversion_events_public_only_check"');
+      expect(migration).toContain('ADD CONSTRAINT "products_product_code_nonblank_check"');
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("upgrades the pre-remediation schema without losing the authoritative primary category", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-migration-upgrade-"));
     const metaDirectory = join(temporaryRoot, "meta");

@@ -13,6 +13,7 @@ import {
 
 import {
   assetAccessEnum,
+  assetUploadBatchStatusEnum,
   assetCategoryEnum,
   assetPermissionEnum,
   assetRescanStatusEnum,
@@ -22,7 +23,7 @@ import {
   effectiveRightsDecisionEnum,
   sourceDeclarationSubjectEnum,
 } from "./enums";
-import { users } from "./identity";
+import { authSessions, users } from "./identity";
 
 export const assetUploadBatches = pgTable("asset_upload_batches", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -32,6 +33,16 @@ export const assetUploadBatches = pgTable("asset_upload_batches", {
   sourceDeclarationEnabled: boolean("source_declaration_enabled")
     .notNull()
     .default(false),
+  status: assetUploadBatchStatusEnum("status").notNull().default("created"),
+  authSessionId: uuid("auth_session_id").references(() => authSessions.id, {
+    onDelete: "restrict",
+  }),
+  declaredFileCount: integer("declared_file_count").notNull().default(0),
+  completedFileCount: integer("completed_file_count").notNull().default(0),
+  declarationInput: jsonb("declaration_input"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  failureReason: text("failure_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

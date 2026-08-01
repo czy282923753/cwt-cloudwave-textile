@@ -16,8 +16,6 @@ import {
   productLocalizations,
   productTaxonomyTerms,
   products,
-  fabricLibraryEntryApplications,
-  fabricLibraryEntryProducts,
   internalLinkRelations,
   keywordPageMappings,
   routes,
@@ -27,7 +25,10 @@ import {
   seoTopicMembers,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
-import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import {
+  hasPubliclyEligibleProductForFabricEntryConditions,
+  publicProductEligibilityConditions,
+} from "@/catalog/product-eligibility";
 import {
   publicImageRoles,
   publicReadyAssetSqlConditions,
@@ -178,22 +179,6 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
           keywordPageMappings,
           eq(keywordPageMappings.primaryRouteId, routes.id),
         )
-        .leftJoin(
-          fabricLibraryEntryProducts,
-          eq(fabricLibraryEntryProducts.fabricEntryId, fabricLibraryEntries.id),
-        )
-        .leftJoin(
-          products,
-          eq(products.id, fabricLibraryEntryProducts.productId),
-        )
-        .leftJoin(
-          fabricLibraryEntryApplications,
-          eq(fabricLibraryEntryApplications.fabricEntryId, fabricLibraryEntries.id),
-        )
-        .leftJoin(
-          applications,
-          eq(applications.id, fabricLibraryEntryApplications.applicationId),
-        )
         .where(
           and(
             commonRouteConditions(),
@@ -205,7 +190,7 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
             sql`length(trim(coalesce(${seoMetadata.title}, ''))) > 0`,
             sql`length(trim(coalesce(${seoMetadata.metaDescription}, ''))) > 0`,
             sql`length(trim(coalesce(${assets.altText}, ''))) > 0`,
-            or(eq(products.status, "published"), eq(applications.status, "published")),
+            hasPubliclyEligibleProductForFabricEntryConditions(db),
           ),
         ),
       db
@@ -268,7 +253,7 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
           products,
           and(
             eq(products.id, productTaxonomyTerms.productId),
-            eq(products.status, "published"),
+            publicProductEligibilityConditions(db),
           ),
         )
         .innerJoin(

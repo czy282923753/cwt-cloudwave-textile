@@ -5,7 +5,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/audit/service";
 import { requirePermission } from "@/auth/permissions";
 import {
   applyApplicationRevision,
@@ -53,7 +52,6 @@ import {
   updateProductSeo,
   updateProductStructure,
 } from "@/catalog/product-service";
-import { env } from "@/config/env";
 import {
   addCustomerActivity,
   assignInquiry,
@@ -75,38 +73,28 @@ import {
   updateContent,
 } from "@/content/content-service";
 import {
+  createAuthor,
+  updateAuthor,
+} from "@/content/author-service";
+import {
+  createCompanyFact,
   rejectCompanyFact,
   updateCompanyFact,
   verifyCompanyFact,
 } from "@/content/company-facts-service";
 import { databaseConnection } from "@/db/client";
-import {
-  assetUploadBatches,
-  authors,
-  companyFacts,
-  contentAssets,
-  contents,
-  fabricLibraryEntries,
-  fabricLibraryEntryAssets,
-  productAssets,
-  products,
-} from "@/db/schema";
+import { contents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/types";
-import { createObjectStorage } from "@/storage";
 import { updateSeoMetadata } from "@/seo/metadata-service";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
 import { setFeatureFlag } from "@/settings/feature-flag-service";
-import { createUploadRateLimiter } from "@/uploads/rate-limit";
-import { createFileScanner } from "@/uploads/scanner";
 import {
   adminOverrideSourceDeclaration,
   reviewSourceDeclaration,
   updateSourceDeclaration,
-  uploadAsset,
 } from "@/uploads/service";
-import { isRoleMimeCompatible } from "@/uploads/asset-eligibility";
 
 import { currentActor } from "./actor";
 
@@ -896,84 +884,36 @@ export async function changeFabricEntrySlugAction(form: FormData): Promise<void>
 
 export async function createAuthorAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "content.write");
-  await withDatabase(async (db) => {
-    const rows = await db
-      .insert(authors)
-      .values({
-        internalKey: requiredString(form, "internalKey"),
-        displayName: requiredString(form, "displayName"),
-        bio: optionalString(form, "bio") ?? null,
-        isOrganization: form.get("isOrganization") === "on",
-      })
-      .returning({ id: authors.id });
-    const authorId = rows[0]?.id;
-    if (!authorId) throw new Error("Author insert failed.");
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "author.created",
-      entityType: "author",
-      entityId: authorId,
-    });
-  });
+  await withDatabase((db) => createAuthor(db, actor, {
+    internalKey: requiredString(form, "internalKey"),
+    displayName: requiredString(form, "displayName"),
+    bio: optionalString(form, "bio") ?? null,
+    isOrganization: form.get("isOrganization") === "on",
+  }));
   revalidatePath("/admin/authors");
 }
 
 export async function updateAuthorAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "content.write");
   const authorId = requiredString(form, "authorId");
-  await withDatabase(async (db) => {
-    const before = await db.select().from(authors).where(eq(authors.id, authorId)).limit(1);
-    if (!before[0]) throw new Error("Author was not found.");
-    await db
-      .update(authors)
-      .set({
-        displayName: requiredString(form, "displayName"),
-        bio: optionalString(form, "bio") ?? null,
-        isOrganization: form.get("isOrganization") === "on",
-        isActive: form.get("isActive") === "on",
-        updatedAt: new Date(),
-      })
-      .where(eq(authors.id, authorId));
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "author.updated",
-      entityType: "author",
-      entityId: authorId,
-      beforeSummary: { isActive: before[0].isActive },
-      afterSummary: { isActive: form.get("isActive") === "on" },
-    });
-  });
+  await withDatabase((db) => updateAuthor(db, actor, authorId, {
+    displayName: requiredString(form, "displayName"),
+    bio: optionalString(form, "bio") ?? null,
+    isOrganization: form.get("isOrganization") === "on",
+    isActive: form.get("isActive") === "on",
+  }));
   revalidatePath("/admin/authors");
 }
 
 export async function createCompanyFactAction(form: FormData): Promise<void> {
   const actor = await currentActor();
-  requirePermission(actor.role, "company_facts.manage");
-  await withDatabase(async (db) => {
-    const rows = await db
-      .insert(companyFacts)
-      .values({
-        factKey: requiredString(form, "factKey"),
-        subject: requiredString(form, "subject"),
-        statement: requiredString(form, "statement"),
-        relationshipToCwt: optionalString(form, "relationshipToCwt") ?? null,
-        evidenceReference: optionalString(form, "evidenceReference") ?? null,
-        publicUseAllowed: false,
-        verificationStatus: "provided",
-      })
-      .returning({ id: companyFacts.id });
-    const factId = rows[0]?.id;
-    if (!factId) throw new Error("Company Fact insert failed.");
-    await writeAuditLog(db, {
-      actorUserId: actor.userId,
-      action: "company_fact.created",
-      entityType: "company_fact",
-      entityId: factId,
-      afterSummary: { publicUseAllowed: false, status: "provided" },
-    });
-  });
+  await withDatabase((db) => createCompanyFact(db, actor, {
+    factKey: requiredString(form, "factKey"),
+    subject: requiredString(form, "subject"),
+    statement: requiredString(form, "statement"),
+    relationshipToCwt: optionalString(form, "relationshipToCwt") ?? null,
+    evidenceReference: optionalString(form, "evidenceReference") ?? null,
+  }));
   revalidatePath("/admin/company-facts");
 }
 
@@ -1013,184 +953,6 @@ export async function rejectCompanyFactAction(form: FormData): Promise<void> {
   );
   revalidatePath(`/admin/company-facts/${factId}`);
   revalidatePath("/", "layout");
-}
-
-const uploadRateLimiter = createUploadRateLimiter();
-
-const categorySchema = z.enum([
-  "product",
-  "fabric",
-  "market",
-  "company",
-  "factory",
-  "application",
-  "certificate",
-  "content",
-  "other",
-]);
-
-async function performAssetUpload<TQueryResult extends PgQueryResultHKT>(
-  db: AppDatabase<TQueryResult>,
-  actor: Awaited<ReturnType<typeof currentActor>>,
-  form: FormData,
-): Promise<void> {
-  requirePermission(actor.role, "assets.write");
-  if (!(await uploadRateLimiter.consume(actor.userId))) {
-    throw new Error("Upload rate limit exceeded.");
-  }
-  const files = form
-    .getAll("files")
-    .filter((value): value is File => value instanceof File && value.size > 0);
-  if (files.length === 0 || files.length > env.MAX_FILES_PER_UPLOAD) {
-    throw new Error("Upload file count is outside the configured limit.");
-  }
-  const sourceDeclarationEnabled = form.get("sourceDeclarationEnabled") === "on";
-  const association = optionalString(form, "association");
-  let associationType: "product" | "fabric" | "content" | null = null;
-  let associationEntityId: string | null = null;
-  if (association) {
-    const separator = association.indexOf(":");
-    const rawType = association.slice(0, separator);
-    associationEntityId = association.slice(separator + 1);
-    if (
-      !associationEntityId ||
-      (rawType !== "product" && rawType !== "fabric" && rawType !== "content")
-    ) {
-      throw new Error("Asset association is invalid.");
-    }
-    associationType = rawType;
-    if (associationType === "content") {
-      requirePermission(actor.role, "content.write");
-      const rows = await db
-        .select({ status: contents.status })
-        .from(contents)
-        .where(eq(contents.id, associationEntityId))
-        .limit(1);
-      if (!rows[0] || rows[0].status === "archived") {
-        throw new Error("Asset association target is unavailable.");
-      }
-      if (rows[0].status === "published") {
-        throw new Error("Published Content Assets must change through an Editorial Revision.");
-      }
-    } else if (associationType === "product") {
-      requirePermission(actor.role, "products.write");
-      const rows = await db
-        .select({ status: products.status })
-        .from(products)
-        .where(eq(products.id, associationEntityId))
-        .limit(1);
-      if (!rows[0] || rows[0].status === "archived") {
-        throw new Error("Asset association target is unavailable.");
-      }
-      if (rows[0].status === "published") {
-        throw new Error("Published Product Assets must change through an Editorial Revision.");
-      }
-    } else {
-      requirePermission(actor.role, "products.write");
-      const rows = await db
-        .select({ status: fabricLibraryEntries.status })
-        .from(fabricLibraryEntries)
-        .where(eq(fabricLibraryEntries.id, associationEntityId))
-        .limit(1);
-      if (!rows[0] || rows[0].status === "archived") {
-        throw new Error("Asset association target is unavailable.");
-      }
-      if (rows[0].status === "published") {
-        throw new Error(
-          "Published Fabric Library Assets must change through an Editorial Revision.",
-        );
-      }
-    }
-  }
-  const batchRows = await db
-    .insert(assetUploadBatches)
-    .values({ createdByUserId: actor.userId, sourceDeclarationEnabled })
-    .returning({ id: assetUploadBatches.id });
-  const uploadBatchId = batchRows[0]?.id;
-  if (!uploadBatchId) throw new Error("Upload batch insert failed.");
-  const storage = createObjectStorage();
-  const scanner = createFileScanner();
-  const category = categorySchema.parse(requiredString(form, "category"));
-  const role = z
-    .enum(["hero", "gallery", "cover", "detail", "thumbnail", "inline", "document", "download"])
-    .parse(requiredString(form, "role"));
-  for (const file of files) {
-    if (!isRoleMimeCompatible(role, file.type)) {
-      throw new Error("Asset role does not allow the uploaded MIME type.");
-    }
-    const assetId = await uploadAsset(db, storage, scanner, {
-      fileName: file.name,
-      declaredMimeType: file.type,
-      bytes: new Uint8Array(await file.arrayBuffer()),
-      category,
-      purpose: "public_asset",
-      uploadedByUserId: actor.userId,
-      uploadBatchId,
-      sourceDeclarationEnabled,
-    });
-    const sortOrder = z.coerce.number().int().min(0).parse(form.get("sortOrder") ?? 0);
-    if (associationType && associationEntityId) {
-      if (associationType === "product") {
-        await db.insert(productAssets).values({ productId: associationEntityId, assetId, role, sortOrder });
-      } else if (associationType === "fabric") {
-        await db.insert(fabricLibraryEntryAssets).values({
-          fabricEntryId: associationEntityId,
-          assetId,
-          role,
-          sortOrder,
-        });
-      } else if (associationType === "content") {
-        await db.insert(contentAssets).values({ contentId: associationEntityId, assetId, role, sortOrder });
-      }
-    }
-    if (sourceDeclarationEnabled) {
-      const subjectRelationship = z
-        .enum(["cwt", "partner_factory", "supplier", "customer", "third_party", "unknown"])
-        .optional()
-        .parse(optionalString(form, "subjectRelationship"));
-      await updateSourceDeclaration(db, assetId, actor, {
-        expectedVersion: 0,
-        enabled: true,
-        sourceType: optionalString(form, "sourceType") ?? null,
-        sourceProvider: optionalString(form, "sourceProvider") ?? null,
-        rightsStatus: optionalString(form, "rightsStatus") ?? null,
-        subjectRelationship: subjectRelationship ?? null,
-        publicUsePermission: z
-          .enum(["unknown", "allowed", "not_allowed", "restricted"])
-          .optional()
-          .parse(optionalString(form, "publicUsePermission")) ?? null,
-        editingPermission: z
-          .enum(["unknown", "allowed", "not_allowed", "restricted"])
-          .optional()
-          .parse(optionalString(form, "editingPermission")) ?? null,
-        usageRestrictions: optionalString(form, "usageRestrictions") ?? null,
-        permissionEvidence: optionalString(form, "permissionEvidence") ?? null,
-        declarationExpiryDate: optionalString(form, "declarationExpiryDate")
-          ? new Date(requiredString(form, "declarationExpiryDate"))
-          : null,
-        isCwtOwnedFacility:
-          form.get("isCwtOwnedFacility") === "yes"
-            ? true
-            : form.get("isCwtOwnedFacility") === "no"
-              ? false
-              : null,
-      });
-    }
-  }
-  await writeAuditLog(db, {
-    actorUserId: actor.userId,
-    action: "asset.upload_batch.completed",
-    entityType: "asset_upload_batch",
-    entityId: uploadBatchId,
-    afterSummary: { fileCount: files.length, sourceDeclarationEnabled },
-  });
-}
-
-export async function uploadAssetsAction(form: FormData): Promise<void> {
-  const actor = await currentActor();
-  await withDatabase((db) => performAssetUpload(db, actor, form));
-  revalidatePath("/admin/assets");
-  redirect("/admin/assets");
 }
 
 export async function updateAssetDeclarationAction(form: FormData): Promise<void> {

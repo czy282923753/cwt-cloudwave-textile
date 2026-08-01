@@ -15,6 +15,7 @@ import {
   seoMetadata,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { publicProductEligibilityConditions } from "./product-eligibility";
 
 import type { Actor } from "./product-service";
 
@@ -416,7 +417,7 @@ export async function setApplicationIndexStatus<
         .where(
           and(
             eq(productApplications.applicationId, applicationId),
-            eq(products.status, "published"),
+            publicProductEligibilityConditions(db),
           ),
         ),
       db

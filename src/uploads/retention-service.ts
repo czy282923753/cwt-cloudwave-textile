@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, lte } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
-import { assets, uploadIntents } from "@/db/schema";
+import { assetUploadBatches, assets, uploadIntents } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import type { ObjectStorage, StoragePartition } from "@/storage";
 
@@ -23,6 +23,8 @@ export async function purgeExpiredUploadIntents<
   const expired = await db
     .select({
       intentId: uploadIntents.id,
+      intentKind: uploadIntents.kind,
+      uploadBatchId: uploadIntents.uploadBatchId,
       assetId: uploadIntents.assetId,
       storagePartition: assets.storagePartition,
       objectKey: assets.objectKey,
@@ -59,12 +61,25 @@ export async function purgeExpiredUploadIntents<
         .update(uploadIntents)
         .set({ status: "expired", failureReason: "upload_intent_expired", updatedAt: now })
         .where(eq(uploadIntents.id, row.intentId));
+      if (row.intentKind === "admin_asset" && row.uploadBatchId) {
+        await transaction.update(assetUploadBatches).set({
+          status: "expired", failureReason: "upload_intent_expired",
+        }).where(eq(assetUploadBatches.id, row.uploadBatchId));
+      }
       await writeAuditLog(transaction, {
         action: "upload_intent.retention.deleted",
         entityType: "upload_intent",
         entityId: row.intentId,
         afterSummary: { assetDeleted: Boolean(row.assetId) },
       });
+      if (row.intentKind === "admin_asset" && row.uploadBatchId) {
+        await writeAuditLog(transaction, {
+          action: "asset.upload_batch.expired",
+          entityType: "asset_upload_batch",
+          entityId: row.uploadBatchId,
+          afterSummary: { reason: "upload_intent_expired" },
+        });
+      }
     });
     deleted += 1;
   }

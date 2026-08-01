@@ -584,7 +584,7 @@ export async function queryPublishedFabricRelatedProductIds<
     .where(
       and(
         eq(fabricLibraryEntryProducts.fabricEntryId, entryId),
-        eq(products.status, "published"),
+        publicProductEligibilityConditions(db),
       ),
     );
 }

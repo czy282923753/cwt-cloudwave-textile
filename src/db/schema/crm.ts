@@ -11,7 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { assets } from "./assets";
+import { assets, assetUploadBatches } from "./assets";
 import {
   activityTypeEnum,
   activityDirectionEnum,
@@ -22,6 +22,9 @@ import {
   qualificationStatusEnum,
   outboxStatusEnum,
   uploadIntentStatusEnum,
+  uploadIntentKindEnum,
+  assetCategoryEnum,
+  assetRoleEnum,
 } from "./enums";
 import { users } from "./identity";
 
@@ -114,7 +117,20 @@ export const uploadIntents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tokenHash: text("token_hash").notNull(),
+    kind: uploadIntentKindEnum("kind").notNull().default("inquiry"),
     anonymousSessionId: text("anonymous_session_id").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    authSessionId: uuid("auth_session_id"),
+    uploadBatchId: uuid("upload_batch_id").references(() => assetUploadBatches.id, {
+      onDelete: "cascade",
+    }),
+    adminAssetCategory: assetCategoryEnum("admin_asset_category"),
+    adminAssetRole: assetRoleEnum("admin_asset_role"),
+    associationType: text("association_type"),
+    associationEntityId: uuid("association_entity_id"),
+    sortOrder: integer("sort_order"),
     declaredFileName: text("declared_file_name").notNull(),
     declaredMimeType: text("declared_mime_type").notNull(),
     declaredByteSize: integer("declared_byte_size").notNull(),
@@ -138,6 +154,12 @@ export const uploadIntents = pgTable(
       table.status,
     ),
     index("upload_intents_expiry_idx").on(table.expiresAt),
+    index("upload_intents_admin_owner_idx").on(
+      table.createdByUserId,
+      table.authSessionId,
+      table.status,
+    ),
+    index("upload_intents_batch_idx").on(table.uploadBatchId, table.status),
   ],
 );
 

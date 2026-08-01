@@ -7,14 +7,18 @@ import type { Actor } from "@/catalog/product-service";
 import { contacts, organizations } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 
+interface ContactServiceOptions { auditWriter?: typeof writeAuditLog }
+
 export async function createOrganization<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   input: { name: string; website?: string | null; countryCode?: string | null },
+  options: ContactServiceOptions = {},
 ): Promise<string> {
   requirePermission(actor.role, "users.manage");
   const name = input.name.trim();
   if (!name) throw new Error("Organization Name is required.");
+  const auditWriter = options.auditWriter ?? writeAuditLog;
   return db.transaction(async (transaction) => {
     const rows = await transaction
       .insert(organizations)
@@ -26,7 +30,7 @@ export async function createOrganization<TQueryResult extends PgQueryResultHKT>(
       .returning({ id: organizations.id });
     const id = rows[0]?.id;
     if (!id) throw new Error("Organization insert failed.");
-    await writeAuditLog(transaction, {
+    await auditWriter(transaction, {
       actorUserId: actor.userId,
       action: "organization.created",
       entityType: "organization",
@@ -43,8 +47,10 @@ export async function assignContactOrganization<
   actor: Actor,
   contactId: string,
   organizationId: string | null,
+  options: ContactServiceOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "users.manage");
+  const auditWriter = options.auditWriter ?? writeAuditLog;
   await db.transaction(async (transaction) => {
     if (organizationId) {
       const organization = await transaction
@@ -60,7 +66,7 @@ export async function assignContactOrganization<
       .where(eq(contacts.id, contactId))
       .returning({ id: contacts.id });
     if (!updated[0]) throw new Error("Contact was not found.");
-    await writeAuditLog(transaction, {
+    await auditWriter(transaction, {
       actorUserId: actor.userId,
       action: "contact.organization.assigned",
       entityType: "contact",

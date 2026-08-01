@@ -1,4 +1,5 @@
 import {
+  check,
   integer,
   index,
   jsonb,
@@ -8,6 +9,7 @@ import {
   uuid,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 import {
   attributionConfidenceEnum,
@@ -62,5 +64,9 @@ export const conversionEvents = pgTable(
     index("conversion_events_name_time_idx").on(table.eventName, table.occurredAt),
     index("conversion_events_route_time_idx").on(table.routePath, table.occurredAt),
     index("conversion_events_external_reference_idx").on(table.externalReference),
+    check(
+      "conversion_events_public_only_check",
+      sql`${table.entityType} is null or ${table.entityType} in ('product', 'application', 'fabric_entry', 'content', 'taxonomy')`,
+    ),
   ],
 );

@@ -217,6 +217,25 @@ test("@desktop Asset Library opens a governed Asset with Source Declaration off 
   await expect(page.getByRole("checkbox", { name: "Enable Source Declaration" })).not.toBeChecked();
 });
 
+test("@desktop Asset Library uploads through authenticated binary Intents with Source Declaration off", async ({ page }) => {
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/assets/");
+  const fileName = `e2e-admin-asset-${Date.now()}.png`;
+  await page.getByLabel("Files", { exact: true }).setInputFiles({
+    name: fileName,
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVQImWMQCaiAIwbiOABfgw3BWckaWgAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  });
+  await page.getByLabel("Asset Category").selectOption("product");
+  await page.getByRole("button", { name: "Upload and process" }).click();
+  await expect(page.getByText("1 asset uploaded and released.")).toBeVisible();
+  await expect(page.getByRole("link", { name: fileName })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Enable Source Declaration" })).not.toBeChecked();
+});
+
 test("@desktop a Published Product edit stays pending until approval", async ({ page }) => {
   await loginAsLocalAdmin(page);
   await page.goto("/admin/products/");
