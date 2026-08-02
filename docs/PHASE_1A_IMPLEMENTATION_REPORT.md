@@ -34,7 +34,7 @@ The worker may pre-read a candidate only to locate work. In the transaction it l
 
 `0015_post-commit-boundary-closure.sql` is forward-only; Migrations 0013/0014 are unchanged. It adds cleanup-kind and Manifest-evidence enums; complete Cleanup Intent/Recovery-version/Manifest identity; observed Manifest MIME/size/time and verification source/status; Intent and Manifest indexes; a nullable restrictive `finalize_recovery_id → upload_recovery_jobs.id` FK; a restrictive Manifest/Recovery FK; and a restrictive Cleanup/Manifest FK. Finalize Cleanup rows are Check-constrained to Public partition plus complete Recovery/Manifest/object metadata. Null remains legal for generic cleanup. Existing orphan Finalize references or incomplete Finalize identity abort upgrade for manual governance instead of being deleted or fabricated.
 
-All pre-0015 Manifest records are conservatively marked `unverified` with source `migration_0015_legacy_inferred`; old inferred byte/time fields remain historical diagnostics only. Public eligibility and controlled media delivery reject unverified evidence. The authorized revalidation reads actual storage bytes, verifies magic MIME/size and complete identity, records observed values/time and `verified` status with system Audit in one transaction. Audit failure rolls it back.
+All pre-0015 Manifest records are conservatively marked `unverified` with source `migration_0015_legacy_inferred`; old inferred byte/time fields remain historical diagnostics only. Public eligibility and controlled media delivery reject unverified evidence for the authoritative completed Recovery attempt. Superseded attempts remain unverified history and cannot authorize or poison the later fenced attempt. The authorized revalidation reads actual original and Variant storage bytes, verifies magic MIME/size and complete Asset/Recovery/attempt/Cleanup identity, updates actual Asset/Variant sizes, and records observed values/time plus `verified` status with system Audit in one transaction. Audit failure rolls it back.
 
 ## 7. Files changed
 
@@ -73,6 +73,7 @@ No external Git push, production database, provider account, production key, DNS
 ## 12. Local Git record
 
 - Implementation, Migration and executable tests: `adb6a54 fix: isolate finalize post-commit maintenance`.
+- Authoritative-attempt evidence follow-up: `8bc7b26 fix: scope manifest evidence to current attempt`.
 - Documentation/evidence is committed separately after this implementation record. No external push was performed.
 
 ## 13. Recommendation and phase status

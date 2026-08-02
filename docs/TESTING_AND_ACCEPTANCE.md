@@ -7,7 +7,7 @@ The final directed gate covers core-commit versus post-commit separation, persis
 1. Post-commit worker wake, storage delete, cleanup-state Audit and persistent Audit-writer outages return committed success with a maintenance warning and never re-arm Finalize.
 2. Same-owner/session completed retries return the same Asset IDs without another Public put; a different User/Session, Batch/Asset mismatch or missing Public object fails closed.
 3. Eleven independently corrupted Cleanup identity fields (Batch, Intent, Recovery, Recovery version, attempt, Manifest item, Asset, key, role, MIME and size) cause zero delete and audited dead/manual review; injected Audit failure rolls the state change back.
-4. Legacy unverified Manifest evidence blocks public readiness; failed revalidation Audit rolls back; actual object bytes establish observed MIME/size/time and verified evidence atomically.
+4. Legacy unverified Manifest evidence for the authoritative completed attempt blocks public readiness; failed revalidation Audit rolls back; actual original and Variant bytes establish observed MIME/size/time and verified evidence atomically. A superseded unverified attempt remains historical and cannot authorize or poison the current verified attempt.
 5. Migration 0015 passes Fresh and 0012→latest Upgrade, rejects orphan Finalize Recovery references, enforces nullable-valid/restrictive FK behavior, and marks inferred 0013/0014 evidence unverified.
 6. The Admin client announces core success before navigation and presents cleanup delay as a non-blocking warning, never as a false upload failure.
 
