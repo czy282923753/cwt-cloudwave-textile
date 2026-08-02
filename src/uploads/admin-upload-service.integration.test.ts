@@ -19,6 +19,8 @@ import {
   type AdminUploadActor,
 } from "./admin-upload-service";
 import {
+  CLEANUP_MAX_ATTEMPTS,
+  UPLOAD_RECOVERY_SYSTEM_ACTOR,
   claimObjectCleanupJob,
   processObjectCleanupJob,
   processPendingObjectCleanupJobs,
@@ -250,6 +252,257 @@ describe("Admin Asset Upload Intents", () => {
       } finally {
         await connection.close();
       }
+    }
+  }, 30_000);
+
+  it("dead-letters exhausted Finalize Private cleanup without reversing the committed Finalize", async () => {
+    const connection = await createTestDatabase();
+    const storage = new FaultInjectingStorage();
+    try {
+      const [user] = await connection.db.insert(users).values({
+        email: "finalize-private-dead@example.test",
+        displayName: "TEST Finalize Private Dead",
+        role: "admin",
+        passwordHash: "test",
+      }).returning({ id: users.id, role: users.role });
+      if (!user) throw new Error("Missing User.");
+      const [session] = await connection.db.insert(authSessions).values({
+        userId: user.id,
+        tokenHash: "finalize-private-dead-session",
+        expiresAt: new Date(Date.now() + 60_000),
+      }).returning({ id: authSessions.id });
+      if (!session) throw new Error("Missing Session.");
+      const actor: AdminUploadActor = {
+        userId: user.id,
+        role: user.role,
+        authSessionId: session.id,
+      };
+      const [productId] = await createDraftProducts(
+        connection.db,
+        "finalize-private-dead-product",
+        1,
+      );
+      if (!productId) throw new Error("Missing Product.");
+      const staged = await stageImageBatch(
+        connection.db,
+        storage,
+        actor,
+        productId,
+        "finalize-private-dead",
+      );
+
+      storage.failDeleteCount = CLEANUP_MAX_ATTEMPTS;
+      await expect(finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        actor,
+        staged.batch.batchId,
+      )).resolves.toMatchObject({
+        success: true,
+        batchId: staged.batch.batchId,
+        assetId: staged.assetId,
+        alreadyFinalized: false,
+        privateCleanupPending: true,
+      });
+
+      const [privateCleanup] = await connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.cleanupKind, "finalize_private"),
+      ));
+      if (!privateCleanup) throw new Error("Missing Finalize Private Cleanup.");
+      expect(privateCleanup).toMatchObject({ status: "pending", attemptCount: 1 });
+
+      for (let attempt = 2; attempt <= CLEANUP_MAX_ATTEMPTS; attempt += 1) {
+        const current = (await connection.db.select().from(objectCleanupJobs)
+          .where(eq(objectCleanupJobs.id, privateCleanup.id)))[0];
+        if (!current) throw new Error("Finalize Private Cleanup disappeared.");
+        const result = await processObjectCleanupJob(
+          connection.db,
+          storage,
+          current.id,
+          {
+            now: new Date(current.nextAttemptAt.getTime() + 1),
+            workerId: attempt === CLEANUP_MAX_ATTEMPTS
+              ? "system:unauthorized-cleanup-worker"
+              : `finalize-private-retry-${attempt}`,
+          },
+        );
+        expect(result, `attempt ${attempt}`).toBe(
+          attempt === CLEANUP_MAX_ATTEMPTS ? "dead" : "retry",
+        );
+      }
+
+      const deadCleanup = (await connection.db.select().from(objectCleanupJobs)
+        .where(eq(objectCleanupJobs.id, privateCleanup.id)))[0];
+      expect(deadCleanup).toMatchObject({
+        status: "dead",
+        attemptCount: CLEANUP_MAX_ATTEMPTS,
+        lastError: "TEST cleanup delete failed",
+      });
+      expect((await connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]).toMatchObject({
+        status: "completed",
+        failureReason: null,
+      });
+      const releasedAsset = (await connection.db.select().from(assets)
+        .where(eq(assets.id, staged.assetId)))[0];
+      expect(releasedAsset).toMatchObject({
+        storagePartition: "public",
+        access: "public",
+        status: "ready",
+        scanStatus: "passed",
+      });
+      expect(await connection.db.select().from(productAssets).where(and(
+        eq(productAssets.productId, productId),
+        eq(productAssets.assetId, staged.assetId),
+      ))).toHaveLength(1);
+      const recoveries = await connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId));
+      expect(recoveries.find((row) => row.kind === "finalize")).toMatchObject({
+        status: "completed",
+        stage: "completed",
+      });
+      expect(recoveries.find((row) => row.kind === "staging")).toMatchObject({
+        status: "completed",
+        stage: "completed",
+      });
+      expect((await connection.db.select().from(uploadIntents)
+        .where(eq(uploadIntents.uploadBatchId, staged.batch.batchId)))[0]).toMatchObject({
+        status: "consumed",
+        isConsumed: true,
+      });
+      const publicCompensation = await connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.cleanupKind, "finalize_public"),
+      ));
+      expect(publicCompensation).not.toHaveLength(0);
+      expect(publicCompensation.every((job) => job.status === "cancelled")).toBe(true);
+      expect(storage.objects.has(`public:${releasedAsset!.objectKey}`)).toBe(true);
+      expect(storage.objects.has(`private:${privateCleanup.objectKey}`)).toBe(true);
+
+      const [deadAudit] = await connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "object_cleanup.dead"),
+        eq(auditLogs.entityId, privateCleanup.id),
+      ));
+      expect(deadAudit?.afterSummary).toMatchObject({
+        systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+        cleanupKind: "finalize_private",
+        maintenanceOnly: true,
+        requiresManualCleanup: true,
+        outcome: "private_staging_cleanup_exhausted",
+      });
+      expect(await connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "asset.finalize.cleanup_dead"),
+        eq(auditLogs.entityId, staged.batch.batchId),
+      ))).toHaveLength(0);
+
+      await expect(finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        actor,
+        staged.batch.batchId,
+      )).resolves.toMatchObject({
+        success: true,
+        batchId: staged.batch.batchId,
+        assetId: staged.assetId,
+        alreadyFinalized: true,
+        privateCleanupPending: true,
+      });
+    } finally {
+      await connection.close();
+    }
+  }, 30_000);
+
+  it("rolls back Finalize Private dead-letter state when its required Audit fails", async () => {
+    const connection = await createTestDatabase();
+    const storage = new FaultInjectingStorage();
+    try {
+      const [user] = await connection.db.insert(users).values({
+        email: "finalize-private-dead-audit@example.test",
+        displayName: "TEST Finalize Private Dead Audit",
+        role: "admin",
+        passwordHash: "test",
+      }).returning({ id: users.id, role: users.role });
+      if (!user) throw new Error("Missing User.");
+      const [session] = await connection.db.insert(authSessions).values({
+        userId: user.id,
+        tokenHash: "finalize-private-dead-audit-session",
+        expiresAt: new Date(Date.now() + 60_000),
+      }).returning({ id: authSessions.id });
+      if (!session) throw new Error("Missing Session.");
+      const actor: AdminUploadActor = {
+        userId: user.id,
+        role: user.role,
+        authSessionId: session.id,
+      };
+      const [productId] = await createDraftProducts(
+        connection.db,
+        "finalize-private-dead-audit-product",
+        1,
+      );
+      if (!productId) throw new Error("Missing Product.");
+      const staged = await stageImageBatch(
+        connection.db,
+        storage,
+        actor,
+        productId,
+        "finalize-private-dead-audit",
+      );
+      storage.failDeleteCount = 1;
+      await finalizeAdminUploadBatch(connection.db, storage, actor, staged.batch.batchId);
+      const [cleanup] = await connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.cleanupKind, "finalize_private"),
+      ));
+      if (!cleanup) throw new Error("Missing Finalize Private Cleanup.");
+      await connection.db.update(objectCleanupJobs).set({ maxAttempts: 2 })
+        .where(eq(objectCleanupJobs.id, cleanup.id));
+      storage.failDeleteCount = 2;
+      const deadAuditFailure: typeof writeAuditLog = async (database, input) => {
+        if (input.action === "object_cleanup.dead") {
+          throw new Error("TEST Finalize Private dead Audit failure");
+        }
+        return writeAuditLog(database, input);
+      };
+      await expect(processObjectCleanupJob(
+        connection.db,
+        storage,
+        cleanup.id,
+        {
+          now: new Date(cleanup.nextAttemptAt.getTime() + 1),
+          workerId: "finalize-private-dead-audit-worker",
+          auditWriter: deadAuditFailure,
+        },
+      )).rejects.toThrow(/dead Audit failure/);
+      const rolledBack = (await connection.db.select().from(objectCleanupJobs)
+        .where(eq(objectCleanupJobs.id, cleanup.id)))[0];
+      expect(rolledBack).toMatchObject({
+        status: "processing",
+        attemptCount: 2,
+        lockedBy: "finalize-private-dead-audit-worker",
+      });
+      expect((await connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("completed");
+      expect((await connection.db.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      )))[0]?.status).toBe("completed");
+
+      expect(await processObjectCleanupJob(
+        connection.db,
+        storage,
+        cleanup.id,
+        {
+          now: new Date(rolledBack!.leaseExpiresAt!.getTime() + 1),
+          workerId: "finalize-private-dead-audit-retry",
+        },
+      )).toBe("dead");
+      expect((await connection.db.select().from(objectCleanupJobs)
+        .where(eq(objectCleanupJobs.id, cleanup.id)))[0]?.status).toBe("dead");
+      expect((await connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("completed");
+    } finally {
+      await connection.close();
     }
   }, 30_000);
 

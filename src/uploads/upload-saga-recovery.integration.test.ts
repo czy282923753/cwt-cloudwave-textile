@@ -26,7 +26,10 @@ import {
   type AdminUploadActor,
   type AdminUploadFaultPoint,
 } from "./admin-upload-service";
-import { processObjectCleanupJob } from "./object-cleanup-service";
+import {
+  processObjectCleanupJob,
+  UPLOAD_RECOVERY_SYSTEM_ACTOR,
+} from "./object-cleanup-service";
 import { DevelopmentFileScanner } from "./scanner";
 import {
   processPendingUploadRecoveryJobs,
@@ -409,6 +412,64 @@ describe("Admin Upload persistent Saga and Finalize lease", () => {
       )).toBe("completed");
       expect((await fixture.connection.db.select().from(uploadRecoveryJobs)
         .where(eq(uploadRecoveryJobs.id, recovery.id)))[0]?.status).toBe("completed");
+    } finally {
+      await fixture.connection.close();
+    }
+  }, 30_000);
+
+  it("keeps the existing core-failure dead-letter semantics for Staging cleanup", async () => {
+    const fixture = await setup("staging-cleanup-dead");
+    const storage = new RecoveryStorage();
+    try {
+      const staged = await stageBatch(fixture, storage, "staging-cleanup-dead");
+      const recovery = (await fixture.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId)))[0];
+      if (!recovery) throw new Error("Missing Staging Recovery.");
+      const [cleanup] = await fixture.connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.cleanupKind, "staging"),
+      ));
+      if (!cleanup) throw new Error("Missing Staging Cleanup.");
+      const attemptAt = new Date();
+      await fixture.connection.db.update(objectCleanupJobs).set({
+        maxAttempts: 1,
+        nextAttemptAt: attemptAt,
+      })
+        .where(eq(objectCleanupJobs.id, cleanup.id));
+      storage.failDeletes = 1;
+
+      expect(await processObjectCleanupJob(
+        fixture.connection.db,
+        storage,
+        cleanup.id,
+        {
+          now: new Date(attemptAt.getTime() + 1),
+          workerId: "system:untrusted-staging-worker",
+        },
+      )).toBe("dead");
+      expect((await fixture.connection.db.select().from(objectCleanupJobs)
+        .where(eq(objectCleanupJobs.id, cleanup.id)))[0]?.status).toBe("dead");
+      expect((await fixture.connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]).toMatchObject({
+        status: "failed",
+        failureReason: "private_staging_cleanup_dead",
+      });
+      expect((await fixture.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.id, recovery.id)))[0]).toMatchObject({
+        status: "dead",
+        stage: "failed",
+      });
+      const [deadAudit] = await fixture.connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "object_cleanup.dead"),
+        eq(auditLogs.entityId, cleanup.id),
+      ));
+      expect(deadAudit?.afterSummary).toMatchObject({
+        systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+        cleanupKind: "staging",
+        maintenanceOnly: false,
+        requiresManualCleanup: false,
+        outcome: "cleanup_exhausted",
+      });
     } finally {
       await fixture.connection.close();
     }

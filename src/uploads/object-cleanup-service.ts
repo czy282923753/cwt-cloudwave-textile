@@ -553,6 +553,7 @@ export async function processObjectCleanupJob<
     return "completed";
   } catch (error) {
     const dead = job.attemptCount >= job.maxAttempts;
+    const postCommitMaintenance = job.cleanupKind === "finalize_private";
     const delay = Math.min(30_000 * 2 ** Math.max(0, job.attemptCount - 1), 3_600_000);
     await db.transaction(async (transaction) => {
       const updated = await transaction
@@ -574,7 +575,7 @@ export async function processObjectCleanupJob<
         )
         .returning({ id: objectCleanupJobs.id });
       if (!updated[0]) throw new Error("Object Cleanup lease was lost after failure.");
-      if (dead && job.uploadBatchId) {
+      if (dead && job.uploadBatchId && !postCommitMaintenance) {
         await transaction.update(assetUploadBatches).set({
           status: "failed",
           failureReason: job.partition === "public"
@@ -602,7 +603,15 @@ export async function processObjectCleanupJob<
           systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
           uploadBatchId: job.uploadBatchId,
           partition: job.partition,
+          cleanupKind: job.cleanupKind,
           attempts: job.attemptCount,
+          maintenanceOnly: postCommitMaintenance,
+          requiresManualCleanup: dead && postCommitMaintenance,
+          outcome: dead && postCommitMaintenance
+            ? "private_staging_cleanup_exhausted"
+            : dead
+              ? "cleanup_exhausted"
+              : "cleanup_retry_scheduled",
         },
       });
     });

@@ -119,6 +119,8 @@ Historical Assets are never inferred Passed. Migration marks eligible legacy row
 
 Workers claim jobs with a lease and perform idempotent deletion. Expired processing leases are reclaimable. Transient failures increment attempts, store only safe errors and use the existing exponential retry. Exhausted work becomes `dead` and produces the existing audited operational alert/manual-review path.
 
+Cleanup Kind determines whether dead-letter exhaustion may affect workflow state. `staging` is pre-release recovery and retains its existing Batch/Staging-Recovery failure behavior. `finalize_public` compensates a Finalize that did not commit and retains its existing Batch/Finalize-Recovery failure behavior. `finalize_private` removes staging bytes only after Finalize Core Commit: exhaustion marks only that Cleanup job `dead`, records a maintenance/manual-cleanup outcome, and must not change the completed Batch, completed Recoveries, consumed Intent, Public Asset/relations or cancelled Public compensation. A standalone `generic` retention job remains scoped to the object and any explicitly registered context.
+
 Failed or recovered Batches remain explicit and retryable until a new authorized Finalize claim; dead work remains failed for investigation; successful Batches remain completed. The operator UI reports actionable results without exposing Lease, Recovery or Manifest concepts.
 
 The approved worker/scheduler runs `pnpm cleanup:objects`. Production scheduling, monitoring and dead-letter alert routing must fail closed before deployment.
