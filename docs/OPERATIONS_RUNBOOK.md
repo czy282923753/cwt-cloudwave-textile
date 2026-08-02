@@ -31,6 +31,10 @@ Use Node 24.14 and pnpm 11.9. Apply migrations, run both repeatable seeds as nee
 
 Back up the target database before a production migration. Apply committed migrations in order and run relationship verification. Application rollback may use the preceding release only when its schema remains forward-compatible. Destructive or data-rewriting migrations require a separate approved ADR, rehearsed restore, and explicit maintenance plan; none exist in Phase 1A.
 
+PostgreSQL migrations must use `pnpm db:migrate`, never an application Web process or a manual copy of hidden SQL. ADR-0010 gives this entry one dedicated `max: 1` client and a Session Advisory Lock. `LOCK_UNAVAILABLE` means another migration process owns the boundary; do not bypass the lock. An enum compatibility identity, Journal/catalog, enum-order, Backend PID or final-verification error is fail-closed: preserve the database, capture sanitized command/SQLSTATE/Journal/catalog evidence and escalate. Do not edit 0011, add a manual Journal row, rerun 0013 alone or move the frozen Tag.
+
+If execution stops after the enum preflight commits, Journal 0010 plus correctly ordered `finalizing` is a recognized recovery state. Re-running the same standard command is the supported recovery; it must not ask an operator to add the enum again. The compatibility branch may be retired only after separately approved evidence proves that no supported deployment or backup remains at 0010.
+
 ## Backups and restore
 
 Production PostgreSQL point-in-time recovery, object versioning/lifecycle, backup ownership, retention, encryption, and a restore rehearsal require the selected providers. Deployment is blocked until a documented restore exercise proves recovery to an isolated environment. Do not treat a provider's “backup enabled” indicator as a restore test.

@@ -67,6 +67,16 @@ This implementation report records final status, reproducible evidence, external
 
 The remaining sections preserve pre-acceptance implementation and remediation evidence. They are historical records, not newer architecture rules or current Phase recommendations; the final status above supersedes their interim review recommendations.
 
+### PostgreSQL enum compatibility implementation evidence — 2026-08-02
+
+Independent Stage 2B found SQLSTATE `55P04` on the real PostgreSQL 18.4 `0010 → latest` path. The cause was limited to Drizzle's one-transaction pending-migration batch: 0011 added `finalizing` to an enum committed by 0010, and 0013 used the uncommitted value. Fresh did not expose the boundary because PostgreSQL permits values added to an enum type created in the current outer transaction.
+
+ADR-0010 adds one migration-only compatibility module. A dedicated `max: 1` postgres.js client holds one Session Advisory Lock; Backend PID checks fence inspection, an independently committed enum preflight, Drizzle execution and final verification. `reserve()` was evaluated but postgres.js 3.4.9's reserved runtime client does not expose the `begin()` required by Drizzle. The documented single-connection client is used as the equivalent mechanism and is rejected unless `options.max === 1`.
+
+The adapter validates the approved 0011 hash and exact target statement. Only exact Journal-0010 compatibility/recovery states receive an in-memory `IF NOT EXISTS` form for that one statement; the original hash continues into Drizzle's existing Journal, and all remaining SQL is unchanged. There is no second Journal, historical Migration edit, business Schema change or manual SQL step.
+
+New disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` evidence passes Fresh/repeat; 0005, 0010, 0011, 0012 and 0014 upgrades/repeat; the real `pnpm db:migrate` 0010 entry; preflight failure and post-commit recovery; SQLSTATE 42501 enum rollback; 0011/0013 SQLSTATE 42710 batch rollback with Journal retained at 0010; two-client exclusion; backend-termination lock release; and Journal/catalog fail-closed handling. Catalog signatures and one synthetic taxonomy fixture match/persist across upgrade paths. This is implementation evidence only: independent Stage 2B rerun is still required, Stage 2C and Phase 1B remain paused, and the existing approved Tag is unchanged.
+
 ### Post-Commit Boundary Closure record
 
 Scope: only the sixth independent review's one Medium and three Low findings: Finalize core/post-commit result consistency, completed-Finalize idempotency, lock-after-read Cleanup identity, Finalize Recovery FK integrity, and historical Manifest evidence governance. Phase 1B, real PostgreSQL/R2/S3/SMTP acceptance, Excel import, AI, multilingual work, deployment, DNS, formal data and unrelated redesign remain excluded.

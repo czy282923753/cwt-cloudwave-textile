@@ -1,7 +1,7 @@
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
-import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
 
 import type { DatabaseConnection } from "./client";
+import { migratePostgresWithEnumCompatibility } from "./postgres-enum-migration-compatibility";
 
 export async function migrateDatabase(
   connection: DatabaseConnection,
@@ -12,5 +12,10 @@ export async function migrateDatabase(
     return;
   }
 
-  await migratePostgres(connection.db, { migrationsFolder });
+  const migrationClient = connection.createMigrationClient();
+  try {
+    await migratePostgresWithEnumCompatibility(migrationClient, migrationsFolder);
+  } finally {
+    await migrationClient.end();
+  }
 }

@@ -1,6 +1,22 @@
-# PostgreSQL External Validation — Phase 1A Remediation Round 2
+# PostgreSQL External Validation — Phase 1A
 
-Status: **External Validation Required**. No Docker or PostgreSQL server was installed by this remediation.
+Status: **Stage 2B independent rerun required**. The original PostgreSQL 18.4 `0010 → latest` run stopped at SQLSTATE `55P04`. ADR-0010 implements the approved bounded compatibility path and a new disposable PostgreSQL 18.4 validation matrix now passes, but this implementation evidence does not mark independent Stage 2B, Stage 2C, deployment or Production as passed.
+
+## Enum compatibility evidence pending independent rerun
+
+The formal `pnpm db:migrate` entry now uses a dedicated `max: 1` PostgreSQL client. One Session Advisory Lock and Backend PID fence cover Journal/catalog inspection, the committed 0010 enum preflight when required, Drizzle migration and final verification. Only the approved 0011 enum statement is adapted in memory for an exact 0010 compatibility/recovery state. Historical Migration files, hashes, Journal metadata and business Schema remain unchanged.
+
+Run the isolated validation Harness only against a new disposable PostgreSQL server:
+
+```sh
+APP_ENV=test \
+DATABASE_DRIVER=postgres \
+DATABASE_URL='postgres://.../postgres' \
+CWT_POSTGRES_COMPAT_VALIDATION=isolated-test-database \
+pnpm exec tsx scripts/verify-postgres-enum-compatibility.ts
+```
+
+The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012 and 0014 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 implementation run passed against PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)`. Stage 2B must independently reproduce this result on new evidence resources before the external gate can advance.
 
 ## Safety preconditions
 

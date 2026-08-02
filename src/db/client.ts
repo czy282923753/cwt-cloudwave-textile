@@ -3,7 +3,7 @@ import { drizzle as drizzlePglite, type PgliteDatabase } from "drizzle-orm/pglit
 import { drizzle as drizzlePostgres, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 
 import { env } from "@/config/env";
 
@@ -21,6 +21,7 @@ export type DatabaseConnection =
   | {
       kind: "postgres";
       db: PostgresAppDatabase;
+      createMigrationClient: () => Sql;
       close: () => Promise<void>;
     };
 
@@ -44,6 +45,7 @@ export function createDatabaseConnection(): DatabaseConnection {
   return {
     kind: "postgres",
     db: drizzlePostgres(client, { schema }),
+    createMigrationClient: () => postgres(env.DATABASE_URL, { max: 1, prepare: false }),
     close: async () => client.end(),
   };
 }
