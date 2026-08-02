@@ -1,14 +1,16 @@
-import { count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import {
   assets,
+  auditLogs,
   contacts,
   customerActivities,
   inquiries,
   inquiryAssets,
   inquiryStatusHistory,
   notificationOutbox,
+  uploadIntents,
   users,
 } from "@/db/schema";
 import type { EmailNotifier, InquiryNotification } from "@/integrations/email";
@@ -22,6 +24,7 @@ import {
   changeInquiryStatus,
   createInquiry,
   countValidInquiries,
+  InquiryIdempotencyConflictError,
 } from "./inquiry-service";
 import { authorizeInquiryAssetRecord, requireInquiryRecordAccess } from "./authorization";
 
@@ -42,7 +45,7 @@ describe("minimal inquiry and CRM workflow", () => {
   it("accepts text-only and image-only inquiries and exactly matches Contacts by email", async () => {
     const connection = await createTestDatabase();
     const notifier = new TestNotifier();
-    const firstInquiryId = await createInquiry(connection.db, notifier, {
+    const { inquiryId: firstInquiryId } = await createInquiry(connection.db, notifier, {
       idempotencyKey: "text-inquiry-0001",
       name: "Test Buyer",
       email: "BUYER@EXAMPLE.TEST ",
@@ -69,7 +72,7 @@ describe("minimal inquiry and CRM workflow", () => {
       .returning({ id: assets.id });
     const assetId = assetRows[0]?.id;
     if (!assetId) throw new Error("Missing private asset.");
-    const secondInquiryId = await createInquiry(connection.db, notifier, {
+    const { inquiryId: secondInquiryId } = await createInquiry(connection.db, notifier, {
       idempotencyKey: "image-inquiry-0001",
       name: "Test Buyer Updated",
       email: "buyer@example.test",
@@ -112,7 +115,7 @@ describe("minimal inquiry and CRM workflow", () => {
   it("records governed status history, activities, and first response time", async () => {
     const connection = await createTestDatabase();
     const notifier = new TestNotifier();
-    const inquiryId = await createInquiry(connection.db, notifier, {
+    const { inquiryId } = await createInquiry(connection.db, notifier, {
       idempotencyKey: "crm-inquiry-0001",
       name: "Test Buyer",
       email: "crm@example.test",
@@ -221,7 +224,7 @@ describe("minimal inquiry and CRM workflow", () => {
       .returning({ id: assets.id });
     const authorizationAssetId = assetRows[0]?.id;
     if (!authorizationAssetId) throw new Error("Missing authorization Asset.");
-    const inquiryId = await createInquiry(connection.db, new TestNotifier(), {
+    const { inquiryId } = await createInquiry(connection.db, new TestNotifier(), {
       idempotencyKey: "authorization-inquiry-0001",
       name: "Authorization Buyer",
       email: "authorization@example.test",
@@ -295,9 +298,9 @@ describe("minimal inquiry and CRM workflow", () => {
       assetIds: [] as const,
       sourcePagePath: "/get-quote/",
     };
-    const firstId = await createInquiry(connection.db, new FailingNotifier(), input);
-    const secondId = await createInquiry(connection.db, new FailingNotifier(), input);
-    expect(secondId).toBe(firstId);
+    const first = await createInquiry(connection.db, new FailingNotifier(), input);
+    const second = await createInquiry(connection.db, new FailingNotifier(), input);
+    expect(second).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
     const inquiryCount = await connection.db.select({ value: count() }).from(inquiries);
     expect(Number(inquiryCount[0]?.value)).toBe(1);
     const outboxRows = await connection.db.select().from(notificationOutbox);
@@ -306,12 +309,228 @@ describe("minimal inquiry and CRM workflow", () => {
     await connection.db
       .update(notificationOutbox)
       .set({ nextAttemptAt: new Date(0) })
-      .where(eq(notificationOutbox.aggregateId, firstId));
+      .where(eq(notificationOutbox.aggregateId, first.inquiryId));
     const notifier = new TestNotifier();
     await expect(
       deliverPendingInquiryNotifications(connection.db, notifier),
     ).resolves.toEqual({ attempted: 1, sent: 1 });
     expect(notifier.notifications).toHaveLength(1);
+    await connection.close();
+  });
+
+  it("compares a versioned canonical request before replaying an Idempotency Key", async () => {
+    const connection = await createTestDatabase();
+    const firstAssetRows = await connection.db
+      .insert(assets)
+      .values({
+        originalFileName: "canonical-a.jpg",
+        storageProvider: "test",
+        storagePartition: "private",
+        objectKey: "inquiry/canonical-a.jpg",
+        access: "private",
+        category: "inquiry",
+        status: "ready",
+        scanStatus: "passed",
+        declaredMimeType: "image/jpeg",
+        byteSize: 10,
+        sha256: "canonical-a-sha256",
+      })
+      .returning({ id: assets.id });
+    const secondAssetRows = await connection.db
+      .insert(assets)
+      .values({
+        originalFileName: "canonical-b.jpg",
+        storageProvider: "test",
+        storagePartition: "private",
+        objectKey: "inquiry/canonical-b.jpg",
+        access: "private",
+        category: "inquiry",
+        status: "ready",
+        scanStatus: "passed",
+        declaredMimeType: "image/jpeg",
+        byteSize: 10,
+        sha256: "canonical-b-sha256",
+      })
+      .returning({ id: assets.id });
+    const assetIds = [firstAssetRows[0]!.id, secondAssetRows[0]!.id];
+    const baseInput = {
+      idempotencyKey: "canonical-inquiry-0001",
+      name: " Canonical Buyer ",
+      email: "CANONICAL@EXAMPLE.TEST ",
+      countryCode: " ",
+      whatsapp: " +1 555 0100 ",
+      description: "Need\r\na fabric match.",
+      assetIds,
+      sourcePagePath: "/GET-QUOTE?ignored=true",
+      landingPagePath: "",
+      referrer: " ",
+      attributionConfidence: "unavailable" as const,
+      sessionId: "11111111-1111-4111-8111-111111111111",
+    };
+    const first = await createInquiry(connection.db, new TestNotifier(), baseInput);
+    const replay = await createInquiry(connection.db, new TestNotifier(), {
+      ...baseInput,
+      name: "Canonical Buyer",
+      email: "canonical@example.test",
+      countryCode: null,
+      whatsapp: "+1 555 0100",
+      description: "Need\na fabric match.",
+      assetIds: [...assetIds].reverse(),
+      sourcePagePath: "/get-quote/",
+      landingPagePath: null,
+      referrer: null,
+      sessionId: "22222222-2222-4222-8222-222222222222",
+    });
+    expect(replay).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
+
+    await expect(
+      createInquiry(connection.db, new TestNotifier(), {
+        ...baseInput,
+        description: "A materially different request.",
+      }),
+    ).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
+
+    expect(Number((await connection.db.select({ value: count() }).from(inquiries))[0]?.value)).toBe(1);
+    expect(Number((await connection.db.select({ value: count() }).from(contacts))[0]?.value)).toBe(1);
+    expect(Number((await connection.db.select({ value: count() }).from(inquiryAssets))[0]?.value)).toBe(2);
+    expect(Number((await connection.db.select({ value: count() }).from(inquiryStatusHistory))[0]?.value)).toBe(1);
+    expect(Number((await connection.db.select({ value: count() }).from(notificationOutbox))[0]?.value)).toBe(1);
+    const createdAudits = await connection.db
+      .select({ id: auditLogs.id })
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.action, "inquiry.created"),
+          eq(auditLogs.entityId, first.inquiryId),
+        ),
+      );
+    expect(createdAudits).toHaveLength(1);
+    await connection.close();
+  });
+
+  it("fails closed for historical Idempotency Keys without an immutable fingerprint", async () => {
+    const connection = await createTestDatabase();
+    const contactRows = await connection.db
+      .insert(contacts)
+      .values({
+        name: "Legacy Buyer",
+        email: "legacy@example.test",
+        normalizedEmail: "legacy@example.test",
+      })
+      .returning({ id: contacts.id });
+    await connection.db.insert(inquiries).values({
+      publicReference: "CWT-LEGACY-IDEMPOTENCY",
+      contactId: contactRows[0]!.id,
+      submittedName: "Legacy Buyer",
+      submittedEmail: "legacy@example.test",
+      idempotencyKey: "legacy-inquiry-0001",
+      sourcePagePath: "/get-quote/",
+    });
+    await expect(
+      createInquiry(connection.db, new TestNotifier(), {
+        idempotencyKey: "legacy-inquiry-0001",
+        name: "Legacy Buyer",
+        email: "legacy@example.test",
+        description: "Cannot be proven equal to the historical request.",
+        sourcePagePath: "/get-quote/",
+      }),
+    ).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
+    await connection.close();
+  });
+
+  it("replays consumed attachment Tokens but leaves conflicting new Tokens untouched", async () => {
+    const connection = await createTestDatabase();
+    const sessionId = "44444444-4444-4444-8444-444444444444";
+    const tokens = ["attachment-token-a-0000000000000001", "attachment-token-b-0000000000000002"];
+    for (const [index, token] of tokens.entries()) {
+      const assetRows = await connection.db
+        .insert(assets)
+        .values({
+          originalFileName: `token-${index}.jpg`,
+          storageProvider: "test",
+          storagePartition: "private",
+          objectKey: `inquiry/token-${index}.jpg`,
+          access: "private",
+          category: "inquiry",
+          status: "ready",
+          scanStatus: "passed",
+          declaredMimeType: "image/jpeg",
+          byteSize: 10,
+          sha256: `token-${index}-sha256`,
+        })
+        .returning({ id: assets.id });
+      await connection.db.insert(uploadIntents).values({
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+        anonymousSessionId: sessionId,
+        declaredFileName: `token-${index}.jpg`,
+        declaredMimeType: "image/jpeg",
+        declaredByteSize: 10,
+        status: "passed",
+        assetId: assetRows[0]!.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+    }
+    const input = {
+      idempotencyKey: "token-inquiry-0001",
+      name: "Token Buyer",
+      email: "token-buyer@example.test",
+      description: null,
+      uploadTokens: tokens,
+      sourcePagePath: "/get-quote/",
+      sessionId,
+    };
+    const first = await createInquiry(connection.db, new TestNotifier(), input);
+    const replay = await createInquiry(connection.db, new TestNotifier(), {
+      ...input,
+      uploadTokens: [...tokens].reverse(),
+    });
+    expect(replay).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
+    const consumed = await connection.db
+      .select({ isConsumed: uploadIntents.isConsumed, inquiryId: uploadIntents.consumedByInquiryId })
+      .from(uploadIntents);
+    expect(consumed).toEqual([
+      { isConsumed: true, inquiryId: first.inquiryId },
+      { isConsumed: true, inquiryId: first.inquiryId },
+    ]);
+
+    const conflictingToken = "attachment-token-c-0000000000000003";
+    const conflictingAssetRows = await connection.db
+      .insert(assets)
+      .values({
+        originalFileName: "token-conflict.jpg",
+        storageProvider: "test",
+        storagePartition: "private",
+        objectKey: "inquiry/token-conflict.jpg",
+        access: "private",
+        category: "inquiry",
+        status: "ready",
+        scanStatus: "passed",
+        declaredMimeType: "image/jpeg",
+        byteSize: 10,
+        sha256: "token-conflict-sha256",
+      })
+      .returning({ id: assets.id });
+    await connection.db.insert(uploadIntents).values({
+      tokenHash: createHash("sha256").update(conflictingToken).digest("hex"),
+      anonymousSessionId: sessionId,
+      declaredFileName: "token-conflict.jpg",
+      declaredMimeType: "image/jpeg",
+      declaredByteSize: 10,
+      status: "passed",
+      assetId: conflictingAssetRows[0]!.id,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await expect(
+      createInquiry(connection.db, new TestNotifier(), {
+        ...input,
+        uploadTokens: [conflictingToken],
+      }),
+    ).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
+    const untouched = await connection.db
+      .select({ status: uploadIntents.status, isConsumed: uploadIntents.isConsumed })
+      .from(uploadIntents)
+      .where(eq(uploadIntents.assetId, conflictingAssetRows[0]!.id));
+    expect(untouched[0]).toEqual({ status: "passed", isConsumed: false });
     await connection.close();
   });
 
@@ -343,3 +562,4 @@ describe("minimal inquiry and CRM workflow", () => {
     await connection.close();
   });
 });
+import { createHash } from "node:crypto";

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -145,7 +145,7 @@ export async function completeInquiryUploadIntent<
   }
 }
 
-export async function reserveInquiryUploadTokens<
+export async function reserveInquiryUploadTokensInTransaction<
   TQueryResult extends PgQueryResultHKT,
 >(
   db: AppDatabase<TQueryResult>,
@@ -153,88 +153,45 @@ export async function reserveInquiryUploadTokens<
   tokens: readonly string[],
 ): Promise<{ intentIds: string[]; assetIds: string[] }> {
   sessionSchema.parse(anonymousSessionId);
-  const distinct = [...new Set(tokens)];
+  const distinct = [...new Set(tokens)].sort();
   if (distinct.length !== tokens.length || distinct.length > env.MAX_FILES_PER_UPLOAD) {
     throw new Error("Upload Tokens are duplicated or exceed the configured limit.");
   }
   if (distinct.length === 0) return { intentIds: [], assetIds: [] };
-  return db.transaction(async (transaction) => {
-    const intentIds: string[] = [];
-    const assetIds: string[] = [];
-    for (const token of distinct) {
-      const rows = await transaction
-        .update(uploadIntents)
-        .set({ status: "consumed", updatedAt: new Date() })
-        .where(
-          and(
-            eq(uploadIntents.tokenHash, tokenHash(token)),
-            eq(uploadIntents.anonymousSessionId, anonymousSessionId),
-            eq(uploadIntents.status, "passed"),
-            eq(uploadIntents.isConsumed, false),
-            gt(uploadIntents.expiresAt, new Date()),
-          ),
-        )
-        .returning({ id: uploadIntents.id, assetId: uploadIntents.assetId });
-      const row = rows[0];
-      if (!row?.assetId) throw new Error("Upload Token is invalid, expired, or already used.");
-      const eligible = await transaction
-        .select({ id: assets.id })
-        .from(assets)
-        .where(
-          and(
-            eq(assets.id, row.assetId),
-            eq(assets.category, "inquiry"),
-            eq(assets.access, "private"),
-            eq(assets.storagePartition, "private"),
-            eq(assets.status, "ready"),
-            eq(assets.scanStatus, "passed"),
-          ),
-        );
-      if (!eligible[0]) throw new Error("Upload Token Asset is not eligible.");
-      intentIds.push(row.id);
-      assetIds.push(row.assetId);
-    }
-    return { intentIds, assetIds };
-  });
-}
-
-export async function finalizeInquiryUploadTokens<
-  TQueryResult extends PgQueryResultHKT,
->(
-  db: AppDatabase<TQueryResult>,
-  intentIds: readonly string[],
-  inquiryId: string,
-): Promise<void> {
-  if (!intentIds.length) return;
-  await db
-    .update(uploadIntents)
-    .set({
-      isConsumed: true,
-      consumedByInquiryId: inquiryId,
-      usedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        inArray(uploadIntents.id, [...intentIds]),
-        eq(uploadIntents.status, "consumed"),
-        eq(uploadIntents.isConsumed, false),
-      ),
-    );
-}
-
-export async function releaseReservedInquiryUploadTokens<
-  TQueryResult extends PgQueryResultHKT,
->(db: AppDatabase<TQueryResult>, intentIds: readonly string[]): Promise<void> {
-  if (!intentIds.length) return;
-  await db
-    .update(uploadIntents)
-    .set({ status: "passed", updatedAt: new Date() })
-    .where(
-      and(
-        inArray(uploadIntents.id, [...intentIds]),
-        eq(uploadIntents.status, "consumed"),
-        eq(uploadIntents.isConsumed, false),
-      ),
-    );
+  const intentIds: string[] = [];
+  const assetIds: string[] = [];
+  for (const token of distinct) {
+    const rows = await db
+      .update(uploadIntents)
+      .set({ status: "consumed", updatedAt: new Date() })
+      .where(
+        and(
+          eq(uploadIntents.tokenHash, tokenHash(token)),
+          eq(uploadIntents.anonymousSessionId, anonymousSessionId),
+          eq(uploadIntents.status, "passed"),
+          eq(uploadIntents.isConsumed, false),
+          gt(uploadIntents.expiresAt, new Date()),
+        ),
+      )
+      .returning({ id: uploadIntents.id, assetId: uploadIntents.assetId });
+    const row = rows[0];
+    if (!row?.assetId) throw new Error("Upload Token is invalid, expired, or already used.");
+    const eligible = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.id, row.assetId),
+          eq(assets.category, "inquiry"),
+          eq(assets.access, "private"),
+          eq(assets.storagePartition, "private"),
+          eq(assets.status, "ready"),
+          eq(assets.scanStatus, "passed"),
+        ),
+      );
+    if (!eligible[0]) throw new Error("Upload Token Asset is not eligible.");
+    intentIds.push(row.id);
+    assetIds.push(row.assetId);
+  }
+  return { intentIds, assetIds };
 }

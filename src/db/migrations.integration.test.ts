@@ -108,6 +108,26 @@ describe("database migrations", () => {
       })
       .returning({ id: inquiries.id });
     const inquiryId = inquiryRows[0]!.id;
+    const fingerprintInquiry = (suffix: string, fingerprint: string | null, version: number | null) =>
+      connection.db.insert(inquiries).values({
+        publicReference: `CWT-FINGERPRINT-${suffix}`,
+        contactId: contactA,
+        submittedName: "Contact A",
+        submittedEmail: "constraint-a@example.test",
+        idempotencyKey: `constraint-fingerprint-${suffix}`,
+        requestFingerprint: fingerprint,
+        requestFingerprintVersion: version,
+        sourcePagePath: "/get-quote/",
+      });
+    await expect(
+      fingerprintInquiry("partial", "a".repeat(64), null),
+    ).rejects.toThrow();
+    await expect(
+      fingerprintInquiry("malformed", "not-a-sha256", 1),
+    ).rejects.toThrow();
+    await expect(
+      fingerprintInquiry("valid", "b".repeat(64), 1),
+    ).resolves.toBeDefined();
     await expect(
       connection.db.insert(customerActivities).values({
         inquiryId,
@@ -655,7 +675,10 @@ describe("database migrations", () => {
       const closureEntry = journal.entries.find((entry) => entry.idx === 15);
       if (!closureEntry) throw new Error("Missing 0015 Migration.");
       await copyFile(`drizzle/${closureEntry.tag}.sql`, join(temporaryRoot, `${closureEntry.tag}.sql`));
-      await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify(journal));
+      await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify({
+        ...journal,
+        entries: journal.entries.filter((entry) => entry.idx <= 15),
+      }));
       await expect(migrateDatabase(connection, temporaryRoot)).rejects.toThrow(/orphan finalize_recovery_id/i);
     } finally {
       await connection.close();

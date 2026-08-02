@@ -45,6 +45,13 @@ export class ProductValidationError extends Error {
   }
 }
 
+export class ProductRevisionConflictError extends Error {
+  constructor(message = "Product revision was already handled by another reviewer.") {
+    super(message);
+    this.name = "ProductRevisionConflictError";
+  }
+}
+
 export interface Actor {
   userId: string;
   role: UserRole;
@@ -780,17 +787,45 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   revisionId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<string> {
   requirePermission(actor.role, "products.publish");
-  return db.transaction(async (transaction) => {
-    const rows = await transaction
-      .select()
-      .from(editorialRevisions)
-      .where(eq(editorialRevisions.id, revisionId))
-      .limit(1);
-    const revision = rows[0];
-    if (!revision || revision.entityType !== "product" || revision.status !== "in_review") {
-      throw new ProductValidationError("Product revision is not eligible for approval.");
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const claimedRows = await transaction
+      .update(editorialRevisions)
+      .set({
+        status: "applied",
+        reviewedByUserId: actor.userId,
+        reviewedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(editorialRevisions.id, revisionId),
+          eq(editorialRevisions.entityType, "product"),
+          eq(editorialRevisions.status, "in_review"),
+        ),
+      )
+      .returning();
+    const revision = claimedRows[0];
+    if (!revision) {
+      const currentRows = await transaction
+        .select({
+          entityType: editorialRevisions.entityType,
+          entityId: editorialRevisions.entityId,
+          status: editorialRevisions.status,
+          reviewedByUserId: editorialRevisions.reviewedByUserId,
+        })
+        .from(editorialRevisions)
+        .where(eq(editorialRevisions.id, revisionId))
+        .limit(1);
+      const current = currentRows[0];
+      if (!current || current.entityType !== "product") {
+        throw new ProductValidationError("Product revision is not eligible for approval.");
+      }
+      if (current.status === "applied" && current.reviewedByUserId === actor.userId) {
+        return current.entityId;
+      }
+      throw new ProductRevisionConflictError();
     }
     const newer = await transaction
       .select({ id: editorialRevisions.id })
@@ -904,18 +939,10 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
         .where(eq(seoMetadata.routeId, snapshot.routeId));
     }
     await transaction
-      .update(editorialRevisions)
-      .set({
-        status: "applied",
-        reviewedByUserId: actor.userId,
-        reviewedAt: new Date(),
-      })
-      .where(eq(editorialRevisions.id, revisionId));
-    await transaction
       .update(products)
       .set({ updatedAt: new Date() })
       .where(eq(products.id, revision.entityId));
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: actor.userId,
       action: "product.revision.applied",
       entityType: "editorial_revision",
@@ -923,7 +950,7 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
       afterSummary: { productId: revision.entityId, kind: snapshot.kind },
     });
     return revision.entityId;
-  });
+  }, options);
 }
 
 export async function rejectProductRevision<TQueryResult extends PgQueryResultHKT>(

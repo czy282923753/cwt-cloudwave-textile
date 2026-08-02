@@ -12,7 +12,7 @@ import { assertSameOrigin } from "@/auth/request-security";
 import { env } from "@/config/env";
 import {
   createInquiry,
-  findInquiryReferenceByIdempotencyKey,
+  InquiryIdempotencyConflictError,
 } from "@/crm/inquiry-service";
 import { databaseConnection } from "@/db/client";
 import type { AppDatabase } from "@/db/types";
@@ -23,10 +23,6 @@ import {
   assertRequestLength,
   preBodyRateLimitKeys,
 } from "@/uploads/request-guard";
-import {
-  releaseReservedInquiryUploadTokens,
-  reserveInquiryUploadTokens,
-} from "@/uploads/upload-intent-service";
 
 const inputSchema = z
   .object({
@@ -63,7 +59,6 @@ async function withDatabase<TResult>(
 
 export async function POST(request: Request): Promise<NextResponse> {
   const requestId = randomUUID();
-  let reservedIntentIds: string[] = [];
   try {
     assertSameOrigin(request);
     assertRequestLength(request, env.MAX_INQUIRY_JSON_BYTES, { required: true });
@@ -84,12 +79,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (headerKey !== input.idempotencyKey) {
       return NextResponse.json({ ok: false, error: "Idempotency Key mismatch." }, { status: 400 });
     }
-    const existing = await withDatabase((db) =>
-      findInquiryReferenceByIdempotencyKey(db, input.idempotencyKey),
-    );
-    if (existing) {
-      return NextResponse.json({ ok: true, reference: existing.publicReference }, { status: 200 });
-    }
     if (input.website) {
       return NextResponse.json({ ok: true, reference: `CWT-${requestId.slice(0, 8)}` }, { status: 202 });
     }
@@ -99,22 +88,18 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    const reserved = await withDatabase((db) =>
-      reserveInquiryUploadTokens(db, input.anonymousSessionId, input.uploadTokens),
-    );
-    reservedIntentIds = reserved.intentIds;
     const sourcePagePath = normalizePath(input.sourcePagePath);
     const landingPagePath = input.landingPagePath
       ? normalizePath(input.landingPagePath)
       : null;
-    const inquiryId = await withDatabase((db) =>
+    const submission = await withDatabase((db) =>
       createInquiry(db, createEmailNotifier(), {
         name: input.name,
         email: input.email,
         countryCode: input.countryCode || null,
         whatsapp: input.whatsapp || null,
         description: input.description || null,
-        assetIds: reserved.assetIds,
+        uploadTokens: input.uploadTokens,
         sourcePagePath,
         landingPagePath,
         referrer: input.referrer || null,
@@ -129,35 +114,28 @@ export async function POST(request: Request): Promise<NextResponse> {
         sessionId: input.anonymousSessionId,
         requestId,
         idempotencyKey: input.idempotencyKey,
-        reservedUploadIntentIds: reservedIntentIds,
       }),
     );
-    const created = await withDatabase((db) =>
-      findInquiryReferenceByIdempotencyKey(db, input.idempotencyKey),
-    );
-    if (!created || created.id !== inquiryId) {
-      throw new Error("Inquiry public reference could not be resolved.");
-    }
-    if (persistedConsent?.status === "granted" && consentSessionId) {
+    if (!submission.replayed && persistedConsent?.status === "granted" && consentSessionId) {
       try {
-        if (reserved.assetIds.length > 0) {
+        if (input.uploadTokens.length > 0) {
           await withDatabase((db) =>
             recordConversionEvent(db, {
-              eventId: `image_upload:${created.publicReference}`,
+              eventId: `image_upload:${submission.publicReference}`,
               eventName: "image_upload_completed",
               consentSessionId,
               routePath: sourcePagePath,
-              safeProperties: { file_count: reserved.assetIds.length },
+              safeProperties: { file_count: input.uploadTokens.length },
             }),
           );
         }
         await withDatabase((db) =>
           recordConversionEvent(db, {
-            eventId: `inquiry_created:${created.publicReference}`,
+            eventId: `inquiry_created:${submission.publicReference}`,
             eventName: "inquiry_created",
             consentSessionId,
             routePath: sourcePagePath,
-            externalReference: created.publicReference,
+            externalReference: submission.publicReference,
             landingPagePath,
             referrerOrigin: input.referrer || null,
             utmSource: input.utmSource || null,
@@ -174,16 +152,24 @@ export async function POST(request: Request): Promise<NextResponse> {
         process.stderr.write(`[analytics-rejected] request ${requestId}; details omitted.\n`);
       }
     }
-    return NextResponse.json({ ok: true, reference: created.publicReference }, { status: 201 });
+    return NextResponse.json(
+      {
+        ok: true,
+        reference: submission.publicReference,
+        replayed: submission.replayed,
+      },
+      { status: submission.replayed ? 200 : 201 },
+    );
   } catch (error) {
-    if (reservedIntentIds.length) {
-      try {
-        await withDatabase((db) =>
-          releaseReservedInquiryUploadTokens(db, reservedIntentIds),
-        );
-      } catch {
-        process.stderr.write(`[upload-token-release-error] request ${requestId}.\n`);
-      }
+    if (error instanceof InquiryIdempotencyConflictError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This request key was already used for different Inquiry details.",
+          errorCode: error.code,
+        },
+        { status: 409 },
+      );
     }
     const raw = error instanceof Error ? error.message : "";
     const safe = /Name and Email|required|description|upload|Intent|Session|Idempotency|size|limit/i.test(raw)

@@ -88,6 +88,8 @@ export const inquiries = pgTable(
     submittedCountryCode: text("submitted_country_code"),
     submittedWhatsapp: text("submitted_whatsapp"),
     idempotencyKey: text("idempotency_key").notNull(),
+    requestFingerprint: text("request_fingerprint"),
+    requestFingerprintVersion: integer("request_fingerprint_version"),
     lostReason: text("lost_reason"),
     sourcePagePath: text("source_page_path").notNull(),
     landingPagePath: text("landing_page_path"),
@@ -117,6 +119,19 @@ export const inquiries = pgTable(
     index("inquiries_contact_idx").on(table.contactId),
     uniqueIndex("inquiries_idempotency_key_unique").on(table.idempotencyKey),
     uniqueIndex("inquiries_public_reference_unique").on(table.publicReference),
+    check(
+      "inquiries_request_fingerprint_check",
+      sql`(
+        ${table.requestFingerprint} is null
+        and ${table.requestFingerprintVersion} is null
+      ) or (
+        ${table.requestFingerprint} is not null
+        and ${table.requestFingerprintVersion} is not null
+        and
+        ${table.requestFingerprint} ~ '^[0-9a-f]{64}$'
+        and ${table.requestFingerprintVersion} >= 1
+      )`,
+    ),
   ],
 );
 

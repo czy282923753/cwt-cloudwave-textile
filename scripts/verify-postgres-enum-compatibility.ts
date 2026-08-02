@@ -59,6 +59,7 @@ const expectedEnumLabels = [
   "failed",
   "expired",
 ];
+let expectedLatestJournalMillis: number | null = null;
 
 function validationClient(url: string, max = 1): Sql {
   return postgres(url, { max, prepare: false, onnotice: () => undefined });
@@ -253,7 +254,10 @@ function assertLatestCatalog(
   reference?: CatalogEvidence,
   fixtureExpected = false,
 ): void {
-  if (catalog.journalMillis !== 1_785_645_399_828) {
+  if (
+    expectedLatestJournalMillis === null ||
+    catalog.journalMillis !== expectedLatestJournalMillis
+  ) {
     throw new Error("Latest Journal position was not reached.");
   }
   if (JSON.stringify(catalog.enumLabels) !== JSON.stringify(expectedEnumLabels)) {
@@ -272,6 +276,13 @@ function assertLatestCatalog(
 }
 
 async function main(): Promise<void> {
+  const currentJournal = JSON.parse(
+    await readFile("drizzle/meta/_journal.json", "utf8"),
+  ) as Journal;
+  expectedLatestJournalMillis = currentJournal.entries.at(-1)?.when ?? null;
+  if (expectedLatestJournalMillis === null) {
+    throw new Error("Migration Journal has no latest entry.");
+  }
   const baseUrl = requireSafeValidationEnvironment();
   const admin = validationClient(baseUrl.toString(), 4);
   const evidence: ScenarioEvidence[] = [];
@@ -315,7 +326,7 @@ async function main(): Promise<void> {
       });
     });
 
-    for (const start of [5, 10, 11, 12, 14]) {
+    for (const start of [5, 10, 11, 12, 14, 15]) {
       await withDatabase(`upgrade_${start}`, async (url) => {
         await applyThrough(url, start);
         await addFixture(url);

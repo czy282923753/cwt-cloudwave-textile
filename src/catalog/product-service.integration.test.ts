@@ -1,14 +1,17 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import {
   applicationLocalizations,
   applications,
   assets,
+  auditLogs,
+  editorialRevisions,
   keywordPageMappings,
   productApplications,
   productLocalizations,
   products,
+  productTaxonomyTerms,
   redirects,
   routes,
   seoMetadata,
@@ -28,9 +31,188 @@ import {
   setProductIndexStatus,
   submitProductForReview,
   updateProductEditorialCopy,
+  ProductRevisionConflictError,
 } from "./product-service";
+import { AuditWriteError } from "@/audit/service";
 
 describe("Product workflow", () => {
+  it("allows only the winning Reviewer to apply a Product revision", async () => {
+    const connection = await createTestDatabase();
+    const reviewerRows = await connection.db
+      .insert(users)
+      .values([
+        {
+          email: "revision-winner@example.test",
+          displayName: "Revision Winner",
+          role: "reviewer_publisher",
+          passwordHash: "test",
+        },
+        {
+          email: "revision-loser@example.test",
+          displayName: "Revision Loser",
+          role: "reviewer_publisher",
+          passwordHash: "test",
+        },
+      ])
+      .returning({ id: users.id });
+    const winnerId = reviewerRows[0]!.id;
+    const loserId = reviewerRows[1]!.id;
+    const taxonomyRows = await connection.db
+      .insert(taxonomyTerms)
+      .values({ internalKey: "revision-owner-category", dimension: "material_fiber" })
+      .returning({ id: taxonomyTerms.id });
+    const productId = await connection.db.transaction(async (transaction) => {
+      const productRows = await transaction
+        .insert(products)
+        .values({ status: "draft" })
+        .returning({ id: products.id });
+      await transaction.insert(productTaxonomyTerms).values({
+        productId: productRows[0]!.id,
+        taxonomyTermId: taxonomyRows[0]!.id,
+        isPrimary: true,
+      });
+      return productRows[0]!.id;
+    });
+    await connection.db.insert(productLocalizations).values({
+      productId,
+      locale: "en",
+      name: "Original Product Name",
+    });
+    const revisionRows = await connection.db
+      .insert(editorialRevisions)
+      .values({
+        entityType: "product",
+        entityId: productId,
+        locale: "en",
+        versionNumber: 1,
+        status: "in_review",
+        snapshot: {
+          kind: "editorial_copy",
+          name: "Approved Product Name",
+          shortDescription: null,
+          fullDescription: null,
+        },
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = revisionRows[0]!.id;
+
+    await expect(
+      applyProductRevision(
+        connection.db,
+        { userId: winnerId, role: "reviewer_publisher" },
+        revisionId,
+      ),
+    ).resolves.toBe(productId);
+    await expect(
+      applyProductRevision(
+        connection.db,
+        { userId: winnerId, role: "reviewer_publisher" },
+        revisionId,
+      ),
+    ).resolves.toBe(productId);
+    await expect(
+      applyProductRevision(
+        connection.db,
+        { userId: loserId, role: "reviewer_publisher" },
+        revisionId,
+      ),
+    ).rejects.toBeInstanceOf(ProductRevisionConflictError);
+
+    const revision = await connection.db
+      .select({
+        status: editorialRevisions.status,
+        reviewerId: editorialRevisions.reviewedByUserId,
+      })
+      .from(editorialRevisions)
+      .where(eq(editorialRevisions.id, revisionId));
+    expect(revision[0]).toEqual({ status: "applied", reviewerId: winnerId });
+    const applyAudits = await connection.db
+      .select({ value: count() })
+      .from(auditLogs)
+      .where(
+        and(
+          eq(auditLogs.action, "product.revision.applied"),
+          eq(auditLogs.entityId, revisionId),
+        ),
+      );
+    expect(Number(applyAudits[0]?.value)).toBe(1);
+    await connection.close();
+  });
+
+  it("rolls Product revision ownership back when the required Audit fails", async () => {
+    const connection = await createTestDatabase();
+    const reviewerRows = await connection.db
+      .insert(users)
+      .values({
+        email: "revision-audit@example.test",
+        displayName: "Revision Audit Reviewer",
+        role: "reviewer_publisher",
+        passwordHash: "test",
+      })
+      .returning({ id: users.id });
+    const taxonomyRows = await connection.db
+      .insert(taxonomyTerms)
+      .values({ internalKey: "revision-audit-category", dimension: "material_fiber" })
+      .returning({ id: taxonomyTerms.id });
+    const productId = await connection.db.transaction(async (transaction) => {
+      const productRows = await transaction
+        .insert(products)
+        .values({ status: "draft" })
+        .returning({ id: products.id });
+      await transaction.insert(productTaxonomyTerms).values({
+        productId: productRows[0]!.id,
+        taxonomyTermId: taxonomyRows[0]!.id,
+        isPrimary: true,
+      });
+      return productRows[0]!.id;
+    });
+    await connection.db.insert(productLocalizations).values({
+      productId,
+      locale: "en",
+      name: "Audit Original",
+    });
+    const revisionRows = await connection.db
+      .insert(editorialRevisions)
+      .values({
+        entityType: "product",
+        entityId: productId,
+        locale: "en",
+        versionNumber: 1,
+        status: "in_review",
+        snapshot: {
+          kind: "editorial_copy",
+          name: "Audit Changed",
+          shortDescription: null,
+          fullDescription: null,
+        },
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = revisionRows[0]!.id;
+    await expect(
+      applyProductRevision(
+        connection.db,
+        { userId: reviewerRows[0]!.id, role: "reviewer_publisher" },
+        revisionId,
+        {
+          auditWriter: async () => {
+            throw new AuditWriteError();
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(AuditWriteError);
+    const revision = await connection.db
+      .select({ status: editorialRevisions.status })
+      .from(editorialRevisions)
+      .where(eq(editorialRevisions.id, revisionId));
+    const localization = await connection.db
+      .select({ name: productLocalizations.name })
+      .from(productLocalizations)
+      .where(eq(productLocalizations.productId, productId));
+    expect(revision[0]?.status).toBe("in_review");
+    expect(localization[0]?.name).toBe("Audit Original");
+    await connection.close();
+  });
+
   it("keeps draft, publish, and index gates independent and flattens slug redirects", async () => {
     const connection = await createTestDatabase();
     const userRows = await connection.db

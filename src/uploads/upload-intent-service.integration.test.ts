@@ -1,7 +1,8 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
-import { contacts, inquiries, uploadIntents } from "@/db/schema";
+import { uploadIntents } from "@/db/schema";
+import { createInquiry } from "@/crm/inquiry-service";
 import { createTestDatabase } from "@/test/database";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 
@@ -11,8 +12,6 @@ import { readRequestBodyWithLimit } from "./request-guard";
 import {
   completeInquiryUploadIntent,
   createInquiryUploadIntent,
-  finalizeInquiryUploadTokens,
-  reserveInquiryUploadTokens,
 } from "./upload-intent-service";
 
 async function imageBytes() {
@@ -44,23 +43,41 @@ describe("private Inquiry Upload Intent", () => {
       anonymousSessionId: sessionId,
       bytes,
     });
+    const notifier = { notifyInquiry: async () => undefined };
     await expect(
-      reserveInquiryUploadTokens(connection.db, otherSession, [intent.token]),
+      createInquiry(connection.db, notifier, {
+        name: "Intent Buyer",
+        email: "intent@example.test",
+        uploadTokens: [intent.token],
+        sourcePagePath: "/get-quote/",
+        sessionId: otherSession,
+        idempotencyKey: "intent-wrong-session-0001",
+      }),
     ).rejects.toThrow(/invalid, expired, or already used/);
-    const reserved = await reserveInquiryUploadTokens(connection.db, sessionId, [intent.token]);
-    expect(reserved.assetIds).toHaveLength(1);
-    const contactRows = await connection.db.insert(contacts).values({ name: "Intent Buyer", email: "intent@example.test", normalizedEmail: "intent@example.test" }).returning({ id: contacts.id });
-    const inquiryId = "33333333-3333-4333-8333-333333333333";
-    await connection.db.insert(inquiries).values({ id: inquiryId, publicReference: "CWT-UPLOAD-INTENT", contactId: contactRows[0]!.id, submittedName: "Intent Buyer", submittedEmail: "intent@example.test", idempotencyKey: "intent-test-00000001", sourcePagePath: "/get-quote/" });
-    await finalizeInquiryUploadTokens(
-      connection.db,
-      reserved.intentIds,
-      inquiryId,
-    );
+    const created = await createInquiry(connection.db, notifier, {
+      name: "Intent Buyer",
+      email: "intent@example.test",
+      uploadTokens: [intent.token],
+      sourcePagePath: "/get-quote/",
+      sessionId,
+      idempotencyKey: "intent-test-00000001",
+    });
+    expect(created.replayed).toBe(false);
     const rows = await connection.db.select().from(uploadIntents);
-    expect(rows[0]).toMatchObject({ status: "consumed", isConsumed: true, consumedByInquiryId: inquiryId });
+    expect(rows[0]).toMatchObject({
+      status: "consumed",
+      isConsumed: true,
+      consumedByInquiryId: created.inquiryId,
+    });
     await expect(
-      reserveInquiryUploadTokens(connection.db, sessionId, [intent.token]),
+      createInquiry(connection.db, notifier, {
+        name: "Another Buyer",
+        email: "another@example.test",
+        uploadTokens: [intent.token],
+        sourcePagePath: "/get-quote/",
+        sessionId,
+        idempotencyKey: "intent-second-use-0001",
+      }),
     ).rejects.toThrow(/already used/);
     await connection.close();
   });

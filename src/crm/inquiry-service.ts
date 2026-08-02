@@ -1,8 +1,9 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, asc, count, eq, inArray, isNull, ne } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
+import type { GovernedMutationOptions } from "@/audit/governed-mutation";
 import type { Actor } from "@/catalog/product-service";
 import {
   assets,
@@ -18,6 +19,8 @@ import {
 import type { AppDatabase } from "@/db/types";
 import type { EmailNotifier } from "@/integrations/email";
 import { deliverInquiryNotification } from "@/integrations/notification-outbox";
+import { normalizePath } from "@/seo/path";
+import { reserveInquiryUploadTokensInTransaction } from "@/uploads/upload-intent-service";
 
 import { requireInquiryRecordAccess } from "./authorization";
 
@@ -69,7 +72,8 @@ export interface CreateInquiryInput {
   countryCode?: string | null;
   whatsapp?: string | null;
   description?: string | null;
-  assetIds: readonly string[];
+  assetIds?: readonly string[];
+  uploadTokens?: readonly string[];
   sourcePagePath: string;
   landingPagePath?: string | null;
   referrer?: string | null;
@@ -84,18 +88,105 @@ export interface CreateInquiryInput {
   sessionId?: string | null;
   requestId?: string | null;
   idempotencyKey: string;
-  reservedUploadIntentIds?: readonly string[];
 }
 
-export async function findInquiryByIdempotencyKey<
-  TQueryResult extends PgQueryResultHKT,
->(db: AppDatabase<TQueryResult>, idempotencyKey: string): Promise<string | null> {
-  const rows = await db
-    .select({ id: inquiries.id })
-    .from(inquiries)
-    .where(eq(inquiries.idempotencyKey, idempotencyKey))
-    .limit(1);
-  return rows[0]?.id ?? null;
+export interface InquirySubmissionResult {
+  inquiryId: string;
+  publicReference: string;
+  replayed: boolean;
+}
+
+export class InquiryIdempotencyConflictError extends Error {
+  readonly code = "INQUIRY_IDEMPOTENCY_CONFLICT" as const;
+
+  constructor() {
+    super("This Idempotency Key was already used for a different Inquiry request.");
+    this.name = "InquiryIdempotencyConflictError";
+  }
+}
+
+export const INQUIRY_REQUEST_FINGERPRINT_VERSION = 1;
+
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  const normalized = value?.normalize("NFC").trim() ?? "";
+  return normalized || null;
+}
+
+function normalizeMessage(value: string | null | undefined): string | null {
+  const normalized = value?.normalize("NFC").replace(/\r\n?/g, "\n").trim() ?? "";
+  return normalized || null;
+}
+
+function digestAttachmentToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+function canonicalInquiryInput(input: CreateInquiryInput) {
+  const uploadTokens = [...(input.uploadTokens ?? [])];
+  const assetIds = [...new Set(input.assetIds ?? [])].sort();
+  if (uploadTokens.length > 0 && assetIds.length > 0) {
+    throw new Error("Inquiry attachments must use Upload Tokens or Asset IDs, not both.");
+  }
+  if (new Set(uploadTokens).size !== uploadTokens.length) {
+    throw new Error("Upload Tokens are duplicated or exceed the configured limit.");
+  }
+  const name = input.name.normalize("NFC").trim();
+  const email = normalizeContactEmail(input.email.normalize("NFC"));
+  const description = normalizeMessage(input.description);
+  const sourcePagePath = normalizePath(input.sourcePagePath);
+  const landingPagePath = input.landingPagePath
+    ? normalizePath(input.landingPagePath)
+    : null;
+  const sessionId = normalizeOptionalText(input.sessionId)?.toLowerCase() ?? null;
+  const attachmentIdentity = uploadTokens.length
+    ? uploadTokens.map(digestAttachmentToken).sort().map((digest) => `token:${digest}`)
+    : assetIds.map((assetId) => `asset:${assetId}`);
+  return {
+    name,
+    email,
+    countryCode: normalizeOptionalText(input.countryCode),
+    whatsapp: normalizeOptionalText(input.whatsapp),
+    description,
+    sourcePagePath,
+    landingPagePath,
+    referrer: normalizeOptionalText(input.referrer),
+    utmSource: normalizeOptionalText(input.utmSource),
+    utmMedium: normalizeOptionalText(input.utmMedium),
+    utmCampaign: normalizeOptionalText(input.utmCampaign),
+    lastNonDirectSource: normalizeOptionalText(input.lastNonDirectSource),
+    lastNonDirectMedium: normalizeOptionalText(input.lastNonDirectMedium),
+    lastNonDirectCampaign: normalizeOptionalText(input.lastNonDirectCampaign),
+    attributionConfidence: input.attributionConfidence ?? "unavailable",
+    sessionId,
+    uploadTokens,
+    assetIds,
+    attachmentIdentity,
+  };
+}
+
+export function createInquiryRequestFingerprint(input: CreateInquiryInput): string {
+  const canonical = canonicalInquiryInput(input);
+  const orderedPayload = [
+    ["name", canonical.name],
+    ["email", canonical.email],
+    ["countryCode", canonical.countryCode],
+    ["whatsapp", canonical.whatsapp],
+    ["description", canonical.description],
+    ["sourcePagePath", canonical.sourcePagePath],
+    ["landingPagePath", canonical.landingPagePath],
+    ["referrer", canonical.referrer],
+    ["utmSource", canonical.utmSource],
+    ["utmMedium", canonical.utmMedium],
+    ["utmCampaign", canonical.utmCampaign],
+    ["lastNonDirectSource", canonical.lastNonDirectSource],
+    ["lastNonDirectMedium", canonical.lastNonDirectMedium],
+    ["lastNonDirectCampaign", canonical.lastNonDirectCampaign],
+    ["attributionConfidence", canonical.attributionConfidence],
+    ["attachments", canonical.attachmentIdentity],
+  ] as const;
+  return createHash("sha256")
+    .update(`${INQUIRY_REQUEST_FINGERPRINT_VERSION}\n${JSON.stringify(orderedPayload)}`, "utf8")
+    .digest("hex");
 }
 
 export async function findInquiryReferenceByIdempotencyKey<
@@ -103,9 +194,19 @@ export async function findInquiryReferenceByIdempotencyKey<
 >(
   db: AppDatabase<TQueryResult>,
   idempotencyKey: string,
-): Promise<{ id: string; publicReference: string } | null> {
+): Promise<{
+  id: string;
+  publicReference: string;
+  requestFingerprint: string | null;
+  requestFingerprintVersion: number | null;
+} | null> {
   const rows = await db
-    .select({ id: inquiries.id, publicReference: inquiries.publicReference })
+    .select({
+      id: inquiries.id,
+      publicReference: inquiries.publicReference,
+      requestFingerprint: inquiries.requestFingerprint,
+      requestFingerprintVersion: inquiries.requestFingerprintVersion,
+    })
     .from(inquiries)
     .where(eq(inquiries.idempotencyKey, idempotencyKey))
     .limit(1);
@@ -116,48 +217,76 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   notifier: EmailNotifier,
   input: CreateInquiryInput,
-): Promise<string> {
-  const name = input.name.trim();
-  const email = normalizeContactEmail(input.email);
-  const description = input.description?.trim() || null;
+  options: GovernedMutationOptions = {},
+): Promise<InquirySubmissionResult> {
+  const canonical = canonicalInquiryInput(input);
+  const { name, email, description } = canonical;
   const idempotencyKey = input.idempotencyKey.trim();
-  const assetIds = [...new Set(input.assetIds)];
-  const reservedIntentIds = [...new Set(input.reservedUploadIntentIds ?? [])];
+  const requestFingerprint = createInquiryRequestFingerprint(input);
   if (!name || !email) throw new Error("Name and Email are required.");
   if (!idempotencyKey || idempotencyKey.length > 200) {
     throw new Error("A valid Idempotency Key is required.");
   }
-  const existingInquiryId = await findInquiryByIdempotencyKey(db, idempotencyKey);
-  if (existingInquiryId) return existingInquiryId;
-  if (!description && assetIds.length === 0) {
+  const assertMatchingRequest = (
+    existing: NonNullable<Awaited<ReturnType<typeof findInquiryReferenceByIdempotencyKey>>>,
+  ): InquirySubmissionResult => {
+    if (
+      existing.requestFingerprintVersion !== INQUIRY_REQUEST_FINGERPRINT_VERSION ||
+      existing.requestFingerprint !== requestFingerprint
+    ) {
+      throw new InquiryIdempotencyConflictError();
+    }
+    return {
+      inquiryId: existing.id,
+      publicReference: existing.publicReference,
+      replayed: true,
+    };
+  };
+  const existing = await findInquiryReferenceByIdempotencyKey(db, idempotencyKey);
+  if (existing) return assertMatchingRequest(existing);
+  if (!description && canonical.assetIds.length === 0 && canonical.uploadTokens.length === 0) {
     throw new Error("Provide a description or upload at least one image.");
   }
-  if (reservedIntentIds.length > 0 && reservedIntentIds.length !== assetIds.length) {
-    throw new Error("Reserved Upload Tokens must exactly match Inquiry attachments.");
-  }
-  if (assetIds.length > 0) {
-    const validAssets = await db
-      .select({ id: assets.id })
-      .from(assets)
-      .where(
-        and(
-          inArray(assets.id, assetIds),
-          eq(assets.category, "inquiry"),
-          eq(assets.access, "private"),
-          eq(assets.storagePartition, "private"),
-          eq(assets.status, "ready"),
-          eq(assets.scanStatus, "passed"),
-          isNull(assets.deletedAt),
-        ),
-      );
-    if (validAssets.length !== assetIds.length) {
-      throw new Error("Inquiry attachments must be ready private inquiry Assets.");
-    }
-  }
 
-  let result: { inquiryId: string; contactId: string };
+  let result: InquirySubmissionResult;
   try {
     result = await db.transaction(async (transaction) => {
+    const concurrentExisting = await findInquiryReferenceByIdempotencyKey(
+      transaction,
+      idempotencyKey,
+    );
+    if (concurrentExisting) return assertMatchingRequest(concurrentExisting);
+    const reserved = canonical.uploadTokens.length
+      ? await reserveInquiryUploadTokensInTransaction(
+          transaction,
+          canonical.sessionId ?? "",
+          canonical.uploadTokens,
+        )
+      : { intentIds: [] as string[], assetIds: canonical.assetIds };
+    const assetIds = [...new Set(reserved.assetIds)];
+    const reservedIntentIds = [...new Set(reserved.intentIds)];
+    if (reservedIntentIds.length > 0 && reservedIntentIds.length !== assetIds.length) {
+      throw new Error("Reserved Upload Tokens must exactly match Inquiry attachments.");
+    }
+    if (assetIds.length > 0) {
+      const validAssets = await transaction
+        .select({ id: assets.id })
+        .from(assets)
+        .where(
+          and(
+            inArray(assets.id, assetIds),
+            eq(assets.category, "inquiry"),
+            eq(assets.access, "private"),
+            eq(assets.storagePartition, "private"),
+            eq(assets.status, "ready"),
+            eq(assets.scanStatus, "passed"),
+            isNull(assets.deletedAt),
+          ),
+        );
+      if (validAssets.length !== assetIds.length) {
+        throw new Error("Inquiry attachments must be ready private inquiry Assets.");
+      }
+    }
     if (reservedIntentIds.length > 0) {
       const reservedRows = await transaction
         .select({ id: uploadIntents.id, assetId: uploadIntents.assetId })
@@ -183,8 +312,8 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         name,
         email,
         normalizedEmail: email,
-        countryCode: input.countryCode?.trim() || null,
-        whatsapp: input.whatsapp?.trim() || null,
+        countryCode: canonical.countryCode,
+        whatsapp: canonical.whatsapp,
       })
       .onConflictDoNothing({ target: contacts.normalizedEmail })
       .returning({ id: contacts.id });
@@ -197,30 +326,33 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
           .limit(1);
     const contactId = insertedContacts[0]?.id ?? existingContacts[0]?.id;
     if (!contactId) throw new Error("Contact upsert failed.");
+    const publicReference = createPublicInquiryReference();
     const inquiryRows = await transaction
       .insert(inquiries)
       .values({
-        publicReference: createPublicInquiryReference(),
+        publicReference,
         contactId,
         status: "new",
         description,
         submittedName: name,
         submittedEmail: email,
-        submittedCountryCode: input.countryCode?.trim() || null,
-        submittedWhatsapp: input.whatsapp?.trim() || null,
+        submittedCountryCode: canonical.countryCode,
+        submittedWhatsapp: canonical.whatsapp,
         idempotencyKey,
-        sourcePagePath: input.sourcePagePath,
-        landingPagePath: input.landingPagePath ?? null,
-        referrer: input.referrer ?? null,
-        utmSource: input.utmSource ?? null,
-        utmMedium: input.utmMedium ?? null,
-        utmCampaign: input.utmCampaign ?? null,
-        lastNonDirectSource: input.lastNonDirectSource ?? null,
-        lastNonDirectMedium: input.lastNonDirectMedium ?? null,
-        lastNonDirectCampaign: input.lastNonDirectCampaign ?? null,
-        attributionConfidence: input.attributionConfidence ?? "unavailable",
+        requestFingerprint,
+        requestFingerprintVersion: INQUIRY_REQUEST_FINGERPRINT_VERSION,
+        sourcePagePath: canonical.sourcePagePath,
+        landingPagePath: canonical.landingPagePath,
+        referrer: canonical.referrer,
+        utmSource: canonical.utmSource,
+        utmMedium: canonical.utmMedium,
+        utmCampaign: canonical.utmCampaign,
+        lastNonDirectSource: canonical.lastNonDirectSource,
+        lastNonDirectMedium: canonical.lastNonDirectMedium,
+        lastNonDirectCampaign: canonical.lastNonDirectCampaign,
+        attributionConfidence: canonical.attributionConfidence,
         analyticsConsentState: input.analyticsConsentState ?? "unknown",
-        sessionId: input.sessionId ?? null,
+        sessionId: canonical.sessionId,
         requestId: input.requestId ?? null,
       })
       .returning({ id: inquiries.id });
@@ -267,13 +399,13 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         inquiryId,
         name,
         email,
-        countryCode: input.countryCode?.trim() || null,
-        whatsapp: input.whatsapp?.trim() || null,
+        countryCode: canonical.countryCode,
+        whatsapp: canonical.whatsapp,
         description,
         attachmentCount: assetIds.length,
       },
     });
-    await writeAuditLog(transaction, {
+    await (options.auditWriter ?? writeAuditLog)(transaction, {
       action: "inquiry.created",
       entityType: "inquiry",
       entityId: inquiryId,
@@ -281,32 +413,27 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
       afterSummary: {
         status: "new",
         attachmentCount: assetIds.length,
-        sourcePagePath: input.sourcePagePath,
+        sourcePagePath: canonical.sourcePagePath,
       },
     });
-      return { inquiryId, contactId };
+      return { inquiryId, publicReference, replayed: false };
     });
   } catch (error) {
-    const racedInquiryId = await findInquiryByIdempotencyKey(db, idempotencyKey);
-    if (!racedInquiryId) throw error;
-    if (reservedIntentIds.length > 0) {
-      await db
-        .update(uploadIntents)
-        .set({ status: "passed", updatedAt: new Date() })
-        .where(
-          and(
-            inArray(uploadIntents.id, reservedIntentIds),
-            eq(uploadIntents.status, "consumed"),
-            eq(uploadIntents.isConsumed, false),
-          ),
-        );
-    }
-    await deliverInquiryNotification(db, notifier, racedInquiryId);
-    return racedInquiryId;
+    const racedInquiry = await findInquiryReferenceByIdempotencyKey(db, idempotencyKey);
+    if (!racedInquiry) throw error;
+    return assertMatchingRequest(racedInquiry);
   }
 
-  await deliverInquiryNotification(db, notifier, result.inquiryId);
-  return result.inquiryId;
+  if (!result.replayed) {
+    try {
+      await deliverInquiryNotification(db, notifier, result.inquiryId);
+    } catch {
+      process.stderr.write(
+        `[inquiry-notification-deferred] Inquiry ${result.publicReference}; details omitted.\n`,
+      );
+    }
+  }
+  return result;
 }
 
 export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>(
