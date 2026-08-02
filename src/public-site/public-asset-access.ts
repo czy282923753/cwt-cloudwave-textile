@@ -16,6 +16,7 @@ import {
   isAllowedImageMimeType,
   publicAttachmentRoles,
   publicImageRoles,
+  verifiedFinalizeManifestSqlCondition,
 } from "@/uploads/asset-eligibility";
 
 import { isPublicAssetCandidate } from "./public-asset-policy";
@@ -111,6 +112,7 @@ export async function findPublicAssetForDelivery<
         eq(assets.status, "ready"),
         eq(assets.scanStatus, "passed"),
         isNull(assets.deletedAt),
+        verifiedFinalizeManifestSqlCondition(),
       ),
     )
     .limit(1);

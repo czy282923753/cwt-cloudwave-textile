@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   assetUploadBatches,
   assets,
+  assetVariants,
+  auditLogs,
   authSessions,
   finalizeObjectManifestItems,
   objectCleanupJobs,
@@ -12,11 +14,13 @@ import {
   products,
   taxonomyTerms,
   uploadRecoveryJobs,
+  uploadIntents,
   users,
 } from "@/db/schema";
 import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
 import { createTestDatabase } from "@/test/database";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
+import { publicReadyAssetSqlConditions } from "./asset-eligibility";
 
 import {
   completeAdminUploadIntent,
@@ -35,6 +39,7 @@ import {
   markFinalizeRecoveryRequired,
   processPendingUploadRecoveryJobs,
   recoverUploadRecoveryJob,
+  revalidateHistoricalFinalizeManifest,
   type UploadRecoveryLease,
 } from "./upload-recovery-service";
 
@@ -89,6 +94,15 @@ class CommitPreflightExpiryStorage extends InMemoryObjectStorage {
     this.existenceChecks += 1;
     if (this.existenceChecks === 8) this.expireLease();
     return super.exists(...args);
+  }
+}
+
+class DeleteTrackingStorage extends InMemoryObjectStorage {
+  deleteCalls = 0;
+
+  override async delete(...args: Parameters<InMemoryObjectStorage["delete"]>) {
+    this.deleteCalls += 1;
+    return super.delete(...args);
   }
 }
 
@@ -220,6 +234,14 @@ describe("Finalize and Public Compensation mutual exclusion", () => {
           eq(objectCleanupJobs.uploadBatchId, fixture.batch.batchId),
           eq(objectCleanupJobs.storagePartition, "public"),
         ))).every((job) => job.status === "cancelled")).toBe(true);
+        expect((await fixture.connection.db.select().from(finalizeObjectManifestItems).where(
+          eq(finalizeObjectManifestItems.uploadBatchId, fixture.batch.batchId),
+        )).every((item) =>
+          item.evidenceStatus === "verified" &&
+          item.evidenceSource === "current_finalize_storage_verified" &&
+          item.observedByteSize === item.byteSize &&
+          item.observedMimeType === item.mimeType
+        )).toBe(true);
       } finally {
         barrier.release();
         await fixture.connection.close();
@@ -499,6 +521,7 @@ describe("Finalize and Public Compensation mutual exclusion", () => {
       "missing_row",
       "metadata_mismatch",
       "key_mismatch",
+      "unverified_evidence",
       "missing_object",
     ] as const;
     for (const mutation of mutations) {
@@ -556,6 +579,12 @@ describe("Finalize and Public Compensation mutual exclusion", () => {
         } else if (mutation === "key_mismatch") {
           await fixture.connection.db.update(objectCleanupJobs).set({ objectKey: `${target.objectKey}.TEST-tampered` })
             .where(eq(objectCleanupJobs.id, target.id));
+        } else if (mutation === "unverified_evidence") {
+          await fixture.connection.db.update(finalizeObjectManifestItems).set({
+            evidenceStatus: "unverified",
+            evidenceSource: "TEST-forced-unverified",
+            evidenceVerifiedAt: null,
+          }).where(eq(finalizeObjectManifestItems.id, target.finalizeManifestItemId!));
         } else {
           await fixture.storage.delete("public", target.objectKey);
         }
@@ -757,4 +786,337 @@ describe("Finalize and Public Compensation mutual exclusion", () => {
       await fixture.connection.close();
     }
   }, 30_000);
+
+  it("fails closed before Storage delete for every locked Cleanup identity projection mismatch", async () => {
+    const mismatches = [
+      "batch",
+      "intent",
+      "recovery",
+      "recovery_version",
+      "attempt",
+      "manifest_item",
+      "asset",
+      "object_key",
+      "role",
+      "mime",
+      "byte_size",
+    ] as const;
+    for (const mismatch of mismatches) {
+      const storage = new DeleteTrackingStorage();
+      const fixture = await stage(`cleanup-identity-${mismatch}`, storage);
+      const barrier = new AsyncBarrier();
+      const workerId = `cleanup-identity-finalizer-${mismatch}`;
+      try {
+        const finalizing = finalizeAdminUploadBatch(
+          fixture.connection.db,
+          storage,
+          fixture.actor,
+          fixture.batch.batchId,
+          {
+            workerId,
+            leaseMilliseconds: 20 * 60_000,
+            faultInjector: async (point) => {
+              if (point === "before_finalize_publish_transaction") await barrier.pause();
+            },
+          },
+        );
+        await barrier.reached;
+        const recovery = (await fixture.connection.db.select().from(uploadRecoveryJobs).where(and(
+          eq(uploadRecoveryJobs.uploadBatchId, fixture.batch.batchId),
+          eq(uploadRecoveryJobs.kind, "finalize"),
+        )))[0];
+        if (!recovery?.leaseExpiresAt) throw new Error("Missing Finalize Recovery.");
+        await markFinalizeRecoveryRequired(
+          fixture.connection.db,
+          {
+            id: recovery.id,
+            workerId,
+            version: recovery.version,
+            attemptCount: recovery.attemptCount,
+            leaseExpiresAt: recovery.leaseExpiresAt,
+          },
+          fixture.batch.batchId,
+          new Error("TEST arm Cleanup identity mismatch"),
+        );
+        const jobs = await fixture.connection.db.select().from(objectCleanupJobs).where(and(
+          eq(objectCleanupJobs.uploadBatchId, fixture.batch.batchId),
+          eq(objectCleanupJobs.storagePartition, "public"),
+          eq(objectCleanupJobs.status, "pending"),
+        ));
+        const job = jobs.find((candidate) => candidate.expectedObjectRole === "original")!;
+        const otherManifest = (await fixture.connection.db.select().from(finalizeObjectManifestItems).where(
+          eq(finalizeObjectManifestItems.recoveryJobId, recovery.id),
+        )).find((item) => item.id !== job.finalizeManifestItemId)!;
+        const [intent] = await fixture.connection.db.select().from(uploadIntents).where(
+          eq(uploadIntents.uploadBatchId, fixture.batch.batchId),
+        );
+        const stagingRecovery = (await fixture.connection.db.select().from(uploadRecoveryJobs).where(and(
+          eq(uploadRecoveryJobs.uploadBatchId, fixture.batch.batchId),
+          eq(uploadRecoveryJobs.kind, "staging"),
+        )))[0]!;
+        if (mismatch === "batch") {
+          const [otherBatch] = await fixture.connection.db.insert(assetUploadBatches).values({
+            status: "failed",
+            declaredFileCount: 1,
+            expiresAt: new Date(Date.now() + 60_000),
+          }).returning({ id: assetUploadBatches.id });
+          await fixture.connection.db.update(objectCleanupJobs).set({ uploadBatchId: otherBatch!.id })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "intent") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ uploadIntentId: intent!.id })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "recovery") {
+          await fixture.connection.db.update(objectCleanupJobs).set({
+            finalizeRecoveryId: stagingRecovery.id,
+            recoveryVersion: stagingRecovery.version,
+          }).where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "recovery_version") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ recoveryVersion: job.recoveryVersion! + 1 })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "attempt") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ finalizeAttempt: job.finalizeAttempt! + 1 })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "manifest_item") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ finalizeManifestItemId: otherManifest.id })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "asset") {
+          const [otherAsset] = await fixture.connection.db.insert(assets).values({
+            originalFileName: "TEST-cleanup-identity-other.jpg",
+            storageProvider: "test",
+            storagePartition: "private",
+            objectKey: `TEST/cleanup-identity-${mismatch}.jpg`,
+            access: "internal",
+            category: "product",
+            status: "ready",
+            declaredMimeType: "image/jpeg",
+            detectedMimeType: "image/jpeg",
+            byteSize: 1,
+            sha256: "TEST-cleanup-identity-other",
+            scanStatus: "passed",
+          }).returning({ id: assets.id });
+          await fixture.connection.db.update(objectCleanupJobs).set({ assetId: otherAsset!.id })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "object_key") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ objectKey: `${job.objectKey}.TEST-mismatch` })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "role") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ expectedObjectRole: "variant" })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else if (mismatch === "mime") {
+          await fixture.connection.db.update(objectCleanupJobs).set({ expectedMimeType: "image/png" })
+            .where(eq(objectCleanupJobs.id, job.id));
+        } else {
+          await fixture.connection.db.update(objectCleanupJobs).set({ expectedByteSize: job.expectedByteSize! + 1 })
+            .where(eq(objectCleanupJobs.id, job.id));
+        }
+        storage.deleteCalls = 0;
+        if (mismatch === "role") {
+          await expect(processObjectCleanupJob(
+            fixture.connection.db,
+            storage,
+            job.id,
+            {
+              workerId: "cleanup-identity-audit-failure",
+              auditWriter: async () => {
+                throw new Error("TEST Cleanup identity Audit failure");
+              },
+            },
+          )).rejects.toThrow(/Audit failure/);
+          expect(storage.deleteCalls).toBe(0);
+          expect((await fixture.connection.db.select().from(objectCleanupJobs)
+            .where(eq(objectCleanupJobs.id, job.id)))[0]?.status).toBe("pending");
+        }
+        await expect(processObjectCleanupJob(
+          fixture.connection.db,
+          storage,
+          job.id,
+          { workerId: `cleanup-identity-worker-${mismatch}` },
+        ), mismatch).resolves.toBe("not_claimed");
+        expect(storage.deleteCalls, mismatch).toBe(0);
+        expect((await fixture.connection.db.select().from(objectCleanupJobs)
+          .where(eq(objectCleanupJobs.id, job.id)))[0], mismatch).toMatchObject({
+          status: "dead",
+          armedReason: "cleanup_identity_mismatch_manual_review",
+        });
+        expect(await fixture.connection.db.select().from(auditLogs).where(and(
+          eq(auditLogs.action, "object_cleanup.identity_mismatch"),
+          eq(auditLogs.entityId, job.id),
+        )), mismatch).toHaveLength(1);
+        barrier.release();
+        await expect(finalizing).rejects.toThrow();
+      } finally {
+        barrier.release();
+        await fixture.connection.close();
+      }
+    }
+  }, 120_000);
+
+  it("keeps historical inferred Manifest evidence nonpublic until byte-backed audited storage revalidation", async () => {
+    const connection = await createTestDatabase();
+    const storage = new InMemoryObjectStorage();
+    try {
+      const bytes = await imageBytes();
+      const variantBytes = new Uint8Array(await sharp(bytes).webp().toBuffer());
+      const [batch] = await connection.db.insert(assetUploadBatches).values({
+        status: "completed",
+        declaredFileCount: 1,
+        completedFileCount: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+        completedAt: new Date(),
+      }).returning({ id: assetUploadBatches.id });
+      if (!batch) throw new Error("Missing Batch.");
+      const [asset] = await connection.db.insert(assets).values({
+        uploadBatchId: batch.id,
+        originalFileName: "TEST-historical-evidence.jpg",
+        storageProvider: "test",
+        storagePartition: "public",
+        objectKey: "TEST/historical-evidence.jpg",
+        access: "public",
+        category: "product",
+        status: "ready",
+        declaredMimeType: "image/jpeg",
+        detectedMimeType: "image/jpeg",
+        byteSize: 1,
+        sha256: "TEST-historical-evidence",
+        scanStatus: "passed",
+      }).returning({ id: assets.id, objectKey: assets.objectKey });
+      if (!asset) throw new Error("Missing Asset.");
+      const variantKey = `${asset.objectKey}.variants/TEST-historical.webp`;
+      const [variant] = await connection.db.insert(assetVariants).values({
+        sourceAssetId: asset.id,
+        format: "webp",
+        variantKey: "TEST-historical",
+        objectKey: variantKey,
+        byteSize: 1,
+      }).returning({ id: assetVariants.id });
+      if (!variant) throw new Error("Missing Variant.");
+      const [recovery] = await connection.db.insert(uploadRecoveryJobs).values({
+        kind: "finalize",
+        uploadBatchId: batch.id,
+        status: "completed",
+        stage: "completed",
+        attemptCount: 1,
+        version: 7,
+        completedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      }).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version });
+      if (!recovery) throw new Error("Missing Recovery.");
+      const [manifest] = await connection.db.insert(finalizeObjectManifestItems).values({
+        recoveryJobId: recovery.id,
+        uploadBatchId: batch.id,
+        finalizeAttempt: 1,
+        assetId: asset.id,
+        objectKey: asset.objectKey,
+        objectRole: "original",
+        mimeType: "image/jpeg",
+        byteSize: 1,
+        writeCompletedAt: new Date(0),
+        evidenceStatus: "unverified",
+        evidenceSource: "migration_0015_legacy_inferred",
+      }).returning({ id: finalizeObjectManifestItems.id });
+      if (!manifest) throw new Error("Missing Manifest.");
+      const [variantManifest] = await connection.db.insert(finalizeObjectManifestItems).values({
+        recoveryJobId: recovery.id,
+        uploadBatchId: batch.id,
+        finalizeAttempt: 1,
+        assetId: asset.id,
+        objectKey: variantKey,
+        objectRole: "variant",
+        mimeType: "image/webp",
+        byteSize: 1,
+        writeCompletedAt: new Date(0),
+        evidenceStatus: "unverified",
+        evidenceSource: "migration_0015_legacy_inferred",
+      }).returning({ id: finalizeObjectManifestItems.id });
+      if (!variantManifest) throw new Error("Missing Variant Manifest.");
+      await connection.db.insert(objectCleanupJobs).values({
+        uploadBatchId: batch.id,
+        assetId: asset.id,
+        storagePartition: "public",
+        objectKey: asset.objectKey,
+        reason: "TEST-historical-evidence",
+        cleanupKind: "finalize_public",
+        status: "cancelled",
+        finalizeRecoveryId: recovery.id,
+        recoveryVersion: recovery.version,
+        finalizeAttempt: 1,
+        finalizeManifestItemId: manifest.id,
+        expectedObjectRole: "original",
+        expectedMimeType: "image/jpeg",
+        expectedByteSize: 1,
+        writeCompletedAt: new Date(0),
+      });
+      await connection.db.insert(objectCleanupJobs).values({
+        uploadBatchId: batch.id,
+        assetId: asset.id,
+        storagePartition: "public",
+        objectKey: variantKey,
+        reason: "TEST-historical-variant-evidence",
+        cleanupKind: "finalize_public",
+        status: "cancelled",
+        finalizeRecoveryId: recovery.id,
+        recoveryVersion: recovery.version,
+        finalizeAttempt: 1,
+        finalizeManifestItemId: variantManifest.id,
+        expectedObjectRole: "variant",
+        expectedMimeType: "image/webp",
+        expectedByteSize: 1,
+        writeCompletedAt: new Date(0),
+      });
+      await storage.put("public", asset.objectKey, bytes, "image/jpeg");
+      await storage.put("public", variantKey, variantBytes, "image/webp");
+      expect(await connection.db.select({ id: assets.id }).from(assets).where(and(
+        eq(assets.id, asset.id),
+        publicReadyAssetSqlConditions(),
+      ))).toHaveLength(0);
+      await expect(revalidateHistoricalFinalizeManifest(
+        connection.db,
+        storage,
+        recovery.id,
+        { auditWriter: async () => { throw new Error("TEST evidence Audit failure"); } },
+      )).rejects.toThrow(/Audit failure/);
+      expect((await connection.db.select().from(finalizeObjectManifestItems)
+        .where(eq(finalizeObjectManifestItems.id, manifest.id)))[0]).toMatchObject({
+        evidenceStatus: "unverified",
+        observedByteSize: null,
+      });
+      await expect(revalidateHistoricalFinalizeManifest(
+        connection.db,
+        storage,
+        recovery.id,
+      )).resolves.toBe(2);
+      expect((await connection.db.select().from(finalizeObjectManifestItems)
+        .where(eq(finalizeObjectManifestItems.id, manifest.id)))[0]).toMatchObject({
+        evidenceStatus: "verified",
+        evidenceSource: "historical_storage_revalidation",
+        observedByteSize: bytes.byteLength,
+        observedMimeType: "image/jpeg",
+        byteSize: bytes.byteLength,
+        writeCompletedAt: new Date(0),
+      });
+      expect((await connection.db.select().from(finalizeObjectManifestItems)
+        .where(eq(finalizeObjectManifestItems.id, variantManifest.id)))[0]).toMatchObject({
+        evidenceStatus: "verified",
+        evidenceSource: "historical_storage_revalidation",
+        observedByteSize: variantBytes.byteLength,
+        observedMimeType: "image/webp",
+        byteSize: variantBytes.byteLength,
+        writeCompletedAt: new Date(0),
+      });
+      expect((await connection.db.select({ byteSize: assets.byteSize }).from(assets)
+        .where(eq(assets.id, asset.id)))[0]?.byteSize).toBe(bytes.byteLength);
+      expect((await connection.db.select({ byteSize: assetVariants.byteSize }).from(assetVariants)
+        .where(eq(assetVariants.id, variant.id)))[0]?.byteSize).toBe(variantBytes.byteLength);
+      expect(await connection.db.select({ id: assets.id }).from(assets).where(and(
+        eq(assets.id, asset.id),
+        publicReadyAssetSqlConditions(),
+      ))).toHaveLength(1);
+      expect(await connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "asset.finalize.historical_storage_evidence_verified"),
+        eq(auditLogs.entityId, recovery.id),
+      ))).toHaveLength(1);
+    } finally {
+      await connection.close();
+    }
+  });
 });

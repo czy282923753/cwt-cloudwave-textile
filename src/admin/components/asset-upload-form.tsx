@@ -97,9 +97,15 @@ export function AssetUploadForm({ associations }: Readonly<{
         ? finalizeResult.assetIds.filter((assetId): assetId is string => typeof assetId === "string")
         : [];
       if (releasedAssetIds.length !== files.length) throw new Error("Upload Batch finalization returned an invalid result.");
+      const finalizeMessage = typeof finalizeResult.message === "string"
+        ? finalizeResult.message
+        : `${files.length} asset${files.length === 1 ? "" : "s"} uploaded and released.`;
+      const maintenanceWarning = typeof finalizeResult.maintenanceWarning === "string"
+        ? ` ${finalizeResult.maintenanceWarning}`
+        : "";
       formElement.reset();
       setDeclarationEnabled(false);
-      setFeedback({ kind: "success", message: `${files.length} asset${files.length === 1 ? "" : "s"} uploaded and released.` });
+      setFeedback({ kind: "success", message: `${finalizeMessage}${maintenanceWarning}` });
       router.replace(`/admin/assets/?uploaded=${encodeURIComponent(releasedAssetIds[0]!)}`);
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Upload failed safely. Try again." });

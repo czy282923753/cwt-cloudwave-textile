@@ -13,15 +13,19 @@ import * as schema from "@/db/schema";
 import {
   contacts,
   conversionEvents,
+  assetUploadBatches,
   assets,
   auditLogs,
   customerActivities,
   inquiries,
+  finalizeObjectManifestItems,
+  objectCleanupJobs,
   productTaxonomyTerms,
   products,
   redirects,
   routes,
   taxonomyTerms,
+  uploadRecoveryJobs,
   users,
 } from "@/db/schema";
 import { CONVERSION_EVENTS_PUBLIC_ONLY_EXPRESSION } from "@/db/schema/analytics";
@@ -290,8 +294,12 @@ describe("database migrations", () => {
       `);
       const cleanupNames = new Set(cleanupColumns.rows.map((row) => row.column_name));
       for (const required of [
+        "upload_intent_id",
+        "cleanup_kind",
         "finalize_recovery_id",
+        "recovery_version",
         "finalize_attempt",
+        "finalize_manifest_item_id",
         "expected_object_role",
         "expected_mime_type",
         "expected_byte_size",
@@ -315,6 +323,12 @@ describe("database migrations", () => {
         "mime_type",
         "byte_size",
         "write_completed_at",
+        "evidence_status",
+        "evidence_source",
+        "evidence_verified_at",
+        "observed_byte_size",
+        "observed_mime_type",
+        "observed_at",
       ]));
       const statusValues = await connection.db.execute<{ enumlabel: string }>(sql`
         select enumlabel from pg_enum
@@ -331,6 +345,8 @@ describe("database migrations", () => {
       `);
       expect(indexes.rows.map((row) => row.indexname)).toEqual(expect.arrayContaining([
         "object_cleanup_jobs_finalize_idx",
+        "object_cleanup_jobs_intent_idx",
+        "object_cleanup_jobs_manifest_idx",
         "finalize_manifest_attempt_object_unique",
         "finalize_manifest_batch_attempt_idx",
       ]));
@@ -340,6 +356,110 @@ describe("database migrations", () => {
         .toContain('CREATE TABLE "finalize_object_manifest_items"');
       expect(await readFile("drizzle/meta/0014_snapshot.json", "utf8"))
         .toContain('"finalize_object_manifest_items"');
+      const closureMigration = await readFile("drizzle/0015_post-commit-boundary-closure.sql", "utf8");
+      expect(closureMigration).toContain("orphan finalize_recovery_id requires manual governance");
+      expect(closureMigration).toContain("migration_0015_legacy_inferred");
+      expect(await readFile("drizzle/meta/0015_snapshot.json", "utf8"))
+        .toContain('"finalize_manifest_evidence_status"');
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("enforces Finalize Cleanup recovery FKs, permits null for generic jobs, and restricts referenced Recovery deletion", async () => {
+    const connection = await createTestDatabase();
+    try {
+      const [batch] = await connection.db.insert(assetUploadBatches).values({
+        status: "failed",
+        declaredFileCount: 1,
+        expiresAt: new Date(Date.now() + 60_000),
+      }).returning({ id: assetUploadBatches.id });
+      if (!batch) throw new Error("Missing Batch.");
+      const [asset] = await connection.db.insert(assets).values({
+        uploadBatchId: batch.id,
+        originalFileName: "TEST-fk.jpg",
+        storageProvider: "test",
+        storagePartition: "private",
+        objectKey: "TEST/fk.jpg",
+        access: "internal",
+        category: "product",
+        status: "ready",
+        declaredMimeType: "image/jpeg",
+        detectedMimeType: "image/jpeg",
+        byteSize: 128,
+        sha256: "TEST-fk",
+        scanStatus: "passed",
+      }).returning({ id: assets.id });
+      if (!asset) throw new Error("Missing Asset.");
+      const [recovery] = await connection.db.insert(uploadRecoveryJobs).values({
+        kind: "finalize",
+        uploadBatchId: batch.id,
+        status: "cleanup_required",
+        stage: "cleanup_required",
+        attemptCount: 1,
+        version: 4,
+        expiresAt: new Date(Date.now() + 60_000),
+      }).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version });
+      if (!recovery) throw new Error("Missing Recovery.");
+      const [manifest] = await connection.db.insert(finalizeObjectManifestItems).values({
+        recoveryJobId: recovery.id,
+        uploadBatchId: batch.id,
+        finalizeAttempt: 1,
+        assetId: asset.id,
+        objectKey: "TEST/fk-public.jpg",
+        objectRole: "original",
+        mimeType: "image/jpeg",
+        byteSize: 128,
+        evidenceStatus: "unverified",
+        evidenceSource: "TEST-unverified",
+      }).returning({ id: finalizeObjectManifestItems.id });
+      if (!manifest) throw new Error("Missing Manifest.");
+      const [cleanup] = await connection.db.insert(objectCleanupJobs).values({
+        uploadBatchId: batch.id,
+        assetId: asset.id,
+        storagePartition: "public",
+        objectKey: "TEST/fk-public.jpg",
+        reason: "TEST-fk",
+        cleanupKind: "finalize_public",
+        status: "standby",
+        finalizeRecoveryId: recovery.id,
+        recoveryVersion: recovery.version,
+        finalizeAttempt: 1,
+        finalizeManifestItemId: manifest.id,
+        expectedObjectRole: "original",
+        expectedMimeType: "image/jpeg",
+        expectedByteSize: 128,
+      }).returning({ id: objectCleanupJobs.id });
+      if (!cleanup) throw new Error("Missing Cleanup.");
+      await expect(connection.db.insert(objectCleanupJobs).values({
+        uploadBatchId: batch.id,
+        assetId: asset.id,
+        storagePartition: "public",
+        objectKey: "TEST/fk-invalid-recovery.jpg",
+        reason: "TEST-invalid-recovery",
+        cleanupKind: "finalize_public",
+        status: "standby",
+        finalizeRecoveryId: "99999999-9999-4999-8999-999999999999",
+        recoveryVersion: 1,
+        finalizeAttempt: 1,
+        finalizeManifestItemId: manifest.id,
+        expectedObjectRole: "original",
+        expectedMimeType: "image/jpeg",
+        expectedByteSize: 128,
+      })).rejects.toThrow();
+      const [generic] = await connection.db.insert(objectCleanupJobs).values({
+        storagePartition: "imports",
+        objectKey: "TEST/generic-null-recovery.bin",
+        reason: "TEST-generic-null-recovery",
+        cleanupKind: "generic",
+        status: "pending",
+      }).returning({ finalizeRecoveryId: objectCleanupJobs.finalizeRecoveryId });
+      expect(generic?.finalizeRecoveryId).toBeNull();
+      await expect(connection.db.delete(uploadRecoveryJobs).where(eq(uploadRecoveryJobs.id, recovery.id)))
+        .rejects.toThrow();
+      await connection.db.delete(objectCleanupJobs).where(eq(objectCleanupJobs.id, cleanup.id));
+      await expect(connection.db.delete(uploadRecoveryJobs).where(eq(uploadRecoveryJobs.id, recovery.id)))
+        .rejects.toThrow();
     } finally {
       await connection.close();
     }
@@ -402,7 +522,12 @@ describe("database migrations", () => {
           ('44444444-4444-4444-8444-444444444444',
            '11111111-1111-4111-8111-111111111111',
            '22222222-2222-4222-8222-222222222222', 'public',
-           'staging/TEST-upgrade.jpg', 'finalize_public_original_compensation', 'pending', now())
+           'staging/TEST-upgrade.jpg', 'finalize_public_original_compensation', 'pending', now()),
+          ('55555555-5555-4555-8555-555555555555',
+           '11111111-1111-4111-8111-111111111111',
+           '22222222-2222-4222-8222-222222222222', 'public',
+           'staging/TEST-upgrade.jpg.variants/TEST.webp',
+           'finalize_public_variant_compensation', 'pending', now())
       `));
       for (const entry of journal.entries.filter((item) => item.idx > 12)) {
         await copyFile(`drizzle/${entry.tag}.sql`, join(temporaryRoot, `${entry.tag}.sql`));
@@ -413,9 +538,13 @@ describe("database migrations", () => {
         status: string;
         finalize_recovery_id: string;
         finalize_attempt: number;
+        cleanup_kind: string;
+        recovery_version: number;
+        finalize_manifest_item_id: string;
         armed_at: Date | null;
       }>(sql.raw(`
-        select status, finalize_recovery_id, finalize_attempt, armed_at
+        select status, finalize_recovery_id, finalize_attempt, cleanup_kind,
+          recovery_version, finalize_manifest_item_id, armed_at
         from object_cleanup_jobs
         where id = '44444444-4444-4444-8444-444444444444'
       `));
@@ -423,24 +552,111 @@ describe("database migrations", () => {
         status: "standby",
         finalize_recovery_id: "33333333-3333-4333-8333-333333333333",
         finalize_attempt: 1,
+        cleanup_kind: "finalize_public",
+        recovery_version: 3,
         armed_at: null,
       });
+      expect(cleanup.rows[0]?.finalize_manifest_item_id).toMatch(/^[0-9a-f-]{36}$/);
       const manifest = await connection.db.execute<{
         object_key: string;
         object_role: string;
         mime_type: string;
         byte_size: number;
+        evidence_status: string;
+        evidence_source: string;
+        evidence_verified_at: Date | null;
+        observed_byte_size: number | null;
       }>(sql.raw(`
-        select object_key, object_role, mime_type, byte_size
+        select object_key, object_role, mime_type, byte_size, evidence_status,
+          evidence_source, evidence_verified_at, observed_byte_size
         from finalize_object_manifest_items
         where recovery_job_id = '33333333-3333-4333-8333-333333333333'
       `));
-      expect(manifest.rows).toEqual([{
-        object_key: "staging/TEST-upgrade.jpg",
-        object_role: "original",
-        mime_type: "image/jpeg",
-        byte_size: 128,
-      }]);
+      expect(manifest.rows.sort((left, right) => left.object_key.localeCompare(right.object_key)))
+        .toEqual([
+          {
+            object_key: "staging/TEST-upgrade.jpg",
+            object_role: "original",
+            mime_type: "image/jpeg",
+            byte_size: 128,
+            evidence_status: "unverified",
+            evidence_source: "migration_0015_legacy_inferred",
+            evidence_verified_at: null,
+            observed_byte_size: null,
+          },
+          {
+            object_key: "staging/TEST-upgrade.jpg.variants/TEST.webp",
+            object_role: "variant",
+            mime_type: "image/webp",
+            byte_size: 128,
+            evidence_status: "unverified",
+            evidence_source: "migration_0015_legacy_inferred",
+            evidence_verified_at: null,
+            observed_byte_size: null,
+          },
+        ]);
+    } finally {
+      await connection.close();
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("fails the 0015 upgrade closed when a pre-existing Cleanup references an orphan Finalize Recovery", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-finalize-orphan-upgrade-"));
+    const metaDirectory = join(temporaryRoot, "meta");
+    await mkdir(metaDirectory);
+    const journal = JSON.parse(await readFile("drizzle/meta/_journal.json", "utf8")) as {
+      version: string;
+      dialect: string;
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    for (const entry of journal.entries.filter((item) => item.idx <= 14)) {
+      await copyFile(`drizzle/${entry.tag}.sql`, join(temporaryRoot, `${entry.tag}.sql`));
+    }
+    await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((item) => item.idx <= 14),
+    }));
+    const client = new PGlite("memory://");
+    const connection = {
+      kind: "pglite" as const,
+      db: drizzle(client, { schema }),
+      close: async () => client.close(),
+    };
+    try {
+      await migrateDatabase(connection, temporaryRoot);
+      await connection.db.execute(sql.raw(`
+        insert into asset_upload_batches (id, status, declared_file_count, expires_at)
+        values ('11111111-1111-4111-8111-111111111111', 'failed', 1, now() + interval '1 hour')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into assets
+          (id, upload_batch_id, original_file_name, storage_provider, storage_partition,
+           object_key, access, category, status, declared_mime_type, detected_mime_type,
+           byte_size, sha256, scan_status)
+        values
+          ('22222222-2222-4222-8222-222222222222',
+           '11111111-1111-4111-8111-111111111111', 'TEST-orphan.jpg', 'test',
+           'private', 'TEST/orphan.jpg', 'internal', 'product', 'ready',
+           'image/jpeg', 'image/jpeg', 128, 'TEST-orphan', 'passed')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into object_cleanup_jobs
+          (id, upload_batch_id, asset_id, storage_partition, object_key, reason, status,
+           finalize_recovery_id, finalize_attempt, expected_object_role, expected_mime_type,
+           expected_byte_size, next_attempt_at)
+        values
+          ('33333333-3333-4333-8333-333333333333',
+           '11111111-1111-4111-8111-111111111111',
+           '22222222-2222-4222-8222-222222222222', 'public', 'TEST/orphan-public.jpg',
+           'TEST-orphan-finalize-recovery', 'standby',
+           '99999999-9999-4999-8999-999999999999', 1, 'original', 'image/jpeg', 128, now())
+      `));
+      const closureEntry = journal.entries.find((entry) => entry.idx === 15);
+      if (!closureEntry) throw new Error("Missing 0015 Migration.");
+      await copyFile(`drizzle/${closureEntry.tag}.sql`, join(temporaryRoot, `${closureEntry.tag}.sql`));
+      await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify(journal));
+      await expect(migrateDatabase(connection, temporaryRoot)).rejects.toThrow(/orphan finalize_recovery_id/i);
     } finally {
       await connection.close();
       await rm(temporaryRoot, { recursive: true, force: true });

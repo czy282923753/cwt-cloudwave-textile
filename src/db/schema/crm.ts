@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   integer,
   jsonb,
   index,
@@ -29,6 +30,9 @@ import {
   uploadRecoveryKindEnum,
   uploadRecoveryStageEnum,
   uploadRecoveryStatusEnum,
+  objectCleanupKindEnum,
+  objectCleanupStatusEnum,
+  finalizeManifestEvidenceStatusEnum,
 } from "./enums";
 import { users } from "./identity";
 
@@ -228,7 +232,7 @@ export const finalizeObjectManifestItems = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     recoveryJobId: uuid("recovery_job_id")
       .notNull()
-      .references(() => uploadRecoveryJobs.id, { onDelete: "cascade" }),
+      .references(() => uploadRecoveryJobs.id, { onDelete: "restrict" }),
     uploadBatchId: uuid("upload_batch_id")
       .notNull()
       .references(() => assetUploadBatches.id, { onDelete: "cascade" }),
@@ -241,6 +245,14 @@ export const finalizeObjectManifestItems = pgTable(
     mimeType: text("mime_type").notNull(),
     byteSize: integer("byte_size").notNull(),
     writeCompletedAt: timestamp("write_completed_at", { withTimezone: true }),
+    evidenceStatus: finalizeManifestEvidenceStatusEnum("evidence_status")
+      .notNull()
+      .default("unverified"),
+    evidenceSource: text("evidence_source").notNull().default("unverified"),
+    evidenceVerifiedAt: timestamp("evidence_verified_at", { withTimezone: true }),
+    observedByteSize: integer("observed_byte_size"),
+    observedMimeType: text("observed_mime_type"),
+    observedAt: timestamp("observed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -253,6 +265,91 @@ export const finalizeObjectManifestItems = pgTable(
     index("finalize_manifest_batch_attempt_idx").on(
       table.uploadBatchId,
       table.finalizeAttempt,
+    ),
+  ],
+);
+
+/** Persistent compensation records for storage side effects. */
+export const objectCleanupJobs = pgTable(
+  "object_cleanup_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadBatchId: uuid("upload_batch_id").references(() => assetUploadBatches.id, {
+      onDelete: "set null",
+    }),
+    uploadIntentId: uuid("upload_intent_id").references(() => uploadIntents.id, {
+      onDelete: "restrict",
+    }),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    storagePartition: text("storage_partition").notNull(),
+    objectKey: text("object_key").notNull(),
+    reason: text("reason").notNull(),
+    cleanupKind: objectCleanupKindEnum("cleanup_kind").notNull().default("generic"),
+    status: objectCleanupStatusEnum("status").notNull().default("pending"),
+    finalizeRecoveryId: uuid("finalize_recovery_id").references(
+      () => uploadRecoveryJobs.id,
+      { onDelete: "restrict" },
+    ),
+    recoveryVersion: integer("recovery_version"),
+    finalizeAttempt: integer("finalize_attempt"),
+    finalizeManifestItemId: uuid("finalize_manifest_item_id").references(
+      () => finalizeObjectManifestItems.id,
+      { onDelete: "restrict" },
+    ),
+    expectedObjectRole: text("expected_object_role"),
+    expectedMimeType: text("expected_mime_type"),
+    expectedByteSize: integer("expected_byte_size"),
+    writeCompletedAt: timestamp("write_completed_at", { withTimezone: true }),
+    armedAt: timestamp("armed_at", { withTimezone: true }),
+    armedReason: text("armed_reason"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(8),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lockedBy: text("locked_by"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("object_cleanup_jobs_object_unique").on(
+      table.storagePartition,
+      table.objectKey,
+    ),
+    index("object_cleanup_jobs_work_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.leaseExpiresAt,
+    ),
+    index("object_cleanup_jobs_batch_idx").on(table.uploadBatchId, table.status),
+    index("object_cleanup_jobs_intent_idx").on(table.uploadIntentId, table.status),
+    index("object_cleanup_jobs_manifest_idx").on(table.finalizeManifestItemId),
+    index("object_cleanup_jobs_finalize_idx").on(
+      table.finalizeRecoveryId,
+      table.finalizeAttempt,
+      table.status,
+    ),
+    check(
+      "object_cleanup_finalize_state_check",
+      sql`${table.finalizeRecoveryId} is null or (
+        ${table.cleanupKind} = 'finalize_public'
+        and ${table.storagePartition} = 'public'
+        and ${table.recoveryVersion} is not null
+        and ${table.finalizeAttempt} is not null
+        and ${table.finalizeManifestItemId} is not null
+        and ${table.expectedObjectRole} is not null
+        and ${table.expectedMimeType} is not null
+        and ${table.expectedByteSize} is not null
+        and (
+          (${table.status} = 'standby' and ${table.armedAt} is null and ${table.completedAt} is null)
+          or (${table.status} = 'cancelled' and ${table.armedAt} is null)
+          or (${table.status} in ('pending', 'processing', 'completed', 'dead') and ${table.armedAt} is not null)
+        )
+      )`,
     ),
   ],
 );

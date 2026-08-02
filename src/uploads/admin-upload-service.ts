@@ -28,6 +28,7 @@ import type { ObjectStorage } from "@/storage";
 import { isRoleMimeCompatible } from "./asset-eligibility";
 import {
   acceptedPublicMimeTypes,
+  detectMimeType,
   inferNonBlockingRiskHints,
   validateUploadedFile,
 } from "./file-validation";
@@ -122,7 +123,10 @@ export type AdminUploadFaultPoint =
   | "after_finalize_original_written"
   | "after_finalize_first_variant_written"
   | "before_finalize_publish_transaction"
-  | "before_finalize_publish_commit";
+  | "before_finalize_publish_commit"
+  | "before_post_commit_cleanup"
+  | "after_post_commit_cleanup"
+  | "before_post_commit_warning";
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -404,11 +408,17 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
     if (!recovery) throw new Error("Upload Recovery Job insert failed.");
     await transaction.insert(objectCleanupJobs).values({
       uploadBatchId: intent.uploadBatchId,
+      uploadIntentId: intent.id,
       assetId: expectedAssetId,
       storagePartition: "private",
       objectKey,
       reason: "admin_staging_saga_compensation",
+      cleanupKind: "staging",
       status: "pending",
+      recoveryVersion: recovery.version,
+      expectedObjectRole: intent.adminAssetRole,
+      expectedMimeType: intent.declaredMimeType,
+      expectedByteSize: input.bytes.byteLength,
       nextAttemptAt: leaseExpiresAt,
     });
     await transaction.update(uploadIntents).set({
@@ -549,10 +559,11 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
         eq(uploadRecoveryJobs.lockedBy, recoveryLease.workerId),
         eq(uploadRecoveryJobs.version, recoveryLease.version),
         gt(uploadRecoveryJobs.leaseExpiresAt, completedAt),
-      )).returning({ id: uploadRecoveryJobs.id });
+      )).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version });
       if (!recoveryUpdated[0]) throw new Error("Upload Recovery lease was lost before staging completion.");
       await transaction.update(objectCleanupJobs).set({
         nextAttemptAt: preregistered.intent.expiresAt,
+        recoveryVersion: recoveryUpdated[0].version,
         updatedAt: completedAt,
       }).where(and(
         eq(objectCleanupJobs.assetId, preregistered.assetId),
@@ -636,22 +647,248 @@ export async function unlinkAssetRelation<TQueryResult extends PgQueryResultHKT>
   });
 }
 
+export interface FinalizeAdminUploadResult {
+  success: true;
+  assetIds: string[];
+  assetId: string;
+  batchId: string;
+  alreadyFinalized: boolean;
+  privateCleanupPending: boolean;
+  message: string;
+  maintenanceWarning?: string;
+}
+
+function successfulFinalizeResult(input: {
+  assetIds: string[];
+  batchId: string;
+  alreadyFinalized: boolean;
+  privateCleanupPending: boolean;
+  maintenanceWarning?: string;
+}): FinalizeAdminUploadResult {
+  const assetId = input.assetIds[0];
+  if (!assetId) throw new Error("Completed Finalize has no released Asset.");
+  const assetLabel = `${input.assetIds.length} asset${input.assetIds.length === 1 ? "" : "s"}`;
+  const message = input.alreadyFinalized
+    ? `${assetLabel} ${input.assetIds.length === 1 ? "was" : "were"} already uploaded and released.`
+    : `${assetLabel} uploaded and released.`;
+  return {
+    success: true,
+    assetIds: input.assetIds,
+    assetId,
+    batchId: input.batchId,
+    alreadyFinalized: input.alreadyFinalized,
+    privateCleanupPending: input.privateCleanupPending,
+    message,
+    ...(input.maintenanceWarning ? { maintenanceWarning: input.maintenanceWarning } : {}),
+  };
+}
+
+async function assertStoredManifestObject(
+  storage: ObjectStorage,
+  item: { objectKey: string; byteSize: number; mimeType: string },
+): Promise<{ byteSize: number; mimeType: string }> {
+  if (!(await storage.exists("public", item.objectKey))) {
+    throw new Error("Finalize Public object evidence is incomplete.");
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await storage.get("public", item.objectKey);
+  } catch {
+    throw new Error("Finalize Public object evidence is incomplete.");
+  }
+  const mimeType = detectMimeType(bytes);
+  if (bytes.byteLength !== item.byteSize || mimeType !== item.mimeType) {
+    throw new Error("Finalize Public object evidence does not match its authoritative Manifest.");
+  }
+  return { byteSize: bytes.byteLength, mimeType };
+}
+
+async function readCompletedFinalizeResult<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  actor: AdminUploadActor,
+  batchId: string,
+  now: Date,
+): Promise<FinalizeAdminUploadResult | null> {
+  await assertActiveSession(db, actor, now);
+  const batch = (await db.select().from(assetUploadBatches).where(and(
+    eq(assetUploadBatches.id, batchId),
+    eq(assetUploadBatches.createdByUserId, actor.userId),
+    eq(assetUploadBatches.authSessionId, actor.authSessionId),
+    eq(assetUploadBatches.status, "completed"),
+  )).limit(1))[0];
+  if (!batch) return null;
+  const recovery = (await db.select().from(uploadRecoveryJobs).where(and(
+    eq(uploadRecoveryJobs.uploadBatchId, batch.id),
+    eq(uploadRecoveryJobs.kind, "finalize"),
+    eq(uploadRecoveryJobs.status, "completed"),
+    eq(uploadRecoveryJobs.stage, "completed"),
+    isNull(uploadRecoveryJobs.lockedBy),
+    isNull(uploadRecoveryJobs.leaseExpiresAt),
+  )).limit(1))[0];
+  const intents = await db.select().from(uploadIntents).where(and(
+    eq(uploadIntents.uploadBatchId, batch.id),
+    eq(uploadIntents.kind, "admin_asset"),
+  ));
+  const assetIds = intents.flatMap((intent) => intent.assetId ? [intent.assetId] : []);
+  if (
+    !recovery ||
+    intents.length !== batch.declaredFileCount ||
+    assetIds.length !== intents.length ||
+    intents.some((intent) =>
+      intent.createdByUserId !== actor.userId ||
+      intent.authSessionId !== actor.authSessionId ||
+      intent.status !== "consumed" ||
+      !intent.isConsumed
+    )
+  ) {
+    throw new Error("Completed Finalize failed authoritative identity validation.");
+  }
+  const releasedAssets = await db.select().from(assets).where(
+    eq(assets.uploadBatchId, batch.id),
+  );
+  const manifest = await db.select().from(finalizeObjectManifestItems).where(and(
+    eq(finalizeObjectManifestItems.recoveryJobId, recovery.id),
+    eq(finalizeObjectManifestItems.uploadBatchId, batch.id),
+    eq(finalizeObjectManifestItems.finalizeAttempt, recovery.attemptCount),
+    eq(finalizeObjectManifestItems.evidenceStatus, "verified"),
+  ));
+  const publicCleanup = await db.select().from(objectCleanupJobs).where(and(
+    eq(objectCleanupJobs.uploadBatchId, batch.id),
+    eq(objectCleanupJobs.storagePartition, "public"),
+  ));
+  const manifestById = new Map(manifest.map((item) => [item.id, item]));
+  const manifestOriginalAssetIds = new Set(
+    manifest.filter((item) => item.objectRole === "original").map((item) => item.assetId),
+  );
+  const identityInvalid = releasedAssets.length !== assetIds.length ||
+    releasedAssets.some((asset) =>
+      !assetIds.includes(asset.id) ||
+      asset.storagePartition !== "public" ||
+      asset.access !== "public" ||
+      asset.status !== "ready" ||
+      asset.scanStatus !== "passed" ||
+      asset.deletedAt !== null
+    ) ||
+    manifestOriginalAssetIds.size !== assetIds.length ||
+    assetIds.some((assetId) => !manifestOriginalAssetIds.has(assetId)) ||
+    publicCleanup.length !== manifest.length ||
+    manifest.some((item) =>
+      !assetIds.includes(item.assetId) ||
+      item.evidenceSource !== "current_finalize_storage_verified" ||
+      item.evidenceVerifiedAt === null ||
+      item.observedAt === null ||
+      item.observedByteSize !== item.byteSize ||
+      item.observedMimeType !== item.mimeType
+    ) ||
+    publicCleanup.some((job) => {
+      const item = job.finalizeManifestItemId ? manifestById.get(job.finalizeManifestItemId) : undefined;
+      return !item ||
+        job.cleanupKind !== "finalize_public" ||
+        job.status !== "cancelled" ||
+        job.finalizeRecoveryId !== recovery.id ||
+        job.finalizeAttempt !== recovery.attemptCount ||
+        job.recoveryVersion !== recovery.version ||
+        job.assetId !== item.assetId ||
+        job.objectKey !== item.objectKey ||
+        job.expectedObjectRole !== item.objectRole ||
+        job.expectedMimeType !== item.mimeType ||
+        job.expectedByteSize !== item.byteSize;
+    });
+  if (identityInvalid) {
+    throw new Error("Completed Finalize failed authoritative object integrity validation.");
+  }
+  for (const item of manifest) await assertStoredManifestObject(storage, item);
+  const privateCleanup = await db.select({ status: objectCleanupJobs.status })
+    .from(objectCleanupJobs)
+    .where(and(
+      eq(objectCleanupJobs.uploadBatchId, batch.id),
+      eq(objectCleanupJobs.storagePartition, "private"),
+      inArray(objectCleanupJobs.uploadIntentId, intents.map((intent) => intent.id)),
+    ));
+  return successfulFinalizeResult({
+    assetIds,
+    batchId: batch.id,
+    alreadyFinalized: true,
+    privateCleanupPending: privateCleanup.some((job) => job.status !== "completed"),
+  });
+}
+
+async function runFinalizePostCommitMaintenance<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  actor: AdminUploadActor,
+  input: { assetIds: string[]; batchId: string; alreadyFinalized: boolean },
+  options: AdminUploadOptions,
+): Promise<FinalizeAdminUploadResult> {
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  let privateCleanupPending = false;
+  let maintenanceWarning: string | undefined;
+  try {
+    await options.faultInjector?.("before_post_commit_cleanup");
+    await processPendingObjectCleanupJobs(db, storage, {
+      limit: Math.max(1, input.assetIds.length),
+      workerId: `finalize-private-${input.batchId}`,
+      now: options.clock?.() ?? new Date(),
+      auditWriter,
+    });
+    await options.faultInjector?.("after_post_commit_cleanup");
+    const remaining = await db.select({ status: objectCleanupJobs.status })
+      .from(objectCleanupJobs)
+      .where(and(
+        eq(objectCleanupJobs.uploadBatchId, input.batchId),
+        eq(objectCleanupJobs.storagePartition, "private"),
+        inArray(objectCleanupJobs.assetId, input.assetIds),
+      ));
+    privateCleanupPending = remaining.some((job) => job.status !== "completed");
+    if (privateCleanupPending) {
+      maintenanceWarning = "Temporary file cleanup is pending and will retry in the background.";
+    }
+  } catch {
+    privateCleanupPending = true;
+    maintenanceWarning = "Temporary file cleanup is pending and will retry in the background.";
+    await Promise.resolve().then(async () => {
+      await options.faultInjector?.("before_post_commit_warning");
+      await auditWriter(db, {
+        actorUserId: actor.userId,
+        action: "asset.finalize.post_commit_warning",
+        entityType: "asset_upload_batch",
+        entityId: input.batchId,
+        afterSummary: { cleanupPending: true, warningCode: "private_cleanup_deferred" },
+      });
+    }).then(() => undefined, () => undefined);
+  }
+  return successfulFinalizeResult({
+    ...input,
+    privateCleanupPending,
+    ...(maintenanceWarning ? { maintenanceWarning } : {}),
+  });
+}
+
 export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   storage: ObjectStorage,
   actor: AdminUploadActor,
   batchId: string,
   options: AdminUploadOptions = {},
-): Promise<{ assetIds: string[] }> {
+): Promise<FinalizeAdminUploadResult> {
   const clock = options.clock ?? (() => new Date());
   const now = options.now ?? clock();
   await assertActiveSession(db, actor, now);
   const auditWriter = options.auditWriter ?? writeAuditLog;
   const parsedBatchId = z.uuid().parse(batchId);
+  const alreadyCompleted = await readCompletedFinalizeResult(
+    db,
+    storage,
+    actor,
+    parsedBatchId,
+    now,
+  );
+  if (alreadyCompleted) return alreadyCompleted;
   const workerId = options.workerId ?? `finalize-${randomUUID()}`;
   const leaseMilliseconds = options.leaseMilliseconds ?? UPLOAD_RECOVERY_LEASE_MILLISECONDS;
   const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
-  const claim = await db.transaction(async (transaction) => {
+  const claimFinalize = () => db.transaction(async (transaction) => {
     await assertActiveSession(transaction, actor, now);
     const batch = (await transaction.select().from(assetUploadBatches).where(and(
       eq(assetUploadBatches.id, parsedBatchId),
@@ -751,6 +988,20 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       } satisfies UploadRecoveryLease,
     };
   });
+  let claim: Awaited<ReturnType<typeof claimFinalize>>;
+  try {
+    claim = await claimFinalize();
+  } catch (error) {
+    const completedDuringClaim = await readCompletedFinalizeResult(
+      db,
+      storage,
+      actor,
+      parsedBatchId,
+      clock(),
+    );
+    if (completedDuringClaim) return completedDuringClaim;
+    throw error;
+  }
   const batch = claim.batch;
   let recoveryLease = claim.recoveryLease;
   const heartbeatIntervalMilliseconds = Math.max(
@@ -798,6 +1049,15 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
     staged = await db.select().from(assets).where(eq(assets.uploadBatchId, batch.id));
     if (staged.length !== intents.length || staged.some((asset) => asset.storagePartition !== "private" || asset.access !== "internal" || asset.status !== "ready" || asset.scanStatus !== "passed")) {
       throw new Error("Admin Upload Batch does not contain eligible staged Assets.");
+    }
+    const stagingRecoveries = await db.select().from(uploadRecoveryJobs).where(and(
+      eq(uploadRecoveryJobs.kind, "staging"),
+      eq(uploadRecoveryJobs.uploadBatchId, batch.id),
+      inArray(uploadRecoveryJobs.uploadIntentId, intents.map((intent) => intent.id)),
+      eq(uploadRecoveryJobs.status, "completed"),
+    ));
+    if (stagingRecoveries.length !== intents.length) {
+      throw new Error("Admin Upload Batch staging recovery identity is incomplete.");
     }
     const source = batch.sourceDeclarationEnabled
       ? (batch.declarationInput as AdminSourceDeclarationInput | null) ?? {}
@@ -943,15 +1203,12 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       clock(),
       leaseMilliseconds,
     );
-    const objectExists = new Map<string, boolean>();
+    const objectEvidence = new Map<string, { byteSize: number; mimeType: string }>();
     for (const item of manifest) {
-      objectExists.set(item.objectKey, await runWithFinalizeHeartbeat(
-        () => storage.exists("public", item.objectKey),
+      objectEvidence.set(item.objectKey, await runWithFinalizeHeartbeat(
+        () => assertStoredManifestObject(storage, item),
       ));
       recoveryLease = await heartbeatFinalizeLease(db, recoveryLease, clock(), leaseMilliseconds);
-    }
-    if (manifest.some((item) => objectExists.get(item.objectKey) !== true)) {
-      throw new Error("Finalize Object Manifest is incomplete in Public storage.");
     }
     await options.faultInjector?.("before_finalize_publish_transaction");
     await db.transaction(async (transaction) => {
@@ -997,11 +1254,11 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
           eq(finalizeObjectManifestItems.uploadBatchId, batch.id),
           eq(finalizeObjectManifestItems.finalizeAttempt, recoveryLease.attemptCount),
         ));
-      const commitObjectExists = new Map<string, boolean>();
+      const commitObjectEvidence = new Map<string, { byteSize: number; mimeType: string }>();
       for (const item of persistedManifest) {
-        commitObjectExists.set(
+        commitObjectEvidence.set(
           item.objectKey,
-          await storage.exists("public", item.objectKey),
+          await assertStoredManifestObject(storage, item),
         );
       }
       const commitTime = clock();
@@ -1031,14 +1288,22 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
           item.objectRole !== expected.role ||
           item.mimeType !== expected.mimeType ||
           item.byteSize !== expected.byteSize ||
-          item.writeCompletedAt === null;
+          item.writeCompletedAt === null ||
+          item.evidenceStatus !== "written" ||
+          item.evidenceSource !== "current_finalize_storage_put" ||
+          item.observedByteSize !== expected.byteSize ||
+          item.observedMimeType !== expected.mimeType ||
+          item.observedAt === null;
       });
       const manifestMismatch = persistedManifestMismatch ||
         compensationJobs.length !== persistedManifest.length || compensationJobs.some((job) => {
         const expected = expectedByKey.get(job.objectKey);
-        return !expected ||
+          return !expected ||
           job.finalizeRecoveryId !== recoveryLease.id ||
+          job.cleanupKind !== "finalize_public" ||
+          job.recoveryVersion === null ||
           job.finalizeAttempt !== recoveryLease.attemptCount ||
+          job.finalizeManifestItemId !== persistedManifest.find((item) => item.objectKey === job.objectKey)?.id ||
           job.assetId !== expected.assetId ||
           job.expectedObjectRole !== expected.role ||
           job.expectedMimeType !== expected.mimeType ||
@@ -1048,15 +1313,41 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
           job.lockedBy !== null ||
           job.completedAt !== null ||
           job.writeCompletedAt === null ||
-          objectExists.get(job.objectKey) !== true ||
-          commitObjectExists.get(job.objectKey) !== true;
+          objectEvidence.get(job.objectKey)?.byteSize !== expected.byteSize ||
+          objectEvidence.get(job.objectKey)?.mimeType !== expected.mimeType ||
+          commitObjectEvidence.get(job.objectKey)?.byteSize !== expected.byteSize ||
+          commitObjectEvidence.get(job.objectKey)?.mimeType !== expected.mimeType;
       });
       if (manifestMismatch) {
         throw new Error("Finalize Compensation state or Object Manifest failed closed.");
       }
+      const verifiedEvidence = await transaction.update(finalizeObjectManifestItems).set({
+        evidenceStatus: "verified",
+        evidenceSource: "current_finalize_storage_verified",
+        evidenceVerifiedAt: commitTime,
+        observedAt: commitTime,
+        updatedAt: commitTime,
+      }).where(and(
+        eq(finalizeObjectManifestItems.recoveryJobId, recoveryLease.id),
+        eq(finalizeObjectManifestItems.uploadBatchId, batch.id),
+        eq(finalizeObjectManifestItems.finalizeAttempt, recoveryLease.attemptCount),
+        eq(finalizeObjectManifestItems.evidenceStatus, "written"),
+      )).returning({ id: finalizeObjectManifestItems.id });
+      if (verifiedEvidence.length !== manifest.length) {
+        throw new Error("Finalize storage evidence could not be verified atomically.");
+      }
+      await auditWriter(transaction, {
+        actorUserId: actor.userId,
+        action: "asset.finalize.storage_evidence_verified",
+        entityType: "asset_upload_batch",
+        entityId: batch.id,
+        afterSummary: { recoveryJobId: recoveryLease.id, objectCount: manifest.length },
+      });
       for (const intent of intents) {
         const asset = staged.find((candidate) => candidate.id === intent.assetId)!;
         const copy = copies.find((candidate) => candidate.objectKey === asset.objectKey)!;
+        const stagingRecovery = stagingRecoveries.find((candidate) => candidate.uploadIntentId === intent.id);
+        if (!stagingRecovery) throw new Error("Staging Recovery identity changed before Finalize commit.");
         await assertAssociationTarget(transaction, actor, intent.associationType ? associationTypeSchema.parse(intent.associationType) : null, intent.associationEntityId);
         if (!isRoleMimeCompatible(intent.adminAssetRole!, asset.detectedMimeType)) throw new Error("Asset role is incompatible with detected MIME type.");
         const releasedAsset = await transaction.update(assets).set({
@@ -1096,19 +1387,31 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.released_public", entityType: "asset", entityId: asset.id, afterSummary: { uploadBatchId: batch.id, associationType: intent.associationType } });
         await transaction.insert(objectCleanupJobs).values({
           uploadBatchId: batch.id,
+          uploadIntentId: intent.id,
           assetId: asset.id,
           storagePartition: "private",
           objectKey: asset.objectKey,
           reason: "finalize_private_staging_released",
+          cleanupKind: "finalize_private",
           status: "pending",
+          recoveryVersion: stagingRecovery.version,
+          expectedObjectRole: intent.adminAssetRole,
+          expectedMimeType: asset.detectedMimeType ?? asset.declaredMimeType,
+          expectedByteSize: asset.byteSize,
           nextAttemptAt: commitTime,
         }).onConflictDoUpdate({
           target: [objectCleanupJobs.storagePartition, objectCleanupJobs.objectKey],
           set: {
             uploadBatchId: batch.id,
+            uploadIntentId: intent.id,
             assetId: asset.id,
             reason: "finalize_private_staging_released",
+            cleanupKind: "finalize_private",
             status: "pending",
+            recoveryVersion: stagingRecovery.version,
+            expectedObjectRole: intent.adminAssetRole,
+            expectedMimeType: asset.detectedMimeType ?? asset.declaredMimeType,
+            expectedByteSize: asset.byteSize,
             attemptCount: 0,
             nextAttemptAt: commitTime,
             lockedBy: null,
@@ -1153,8 +1456,15 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         eq(uploadRecoveryJobs.lockedBy, recoveryLease.workerId),
         eq(uploadRecoveryJobs.version, recoveryLease.version),
         gt(uploadRecoveryJobs.leaseExpiresAt, commitTime),
-      )).returning({ id: uploadRecoveryJobs.id });
+      )).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version });
       if (!completedRecovery[0]) throw new Error("Finalize lease or version changed before completion.");
+      await transaction.update(objectCleanupJobs).set({
+        recoveryVersion: completedRecovery[0].version,
+        updatedAt: commitTime,
+      }).where(inArray(
+        objectCleanupJobs.id,
+        cancelledCleanup.map((job) => job.id),
+      ));
       const completedBatch = await transaction.update(assetUploadBatches).set({ status: "completed", completedAt: commitTime, failureReason: null }).where(and(
         eq(assetUploadBatches.id, batch.id),
         eq(assetUploadBatches.status, "finalizing"),
@@ -1163,13 +1473,15 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       await options.faultInjector?.("before_finalize_publish_commit");
       await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.upload_batch.completed", entityType: "asset_upload_batch", entityId: batch.id, afterSummary: { fileCount: intents.length, sourceDeclarationEnabled: batch.sourceDeclarationEnabled } });
     });
-    await processPendingObjectCleanupJobs(db, storage, {
-      limit: Math.max(1, staged.length),
-      workerId: `finalize-private-${batch.id}`,
-      now: new Date(),
-      auditWriter,
-    });
   } catch (error) {
+    const completedDuringCoreFailure = await readCompletedFinalizeResult(
+      db,
+      storage,
+      actor,
+      batch.id,
+      clock(),
+    );
+    if (completedDuringCoreFailure) return completedDuringCoreFailure;
     const recoveryState = await markFinalizeRecoveryRequired(
       db,
       recoveryLease,
@@ -1187,5 +1499,9 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
     }
     throw error;
   }
-  return { assetIds: staged.map((asset) => asset.id) };
+  return runFinalizePostCommitMaintenance(db, storage, actor, {
+    assetIds: staged.map((asset) => asset.id),
+    batchId: batch.id,
+    alreadyFinalized: false,
+  }, options);
 }

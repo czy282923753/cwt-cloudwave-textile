@@ -109,74 +109,192 @@ export async function claimObjectCleanupJob<
       .where(eq(objectCleanupJobs.id, jobId)).limit(1))[0];
     if (!candidate) return null;
 
-    if (candidate.storagePartition === "public" && candidate.uploadBatchId) {
-      if (
-        !candidate.finalizeRecoveryId ||
-        candidate.finalizeAttempt === null ||
-        !candidate.armedAt
-      ) return null;
+    const claimableBeforeLock = candidate.status === "pending"
+      ? candidate.nextAttemptAt <= now
+      : candidate.status === "processing" &&
+        candidate.leaseExpiresAt !== null &&
+        candidate.leaseExpiresAt <= now;
+    if (!claimableBeforeLock) return null;
+
+    const finalizeScoped = candidate.cleanupKind === "finalize_public" ||
+      candidate.finalizeRecoveryId !== null ||
+      candidate.finalizeManifestItemId !== null;
+    if (candidate.uploadBatchId) {
       await transaction.execute(sql`
-        select id from asset_upload_batches
-        where id = ${candidate.uploadBatchId}
-        for update
+        select id from asset_upload_batches where id = ${candidate.uploadBatchId} for update
+      `);
+    }
+    if (candidate.uploadIntentId) {
+      await transaction.execute(sql`
+        select id from upload_intents where id = ${candidate.uploadIntentId} for update
       `);
       await transaction.execute(sql`
         select id from upload_recovery_jobs
-        where id = ${candidate.finalizeRecoveryId}
+        where upload_intent_id = ${candidate.uploadIntentId}
         for update
       `);
+    }
+    if (candidate.finalizeRecoveryId) {
+      await transaction.execute(sql`
+        select id from upload_recovery_jobs where id = ${candidate.finalizeRecoveryId} for update
+      `);
+    }
+    if (candidate.finalizeManifestItemId) {
       await transaction.execute(sql`
         select id from finalize_object_manifest_items
-        where recovery_job_id = ${candidate.finalizeRecoveryId}
-          and finalize_attempt = ${candidate.finalizeAttempt}
-          and object_key = ${candidate.objectKey}
+        where id = ${candidate.finalizeManifestItemId}
         for update
       `);
+    }
+    if (candidate.assetId) {
       await transaction.execute(sql`
-        select id from object_cleanup_jobs
-        where id = ${candidate.id}
-        for update
+        select id from assets where id = ${candidate.assetId} for update
       `);
-      const recovery = (await transaction.select().from(uploadRecoveryJobs).where(and(
-        eq(uploadRecoveryJobs.id, candidate.finalizeRecoveryId),
-        eq(uploadRecoveryJobs.uploadBatchId, candidate.uploadBatchId),
-        eq(uploadRecoveryJobs.kind, "finalize"),
-      )).limit(1))[0];
-      const currentJob = (await transaction.select().from(objectCleanupJobs)
-        .where(eq(objectCleanupJobs.id, candidate.id)).limit(1))[0];
-      const manifestItem = (await transaction.select()
-        .from(finalizeObjectManifestItems)
-        .where(and(
-          eq(finalizeObjectManifestItems.recoveryJobId, candidate.finalizeRecoveryId),
-          eq(finalizeObjectManifestItems.finalizeAttempt, candidate.finalizeAttempt),
-          eq(finalizeObjectManifestItems.objectKey, candidate.objectKey),
-        )).limit(1))[0];
-      if (
+    }
+    await transaction.execute(sql`
+      select id from object_cleanup_jobs where id = ${candidate.id} for update
+    `);
+
+    const currentJob = (await transaction.select().from(objectCleanupJobs)
+      .where(eq(objectCleanupJobs.id, candidate.id)).limit(1))[0];
+    const currentClaimable = currentJob?.status === "pending"
+      ? currentJob.nextAttemptAt <= now
+      : currentJob?.status === "processing" &&
+        currentJob.leaseExpiresAt !== null &&
+        currentJob.leaseExpiresAt <= now;
+    if (!currentJob || !currentClaimable) return null;
+
+    const projectionChangedAfterRead = (
+      [
+        "id",
+        "uploadBatchId",
+        "uploadIntentId",
+        "assetId",
+        "storagePartition",
+        "objectKey",
+        "cleanupKind",
+        "status",
+        "finalizeRecoveryId",
+        "recoveryVersion",
+        "finalizeAttempt",
+        "finalizeManifestItemId",
+        "expectedObjectRole",
+        "expectedMimeType",
+        "expectedByteSize",
+        "writeCompletedAt",
+      ] as const
+    ).some((field) => {
+      const before = candidate[field];
+      const after = currentJob[field];
+      return before instanceof Date && after instanceof Date
+        ? before.getTime() !== after.getTime()
+        : before !== after;
+    });
+
+    let identityMismatch = projectionChangedAfterRead;
+    let recovery: typeof uploadRecoveryJobs.$inferSelect | undefined;
+    if (finalizeScoped) {
+      recovery = candidate.finalizeRecoveryId
+        ? (await transaction.select().from(uploadRecoveryJobs)
+            .where(eq(uploadRecoveryJobs.id, candidate.finalizeRecoveryId)).limit(1))[0]
+        : undefined;
+      const manifestItem = candidate.finalizeManifestItemId
+        ? (await transaction.select().from(finalizeObjectManifestItems)
+            .where(eq(finalizeObjectManifestItems.id, candidate.finalizeManifestItemId)).limit(1))[0]
+        : undefined;
+      const batch = candidate.uploadBatchId
+        ? (await transaction.select({ id: assetUploadBatches.id }).from(assetUploadBatches)
+            .where(eq(assetUploadBatches.id, candidate.uploadBatchId)).limit(1))[0]
+        : undefined;
+      identityMismatch ||= !batch ||
         !recovery ||
         !manifestItem ||
-        !currentJob?.armedAt ||
-        currentJob.status === "standby" ||
+        currentJob.cleanupKind !== "finalize_public" ||
+        currentJob.storagePartition !== "public" ||
+        currentJob.uploadIntentId !== null ||
+        currentJob.armedAt === null ||
+        currentJob.finalizeRecoveryId !== recovery.id ||
+        currentJob.recoveryVersion !== recovery.version ||
+        currentJob.uploadBatchId !== recovery.uploadBatchId ||
+        currentJob.finalizeManifestItemId !== manifestItem.id ||
+        manifestItem.recoveryJobId !== recovery.id ||
+        manifestItem.uploadBatchId !== recovery.uploadBatchId ||
+        manifestItem.finalizeAttempt !== currentJob.finalizeAttempt ||
         currentJob.assetId !== manifestItem.assetId ||
+        currentJob.objectKey !== manifestItem.objectKey ||
         currentJob.expectedObjectRole !== manifestItem.objectRole ||
         currentJob.expectedMimeType !== manifestItem.mimeType ||
-        currentJob.expectedByteSize !== manifestItem.byteSize
-      ) return null;
+        currentJob.expectedByteSize !== manifestItem.byteSize ||
+        currentJob.writeCompletedAt?.getTime() !== manifestItem.writeCompletedAt?.getTime();
       if (
+        recovery &&
         recovery.status === "processing" &&
         recovery.leaseExpiresAt &&
         recovery.leaseExpiresAt > now
-      ) {
-        return null;
+      ) return null;
+      if (recovery && recovery.status !== "cleanup_required" && recovery.status !== "dead") {
+        identityMismatch = true;
       }
-      if (recovery.status !== "cleanup_required" && recovery.status !== "dead") {
-        return null;
-      }
-    } else {
-      await transaction.execute(sql`
-        select id from object_cleanup_jobs
-        where id = ${candidate.id}
-        for update
-      `);
+    } else if (currentJob.cleanupKind === "staging" || currentJob.cleanupKind === "finalize_private") {
+      const intent = currentJob.uploadIntentId
+        ? (await transaction.select().from(uploadIntents)
+            .where(eq(uploadIntents.id, currentJob.uploadIntentId)).limit(1))[0]
+        : undefined;
+      recovery = currentJob.uploadIntentId
+        ? (await transaction.select().from(uploadRecoveryJobs)
+            .where(and(
+              eq(uploadRecoveryJobs.uploadIntentId, currentJob.uploadIntentId),
+              eq(uploadRecoveryJobs.kind, "staging"),
+            )).limit(1))[0]
+        : undefined;
+      const asset = currentJob.assetId
+        ? (await transaction.select().from(assets)
+            .where(eq(assets.id, currentJob.assetId)).limit(1))[0]
+        : undefined;
+      identityMismatch ||= !intent ||
+        !recovery ||
+        !asset ||
+        currentJob.storagePartition !== "private" ||
+        currentJob.uploadBatchId !== intent.uploadBatchId ||
+        currentJob.uploadBatchId !== recovery.uploadBatchId ||
+        currentJob.assetId !== intent.assetId ||
+        currentJob.assetId !== recovery.assetId ||
+        currentJob.objectKey !== recovery.objectKey ||
+        currentJob.objectKey !== asset.objectKey ||
+        currentJob.recoveryVersion !== recovery.version ||
+        currentJob.expectedObjectRole !== intent.adminAssetRole ||
+        currentJob.expectedMimeType !== (asset.detectedMimeType ?? asset.declaredMimeType) ||
+        currentJob.expectedByteSize !== asset.byteSize;
+      if (
+        recovery &&
+        recovery.status === "processing" &&
+        recovery.leaseExpiresAt &&
+        recovery.leaseExpiresAt > now
+      ) return null;
+    }
+
+    if (identityMismatch) {
+      await transaction.update(objectCleanupJobs).set({
+        status: "dead",
+        armedAt: currentJob.armedAt ?? now,
+        armedReason: "cleanup_identity_mismatch_manual_review",
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastError: "cleanup_identity_mismatch_manual_review",
+        updatedAt: now,
+      }).where(eq(objectCleanupJobs.id, currentJob.id));
+      await auditWriter(transaction, {
+        action: "object_cleanup.identity_mismatch",
+        entityType: "object_cleanup_job",
+        entityId: currentJob.id,
+        afterSummary: {
+          systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+          cleanupKind: currentJob.cleanupKind,
+          requiresManualReview: true,
+        },
+      });
+      return null;
     }
 
     const rows = await transaction
@@ -195,10 +313,17 @@ export async function claimObjectCleanupJob<
         id: objectCleanupJobs.id,
         uploadBatchId: objectCleanupJobs.uploadBatchId,
         assetId: objectCleanupJobs.assetId,
+        uploadIntentId: objectCleanupJobs.uploadIntentId,
+        cleanupKind: objectCleanupJobs.cleanupKind,
         finalizeRecoveryId: objectCleanupJobs.finalizeRecoveryId,
+        recoveryVersion: objectCleanupJobs.recoveryVersion,
         finalizeAttempt: objectCleanupJobs.finalizeAttempt,
+        finalizeManifestItemId: objectCleanupJobs.finalizeManifestItemId,
         partition: objectCleanupJobs.storagePartition,
         objectKey: objectCleanupJobs.objectKey,
+        expectedObjectRole: objectCleanupJobs.expectedObjectRole,
+        expectedMimeType: objectCleanupJobs.expectedMimeType,
+        expectedByteSize: objectCleanupJobs.expectedByteSize,
         attemptCount: objectCleanupJobs.attemptCount,
         maxAttempts: objectCleanupJobs.maxAttempts,
       });

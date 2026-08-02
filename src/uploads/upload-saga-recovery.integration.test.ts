@@ -577,7 +577,12 @@ describe("Admin Upload persistent Saga and Finalize lease", () => {
         },
       );
       releaseOldWorker?.();
-      await expect(oldWorker).rejects.toThrow(/lease|version|incomplete/i);
+      await expect(oldWorker).resolves.toMatchObject({
+        success: true,
+        batchId: staged.batch.batchId,
+        assetId: staged.assetId,
+        alreadyFinalized: true,
+      });
       expect((await fixture.connection.db.select().from(assetUploadBatches)
         .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("completed");
       expect((await fixture.connection.db.select().from(uploadRecoveryJobs)

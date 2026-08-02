@@ -78,4 +78,34 @@ describe("AssetUploadForm feedback", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/admin/assets/?uploaded=test-success-asset"));
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("announces committed success with a non-blocking cleanup warning and still navigates", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        batchId: "test-warning-batch",
+        intents: [{ uploadUrl: "/api/admin/upload-intents/test-warning-token/" }],
+      }, 201))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, assetId: "test-warning-asset" }, 201))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        success: true,
+        assetIds: ["test-warning-asset"],
+        message: "1 asset uploaded and released.",
+        maintenanceWarning: "Temporary file cleanup is pending and will retry in the background.",
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AssetUploadForm associations={[]} />);
+    fireEvent.change(screen.getByLabelText("Files"), {
+      target: {
+        files: [new File([new Uint8Array([1, 2, 3])], "fixture-warning.png", { type: "image/png" })],
+      },
+    });
+    const form = screen.getByRole("button", { name: "Upload and process" }).closest("form");
+    if (!form) throw new Error("Missing Asset upload form.");
+    fireEvent.submit(form);
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("1 asset uploaded and released");
+    expect(status).toHaveTextContent("cleanup is pending");
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/admin/assets/?uploaded=test-warning-asset"));
+  });
 });

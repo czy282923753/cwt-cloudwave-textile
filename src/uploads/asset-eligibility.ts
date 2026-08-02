@@ -66,6 +66,15 @@ export function publicRightsSqlConditions(now = new Date()) {
   )!;
 }
 
+export function verifiedFinalizeManifestSqlCondition() {
+  return sql`not exists (
+    select 1
+    from finalize_object_manifest_items as finalize_manifest_evidence
+    where finalize_manifest_evidence.asset_id = ${assets.id}
+      and finalize_manifest_evidence.evidence_status <> 'verified'
+  )`;
+}
+
 export function publicReadyAssetSqlConditions(now = new Date()) {
   return and(
     eq(assets.storagePartition, "public"),
@@ -74,6 +83,7 @@ export function publicReadyAssetSqlConditions(now = new Date()) {
     eq(assets.scanStatus, "passed"),
     isNull(assets.deletedAt),
     publicRightsSqlConditions(now),
+    verifiedFinalizeManifestSqlCondition(),
   )!;
 }
 

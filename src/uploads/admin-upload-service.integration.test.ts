@@ -111,6 +111,211 @@ class FaultInjectingStorage extends InMemoryObjectStorage {
 }
 
 describe("Admin Asset Upload Intents", () => {
+  it("keeps a committed Finalize successful when post-commit Cleanup Audit and warning writes remain unavailable", async () => {
+    const connection = await createTestDatabase();
+    const storage = new InMemoryObjectStorage();
+    try {
+      const [user] = await connection.db.insert(users).values({
+        email: "post-commit-audit@example.test",
+        displayName: "TEST Post Commit Audit",
+        role: "admin",
+        passwordHash: "test",
+      }).returning({ id: users.id, role: users.role });
+      if (!user) throw new Error("Missing User.");
+      const [session] = await connection.db.insert(authSessions).values({
+        userId: user.id,
+        tokenHash: "post-commit-audit-session",
+        expiresAt: new Date(Date.now() + 60_000),
+      }).returning({ id: authSessions.id });
+      if (!session) throw new Error("Missing Session.");
+      const actor: AdminUploadActor = { userId: user.id, role: user.role, authSessionId: session.id };
+      const [productId] = await createDraftProducts(connection.db, "post-commit-audit-product", 1);
+      if (!productId) throw new Error("Missing Product.");
+      const staged = await stageImageBatch(connection.db, storage, actor, productId, "post-commit-audit");
+      let postCommitOutage = false;
+      const postCommitFailingAudit: typeof writeAuditLog = async (database, input) => {
+        if (postCommitOutage) throw new Error("TEST persistent post-commit Audit outage");
+        const id = await writeAuditLog(database, input);
+        if (input.action === "asset.upload_batch.completed") postCommitOutage = true;
+        return id;
+      };
+
+      const result = await finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        actor,
+        staged.batch.batchId,
+        { auditWriter: postCommitFailingAudit },
+      );
+      expect(result).toMatchObject({
+        success: true,
+        batchId: staged.batch.batchId,
+        assetId: staged.assetId,
+        alreadyFinalized: false,
+        privateCleanupPending: true,
+        maintenanceWarning: expect.stringMatching(/cleanup.*pending/i),
+      });
+      expect((await connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("completed");
+      expect((await connection.db.select().from(assets)
+        .where(eq(assets.id, staged.assetId)))[0]).toMatchObject({
+        storagePartition: "public",
+        access: "public",
+        status: "ready",
+      });
+      expect((await connection.db.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      )))[0]).toMatchObject({ status: "completed", stage: "completed" });
+      expect((await connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.storagePartition, "public"),
+      ))).every((job) => job.status === "cancelled")).toBe(true);
+      const [privateCleanup] = await connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.storagePartition, "private"),
+      ));
+      expect(privateCleanup?.status).toBe("pending");
+      expect(await connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "asset.finalize.recovery_required"),
+        eq(auditLogs.entityId, staged.batch.batchId),
+      ))).toHaveLength(0);
+      await expect(processObjectCleanupJob(
+        connection.db,
+        storage,
+        privateCleanup!.id,
+        { workerId: "post-commit-retry" },
+      )).resolves.toBe("completed");
+      expect(storage.objects.has(`private:${privateCleanup!.objectKey}`)).toBe(false);
+    } finally {
+      await connection.close();
+    }
+  }, 20_000);
+
+  it("isolates post-commit wake and Private delete failures without rearming Public compensation", async () => {
+    for (const failure of ["wake", "delete", "state"] as const) {
+      const connection = await createTestDatabase();
+      const storage = new FaultInjectingStorage();
+      try {
+        const [user] = await connection.db.insert(users).values({
+          email: `post-commit-${failure}@example.test`,
+          displayName: `TEST Post Commit ${failure}`,
+          role: "admin",
+          passwordHash: "test",
+        }).returning({ id: users.id, role: users.role });
+        if (!user) throw new Error("Missing User.");
+        const [session] = await connection.db.insert(authSessions).values({
+          userId: user.id,
+          tokenHash: `post-commit-${failure}-session`,
+          expiresAt: new Date(Date.now() + 60_000),
+        }).returning({ id: authSessions.id });
+        if (!session) throw new Error("Missing Session.");
+        const actor: AdminUploadActor = { userId: user.id, role: user.role, authSessionId: session.id };
+        const [productId] = await createDraftProducts(connection.db, `post-commit-${failure}-product`, 1);
+        if (!productId) throw new Error("Missing Product.");
+        const staged = await stageImageBatch(connection.db, storage, actor, productId, `post-commit-${failure}`);
+        if (failure === "delete") storage.failDeleteCount = 1;
+        const stateFailingAudit: typeof writeAuditLog = async (database, input) => {
+          if (input.action === "object_cleanup.completed") {
+            throw new Error("TEST post-commit Cleanup state Audit failure");
+          }
+          return writeAuditLog(database, input);
+        };
+        const result = await finalizeAdminUploadBatch(
+          connection.db,
+          storage,
+          actor,
+          staged.batch.batchId,
+          failure === "wake" ? {
+            faultInjector: (point) => {
+              if (point === "before_post_commit_cleanup") throw new Error("TEST worker wake failure");
+            },
+          } : failure === "state" ? { auditWriter: stateFailingAudit } : {},
+        );
+        expect(result).toMatchObject({
+          success: true,
+          batchId: staged.batch.batchId,
+          privateCleanupPending: true,
+        });
+        expect((await connection.db.select().from(assetUploadBatches)
+          .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("completed");
+        expect((await connection.db.select().from(uploadRecoveryJobs).where(and(
+          eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId),
+          eq(uploadRecoveryJobs.kind, "finalize"),
+        )))[0]?.status).toBe("completed");
+        expect((await connection.db.select().from(objectCleanupJobs).where(and(
+          eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+          eq(objectCleanupJobs.storagePartition, "public"),
+        ))).every((job) => job.status === "cancelled")).toBe(true);
+      } finally {
+        await connection.close();
+      }
+    }
+  }, 30_000);
+
+  it("returns completed Finalize idempotently only for the exact authorized owner and intact object graph", async () => {
+    const connection = await createTestDatabase();
+    const storage = new FaultInjectingStorage();
+    try {
+      const usersInserted = await connection.db.insert(users).values([
+        { email: "idempotent-owner@example.test", displayName: "TEST Owner", role: "admin", passwordHash: "test" },
+        { email: "idempotent-other@example.test", displayName: "TEST Other", role: "admin", passwordHash: "test" },
+      ]).returning({ id: users.id, role: users.role, email: users.email });
+      const owner = usersInserted.find((user) => user.email === "idempotent-owner@example.test")!;
+      const other = usersInserted.find((user) => user.email === "idempotent-other@example.test")!;
+      const sessions = await connection.db.insert(authSessions).values([
+        { userId: owner.id, tokenHash: "idempotent-owner-session", expiresAt: new Date(Date.now() + 60_000) },
+        { userId: other.id, tokenHash: "idempotent-other-session", expiresAt: new Date(Date.now() + 60_000) },
+      ]).returning({ id: authSessions.id, userId: authSessions.userId });
+      const ownerActor: AdminUploadActor = { userId: owner.id, role: owner.role, authSessionId: sessions.find((session) => session.userId === owner.id)!.id };
+      const otherActor: AdminUploadActor = { userId: other.id, role: other.role, authSessionId: sessions.find((session) => session.userId === other.id)!.id };
+      const [productId] = await createDraftProducts(connection.db, "idempotent-owner-product", 1);
+      if (!productId) throw new Error("Missing Product.");
+      const staged = await stageImageBatch(connection.db, storage, ownerActor, productId, "idempotent-owner");
+      const first = await finalizeAdminUploadBatch(connection.db, storage, ownerActor, staged.batch.batchId);
+      const publicPuts = storage.publicPublicPutCount;
+      await expect(finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        ownerActor,
+        staged.batch.batchId,
+      )).resolves.toMatchObject({
+        success: true,
+        batchId: first.batchId,
+        assetId: first.assetId,
+        alreadyFinalized: true,
+      });
+      expect(storage.publicPublicPutCount).toBe(publicPuts);
+      await expect(finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        otherActor,
+        staged.batch.batchId,
+      )).rejects.toThrow(/unavailable|incomplete|expired|finalized/i);
+
+      await connection.db.update(assets).set({ uploadBatchId: null }).where(eq(assets.id, staged.assetId));
+      await expect(finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        ownerActor,
+        staged.batch.batchId,
+      )).rejects.toThrow(/identity|integrity/i);
+      await connection.db.update(assets).set({ uploadBatchId: staged.batch.batchId }).where(eq(assets.id, staged.assetId));
+      const released = (await connection.db.select().from(assets).where(eq(assets.id, staged.assetId)))[0]!;
+      const publicBytes = await storage.get("public", released.objectKey);
+      await storage.delete("public", released.objectKey);
+      await expect(finalizeAdminUploadBatch(
+        connection.db,
+        storage,
+        ownerActor,
+        staged.batch.batchId,
+      )).rejects.toThrow(/incomplete|integrity/i);
+      await storage.put("public", released.objectKey, publicBytes, released.detectedMimeType!);
+    } finally {
+      await connection.close();
+    }
+  }, 25_000);
+
   it("binds User and Session, transitions the Batch, finalizes atomically, and keeps declaration OFF/null", async () => {
     const connection = await createTestDatabase();
     const storage = new InMemoryObjectStorage();
@@ -154,7 +359,12 @@ describe("Admin Asset Upload Intents", () => {
       expect(released.declarationReviewerUserId).toBeNull();
       expect(await connection.db.select().from(productAssets).where(eq(productAssets.assetId, released.id))).toHaveLength(1);
       expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, batch.batchId)))[0]?.status).toBe("completed");
-      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId)).rejects.toThrow(/unavailable|finalized/i);
+      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId)).resolves.toMatchObject({
+        success: true,
+        batchId: batch.batchId,
+        assetId: released.id,
+        alreadyFinalized: true,
+      });
     } finally { await connection.close(); }
   }, 20_000);
 
@@ -356,7 +566,12 @@ describe("Admin Asset Upload Intents", () => {
       expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
       expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, concurrent.batch.batchId)))[0]?.status).toBe("completed");
       expect(await connection.db.select().from(assetVariants).where(eq(assetVariants.sourceAssetId, concurrent.assetId))).not.toHaveLength(0);
-      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, concurrent.batch.batchId)).rejects.toThrow(/unavailable|finalized/i);
+      await expect(finalizeAdminUploadBatch(connection.db, storage, actor, concurrent.batch.batchId)).resolves.toMatchObject({
+        success: true,
+        batchId: concurrent.batch.batchId,
+        assetId: concurrent.assetId,
+        alreadyFinalized: true,
+      });
     } finally {
       await connection.close();
     }

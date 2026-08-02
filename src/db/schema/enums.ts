@@ -135,6 +135,18 @@ export const objectCleanupStatusEnum = pgEnum("object_cleanup_status", [
   "dead",
 ]);
 
+export const objectCleanupKindEnum = pgEnum("object_cleanup_kind", [
+  "generic",
+  "staging",
+  "finalize_public",
+  "finalize_private",
+]);
+
+export const finalizeManifestEvidenceStatusEnum = pgEnum(
+  "finalize_manifest_evidence_status",
+  ["planned", "written", "verified", "unverified"],
+);
+
 export const uploadRecoveryKindEnum = pgEnum("upload_recovery_kind", [
   "staging",
   "finalize",

@@ -5,6 +5,8 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { writeAuditLog } from "@/audit/service";
 import {
   assetUploadBatches,
+  assets,
+  assetVariants,
   finalizeObjectManifestItems,
   objectCleanupJobs,
   uploadIntents,
@@ -17,6 +19,7 @@ import {
   processObjectCleanupJob,
   UPLOAD_RECOVERY_SYSTEM_ACTOR,
 } from "./object-cleanup-service";
+import { detectMimeType } from "./file-validation";
 
 export const UPLOAD_RECOVERY_LEASE_MILLISECONDS = 60_000;
 
@@ -270,7 +273,7 @@ export async function registerFinalizeManifest<
     if (unexpected.length) {
       throw new Error("Existing Public Compensation state conflicts with the Finalize Manifest.");
     }
-    await transaction.insert(finalizeObjectManifestItems).values(items.map((item) => ({
+    const insertedManifest = await transaction.insert(finalizeObjectManifestItems).values(items.map((item) => ({
       recoveryJobId: lease.id,
       uploadBatchId: batchId,
       finalizeAttempt: lease.attemptCount,
@@ -280,9 +283,30 @@ export async function registerFinalizeManifest<
       mimeType: item.mimeType,
       byteSize: item.byteSize,
       writeCompletedAt: null,
+      evidenceStatus: "planned" as const,
+      evidenceSource: "current_finalize_manifest",
       updatedAt: now,
-    })));
+    }))).returning({
+      id: finalizeObjectManifestItems.id,
+      objectKey: finalizeObjectManifestItems.objectKey,
+    });
+    const manifestIdByKey = new Map(insertedManifest.map((item) => [item.objectKey, item.id]));
+    const updated = (await transaction.update(uploadRecoveryJobs).set({
+      stage: "manifest_registered",
+      version: sql`${uploadRecoveryJobs.version} + 1`,
+      leaseExpiresAt,
+      updatedAt: now,
+    }).where(and(
+      eq(uploadRecoveryJobs.id, lease.id),
+      eq(uploadRecoveryJobs.status, "processing"),
+      eq(uploadRecoveryJobs.lockedBy, lease.workerId),
+      eq(uploadRecoveryJobs.version, lease.version),
+      gt(uploadRecoveryJobs.leaseExpiresAt, now),
+    )).returning({ version: uploadRecoveryJobs.version }))[0];
+    if (!updated) throw new UploadRecoveryLeaseError();
     for (const item of items) {
+      const manifestItemId = manifestIdByKey.get(item.objectKey);
+      if (!manifestItemId) throw new Error("Finalize Manifest identity was not persisted.");
       await transaction.insert(objectCleanupJobs).values({
         uploadBatchId: batchId,
         assetId: item.assetId,
@@ -291,9 +315,12 @@ export async function registerFinalizeManifest<
         reason: item.role === "original"
           ? "finalize_public_original_compensation"
           : "finalize_public_variant_compensation",
+        cleanupKind: "finalize_public",
         status: "standby",
         finalizeRecoveryId: lease.id,
+        recoveryVersion: updated.version,
         finalizeAttempt: lease.attemptCount,
+        finalizeManifestItemId: manifestItemId,
         expectedObjectRole: item.role,
         expectedMimeType: item.mimeType,
         expectedByteSize: item.byteSize,
@@ -316,9 +343,12 @@ export async function registerFinalizeManifest<
           reason: item.role === "original"
             ? "finalize_public_original_compensation"
             : "finalize_public_variant_compensation",
+          cleanupKind: "finalize_public",
           status: "standby",
           finalizeRecoveryId: lease.id,
+          recoveryVersion: updated.version,
           finalizeAttempt: lease.attemptCount,
+          finalizeManifestItemId: manifestItemId,
           expectedObjectRole: item.role,
           expectedMimeType: item.mimeType,
           expectedByteSize: item.byteSize,
@@ -336,19 +366,6 @@ export async function registerFinalizeManifest<
         },
       });
     }
-    const updated = (await transaction.update(uploadRecoveryJobs).set({
-      stage: "manifest_registered",
-      version: sql`${uploadRecoveryJobs.version} + 1`,
-      leaseExpiresAt,
-      updatedAt: now,
-    }).where(and(
-      eq(uploadRecoveryJobs.id, lease.id),
-      eq(uploadRecoveryJobs.status, "processing"),
-      eq(uploadRecoveryJobs.lockedBy, lease.workerId),
-      eq(uploadRecoveryJobs.version, lease.version),
-      gt(uploadRecoveryJobs.leaseExpiresAt, now),
-    )).returning({ version: uploadRecoveryJobs.version }))[0];
-    if (!updated) throw new UploadRecoveryLeaseError();
     await auditWriter(transaction, {
       action: "asset.finalize.manifest_registered",
       entityType: "asset_upload_batch",
@@ -391,6 +408,12 @@ export async function markFinalizeObjectWritten<
     if (!recovery) throw new UploadRecoveryLeaseError();
     const manifestWritten = await transaction.update(finalizeObjectManifestItems).set({
       writeCompletedAt: now,
+      evidenceStatus: "written",
+      evidenceSource: "current_finalize_storage_put",
+      observedByteSize: sql`${finalizeObjectManifestItems.byteSize}`,
+      observedMimeType: sql`${finalizeObjectManifestItems.mimeType}`,
+      observedAt: now,
+      evidenceVerifiedAt: null,
       updatedAt: now,
     }).where(and(
       eq(finalizeObjectManifestItems.recoveryJobId, lease.id),
@@ -401,6 +424,7 @@ export async function markFinalizeObjectWritten<
     if (!manifestWritten[0]) throw new Error("Finalize Manifest object changed before write completion.");
     const written = await transaction.update(objectCleanupJobs).set({
       writeCompletedAt: now,
+      recoveryVersion: recovery.version,
       updatedAt: now,
     }).where(and(
       eq(objectCleanupJobs.finalizeRecoveryId, lease.id),
@@ -412,6 +436,239 @@ export async function markFinalizeObjectWritten<
     )).returning({ id: objectCleanupJobs.id });
     if (!written[0]) throw new Error("Finalize Manifest object changed before write completion.");
     return { ...lease, version: recovery.version, leaseExpiresAt };
+  });
+}
+
+export async function revalidateHistoricalFinalizeManifest<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  recoveryJobId: string,
+  options: Pick<RecoveryOptions, "auditWriter" | "now"> = {},
+): Promise<number> {
+  const now = options.now ?? new Date();
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  const recovery = (await db.select().from(uploadRecoveryJobs).where(
+    eq(uploadRecoveryJobs.id, recoveryJobId),
+  ).limit(1))[0];
+  if (
+    !recovery ||
+    recovery.kind !== "finalize" ||
+    recovery.status !== "completed" ||
+    recovery.stage !== "completed" ||
+    !recovery.uploadBatchId
+  ) {
+    throw new Error("Finalize Recovery was not found for storage evidence revalidation.");
+  }
+  const manifest = await db.select().from(finalizeObjectManifestItems).where(and(
+    eq(finalizeObjectManifestItems.recoveryJobId, recovery.id),
+    eq(finalizeObjectManifestItems.uploadBatchId, recovery.uploadBatchId),
+    eq(finalizeObjectManifestItems.finalizeAttempt, recovery.attemptCount),
+    eq(finalizeObjectManifestItems.evidenceStatus, "unverified"),
+  ));
+  if (!manifest.length) return 0;
+  const manifestAssetIds = [...new Set(manifest.map((item) => item.assetId))];
+  const relatedAssets = await db.select().from(assets).where(inArray(assets.id, manifestAssetIds));
+  const relatedVariants = await db.select().from(assetVariants).where(
+    inArray(assetVariants.sourceAssetId, manifestAssetIds),
+  );
+  const assetById = new Map(relatedAssets.map((asset) => [asset.id, asset]));
+  const variantByAssetAndKey = new Map(
+    relatedVariants.map((variant) => [`${variant.sourceAssetId}:${variant.objectKey}`, variant]),
+  );
+  const assertEntityIdentity = (item: typeof finalizeObjectManifestItems.$inferSelect): void => {
+    const asset = assetById.get(item.assetId);
+    const variant = variantByAssetAndKey.get(`${item.assetId}:${item.objectKey}`);
+    const assetMime = asset?.detectedMimeType ?? asset?.declaredMimeType;
+    if (
+      !asset ||
+      asset.uploadBatchId !== recovery.uploadBatchId ||
+      asset.storagePartition !== "public" ||
+      asset.access !== "public" ||
+      asset.status !== "ready" ||
+      asset.scanStatus !== "passed" ||
+      asset.deletedAt !== null ||
+      (item.objectRole === "original"
+        ? asset.objectKey !== item.objectKey || assetMime !== item.mimeType
+        : !variant || `image/${variant.format}` !== item.mimeType)
+    ) {
+      throw new Error("Historical Finalize Asset and Manifest identity do not match.");
+    }
+  };
+  for (const item of manifest) assertEntityIdentity(item);
+  const observations = new Map<string, { byteSize: number; mimeType: string }>();
+  for (const item of manifest) {
+    if (!(await storage.exists("public", item.objectKey))) {
+      throw new Error("Historical Finalize object is missing from Public storage.");
+    }
+    const bytes = await storage.get("public", item.objectKey);
+    const mimeType = detectMimeType(bytes);
+    if (mimeType !== item.mimeType) {
+      throw new Error("Historical Finalize object MIME evidence does not match its Manifest.");
+    }
+    observations.set(item.id, { byteSize: bytes.byteLength, mimeType });
+  }
+  return db.transaction(async (transaction) => {
+    await transaction.execute(sql`
+      select id from asset_upload_batches where id = ${recovery.uploadBatchId} for update
+    `);
+    await transaction.execute(sql`
+      select id from upload_recovery_jobs where id = ${recovery.id} for update
+    `);
+    await transaction.execute(sql`
+      select id from finalize_object_manifest_items
+      where recovery_job_id = ${recovery.id}
+      order by id for update
+    `);
+    await transaction.execute(sql`
+      select id from object_cleanup_jobs
+      where finalize_recovery_id = ${recovery.id}
+      order by id for update
+    `);
+    await transaction.execute(sql`
+      select id from assets
+      where id in (
+        select asset_id from finalize_object_manifest_items
+        where recovery_job_id = ${recovery.id}
+          and finalize_attempt = ${recovery.attemptCount}
+      )
+      order by id for update
+    `);
+    await transaction.execute(sql`
+      select id from asset_variants
+      where source_asset_id in (
+        select asset_id from finalize_object_manifest_items
+        where recovery_job_id = ${recovery.id}
+          and finalize_attempt = ${recovery.attemptCount}
+      )
+      order by id for update
+    `);
+    const currentBatch = (await transaction.select().from(assetUploadBatches)
+      .where(eq(assetUploadBatches.id, recovery.uploadBatchId)).limit(1))[0];
+    const currentRecovery = (await transaction.select().from(uploadRecoveryJobs)
+      .where(eq(uploadRecoveryJobs.id, recovery.id)).limit(1))[0];
+    const currentManifest = await transaction.select().from(finalizeObjectManifestItems).where(and(
+      eq(finalizeObjectManifestItems.recoveryJobId, recovery.id),
+      eq(finalizeObjectManifestItems.uploadBatchId, recovery.uploadBatchId),
+      eq(finalizeObjectManifestItems.finalizeAttempt, recovery.attemptCount),
+      eq(finalizeObjectManifestItems.evidenceStatus, "unverified"),
+    ));
+    const currentCleanup = await transaction.select().from(objectCleanupJobs).where(and(
+      eq(objectCleanupJobs.finalizeRecoveryId, recovery.id),
+      eq(objectCleanupJobs.finalizeAttempt, recovery.attemptCount),
+    ));
+    if (
+      !currentBatch ||
+      currentBatch.status !== "completed" ||
+      !currentRecovery ||
+      currentRecovery.kind !== "finalize" ||
+      currentRecovery.status !== "completed" ||
+      currentRecovery.stage !== "completed" ||
+      currentRecovery.uploadBatchId !== recovery.uploadBatchId ||
+      currentRecovery.attemptCount !== recovery.attemptCount ||
+      currentRecovery.version !== recovery.version ||
+      currentManifest.length !== manifest.length ||
+      currentCleanup.length !== currentManifest.length
+    ) {
+      throw new Error("Historical Finalize evidence changed during revalidation.");
+    }
+    const currentManifestById = new Map(currentManifest.map((item) => [item.id, item]));
+    if (currentCleanup.some((job) => {
+      const item = job.finalizeManifestItemId
+        ? currentManifestById.get(job.finalizeManifestItemId)
+        : undefined;
+      return !item ||
+        job.cleanupKind !== "finalize_public" ||
+        job.storagePartition !== "public" ||
+        job.status !== "cancelled" ||
+        job.uploadBatchId !== recovery.uploadBatchId ||
+        job.uploadIntentId !== null ||
+        job.finalizeRecoveryId !== recovery.id ||
+        job.recoveryVersion !== currentRecovery.version ||
+        job.finalizeAttempt !== recovery.attemptCount ||
+        job.assetId !== item.assetId ||
+        job.objectKey !== item.objectKey ||
+        job.expectedObjectRole !== item.objectRole ||
+        job.expectedMimeType !== item.mimeType ||
+        job.expectedByteSize !== item.byteSize;
+    })) {
+      throw new Error("Historical Finalize Cleanup and Manifest identity do not match.");
+    }
+    const currentAssets = await transaction.select().from(assets)
+      .where(inArray(assets.id, manifestAssetIds));
+    const currentVariants = await transaction.select().from(assetVariants)
+      .where(inArray(assetVariants.sourceAssetId, manifestAssetIds));
+    assetById.clear();
+    for (const asset of currentAssets) assetById.set(asset.id, asset);
+    variantByAssetAndKey.clear();
+    for (const variant of currentVariants) {
+      variantByAssetAndKey.set(`${variant.sourceAssetId}:${variant.objectKey}`, variant);
+    }
+    for (const item of currentManifest) assertEntityIdentity(item);
+    for (const item of currentManifest) {
+      const observed = observations.get(item.id);
+      if (!observed) throw new Error("Historical Finalize evidence set changed during revalidation.");
+      const updated = await transaction.update(finalizeObjectManifestItems).set({
+        byteSize: observed.byteSize,
+        evidenceStatus: "verified",
+        evidenceSource: "historical_storage_revalidation",
+        evidenceVerifiedAt: now,
+        observedByteSize: observed.byteSize,
+        observedMimeType: observed.mimeType,
+        observedAt: now,
+        updatedAt: now,
+      }).where(and(
+        eq(finalizeObjectManifestItems.id, item.id),
+        eq(finalizeObjectManifestItems.evidenceStatus, "unverified"),
+      )).returning({ id: finalizeObjectManifestItems.id });
+      if (!updated[0]) throw new Error("Historical Finalize evidence changed during revalidation.");
+      if (item.objectRole === "original") {
+        const updatedAsset = await transaction.update(assets).set({
+          byteSize: observed.byteSize,
+          updatedAt: now,
+        }).where(and(
+          eq(assets.id, item.assetId),
+          eq(assets.uploadBatchId, recovery.uploadBatchId),
+          eq(assets.objectKey, item.objectKey),
+        )).returning({ id: assets.id });
+        if (!updatedAsset[0]) throw new Error("Historical Finalize Asset identity changed during revalidation.");
+      } else {
+        const updatedVariant = await transaction.update(assetVariants).set({
+          byteSize: observed.byteSize,
+        }).where(and(
+          eq(assetVariants.sourceAssetId, item.assetId),
+          eq(assetVariants.objectKey, item.objectKey),
+        )).returning({ id: assetVariants.id });
+        if (!updatedVariant[0]) throw new Error("Historical Finalize Variant identity changed during revalidation.");
+      }
+      const updatedCleanup = await transaction.update(objectCleanupJobs).set({
+        cleanupKind: "finalize_public",
+        recoveryVersion: currentRecovery.version,
+        finalizeManifestItemId: item.id,
+        expectedObjectRole: item.objectRole,
+        expectedMimeType: observed.mimeType,
+        expectedByteSize: observed.byteSize,
+        updatedAt: now,
+      }).where(and(
+        eq(objectCleanupJobs.finalizeManifestItemId, item.id),
+        eq(objectCleanupJobs.finalizeRecoveryId, recovery.id),
+        eq(objectCleanupJobs.finalizeAttempt, item.finalizeAttempt),
+        eq(objectCleanupJobs.objectKey, item.objectKey),
+      )).returning({ id: objectCleanupJobs.id });
+      if (!updatedCleanup[0]) throw new Error("Historical Finalize Cleanup identity changed during revalidation.");
+    }
+    await auditWriter(transaction, {
+      action: "asset.finalize.historical_storage_evidence_verified",
+      entityType: "upload_recovery_job",
+      entityId: recovery.id,
+      afterSummary: {
+        systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+        objectCount: currentManifest.length,
+        evidenceSource: "historical_storage_revalidation",
+      },
+    });
+    return currentManifest.length;
   });
 }
 
@@ -521,9 +778,12 @@ export async function markFinalizeRecoveryRequired<
           reason: item.objectRole === "original"
             ? "finalize_public_original_compensation"
             : "finalize_public_variant_compensation",
+          cleanupKind: "finalize_public",
           status: "standby",
           finalizeRecoveryId: lease.id,
+          recoveryVersion: lease.version,
           finalizeAttempt: lease.attemptCount,
+          finalizeManifestItemId: item.id,
           expectedObjectRole: item.objectRole,
           expectedMimeType: item.mimeType,
           expectedByteSize: item.byteSize,
@@ -538,9 +798,12 @@ export async function markFinalizeRecoveryRequired<
             reason: item.objectRole === "original"
               ? "finalize_public_original_compensation"
               : "finalize_public_variant_compensation",
+            cleanupKind: "finalize_public",
             status: "standby",
             finalizeRecoveryId: lease.id,
+            recoveryVersion: lease.version,
             finalizeAttempt: lease.attemptCount,
+            finalizeManifestItemId: item.id,
             expectedObjectRole: item.objectRole,
             expectedMimeType: item.mimeType,
             expectedByteSize: item.byteSize,
@@ -586,7 +849,7 @@ export async function markFinalizeRecoveryRequired<
       eq(uploadRecoveryJobs.lockedBy, lease.workerId),
       eq(uploadRecoveryJobs.version, lease.version),
       gt(uploadRecoveryJobs.leaseExpiresAt, now),
-    )).returning({ id: uploadRecoveryJobs.id }))[0];
+    )).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version }))[0];
     if (!updated) throw new UploadRecoveryLeaseError();
     const batchUpdated = await transaction.update(assetUploadBatches).set({
       status: "failed",
@@ -603,6 +866,9 @@ export async function markFinalizeRecoveryRequired<
         await transaction.update(objectCleanupJobs).set({
           status: "pending",
           assetId: item.assetId,
+          cleanupKind: "finalize_public",
+          recoveryVersion: updated.version,
+          finalizeManifestItemId: item.id,
           expectedObjectRole: item.objectRole,
           expectedMimeType: item.mimeType,
           expectedByteSize: item.byteSize,
@@ -734,9 +1000,12 @@ export async function recoverUploadRecoveryJob<
           reason: item.objectRole === "original"
             ? "finalize_public_original_compensation"
             : "finalize_public_variant_compensation",
+          cleanupKind: "finalize_public",
           status: "standby",
           finalizeRecoveryId: job.id,
+          recoveryVersion: job.version,
           finalizeAttempt: latestManifestAttempt,
+          finalizeManifestItemId: item.id,
           expectedObjectRole: item.objectRole,
           expectedMimeType: item.mimeType,
           expectedByteSize: item.byteSize,
@@ -821,18 +1090,48 @@ export async function recoverUploadRecoveryJob<
       !unexpected.some((unexpectedRow) => unexpectedRow.id === row.id) &&
       (row.status !== "processing" || !row.leaseExpiresAt || row.leaseExpiresAt <= now),
     );
+    const activelyLeased = rows.filter((row) =>
+      !unexpected.some((unexpectedRow) => unexpectedRow.id === row.id) &&
+      row.status === "processing" &&
+      row.leaseExpiresAt !== null &&
+      row.leaseExpiresAt > now,
+    );
+    for (const row of activelyLeased) {
+      const item = manifestByKey.get(row.objectKey);
+      await transaction.update(objectCleanupJobs).set({
+        recoveryVersion: job.version,
+        ...(item ? {
+          cleanupKind: "finalize_public" as const,
+          finalizeManifestItemId: item.id,
+          assetId: item.assetId,
+          expectedObjectRole: item.objectRole,
+          expectedMimeType: item.mimeType,
+          expectedByteSize: item.byteSize,
+          writeCompletedAt: item.writeCompletedAt,
+        } : {}),
+        updatedAt: now,
+      }).where(and(
+        eq(objectCleanupJobs.id, row.id),
+        eq(objectCleanupJobs.status, "processing"),
+      ));
+    }
     for (const row of reclaimable) {
       const item = manifestByKey.get(row.objectKey);
       await transaction.update(objectCleanupJobs).set({
         status: "pending",
         ...(item ? {
           assetId: item.assetId,
+          cleanupKind: "finalize_public" as const,
+          recoveryVersion: job.version,
+          finalizeManifestItemId: item.id,
           expectedObjectRole: item.objectRole,
           expectedMimeType: item.mimeType,
           expectedByteSize: item.byteSize,
           writeCompletedAt: item.writeCompletedAt,
           armedAt: now,
           armedReason: "finalize_lease_expired_recovery",
+        } : job.kind === "staging" ? {
+          recoveryVersion: job.version,
         } : {}),
         nextAttemptAt: now,
         lockedBy: null,
