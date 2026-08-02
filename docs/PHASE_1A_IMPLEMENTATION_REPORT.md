@@ -17,12 +17,16 @@ Baseline: frozen CWT Product and Technical Architecture V1.1 plus `AGENTS.md`
 | Technical Debt | **0 new items** |
 | Local development-review loop | **Closed** |
 | Phase 1B | **Paused** |
-| External validation | **Waiting for External Validation** |
+| PostgreSQL Stage 2A | **Passed** |
+| PostgreSQL Stage 2B | **Passed** |
+| Remaining external validation | **Waiting** |
 | Real-product validation | **Waiting for Real Product Data Validation** |
 
 The independently accepted code baseline is `94c7ee5df5dc58bb9e28d8a555e90a93d24846da`. The local freeze is recorded by the annotated tag `phase-1a-local-approved-2026-08-02` on the documentation closure commit.
 
-This acceptance applies only to the Phase 1A local executable scope. It must not be described as Production Ready, PostgreSQL External Validation Passed, R2/S3 Passed, SMTP Passed, or Deployment Passed.
+The PostgreSQL Stage 2B candidate code baseline is `4b092be396ca54a3e6fe6ec37dc75a7d327ea146`. The original local-acceptance Tag remains immutable at its original documentation closure commit.
+
+The local acceptance applies only to the Phase 1A local executable scope. The later PostgreSQL Stage 2A and Stage 2B results do not mean complete PostgreSQL External Validation, Stage 2C, R2/S3, SMTP or Deployment has passed. Production Ready: **No**.
 
 ## Independently reproduced local evidence
 
@@ -43,19 +47,36 @@ This acceptance applies only to the Phase 1A local executable scope. It must not
 
 These results are local-scope evidence. They do not replace validation against real providers, production infrastructure, or reviewed real data.
 
-## External Validation Required
+## PostgreSQL Stage 2B independent acceptance — 2026-08-02
 
-1. Real PostgreSQL Fresh and Upgrade Migration execution.
-2. PostgreSQL row locking, transaction isolation, deadlock behavior, and concurrent Workers.
-3. Database Triggers, Advisory Locks, and production-like query plans.
-4. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
-5. Origin isolation and Public Media revocation behavior.
-6. SMTP Delivery Key and Provider idempotency behavior.
-7. Multi-instance distributed rate limiting and Trusted Proxy behavior.
-8. Formal Product evidence, image rights, and Company Facts validation.
-9. Preview/Production deployment, backup and restore, monitoring, and alerting.
+| Acceptance field | Result |
+| --- | --- |
+| PostgreSQL | **18.4 ARM64** |
+| Stage 2A | **Passed** |
+| Stage 2B | **Passed** |
+| Candidate code baseline | `4b092be396ca54a3e6fe6ec37dc75a7d327ea146` |
+| Blocker / High / Medium | **0 / 0 / 0** |
+| Low | **1 non-blocking Harness automation debt** |
+| Code review | **Passed** |
+| Stage 2C | **Waiting; not authorized** |
+| Phase 1B | **Paused** |
 
-No item in this list is marked passed by the local acceptance. External validation does not start automatically, and Phase 1B remains paused.
+Independent evidence records Fresh and repeat Migration success; successful upgrades from 0005, 0010, 0011, 0012 and 0014; correction of the original SQLSTATE `55P04` path; preservation of the Journal and original 0011 hash; and the expected catalog of 55 tables, 44 enums and 6 triggers. Constraint behavior, idempotent Seed and Readiness checks passed, identifier truncation produced no actual collision, the Git worktree was clean, and no formal data or production credential was used.
+
+The retained Low is that the formal Harness does not yet automate direct termination of a running Migrator Backend or competition between two operating-system Migration processes. Independent review used temporary real fault injection to validate the implementation safely. This debt is non-blocking and may be completed during future Migration Harness maintenance; no code change is required for this freeze.
+
+## Remaining External Validation Required
+
+1. PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers.
+2. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore.
+3. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
+4. Origin isolation and Public Media revocation behavior.
+5. SMTP Delivery Key and Provider idempotency behavior.
+6. Multi-instance distributed rate limiting and Trusted Proxy behavior.
+7. Formal Product evidence, image rights, and Company Facts validation.
+8. Preview/Production deployment, monitoring, and alerting.
+
+PostgreSQL Stage 2A and Stage 2B are completed evidence and are not repeated in this remaining list. Stage 2C and other external validation do not start automatically, and Phase 1B remains paused.
 
 ## Document authority
 
@@ -75,7 +96,7 @@ ADR-0010 adds one migration-only compatibility module. A dedicated `max: 1` post
 
 The adapter validates the approved 0011 hash and exact target statement. Only exact Journal-0010 compatibility/recovery states receive an in-memory `IF NOT EXISTS` form for that one statement; the original hash continues into Drizzle's existing Journal, and all remaining SQL is unchanged. There is no second Journal, historical Migration edit, business Schema change or manual SQL step.
 
-New disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` evidence passes Fresh/repeat; 0005, 0010, 0011, 0012 and 0014 upgrades/repeat; the real `pnpm db:migrate` 0010 entry; preflight failure and post-commit recovery; SQLSTATE 42501 enum rollback; 0011/0013 SQLSTATE 42710 batch rollback with Journal retained at 0010; two-client exclusion; backend-termination lock release; and Journal/catalog fail-closed handling. Catalog signatures and one synthetic taxonomy fixture match/persist across upgrade paths. This is implementation evidence only: independent Stage 2B rerun is still required, Stage 2C and Phase 1B remain paused, and the existing approved Tag is unchanged.
+New disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` evidence passes Fresh/repeat; 0005, 0010, 0011, 0012 and 0014 upgrades/repeat; the real `pnpm db:migrate` 0010 entry; preflight failure and post-commit recovery; SQLSTATE 42501 enum rollback; 0011/0013 SQLSTATE 42710 batch rollback with Journal retained at 0010; two-client exclusion; backend-termination lock release; and Journal/catalog fail-closed handling. Catalog signatures and one synthetic taxonomy fixture match/persist across upgrade paths. This implementation evidence was subsequently accepted by independent PostgreSQL 18.4 Stage 2B review. Stage 2C and Phase 1B remain paused, and the existing local-approved Tag remains unchanged.
 
 ### Post-Commit Boundary Closure record
 

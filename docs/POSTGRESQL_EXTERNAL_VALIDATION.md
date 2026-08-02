@@ -1,8 +1,27 @@
 # PostgreSQL External Validation — Phase 1A
 
-Status: **Stage 2B independent rerun required**. The original PostgreSQL 18.4 `0010 → latest` run stopped at SQLSTATE `55P04`. ADR-0010 implements the approved bounded compatibility path and a new disposable PostgreSQL 18.4 validation matrix now passes, but this implementation evidence does not mark independent Stage 2B, Stage 2C, deployment or Production as passed.
+Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**; Stage 2C **Waiting and not authorized**. Complete PostgreSQL External Validation and Production readiness have not passed. Phase 1B remains paused.
 
-## Enum compatibility evidence pending independent rerun
+## Stage 2B independent acceptance — 2026-08-02
+
+| Acceptance field | Result |
+| --- | --- |
+| PostgreSQL | **18.4 ARM64** |
+| Stage 2A / Stage 2B | **Passed / Passed** |
+| Candidate code baseline | `4b092be396ca54a3e6fe6ec37dc75a7d327ea146` |
+| Blocker / High / Medium | **0 / 0 / 0** |
+| Low | **1 non-blocking Harness automation debt** |
+| Code review | **Passed** |
+| Stage 2C | **Waiting; not authorized** |
+| Production Ready | **No** |
+
+Independent evidence passed Fresh and repeat Migration; upgrades from 0005, 0010, 0011, 0012 and 0014; the original SQLSTATE `55P04` path; Journal and original 0011 hash preservation; and catalog verification for 55 tables, 44 enums and 6 triggers. Constraint behavior, idempotent Seed and Readiness checks passed. Identifier truncation produced no actual collision. The evidence worktree was clean and used no formal data or production credential.
+
+The retained Low is Harness automation debt: the formal Harness does not yet automate direct termination of a running Migrator Backend or competition between two operating-system Migration processes. Independent review used temporary real fault injection to validate the current implementation safely. The debt does not block Stage 2B and may be completed during future Migration Harness maintenance.
+
+This acceptance is deliberately bounded. It does not mean Stage 2C concurrency/locking/deadlock/query-plan/backup-restore validation, R2/S3, SMTP, deployment or complete PostgreSQL External Validation has passed.
+
+## Accepted enum compatibility evidence
 
 The formal `pnpm db:migrate` entry now uses a dedicated `max: 1` PostgreSQL client. One Session Advisory Lock and Backend PID fence cover Journal/catalog inspection, the committed 0010 enum preflight when required, Drizzle migration and final verification. Only the approved 0011 enum statement is adapted in memory for an exact 0010 compatibility/recovery state. Historical Migration files, hashes, Journal metadata and business Schema remain unchanged.
 
@@ -16,7 +35,7 @@ CWT_POSTGRES_COMPAT_VALIDATION=isolated-test-database \
 pnpm exec tsx scripts/verify-postgres-enum-compatibility.ts
 ```
 
-The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012 and 0014 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 implementation run passed against PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)`. Stage 2B must independently reproduce this result on new evidence resources before the external gate can advance.
+The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012 and 0014 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 implementation run passed against PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)`, and independent PostgreSQL 18.4 Stage 2B review subsequently accepted the bounded result. Stage 2C remains a separate unstarted gate.
 
 ## Safety preconditions
 

@@ -12,10 +12,23 @@ A0–A13: frozen docs; project/version and Refine validation; schema/migrations;
 - Technical Debt: **0 new items**
 - Local development-review loop: **Closed**
 - Accepted code baseline: `94c7ee5df5dc58bb9e28d8a555e90a93d24846da`
-- External status: **Waiting for External Validation**
+- PostgreSQL Stage 2A: **Passed**
+- PostgreSQL Stage 2B: **Passed**
+- PostgreSQL candidate code baseline: `4b092be396ca54a3e6fe6ec37dc75a7d327ea146`
+- External status: **Stage 2C and remaining providers Waiting**
 - Real-product status: **Waiting for Real Product Data Validation**
 
-This is a local-scope acceptance only. It is not Production Ready and does not mean that PostgreSQL, R2/S3, SMTP, deployment, or any other external validation has passed.
+The local acceptance remains a local-scope result. PostgreSQL 18.4 Stage 2A and Stage 2B subsequently passed independently against the candidate baseline above; this does not complete PostgreSQL External Validation. Stage 2C, R2/S3, SMTP, distributed rate limiting, deployment, backup/restore and real-product validation remain pending. Production Ready: **No**.
+
+### PostgreSQL Stage 2B status — 2026-08-02
+
+- PostgreSQL: **18.4 ARM64**
+- Findings: Blocker **0**, High **0**, Medium **0**, Low **1**
+- Code review: **Passed**
+- Stage 2C: **Waiting; not authorized**
+- Phase 1B: **Paused**
+
+The non-blocking Low is Harness automation debt for directly terminating a running Migrator Backend and for competing two operating-system Migration processes. Independent review used temporary real fault injection to validate the current implementation safely. The debt may be addressed when the Migration Harness is next maintained; it does not block Stage 2B acceptance.
 
 Real product authenticity and final product SEO review remain `Waiting for Real Product Data Validation` until real data arrives.
 
