@@ -1,6 +1,6 @@
 # PostgreSQL External Validation — Phase 1A
 
-Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**. The Stage 2C Discovery Sweep identified D01 Route/Redirect serialization, D02 Inquiry request identity and D03 Product Revision Apply ownership gaps. Their combined remediation has local PostgreSQL 18.4 evidence and awaits joint independent code review. Stage 2C acceptance has not been rerun, complete PostgreSQL External Validation and Production readiness have not passed, and Phase 1B remains paused.
+Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**. Joint review of the Stage 2C Discovery remediation passed D03 and returned two blocking Mediums in D01's database final-state guard and D02's attachment retry UI. Their combined 0017/Frozen Snapshot remediation has local PostgreSQL 18.4 and browser evidence and awaits a new joint independent review. Stage 2C acceptance has not been rerun, complete PostgreSQL External Validation and Production readiness have not passed, and Phase 1B remains paused.
 
 ## Stage 2B independent acceptance — 2026-08-02
 
@@ -35,7 +35,7 @@ CWT_POSTGRES_COMPAT_VALIDATION=isolated-test-database \
 pnpm exec tsx scripts/verify-postgres-enum-compatibility.ts
 ```
 
-The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012, 0014 and 0015 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 Stage 2B run was independently accepted against PostgreSQL 18.4; the later 0015 start is local Migration 0016 upgrade coverage and does not alter that historical acceptance. Stage 2C remains a separate stopped gate.
+The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012, 0014, 0015 and 0016 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 Stage 2B run was independently accepted against PostgreSQL 18.4; the later start points are local forward-Migration coverage and do not alter that historical acceptance. Stage 2C remains a separate stopped gate.
 
 ## Stage 2C-1 retryable Asset Admin recovery remediation — local evidence
 
@@ -45,13 +45,19 @@ A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two in
 
 This is implementation evidence, not Stage 2C-1 acceptance. Independent code review and a complete Stage 2C-1 rerun from a new database remain required. The retained non-blocking Low is the previously recorded Harness automation debt for direct Migrator Backend termination and two operating-system Migration processes.
 
-## Stage 2C Discovery D01–D03 remediation — local evidence
+## Stage 2C joint-review D01/D02 remediation — local evidence
 
-The combined remediation closes three existing-authority concurrency boundaries without adding a table, Worker, queue, lease system, approval state or second API. Route and Redirect graph writers share deterministic path-scoped transaction advisory locks and revalidate the graph under lock. Inquiry idempotency stores the immutable versioned request fingerprint on the existing Inquiry row and treats key reuse with different content as a stable conflict. Product Revision Apply conditionally claims the existing `in_review` revision before any snapshot side effect and commits the owner, copy and required Audit atomically.
+Joint review confirmed D03 Product Revision Apply and the server-side D02 fingerprint contract, but found two remaining supported-path gaps. The 0016 immediate trigger could not prove the Redirect graph's final transaction state after direct SQL moved a destination Route. The public form retained an Idempotency Key across response loss but created new Upload Tokens on retry, changing the otherwise-correct fingerprint.
 
-A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` instance used independent clients and explicit database barriers. Concurrent `X → Y` Redirect creation and `Y → Z` route movement committed only a flattened `X → Z`, `Y → Z` graph; equal Inquiry requests created once and replayed, while different content produced exactly one creation and one conflict; concurrent Product Revision reviewers produced one owner, one Audit and one conflict. No residual advisory lock or idle-in-transaction Session remained. The disposable evidence environment is not an acceptance environment and must be removed after the complete local gate.
+Forward Migration `0017_redirect_graph_final_state.sql` keeps the existing graph Domain Service and advisory-lock namespace and adds deferred Route/Redirect constraint triggers. Commit now rejects an active Redirect whose source is a current Route, whose destination is not current, or whose destination is another active Redirect source. A legal application transaction may move `Y → Z`, flatten `X → Z`, create `Y → Z`, then pass final-state validation. The Migration adds no table, field, enum, lock table or second graph writer and does not modify 0011–0016.
 
-Migration 0016 is a forward-only Schema change: it adds the two Inquiry fingerprint fields/check and replaces existing Route/Redirect trigger functions. Historical Migrations are unchanged. The local PostgreSQL 18.4 Harness passed Fresh/repeat and upgrade paths through 0005, 0010, 0011, 0012, 0014 and 0015, including the original enum-compatibility failure model. Repeat Seed and Readiness passed. This section records implementation evidence only; Stage 2C remains stopped until the combined change passes independent code review and a fresh independent PostgreSQL acceptance run.
+The public form now freezes the Idempotency Key, complete request/attribution payload, ordered Upload Tokens and safe filenames after upload. Result-uncertain transport failures resend that exact component-memory snapshot. They do not create another Intent or upload. A definitive 4xx/409 requires explicit start-over with a new key and uploads; no Token enters browser persistence, URLs, Analytics or visible output.
+
+A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` environment passed: SQLSTATE `23514` rollback of the dangling direct Route move and its Audit; the legal flattened move; a real advisory-lock wait and bounded closure retry; an adversarial reciprocal race with one PostgreSQL-aborted writer and a valid final graph; same-fingerprint two-Backend Inquiry convergence with exactly one Inquiry, Contact, attachment relation, History, Outbox and Audit; different-fingerprint conflict; and D03 single Apply owner/Audit rollback regression. Advisory locks and idle-in-transaction Sessions ended at zero.
+
+The real Migration Harness passed Fresh/repeat and 0005, 0010, 0011, 0012, 0014, 0015 and 0016 upgrade/repeat paths; the original enum-compatibility scenarios remained green. Repeat Seed and Readiness passed with 55 tables unchanged. A real browser test let the server return 201 internally, aborted the response before the page received it, then observed an exact second payload and 200 replay with one Intent and one object upload.
+
+This is local remediation evidence, not Stage 2C acceptance. The new joint independent code review and a fresh independent Stage 2C run remain required. No Approved Tag is created, and Phase 1B remains paused.
 
 ## Safety preconditions
 
