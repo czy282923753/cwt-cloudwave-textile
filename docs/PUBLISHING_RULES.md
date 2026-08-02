@@ -20,7 +20,7 @@ AI cannot review, publish, archive, redirect, or change index status.
 
 ## Editing published content
 
-Published Product, Application, Fabric Library Entry, and Content data remains live while public-facing changes are held in an Editorial Revision. An authorized Reviewer/Publisher or Admin can apply only the latest revision; stale revisions are rejected. Public reads never use an unapproved revision. Approval writes an Audit Log and revalidates the affected admin, public route, and discovery surfaces.
+Published Product, Application, Fabric Library Entry, and Content data remains live while public-facing changes are held in an Editorial Revision. An authorized Reviewer/Publisher or Admin can apply only the latest revision; stale revisions are rejected. Product Revision Apply has one transactional owner: a conditional state claim occurs before copying the approved snapshot, and the claim, Product/SEO writes, reviewer identity and required Audit commit together. Concurrent different reviewers produce one winner and one conflict; a retry by the recorded reviewer is idempotent. Public reads never use an unapproved revision. Approval revalidates the affected admin, public route, and discovery surfaces.
 
 Draft and In Review records may be edited according to role permissions. Archived records cannot be edited or indexed. Fabric Library follows Draft → In Review → Published → Archived and cannot publish directly from Draft. Company Facts require evidence-backed verification and explicit public permission before public use; changing a verified fact resets it to unverified.
 

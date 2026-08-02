@@ -22,7 +22,9 @@ An Organization may have many Contacts. A Contact may have many Inquiries. Each 
 
 Exact normalized email may match an existing Contact. Similar names or organizations never auto-merge. An unauthenticated submission never overwrites the matched Contact; submitted name/email/country/WhatsApp remain immutable Inquiry snapshots for human comparison.
 
-Every public submission carries a unique Idempotency Key. The database unique constraint and service lookup make network retries return the original Inquiry. Inquiry creation and a notification-outbox row commit together. Notification failure never rolls back a valid Inquiry; the worker retries due rows and eventually records sent or dead status without exposing customer content in logs.
+Every public submission carries a unique Idempotency Key. The authoritative Inquiry row stores an immutable, versioned SHA-256 request fingerprint. Version 1 canonicalizes the submitted Inquiry snapshots, attribution fields and an order-insensitive set of attachment-token identities; it excludes transport-only and server-derived facts such as the Auth Session ID. The key and fingerprint are evaluated inside the Inquiry Domain Service: an exact semantic retry returns the original public reference, while reuse of the same key for different content fails with a stable HTTP 409 conflict and never exposes the earlier Inquiry. Legacy rows without a fingerprint fail closed rather than being guessed equal.
+
+Upload-token reservation, Contact matching, Inquiry and attachment creation, final token consumption, initial history, notification-outbox row and required Audit commit in one transaction. Concurrent equal requests create one Inquiry and safely replay it; concurrent different requests create one Inquiry and one conflict. A notification delivery failure never rolls back a committed Inquiry; the worker retries due rows and eventually records sent or dead status without exposing customer content in logs.
 
 ## Pipeline
 

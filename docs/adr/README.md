@@ -12,3 +12,5 @@ ADRs explain decisions that affect architecture or the frozen baseline. A propos
 - ADR-0008: Revocable public media delivery
 - ADR-0009: Round 3 fail-closed public boundaries
 - ADR-0010: PostgreSQL enum migration compatibility at the 0010 boundary
+- ADR-0011: Deterministic Route and Redirect graph mutations
+- ADR-0012: Inquiry idempotency request identity

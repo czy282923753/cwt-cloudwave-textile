@@ -97,11 +97,25 @@ A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two in
 
 The full local gate passes ESLint, TypeScript strict, Drizzle Check/Generate with no Schema or Migration delta, 50/50 Vitest files and 155/155 tests, a fresh Next.js production build with 40/40 generated page units, Public Bundle isolation, dependency audit with no known production vulnerability, and Playwright 19/19 with `retries=0`. Independent review remains required, followed by a complete Stage 2C-1 rerun from a new database. Stage 2C and Phase 1B remain paused; no Approved Tag is created.
 
+## PostgreSQL Stage 2C Discovery D01–D03 combined remediation — 2026-08-02
+
+The Discovery Sweep found three independent concurrency ownership gaps on supported paths: Route/Redirect graph mutations could validate different snapshots; one Inquiry Idempotency Key did not identify the immutable request it represented; and two Product Revision reviewers could apply the same `in_review` revision. The project owner authorized one combined remediation batch after the shared calling-chain and transaction analysis.
+
+- **D01:** Route and Redirect graph mutations now normalize the affected paths, take shared path-scoped transaction advisory locks in deterministic order, reread the graph and commit only a flattened valid result. A route move uses a bounded closure retry when newly discovered inbound Redirects expand the lock set. Forward Migration 0016 replaces the existing database trigger functions with the same lock namespace and last-defense invariants.
+- **D02:** the existing Inquiry row now stores an immutable versioned request fingerprint. The Inquiry Domain Service owns lookup, comparison, upload-token reservation/consumption, Contact/Inquiry/attachment/history/Outbox creation and required Audit in one transaction. Exact semantic retries replay the first result; different content with the same key returns the stable `INQUIRY_IDEMPOTENCY_CONFLICT` HTTP 409 and never exposes the prior Inquiry. No separate idempotency table or API was added.
+- **D03:** Product Revision Apply conditionally claims the existing revision state before any snapshot side effect. The claim, Product/SEO copy, reviewer identity and required Audit are atomic; the recorded reviewer has an idempotent retry while another reviewer receives a conflict. No approval state or workflow was added.
+
+Migration `0016_lumpy_whistler.sql` adds only the two nullable Inquiry fingerprint columns and their consistency Check Constraint, plus the forward trigger-function replacements. It adds no table, Worker, queue, lease, Recovery type or parallel authority. The route-side Inquiry idempotency shortcut, separate reserve/finalize/release token path and late Product Revision state update were removed or replaced rather than retained as dual paths.
+
+A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` instance with independent clients and explicit database barriers passed all three overlap scenarios: the Route graph ended flattened with no chain; equal Inquiry requests produced one creation and one replay while different requests produced one creation and one conflict; and competing Product Revision reviewers produced one owner, one required Audit and one conflict. No advisory lock or idle-in-transaction Session remained. This is local remediation evidence only. Joint independent code review and a fresh independent PostgreSQL Stage 2C run remain required; Stage 2C acceptance was not rerun, no Approved Tag is created, and Phase 1B remains paused.
+
+The final local gate passes Node 24.14.0 ARM64/pnpm 11.9.0 environment diagnosis, ESLint, TypeScript strict, Drizzle Check and Generate with no additional Schema delta, 52/52 Vitest files and 165/165 tests, Fresh/repeat and 0005/0010/0011/0012/0014/0015 PostgreSQL upgrades, repeat Seed and Readiness, a fresh Production Build with 40/40 generated page units, Public Bundle isolation, Production Dependency Audit with no known vulnerability, and Playwright 19/19 with retries disabled. The disposable remediation database/container and temporary Harness were removed; the retained independent Discovery evidence environment was not modified.
+
 ## Remaining External Validation Required
 
-1. Independent code review of the retryable Asset Admin recovery and a complete PostgreSQL Stage 2C-1 rerun from a new disposable database.
-2. Remaining PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers after Stage 2C-1 is approved.
-3. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore.
+1. Joint independent code review of the Stage 2C Discovery D01–D03 remediation and a fresh independent PostgreSQL Stage 2C run.
+2. Remaining PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers after the combined remediation is approved.
+3. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore beyond the directed local evidence.
 4. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
 5. Origin isolation and Public Media revocation behavior.
 6. SMTP Delivery Key and Provider idempotency behavior.

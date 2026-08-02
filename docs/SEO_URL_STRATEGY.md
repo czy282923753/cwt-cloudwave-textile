@@ -30,6 +30,7 @@ English remains at root. Reserved future language prefixes are `/es/`, `/vi/`, `
 - Published route changes create a real HTTP 301 in the same transaction; framework 308 redirects are not the content-migration mechanism.
 - Old paths are not silently reused for unrelated pages.
 - Redirect loops, route/source conflicts, missing destinations, and multi-hop chains are rejected in both the domain transaction and database constraints. Inbound historical redirects are flattened to the new current route and the change is audited.
+- Every Route/Redirect graph mutation normalizes the affected paths, acquires the shared path-scoped PostgreSQL transaction advisory locks in deterministic order, then rereads and validates the authoritative graph before writing. A route move expands and retries its lock closure only through the bounded Domain Service path; database triggers use the same lock namespace as a last defense. Competing mutations may serialize or return a safe conflict, but they may not commit a redirect chain, cycle, duplicate route owner, partial route move or success Audit for a rolled-back change.
 - Canonical defaults to self; cross-page canonicals require publisher authority.
 
 ## Index policy
