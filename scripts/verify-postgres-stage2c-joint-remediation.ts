@@ -663,8 +663,10 @@ async function main(): Promise<void> {
   const name = databasePrefix;
   const url = databaseUrl(baseUrl, name);
   const evidence: Evidence[] = [];
+  let databaseCreated = false;
   try {
     await admin.unsafe(`create database ${quotedIdentifier(name)}`);
+    databaseCreated = true;
     const migrationClient = postgres(url, { max: 1, prepare: false });
     try {
       await migratePostgresWithEnumCompatibility(migrationClient, "drizzle");
@@ -709,12 +711,17 @@ async function main(): Promise<void> {
       await inspection.end();
     }
   } finally {
-    await admin.unsafe(
-      "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()",
-      [name],
-    );
-    await admin.unsafe(`drop database if exists ${quotedIdentifier(name)} with (force)`);
-    await admin.end();
+    try {
+      if (databaseCreated) {
+        await admin.unsafe(
+          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()",
+          [name],
+        );
+        await admin.unsafe(`drop database if exists ${quotedIdentifier(name)} with (force)`);
+      }
+    } finally {
+      await admin.end();
+    }
   }
 }
 
