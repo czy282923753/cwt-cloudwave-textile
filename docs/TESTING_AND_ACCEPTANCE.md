@@ -1,5 +1,45 @@
 # Testing and Phase 1A acceptance
 
+## Finalize / Cleanup race-closure directed matrix
+
+The directed suites use real concurrent promises, explicit async barriers, a mutable/fake clock where required, persistent PGlite transactions and fault injection. Static checks are auxiliary only. The executable matrix covers:
+
+1. Cleanup while the Finalize lease is valid.
+2. Cleanup at the former five-minute boundary while a longer lease remains valid.
+3. Cleanup after the lease expires.
+4. Cleanup racing the Finalize success transaction.
+5. Cleanup racing the Finalize failure/arming transaction.
+6. Finalize pause immediately after original write.
+7. Finalize pause immediately after first derivative write.
+8. Finalize pause with all six derivatives written.
+9. Multiple Cleanup candidates against one active Finalize.
+10. Two concurrent Finalize callers for one Batch.
+11. Worker crash after Finalize claim.
+12. Worker crash after Manifest registration.
+13. Worker crash after original write.
+14. Worker crash after derivative write.
+15. Recovery-worker crash and restart.
+16. Lease heartbeat between persisted stages.
+17. Periodic heartbeat while one slow storage call remains in flight.
+18. Lease expiry and safe recovery takeover.
+19. Old-worker commit after takeover.
+20. Recovery attempt/version conflict and fencing.
+21. Success preflight with a missing Cleanup row.
+22. Success preflight with a mismatched Cleanup Object Key.
+23. Success preflight with mismatched role/MIME/byte metadata.
+24. Success preflight with Cleanup `pending`.
+25. Success preflight with Cleanup `processing`.
+26. Success preflight with Cleanup `completed`, `dead`, or `cancelled`.
+27. Success preflight with a missing Public object.
+28. Failure-arm Audit outage and atomic rollback.
+29. Cleanup reconciliation Audit outage and retry without false completion.
+30. Fresh Migration plus 0012→latest upgrade/backfill to standby and authoritative Manifest.
+31. Lease expiry during the locked storage-existence preflight and recovery without publication.
+
+For every fail-closed case, assertions verify that the Asset is not publicly deliverable, the Batch/Recovery state is explainable, and durable Manifest evidence remains available for cleanup or manual review.
+
+Race Closure local evidence: Node 24.14.0 arm64/pnpm 11.9.0 environment diagnosis passes; zero-warning ESLint, strict TypeScript, Drizzle Check and no-delta Generate pass; Migrations 0013–0014 pass Fresh and executable 0012→latest in-flight upgrade coverage; 46 Vitest files/129 tests pass; a fresh Next.js 16.2.12 production build completes 40 units/routes; public Bundle isolation passes 20 public manifests/29 referenced files; production dependency audit reports no known vulnerability; and Playwright passes 18/18 with retries disabled on Desktop Chromium and Pixel 7. The authenticated Asset upload/list persistence flow also passes 10 consecutive zero-retry repetitions using the returned Asset ID as an observable navigation intent. No prior test was deleted or skipped. Real PostgreSQL and R2/S3 behavior remain **External Validation Required**.
+
 ## Final Closure Round 2 gates and local evidence
 
 Acceptance adds failure injection at every Admin staging boundary; proof that Recovery/Cleanup records precede external writes; post-put crash/restart cleanup; persistent Audit outage; audited reconciliation rollback; Finalize claim transaction/Audit failure; immediate post-claim crash; lease exclusion, expiry takeover and stale-worker fencing; retry/dead states; and detection/repair of an abnormal `finalizing` Batch without usable recovery. No external object may exist without persistent recovery metadata, and no Recovery/Cleanup work may be marked complete when its required Audit fails.

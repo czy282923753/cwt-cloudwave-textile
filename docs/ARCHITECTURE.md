@@ -48,6 +48,14 @@ CWT is a modular monolith: one deployable Next.js application with explicit publ
 - Admin staging is a three-phase persistent Saga. Its preregistration transaction creates the expected key, nonpublic Asset placeholder, staging Recovery/Cleanup work, controlled Intent/Batch state and Audit before any external write. Storage/scan progress is persisted; the completion transaction makes the staged Asset ready and closes the Saga. A post-put failure always has a database recovery path.
 - Finalize claim is an atomic database operation that combines `finalizing`, a Finalize Recovery record, active lease owner/expiry/version, attempt count and Audit. Finalize persists progress, and every final commit is fenced by current owner, unexpired lease and version. Expired work can be reclaimed; the old worker is rejected.
 - Recovery and Cleanup workers use explicit system identity. Reconciliation state plus Audit is atomic. An Audit outage rolls the state transition back and leaves work retryable; it cannot manufacture a completed job.
+
+## Finalize / Cleanup race-closure boundary
+
+- A Finalize attempt owns an independent durable `finalize_object_manifest_items` set. It records the exact Batch, Recovery, attempt, Asset, Object Key, original/variant role, MIME type, byte size and write-completion evidence. Cleanup rows are a projection of this authority, not the only copy of recovery knowledge.
+- Manifest registration and all one-to-one Public compensation rows commit before the first Public write. Those rows begin `standby`, with no arm or worker lease. A fixed time delay is not a safety boundary and is not used.
+- Finalize stage updates and long-running storage/image work renew the Recovery lease. Cleanup claim locks Batch → Recovery → Manifest → Cleanup and refuses standby rows, missing/mismatched Manifest evidence, or any Recovery with a valid Finalize lease.
+- Finalize success uses the same lock order and fails closed unless its owner/version/lease are current, the persisted Manifest equals the expected set, every compensation row remains standby/unarmed/unclaimed, every write is recorded and every object exists. Asset publication, relation/Intent work, compensation cancellation, Recovery completion, Batch completion and Audit are one transaction.
+- Finalize failure and expired-lease recovery reconstruct missing projections from the Manifest, arm only authoritative objects and commit Batch/Recovery/compensation state with Audit. Audit failure rolls back arming. Unexpected projection rows become dead/manual-review evidence rather than deletion authority.
 - Admin writes return `AdminActionResult` through the common adapter, never direct Server Action redirects or `void`. Success carries message, Entity ID and observable navigation intent; failures carry field/form feedback and a sanitized error code.
 
 ## Technology baseline

@@ -1,18 +1,100 @@
-# CWT Phase 1A Final Closure Round 2 implementation report
+# CWT Phase 1A Finalize / Cleanup Race Closure implementation report
 
 Date: 2026-08-02
 
 Baseline: frozen CWT Product and Technical Architecture V1.1 plus `AGENTS.md`
 
-Scope: only the final review's two Medium and one Low findings. Phase 1B, real PostgreSQL/R2/S3/SMTP acceptance, Excel import, AI, multilingual work, deployment, DNS and formal data remain excluded.
+Scope: only the final review's one Medium finding, the long-running Finalize versus Public Compensation Cleanup race. Phase 1B, real PostgreSQL/R2/S3/SMTP acceptance, Excel import, AI, multilingual work, deployment, DNS, formal data and unrelated redesign remain excluded.
 
-## 1. Closure result
+## 1. Race-closure result
 
-- Medium 1 — Upload Staging partial-success state: fixed locally.
-- Medium 2 — Finalize claim crash window: fixed locally.
-- Low — Admin Action Result, Redirect Intent and field feedback: fixed locally.
+- Medium — long-running Finalize/Public Compensation Cleanup race: fixed locally.
 - Authorized-scope self-check: Blocker 0, High 0, Medium 0, Low 0.
-- Phase 1B remains paused. Independent Final Closure Round 2 review is still required.
+- Phase 1B remains paused. Independent directed re-review is still required.
+
+## 2. Final consistency model
+
+Each Finalize attempt now persists two coordinated sets before its first Public write:
+
+1. `finalize_object_manifest_items`, the authoritative attempt-scoped set containing Batch, Recovery, attempt, Asset, Object Key, original/variant role, MIME, expected byte size and write-completion evidence.
+2. A one-to-one `object_cleanup_jobs` projection in `standby`, carrying the same identity/metadata but no arm, worker lease or deletion authority.
+
+`standby` replaces the former fixed five-minute safety delay. Time alone cannot make a compensation row claimable. Cleanup claim locks Batch → Recovery → Manifest → Cleanup; it requires an audited arm, exact Manifest match, allowed Recovery state and no valid Finalize lease. Finalize success, explicit failure and expired-lease recovery use the same lock order.
+
+## 3. Lease and Heartbeat
+
+Finalize claim remains owner/expiry/version fenced and attempt-counted. Progress updates renew the lease. In addition, a periodic heartbeat runs while a single storage read/write/head or image-derivative operation is still in flight, at one third of the configured lease capped at 30 seconds. Only the current `locked_by` plus current version and an unexpired lease can renew. Heartbeat failure fences the old worker from publication; lease expiry allows the Recovery worker to claim and arm compensation.
+
+## 4. Success transaction and fail-closed preflight
+
+The publication transaction locks Batch, Recovery, current Manifest and every Batch Public compensation row. It then requires:
+
+- current owner, version and unexpired lease;
+- the persisted Manifest exactly equals the worker's expected key/role/MIME/size set;
+- one matching Cleanup projection per Manifest row;
+- every projection remains standby, unarmed, unlocked, incomplete and has write evidence;
+- every Public object passes a fresh storage existence check.
+
+Any missing row/object, count/key/metadata mismatch, or `pending`, `processing`, `completed`, `dead` or `cancelled` projection aborts publication. Asset/Variant state, relations, Intent consumption, Batch/Recovery completion, exact compensation cancellation, lease clearing and required Audit commit in one transaction. Audit failure rolls all of it back.
+
+## 5. Failure arming, recovery and Cleanup Audit
+
+An owned Finalize failure locks the same coordination set, reconstructs missing projections from the authoritative Manifest, sets Batch/Recovery failure state, clears the Finalize lease, arms only verified Manifest objects and writes Audit atomically. Unexpected projection keys become `dead` manual-review evidence rather than deletion authority. If Audit fails, all arming/state changes roll back and the Manifest plus Recovery lease remain discoverable.
+
+After lease expiry, Recovery selects the latest persisted Manifest attempt, recreates missing projections and atomically arms standby/cancelled or expired-processing work with system Audit. It does not steal an unexpired Cleanup lease. Cleanup completion/retry/dead reconciliation remains a Domain Service transaction with the explicit system actor and Audit. An Audit outage cannot report cleanup/recovery completion.
+
+## 6. Schema and Migration
+
+- Migration `0013_lyrical_black_knight.sql`: transaction-safe enum replacement adding `standby` and `manifest_registered`; Finalize projection/arm/write fields; active-lease upgrade backfill; work index; state Check Constraint.
+- Migration `0014_lumpy_toxin.sql`: independent `finalize_object_manifest_items` table, foreign keys, unique Recovery/attempt/key index, Batch/attempt index and upgrade backfill from 0013 projections.
+- Drizzle Schema, Snapshots `0013_snapshot.json`/`0014_snapshot.json` and Journal agree; `drizzle-kit generate` reports no delta.
+- Fresh migration and an executable 0012→latest in-flight Finalize upgrade both pass. The upgrade test proves an active pending compensation becomes standby/unarmed and gains one authoritative Manifest row.
+- Phase 1A now contains 55 relational tables.
+
+## 7. Tests added or strengthened
+
+New directed integration coverage is in `src/uploads/finalize-cleanup-race.integration.test.ts`; Migration and whole-`src` boundary assertions are strengthened in their existing suites. The 31-case traceability matrix is recorded in `TESTING_AND_ACCEPTANCE.md`. Substantive cases include 6-minute fake-clock Finalize pauses with 20-minute leases, original/first derivative/all six derivatives, deliberately armed-but-valid-lease cleanup refusal, 150ms lease heartbeat during a 350ms storage call, crash recovery at Manifest/original/variant boundaries, Audit rollback and restart, success/failure race, stale-worker/takeover fencing, exact preflight failures for every forbidden state, missing row/object and key/metadata mismatch, lease expiry during the locked storage-existence preflight, and Fresh/Upgrade Migration.
+
+No prior Vitest or Playwright test was deleted, skipped or weakened. No `skip`, `todo`, `only`, `any`, TypeScript/lint suppression or empty catch was added to manufacture a pass.
+
+## 8. Full local quality gate
+
+- Environment: Node 24.14.0 arm64, pnpm 11.9.0, Sharp 0.35.3, Lightning CSS 1.32.0 and Next SWC 16.2.12 load.
+- ESLint: pass, zero warnings.
+- TypeScript strict: pass.
+- Drizzle Check: pass; Generate: no schema delta.
+- Vitest: 46 files / 129 tests pass with one Vitest worker; explicit races remain concurrent inside integration tests.
+- Migration: Fresh and 0012→latest Upgrade pass; retained pre-remediation Upgrade and repeatable core/fixture Seed tests pass.
+- Production Build: fresh Next.js 16.2.12 build passes; 40 route/static-generation units complete.
+- Public Bundle: 20 public page manifests / 29 referenced files contain no Refine/admin dependency.
+- Dependency audit: no known production vulnerability.
+- Playwright: 18/18 pass with retries disabled across Desktop Chromium and Pixel 7. The authenticated Asset upload/list persistence flow additionally passes 10 consecutive zero-retry repetitions; it validates the Finalize response's Asset IDs and uses the first persisted ID as a unique same-page navigation intent, avoiding a same-route refresh result being discarded during client-state reconciliation.
+- HTTP/mobile/accessibility: 11 principal public paths return 200; Pixel 7 has no horizontal overflow; sampled Home has zero Axe Critical/Serious findings.
+
+## 9. Existing capability regression
+
+All retained tests pass for governed Domain Service/Audit transactions, Product Revision, Published/Index separation, real Product Eligibility, historical Asset rescan, Effective Rights, Source Declaration separation/concurrency, Analytics/CRM privacy, server Consent, public/admin streaming upload, Fabric/Content MIME roles, real 301/slash URLs, controlled public media, CRM record authorization, Notification Outbox leases, Inquiry idempotency, Conversion Event and Product Code constraints, Admin Action Results/Redirect Intents/field errors, Refine public-bundle isolation and non-production global Noindex.
+
+## 10. Files and external boundary
+
+New files: Migrations/Snapshots 0013 and 0014 plus `src/uploads/finalize-cleanup-race.integration.test.ts`. Modified implementation areas are limited to upload Finalize/Recovery/Cleanup, storage existence adapters, related Drizzle schema/Migration tests, the full-source governance check, the authenticated Asset upload persistence-navigation closure and authorized documentation. No tracked file was deleted.
+
+Not executed and still **External Validation Required**: real PostgreSQL locking/migration/query behavior; R2/S3 HEAD/delete/consistency/interruption semantics; SMTP/scanner providers; Preview/Production deployment; DNS; backup/restore; production retention; formal data. Real Product validation remains `Waiting for Real Product Data Validation`.
+
+## 11. Local Git record
+
+- Implementation, Migrations and executable tests: `8b16d78 fix: serialize finalize and public compensation`.
+- The documentation/evidence commit follows this implementation commit. No external push was performed.
+
+## 12. Recommendation
+
+Re-run the independent Finalize/Cleanup directed closure review. Phase 1B and real PostgreSQL external acceptance remain paused until that review reports Blocker 0, High 0 and Medium 0 and the project explicitly authorizes the next step.
+
+---
+
+The following sections preserve the prior Final Closure Round 2 implementation evidence as historical baseline.
+
+## Historical Round 2: Upload Staging consistency model
 
 ## 2. Upload Staging consistency model
 
