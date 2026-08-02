@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import sharp from "sharp";
@@ -12,9 +12,11 @@ import {
   authSessions,
   finalizeObjectManifestItems,
   objectCleanupJobs,
+  productAssets,
   productTaxonomyTerms,
   products,
   taxonomyTerms,
+  uploadIntents,
   uploadRecoveryJobs,
   users,
 } from "../src/db/schema";
@@ -24,6 +26,7 @@ import {
   completeAdminUploadIntent,
   createAdminUploadBatch,
   finalizeAdminUploadBatch,
+  listRetryableAdminUploadBatches,
   type AdminUploadActor,
 } from "../src/uploads/admin-upload-service";
 import { DevelopmentFileScanner } from "../src/uploads/scanner";
@@ -235,6 +238,21 @@ async function main(): Promise<void> {
     invariant((await dbA.select().from(assets).where(
       eq(assets.id, takeoverFixture.assetId),
     ))[0]?.storagePartition === "private", "PostgreSQL Pre-Manifest takeover exposed the Asset.");
+    const retryableBatches = await listRetryableAdminUploadBatches(
+      dbA,
+      storage,
+      actor,
+      { now: new Date(takeoverAt.getTime() + 1) },
+    );
+    invariant(
+      retryableBatches.length === 1 && retryableBatches[0]?.batchId === takeoverFixture.batchId,
+      "PostgreSQL Admin recovery query did not return the original retryable Batch.",
+    );
+    const beforeRetry = {
+      intents: Number((await dbA.select({ value: count() }).from(uploadIntents))[0]?.value ?? 0),
+      assets: Number((await dbA.select({ value: count() }).from(assets))[0]?.value ?? 0),
+      relations: Number((await dbA.select({ value: count() }).from(productAssets))[0]?.value ?? 0),
+    };
     const completed = await finalizeAdminUploadBatch(
       dbB,
       storage,
@@ -246,6 +264,27 @@ async function main(): Promise<void> {
     invariant((await dbA.select().from(assetUploadBatches).where(
       eq(assetUploadBatches.id, takeoverFixture.batchId),
     ))[0]?.status === "completed", "PostgreSQL Batch remained stuck after retry.");
+    invariant(
+      Number((await dbA.select({ value: count() }).from(uploadIntents))[0]?.value ?? 0) === beforeRetry.intents,
+      "PostgreSQL retry duplicated an Upload Intent.",
+    );
+    invariant(
+      Number((await dbA.select({ value: count() }).from(assets))[0]?.value ?? 0) === beforeRetry.assets,
+      "PostgreSQL retry duplicated an Asset.",
+    );
+    invariant(
+      Number((await dbA.select({ value: count() }).from(productAssets))[0]?.value ?? 0) === beforeRetry.relations + 1,
+      "PostgreSQL retry did not create exactly one intended Asset relation.",
+    );
+    invariant(
+      (await listRetryableAdminUploadBatches(
+        dbA,
+        storage,
+        actor,
+        { now: new Date(takeoverAt.getTime() + 3) },
+      )).length === 0,
+      "PostgreSQL completed Batch remained visible as retryable.",
+    );
 
     const auditFixture = await stage("audit-rollback");
     await expectFailure(finalizeAdminUploadBatch(
@@ -326,6 +365,8 @@ async function main(): Promise<void> {
       staleWorkerFenced: true,
       secondRecoveryNotClaimed: true,
       preManifestRetryCompleted: true,
+      retryableBatchAdminQuery: true,
+      noDuplicateIntentAssetOrRelation: true,
       requiredAuditRollback: true,
       idleInTransaction: transactionState?.idleInTransaction,
       residualLocks: residualLocks?.count,

@@ -1,6 +1,6 @@
 # PostgreSQL External Validation — Phase 1A
 
-Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**; Stage 2C-1 **Failed with one High and stopped**. The Pre-Manifest Recovery remediation is local evidence pending independent code review and a complete Stage 2C-1 rerun from a new database. Remaining Stage 2C work is stopped, complete PostgreSQL External Validation and Production readiness have not passed, and Phase 1B remains paused.
+Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**; Stage 2C-1 remains **stopped**. Independent review confirmed the Pre-Manifest Recovery High is fixed. The remaining retryable-Asset Admin operability Medium has local remediation evidence and awaits independent code review, after which Stage 2C-1 must be rerun completely from a new database. Remaining Stage 2C work is stopped, complete PostgreSQL External Validation and Production readiness have not passed, and Phase 1B remains paused.
 
 ## Stage 2B independent acceptance — 2026-08-02
 
@@ -35,7 +35,15 @@ CWT_POSTGRES_COMPAT_VALIDATION=isolated-test-database \
 pnpm exec tsx scripts/verify-postgres-enum-compatibility.ts
 ```
 
-The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012 and 0014 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 implementation run passed against PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)`, and independent PostgreSQL 18.4 Stage 2B review subsequently accepted the bounded result. Stage 2C remains a separate unstarted gate.
+The Harness creates and destroys only random databases prefixed `cwt_enum_compat_`. It covers Fresh/repeat, 0005, 0010, 0011, 0012 and 0014 upgrades, the standard command entry, preflight interruption/recovery, enum transaction failure, 0011/0013 rollback, competing migration clients, backend termination and fail-closed Journal/catalog contradiction. The 2026-08-02 implementation run passed against PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)`, and independent PostgreSQL 18.4 Stage 2B review subsequently accepted the bounded result. Stage 2C remains a separate stopped gate.
+
+## Stage 2C-1 retryable Asset Admin recovery remediation — local evidence
+
+The server-side legal pre-Manifest handoff already preserves the original Batch, Session-bound Intents, Private/Internal Assets, Staging objects and retryable Finalize Recovery. Asset Library now obtains eligible handoffs only through the Upload Domain Service and retries the original `batchId` through the existing Finalize API. It does not create another Intent, upload, Asset, relation path, status, Worker or Recovery type.
+
+A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two independent connections verified: the current actor can query the original retryable Batch; the original Finalize completes; no Intent or Asset is duplicated; exactly one intended relation is created; the stale Worker remains fenced; and the run ends with zero idle-in-transaction sessions and zero residual locks. The disposable remediation container was removed after the run, and the independent Stage 2C evidence environment was not modified.
+
+This is implementation evidence, not Stage 2C-1 acceptance. Independent code review and a complete Stage 2C-1 rerun from a new database remain required. The retained non-blocking Low is the previously recorded Harness automation debt for direct Migrator Backend termination and two operating-system Migration processes.
 
 ## Safety preconditions
 

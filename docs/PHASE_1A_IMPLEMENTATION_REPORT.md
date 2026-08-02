@@ -75,17 +75,31 @@ The correction removes that non-null assumption and separates three existing con
 - a present Manifest keeps the existing Manifest, compensation and Cleanup path;
 - a stage, Public state or projection that contradicts Manifest authority fails closed through the existing audited dead/manual-review path without storage deletion or Asset release.
 
-The handoff transaction revalidates Batch, current Recovery owner, unexpired lease and optimistic version under the established lock order. A required-Audit failure rolls back the handoff and leaves the claimed Recovery lease discoverable for later expiry/retry. The next authorized Admin Finalize claim completes through the existing entry point; the expired Worker remains fenced.
+The handoff transaction revalidates Batch, current Recovery owner, unexpired lease and optimistic version under the established lock order. A required-Audit failure rolls back the handoff and leaves the claimed Recovery lease discoverable for later expiry/retry. The next authorized Finalize claim completes through the existing entry point; the expired Worker remains fenced.
 
 Directed local evidence passes 22/22 tests across the Upload Saga and Finalize/Cleanup race suites. The complete local gate passes ESLint, TypeScript strict, Drizzle Check, Drizzle Generate with no Schema delta, 48/48 Vitest files and 150/150 tests, a fresh Next.js production build with 40/40 generated page units, and Playwright 18/18.
 
 A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two independent connections passes valid-lease denial, unique expired-lease takeover, second-worker `not_claimed`, stale-worker fencing, pre-Manifest retry and completed Finalize, required-Audit rollback, zero idle-in-transaction sessions and zero residual locks. The disposable development container was removed after validation; the retained independent Stage 2C-1 evidence container/database/volume was not modified.
 
-No table, Migration, Schema field, state, enum, Worker, Lease, Recovery type, queue or scheduler was added. The persistent state machine is unchanged. This is remediation evidence only: Stage 2C-1 remains **Failed pending independent code review and a complete rerun from a new database**. Stage 2C does not continue automatically, Phase 1B remains paused, and no Approved Tag is created by this remediation.
+No table, Migration, Schema field, state, enum, Worker, Lease, Recovery type, queue or scheduler was added. The persistent state machine is unchanged. Independent review subsequently confirmed this High is fixed. Stage 2C-1 nevertheless remains stopped until the following Admin-operability Medium is independently reviewed and the complete Stage 2C-1 is rerun from a new database. Stage 2C does not continue automatically, Phase 1B remains paused, and no Approved Tag is created by this remediation.
+
+## PostgreSQL Stage 2C-1 retryable Asset Admin recovery remediation — 2026-08-02
+
+Independent review confirmed the prior Pre-Manifest Recovery High is fixed and identified one remaining Medium: the server could preserve an eligible `Batch=failed`, `failure_reason=finalize_recovered_retryable`, `Recovery=retryable` handoff, but Asset Library did not surface the original `batchId` or provide a retry action. Operators could only start another upload, making the persisted recovery path operationally inaccessible.
+
+The correction adds one read model to the existing Admin Upload Domain Service and one small Asset Library recovery section. Eligibility is fail-closed and Session-scoped: it checks the authorized failure reason, due/unlocked retryable Finalize Recovery, unconsumed passed Intents, Private/Internal Ready and scan-passed Assets, completed Staging Recoveries, unexpired records, available association targets, existing Private objects, and absence of a Manifest or Public compensation state. The UI shows safe file name/time and an understandable interrupted-processing reason, calls the existing Finalize API with the original `batchId`, prevents duplicate clicks, announces pending/success/safe failures, and navigates back to freshly persisted Asset data. Lease, version, Manifest, Cleanup and provider errors remain hidden from operators.
+
+No new Intent, upload, Asset or Finalize path is created. No table, Migration, Schema field, state, enum, Worker, Lease, queue, Recovery type or service layer was added. The existing Finalize claim, owner/Session checks, lease/version fencing, idempotent completed result, relationship insertion and compensation rules remain authoritative; there is no new/old dual path. Complexity rises only by the bounded eligibility query and UI component while operational complexity falls because the existing recovery is now usable without re-upload.
+
+Directed PGlite and UI evidence passes 2 integration tests and 3 component tests, covering eligibility/exclusions, permissions and owner/Session isolation, active-lease exclusion, stale-version rejection, original-Batch Finalize, idempotent completion, no duplicate Intent/Asset/relation/Cleanup identity, pending/duplicate-click behavior, ARIA feedback and sanitized failure handling. A dedicated Playwright fixture uses only synthetic test data and a test-only Session; the complete browser suite passes 19/19 with retries disabled, including removal of the retry prompt and display of the persisted Public Asset.
+
+A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two independent connections verifies the original retryable Batch query and Finalize, no duplicate Intent/Asset and exactly one intended relation, active-lease denial, expired takeover, stale-worker fencing, required-Audit rollback, zero idle-in-transaction sessions and zero residual locks. The disposable container was removed; the retained independent Stage 2C evidence environment was not touched.
+
+The full local gate passes ESLint, TypeScript strict, Drizzle Check/Generate with no Schema or Migration delta, 50/50 Vitest files and 155/155 tests, a fresh Next.js production build with 40/40 generated page units, Public Bundle isolation, dependency audit with no known production vulnerability, and Playwright 19/19 with `retries=0`. Independent review remains required, followed by a complete Stage 2C-1 rerun from a new database. Stage 2C and Phase 1B remain paused; no Approved Tag is created.
 
 ## Remaining External Validation Required
 
-1. Independent code review and a complete PostgreSQL Stage 2C-1 rerun from a new disposable database.
+1. Independent code review of the retryable Asset Admin recovery and a complete PostgreSQL Stage 2C-1 rerun from a new disposable database.
 2. Remaining PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers after Stage 2C-1 is approved.
 3. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore.
 4. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.

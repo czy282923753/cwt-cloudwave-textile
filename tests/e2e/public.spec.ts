@@ -263,6 +263,29 @@ test("@desktop Asset Library uploads through authenticated binary Intents with S
   await expect(page.getByRole("checkbox", { name: "Enable Source Declaration" })).not.toBeChecked();
 });
 
+test("@desktop Asset Library retries an interrupted Batch without asking for another upload", async ({ page }) => {
+  await page.context().addCookies([{
+    name: "cwt_e2e_session",
+    value: "cwt-e2e-retryable-asset-session",
+    url: "http://127.0.0.1:3100",
+  }]);
+  await page.goto("/admin/assets/");
+  const recoverySection = page.getByRole("region", { name: "Uploads that need processing" });
+  await expect(recoverySection).toBeVisible();
+  await expect(recoverySection.getByText("TEST interrupted upload — retry without re-upload.jpg")).toBeVisible();
+  await expect(recoverySection.getByText(/without uploading the file again/i).last()).toBeVisible();
+  const retry = page.getByRole("button", { name: "Retry processing" });
+  await retry.click();
+  await expect(page.getByRole("button", { name: "Retrying processing…" })).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("no re-upload was needed");
+  await expect(recoverySection.getByText("TEST interrupted upload — retry without re-upload.jpg")).toHaveCount(0);
+  const assetLink = page.getByRole("link", { name: "TEST interrupted upload — retry without re-upload.jpg" });
+  await expect(assetLink).toBeVisible();
+  await expect(assetLink.locator("xpath=ancestor::tr")).toContainText("public");
+  await expect(page.getByRole("heading", { name: "Uploads that need processing" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry processing" })).toHaveCount(0);
+});
+
 test("@desktop a Published Product edit stays pending until approval", async ({ page }) => {
   await loginAsLocalAdmin(page);
   await page.goto("/admin/products/");

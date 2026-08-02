@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, count, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -645,6 +645,161 @@ export async function unlinkAssetRelation<TQueryResult extends PgQueryResultHKT>
     if (!removed[0]) throw new Error("Asset relation was not found.");
     await auditWriter(transaction, { actorUserId: actor.userId, action: "asset.relation.deleted", entityType: "asset", entityId: input.assetId, afterSummary: { associationType: input.associationType, associationEntityId: input.associationEntityId } });
   });
+}
+
+export interface RetryableAdminUploadBatch {
+  batchId: string;
+  fileNames: string[];
+  fileCount: number;
+  uploadedAt: Date;
+  status: "retryable";
+  reason: "processing_interrupted";
+}
+
+/**
+ * Lists only the existing pre-Manifest handoffs that the current upload actor
+ * can safely send back through the authoritative Finalize path. The UI is not
+ * trusted to infer recoverability from a failed Batch alone.
+ */
+export async function listRetryableAdminUploadBatches<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  actor: AdminUploadActor,
+  options: Pick<AdminUploadOptions, "now"> = {},
+): Promise<RetryableAdminUploadBatch[]> {
+  const now = options.now ?? new Date();
+  await assertActiveSession(db, actor, now);
+  const candidates = await db
+    .select({
+      batchId: assetUploadBatches.id,
+      declaredFileCount: assetUploadBatches.declaredFileCount,
+      uploadedAt: assetUploadBatches.createdAt,
+      recoveryId: uploadRecoveryJobs.id,
+    })
+    .from(assetUploadBatches)
+    .innerJoin(
+      uploadRecoveryJobs,
+      and(
+        eq(uploadRecoveryJobs.uploadBatchId, assetUploadBatches.id),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      ),
+    )
+    .where(and(
+      eq(assetUploadBatches.createdByUserId, actor.userId),
+      eq(assetUploadBatches.authSessionId, actor.authSessionId),
+      eq(assetUploadBatches.status, "failed"),
+      eq(assetUploadBatches.failureReason, "finalize_recovered_retryable"),
+      gt(assetUploadBatches.expiresAt, now),
+      eq(uploadRecoveryJobs.status, "retryable"),
+      eq(uploadRecoveryJobs.stage, "failed"),
+      lte(uploadRecoveryJobs.nextAttemptAt, now),
+      isNull(uploadRecoveryJobs.lockedBy),
+      isNull(uploadRecoveryJobs.leaseExpiresAt),
+      gt(uploadRecoveryJobs.expiresAt, now),
+    ))
+    .orderBy(desc(assetUploadBatches.createdAt))
+    .limit(20);
+
+  const retryable: RetryableAdminUploadBatch[] = [];
+  for (const candidate of candidates) {
+    const intents = await db.select().from(uploadIntents).where(and(
+      eq(uploadIntents.uploadBatchId, candidate.batchId),
+      eq(uploadIntents.kind, "admin_asset"),
+    ));
+    if (
+      intents.length !== candidate.declaredFileCount ||
+      intents.some((intent) =>
+        intent.createdByUserId !== actor.userId ||
+        intent.authSessionId !== actor.authSessionId ||
+        intent.status !== "passed" ||
+        intent.isConsumed ||
+        !intent.assetId ||
+        !intent.adminAssetRole ||
+        intent.expiresAt <= now
+      )
+    ) continue;
+
+    const stagedAssets = await db.select().from(assets).where(
+      eq(assets.uploadBatchId, candidate.batchId),
+    );
+    if (
+      stagedAssets.length !== intents.length ||
+      stagedAssets.some((asset) =>
+        asset.uploadedByUserId !== actor.userId ||
+        asset.storagePartition !== "private" ||
+        asset.access !== "internal" ||
+        asset.status !== "ready" ||
+        asset.scanStatus !== "passed" ||
+        asset.deletedAt !== null ||
+        (asset.retentionExpiresAt !== null && asset.retentionExpiresAt <= now)
+      )
+    ) continue;
+
+    const stagedById = new Map(stagedAssets.map((asset) => [asset.id, asset]));
+    if (intents.some((intent) => !intent.assetId || !stagedById.has(intent.assetId))) continue;
+    const stagingRecoveries = await db.select().from(uploadRecoveryJobs).where(and(
+      eq(uploadRecoveryJobs.uploadBatchId, candidate.batchId),
+      eq(uploadRecoveryJobs.kind, "staging"),
+    ));
+    if (
+      stagingRecoveries.length !== intents.length ||
+      stagingRecoveries.some((recovery) => {
+        const intent = intents.find((row) => row.id === recovery.uploadIntentId);
+        const asset = recovery.assetId ? stagedById.get(recovery.assetId) : undefined;
+        return !intent || !asset || intent.assetId !== asset.id ||
+          recovery.status !== "completed" || recovery.stage !== "completed" ||
+          recovery.storagePartition !== "private" || recovery.objectKey !== asset.objectKey ||
+          recovery.lockedBy !== null || recovery.leaseExpiresAt !== null;
+      })
+    ) continue;
+
+    const [manifest, publicCleanup] = await Promise.all([
+      db.select({ id: finalizeObjectManifestItems.id })
+        .from(finalizeObjectManifestItems)
+        .where(eq(finalizeObjectManifestItems.recoveryJobId, candidate.recoveryId))
+        .limit(1),
+      db.select({ id: objectCleanupJobs.id })
+        .from(objectCleanupJobs)
+        .where(and(
+          eq(objectCleanupJobs.uploadBatchId, candidate.batchId),
+          eq(objectCleanupJobs.storagePartition, "public"),
+        ))
+        .limit(1),
+    ]);
+    if (manifest.length || publicCleanup.length) continue;
+
+    let targetsAndObjectsRemainUsable = true;
+    try {
+      for (const intent of intents) {
+        await assertAssociationTarget(
+          db,
+          actor,
+          intent.associationType ? associationTypeSchema.parse(intent.associationType) : null,
+          intent.associationEntityId,
+        );
+      }
+      const objectChecks = await Promise.all(stagedAssets.map((asset) =>
+        storage.exists("private", asset.objectKey)
+      ));
+      targetsAndObjectsRemainUsable = objectChecks.every(Boolean);
+    } catch {
+      targetsAndObjectsRemainUsable = false;
+    }
+    if (!targetsAndObjectsRemainUsable) continue;
+
+    retryable.push({
+      batchId: candidate.batchId,
+      fileNames: intents.map((intent) => intent.declaredFileName),
+      fileCount: intents.length,
+      uploadedAt: candidate.uploadedAt,
+      status: "retryable",
+      reason: "processing_interrupted",
+    });
+  }
+
+  return retryable.sort((left, right) => right.uploadedAt.getTime() - left.uploadedAt.getTime());
 }
 
 export interface FinalizeAdminUploadResult {
