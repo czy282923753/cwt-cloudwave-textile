@@ -25,6 +25,22 @@ export const UPLOAD_RECOVERY_LEASE_MILLISECONDS = 60_000;
 
 type RecoveryStage = typeof uploadRecoveryJobs.$inferSelect.stage;
 
+const PRE_MANIFEST_FINALIZE_STAGES: ReadonlySet<RecoveryStage> = new Set([
+  "claimed",
+  "source_copy_started",
+  "variants_processing",
+]);
+
+const MANIFEST_FINALIZE_STAGES: ReadonlySet<RecoveryStage> = new Set([
+  "manifest_registered",
+  "original_written",
+  "variants_processing",
+  "variants_written",
+  "database_finalizing",
+  "cleanup_required",
+  "failed",
+]);
+
 export interface UploadRecoveryLease {
   id: string;
   workerId: string;
@@ -974,22 +990,192 @@ export async function recoverUploadRecoveryJob<
         where upload_batch_id = ${job.uploadBatchId} and storage_partition = 'public'
         order by id for update
       `);
+      await transaction.execute(sql`
+        select id from assets
+        where upload_batch_id = ${job.uploadBatchId}
+        order by id for update
+      `);
     }
-    const latestManifestAttempt = job.kind === "finalize"
-      ? (await transaction.select({
-          attempt: finalizeObjectManifestItems.finalizeAttempt,
-        }).from(finalizeObjectManifestItems).where(and(
-          eq(finalizeObjectManifestItems.recoveryJobId, job.id),
-          eq(finalizeObjectManifestItems.uploadBatchId, job.uploadBatchId),
-        )).orderBy(desc(finalizeObjectManifestItems.finalizeAttempt)).limit(1))[0]?.attempt
-      : undefined;
-    const manifest = job.kind === "finalize" && latestManifestAttempt !== undefined
+    const allManifest = job.kind === "finalize"
       ? await transaction.select().from(finalizeObjectManifestItems).where(and(
           eq(finalizeObjectManifestItems.recoveryJobId, job.id),
-          eq(finalizeObjectManifestItems.finalizeAttempt, latestManifestAttempt),
           eq(finalizeObjectManifestItems.uploadBatchId, job.uploadBatchId),
+        )).orderBy(desc(finalizeObjectManifestItems.finalizeAttempt))
+      : [];
+    const latestManifestAttempt = allManifest[0]?.finalizeAttempt;
+    const manifest = latestManifestAttempt === undefined
+      ? []
+      : allManifest.filter((item) => item.finalizeAttempt === latestManifestAttempt);
+    const publicCleanup = job.kind === "finalize"
+      ? await transaction.select().from(objectCleanupJobs).where(and(
+          eq(objectCleanupJobs.uploadBatchId, job.uploadBatchId),
+          eq(objectCleanupJobs.storagePartition, "public"),
         ))
       : [];
+    if (job.kind === "finalize") {
+      const currentBatch = (await transaction.select().from(assetUploadBatches).where(
+        eq(assetUploadBatches.id, job.uploadBatchId),
+      ).limit(1))[0];
+      const currentRecovery = (await transaction.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.id, job.id),
+        eq(uploadRecoveryJobs.uploadBatchId, job.uploadBatchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+        eq(uploadRecoveryJobs.status, "processing"),
+        eq(uploadRecoveryJobs.lockedBy, workerId),
+        eq(uploadRecoveryJobs.version, job.version),
+        gt(uploadRecoveryJobs.leaseExpiresAt, now),
+      )).limit(1))[0];
+      if (!currentRecovery || !currentBatch) throw new UploadRecoveryLeaseError();
+
+      const publicAssets = await transaction.select({ id: assets.id }).from(assets).where(and(
+        eq(assets.uploadBatchId, job.uploadBatchId),
+        or(eq(assets.storagePartition, "public"), eq(assets.access, "public")),
+      ));
+      const manifestById = new Map(allManifest.map((item) => [item.id, item]));
+      const projectionMismatch = publicCleanup.some((cleanup) => {
+        const item = cleanup.finalizeManifestItemId
+          ? manifestById.get(cleanup.finalizeManifestItemId)
+          : undefined;
+        return cleanup.finalizeRecoveryId !== job.id ||
+          !item ||
+          cleanup.finalizeAttempt !== item.finalizeAttempt ||
+          cleanup.assetId !== item.assetId ||
+          cleanup.objectKey !== item.objectKey ||
+          cleanup.expectedObjectRole !== item.objectRole ||
+          cleanup.expectedMimeType !== item.mimeType ||
+          cleanup.expectedByteSize !== item.byteSize;
+      });
+      const failClosed = async (reasons: string[]): Promise<void> => {
+        const activeCleanupIds = publicCleanup
+          .filter((cleanup) => ["standby", "pending", "processing", "cancelled"].includes(cleanup.status))
+          .map((cleanup) => cleanup.id);
+        if (activeCleanupIds.length) {
+          await transaction.update(objectCleanupJobs).set({
+            status: "dead",
+            armedAt: now,
+            armedReason: "finalize_manifest_mismatch_manual_review",
+            lockedBy: null,
+            lockedAt: null,
+            leaseExpiresAt: null,
+            lastError: "finalize_manifest_state_conflict",
+            updatedAt: now,
+          }).where(inArray(objectCleanupJobs.id, activeCleanupIds));
+        }
+        const recoveryUpdated = await transaction.update(uploadRecoveryJobs).set({
+          status: "dead",
+          stage: "failed",
+          nextAttemptAt: now,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          lastError: "finalize_manifest_state_conflict",
+          version: sql`${uploadRecoveryJobs.version} + 1`,
+          updatedAt: now,
+        }).where(and(
+          eq(uploadRecoveryJobs.id, job.id),
+          eq(uploadRecoveryJobs.status, "processing"),
+          eq(uploadRecoveryJobs.lockedBy, workerId),
+          eq(uploadRecoveryJobs.version, job.version),
+          gt(uploadRecoveryJobs.leaseExpiresAt, now),
+        )).returning({ id: uploadRecoveryJobs.id });
+        const batchUpdated = await transaction.update(assetUploadBatches).set({
+          status: "failed",
+          failureReason: "finalize_recovery_dead",
+        }).where(and(
+          eq(assetUploadBatches.id, job.uploadBatchId),
+          inArray(assetUploadBatches.status, ["finalizing", "failed"]),
+        )).returning({ id: assetUploadBatches.id });
+        if (!recoveryUpdated[0] || !batchUpdated[0]) throw new UploadRecoveryLeaseError();
+        await auditWriter(transaction, {
+          action: "asset.finalize.crash_recovered",
+          entityType: "asset_upload_batch",
+          entityId: job.uploadBatchId,
+          afterSummary: {
+            systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+            cleanupObjects: publicCleanup.length,
+            manifestObjects: allManifest.length,
+            recoveryStatus: "dead",
+            recoveryMode: "manifest_state_conflict",
+            conflictReasons: reasons,
+          },
+        });
+        noCleanupRecoveryDead = true;
+      };
+
+      if (latestManifestAttempt === undefined) {
+        const legalPreManifestTakeover = currentBatch.status === "finalizing" &&
+          PRE_MANIFEST_FINALIZE_STAGES.has(currentRecovery.stage);
+        const existingRetryableHandoff = currentBatch.status === "failed" &&
+          currentRecovery.stage === "failed";
+        const conflictReasons = [
+          ...(!legalPreManifestTakeover && !existingRetryableHandoff
+            ? ["stage_requires_manifest"]
+            : []),
+          ...(publicCleanup.length ? ["cleanup_without_manifest"] : []),
+          ...(publicAssets.length ? ["public_asset_without_manifest"] : []),
+          ...(!legalPreManifestTakeover && !existingRetryableHandoff
+            ? ["batch_not_recoverable_without_manifest"]
+            : []),
+        ];
+        if (conflictReasons.length) {
+          await failClosed(conflictReasons);
+          return [];
+        }
+        const recoveryUpdated = await transaction.update(uploadRecoveryJobs).set({
+          status: "retryable",
+          stage: "failed",
+          nextAttemptAt: now,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          lastError: "finalize_pre_manifest_recovery",
+          version: sql`${uploadRecoveryJobs.version} + 1`,
+          updatedAt: now,
+        }).where(and(
+          eq(uploadRecoveryJobs.id, job.id),
+          eq(uploadRecoveryJobs.status, "processing"),
+          eq(uploadRecoveryJobs.lockedBy, workerId),
+          eq(uploadRecoveryJobs.version, job.version),
+          gt(uploadRecoveryJobs.leaseExpiresAt, now),
+        )).returning({ id: uploadRecoveryJobs.id });
+        const batchUpdated = await transaction.update(assetUploadBatches).set({
+          status: "failed",
+          failureReason: "finalize_recovered_retryable",
+        }).where(and(
+          eq(assetUploadBatches.id, job.uploadBatchId),
+          inArray(assetUploadBatches.status, ["finalizing", "failed"]),
+        )).returning({ id: assetUploadBatches.id });
+        if (!recoveryUpdated[0] || !batchUpdated[0]) throw new UploadRecoveryLeaseError();
+        await auditWriter(transaction, {
+          action: "asset.finalize.crash_recovered",
+          entityType: "asset_upload_batch",
+          entityId: job.uploadBatchId,
+          afterSummary: {
+            systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+            cleanupObjects: 0,
+            manifestObjects: 0,
+            recoveryStatus: "retryable",
+            recoveryMode: "pre_manifest_retryable",
+          },
+        });
+        return [];
+      }
+
+      const manifestConflictReasons = [
+        ...(!MANIFEST_FINALIZE_STAGES.has(currentRecovery.stage)
+          ? ["stage_precedes_existing_manifest"]
+          : []),
+        ...(latestManifestAttempt > currentRecovery.attemptCount
+          ? ["manifest_attempt_ahead_of_recovery"]
+          : []),
+        ...(projectionMismatch ? ["cleanup_manifest_projection_mismatch"] : []),
+        ...(publicAssets.length ? ["public_asset_before_finalize_commit"] : []),
+      ];
+      if (manifestConflictReasons.length) {
+        await failClosed(manifestConflictReasons);
+        return [];
+      }
+    }
     if (job.kind === "finalize") {
       for (const item of manifest) {
         await transaction.insert(objectCleanupJobs).values({
@@ -1004,7 +1190,7 @@ export async function recoverUploadRecoveryJob<
           status: "standby",
           finalizeRecoveryId: job.id,
           recoveryVersion: job.version,
-          finalizeAttempt: latestManifestAttempt,
+          finalizeAttempt: item.finalizeAttempt,
           finalizeManifestItemId: item.id,
           expectedObjectRole: item.objectRole,
           expectedMimeType: item.mimeType,
@@ -1027,10 +1213,10 @@ export async function recoverUploadRecoveryJob<
         eq(objectCleanupJobs.storagePartition, partition),
         job.kind === "staging" && job.assetId
           ? eq(objectCleanupJobs.assetId, job.assetId)
-          : job.kind === "finalize"
+          : job.kind === "finalize" && latestManifestAttempt !== undefined
             ? and(
                 eq(objectCleanupJobs.finalizeRecoveryId, job.id),
-                eq(objectCleanupJobs.finalizeAttempt, latestManifestAttempt!),
+                eq(objectCleanupJobs.finalizeAttempt, latestManifestAttempt),
               )
             : sql`true`,
         inArray(objectCleanupJobs.status, ["standby", "pending", "processing", "cancelled"]),

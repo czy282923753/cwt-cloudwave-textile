@@ -68,13 +68,17 @@ Manifest authority comes from stored-byte evidence. `planned`, `written` or Migr
 
 Staging and Finalize Recovery records persist stage, attempt count, next attempt, last safe error, lease/fence data and completion/failure state. On Public write, derivative, relation, database or required-Audit failure, the authoritative Manifest remains discoverable and compensation is armed atomically with required Audit. The original Asset remains Private/Internal.
 
+An expired Finalize lease may be reclaimed before Manifest registration. When the locked Batch is still `finalizing`, the current Recovery owner/version/lease is valid, the stage is `claimed`, `source_copy_started` or pre-registration `variants_processing`, and there is no Manifest, Public Cleanup projection or Public Asset state, the Recovery Worker does not run an Attempt-scoped Cleanup query. It atomically hands the Batch and Recovery to the existing failed/retryable Finalize path with required system Audit. The next authorized Finalize claim uses the existing entry point; no Manifest or compensation row is fabricated, and the replaced Worker remains fenced.
+
+A stage that requires a Manifest without one, Public Cleanup without corresponding Manifest authority, Public Asset state before the core commit, a Cleanup/Manifest identity mismatch or a Manifest attempt ahead of the Recovery attempt is contradictory. Recovery fails closed through the existing dead/manual-review boundary with required Audit, performs no storage deletion and does not expose the Asset. This contradiction path is distinct from the legal pre-Manifest handoff.
+
 Only an audited Finalize failure, expired-lease recovery, fencing decision or explicit operator decision may arm Public compensation. Successful Finalize cancels it. Cleanup never uses a fixed grace period as a substitute for this authority.
 
 Recovery and Cleanup reconciliation are Domain Service operations under the explicit system actor. A reconciled business transition and required Audit share a transaction; Audit failure rolls back the transition and leaves work reclaimable. No failing Audit writer is needed to discover the already-persisted work.
 
 ## 9. Lease, heartbeat and fencing
 
-The Finalize claim transaction establishes the owner, expiry, optimistic version and Recovery record before the Batch can be `finalizing`. A second Worker cannot claim a valid lease; an expired lease may be safely reclaimed. A Worker renews the lease during long storage/image operations and fences each persisted stage and final commit by owner, unexpired lease and version.
+The Finalize claim transaction establishes the owner, expiry, optimistic version and Recovery record before the Batch can be `finalizing`. A second Worker cannot claim a valid lease; an expired lease may be safely reclaimed. A Worker renews the lease during long storage/image operations and fences each persisted stage and final commit by owner, unexpired lease and version. A pre-Manifest takeover preserves this fencing while it performs the audited handoff; releasing the Recovery to the existing retryable path does not restore authority to the expired Worker.
 
 An expired or replaced Worker cannot commit. Claim, success, failure/recovery and Cleanup coordination use the established lock order Batch → Recovery → Manifest → Cleanup. `finalizing` without a usable Recovery is abnormal; reconciliation creates or repairs a retryable recovery path with required system Audit and never silently resets history to `ready_to_finalize`.
 

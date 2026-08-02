@@ -65,16 +65,35 @@ Independent evidence records Fresh and repeat Migration success; successful upgr
 
 The retained Low is that the formal Harness does not yet automate direct termination of a running Migrator Backend or competition between two operating-system Migration processes. Independent review used temporary real fault injection to validate the implementation safely. This debt is non-blocking and may be completed during future Migration Harness maintenance; no code change is required for this freeze.
 
+## PostgreSQL Stage 2C-1 Pre-Manifest Recovery remediation — 2026-08-02
+
+Independent PostgreSQL Stage 2C-1 stopped with one High: after an expired Finalize lease was reclaimed before Manifest registration, `recoverUploadRecoveryJob()` passed an absent `latestManifestAttempt` into the Attempt-scoped Cleanup query. Real PostgreSQL rejected the undefined value and left the new Recovery owner in `processing` with the Batch still `finalizing` and no continuing action.
+
+The correction removes that non-null assumption and separates three existing conditions without adding persistent state:
+
+- a legal pre-Manifest takeover uses the existing audited `Batch=failed` and `Recovery=retryable` Finalize handoff;
+- a present Manifest keeps the existing Manifest, compensation and Cleanup path;
+- a stage, Public state or projection that contradicts Manifest authority fails closed through the existing audited dead/manual-review path without storage deletion or Asset release.
+
+The handoff transaction revalidates Batch, current Recovery owner, unexpired lease and optimistic version under the established lock order. A required-Audit failure rolls back the handoff and leaves the claimed Recovery lease discoverable for later expiry/retry. The next authorized Admin Finalize claim completes through the existing entry point; the expired Worker remains fenced.
+
+Directed local evidence passes 22/22 tests across the Upload Saga and Finalize/Cleanup race suites. The complete local gate passes ESLint, TypeScript strict, Drizzle Check, Drizzle Generate with no Schema delta, 48/48 Vitest files and 150/150 tests, a fresh Next.js production build with 40/40 generated page units, and Playwright 18/18.
+
+A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two independent connections passes valid-lease denial, unique expired-lease takeover, second-worker `not_claimed`, stale-worker fencing, pre-Manifest retry and completed Finalize, required-Audit rollback, zero idle-in-transaction sessions and zero residual locks. The disposable development container was removed after validation; the retained independent Stage 2C-1 evidence container/database/volume was not modified.
+
+No table, Migration, Schema field, state, enum, Worker, Lease, Recovery type, queue or scheduler was added. The persistent state machine is unchanged. This is remediation evidence only: Stage 2C-1 remains **Failed pending independent code review and a complete rerun from a new database**. Stage 2C does not continue automatically, Phase 1B remains paused, and no Approved Tag is created by this remediation.
+
 ## Remaining External Validation Required
 
-1. PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers.
-2. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore.
-3. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
-4. Origin isolation and Public Media revocation behavior.
-5. SMTP Delivery Key and Provider idempotency behavior.
-6. Multi-instance distributed rate limiting and Trusted Proxy behavior.
-7. Formal Product evidence, image rights, and Company Facts validation.
-8. Preview/Production deployment, monitoring, and alerting.
+1. Independent code review and a complete PostgreSQL Stage 2C-1 rerun from a new disposable database.
+2. Remaining PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers after Stage 2C-1 is approved.
+3. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore.
+4. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
+5. Origin isolation and Public Media revocation behavior.
+6. SMTP Delivery Key and Provider idempotency behavior.
+7. Multi-instance distributed rate limiting and Trusted Proxy behavior.
+8. Formal Product evidence, image rights, and Company Facts validation.
+9. Preview/Production deployment, monitoring, and alerting.
 
 PostgreSQL Stage 2A and Stage 2B are completed evidence and are not repeated in this remaining list. Stage 2C and other external validation do not start automatically, and Phase 1B remains paused.
 

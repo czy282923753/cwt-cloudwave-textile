@@ -8,6 +8,7 @@ import {
   assets,
   auditLogs,
   authSessions,
+  finalizeObjectManifestItems,
   objectCleanupJobs,
   productTaxonomyTerms,
   products,
@@ -32,6 +33,7 @@ import {
 } from "./object-cleanup-service";
 import { DevelopmentFileScanner } from "./scanner";
 import {
+  advanceUploadRecoveryStage,
   processPendingUploadRecoveryJobs,
   recoverUploadRecoveryJob,
 } from "./upload-recovery-service";
@@ -555,14 +557,87 @@ describe("Admin Upload persistent Saga and Finalize lease", () => {
         now: new Date(recovery.leaseExpiresAt.getTime() - 1),
         workerId: "early-recovery-worker",
       })).attempted).toBe(0);
-      await processPendingUploadRecoveryJobs(fixture.connection.db, storage, {
-        now: new Date(recovery.leaseExpiresAt.getTime() + 1),
-        workerId: "expired-lease-recovery-worker",
+      let releaseTakeover: (() => void) | undefined;
+      let markTakeoverClaimed: (() => void) | undefined;
+      const takeoverClaimed = new Promise<void>((resolve) => {
+        markTakeoverClaimed = resolve;
       });
+      const holdTakeover = new Promise<void>((resolve) => {
+        releaseTakeover = resolve;
+      });
+      const takeoverAt = new Date(recovery.leaseExpiresAt.getTime() + 1);
+      const takeover = recoverUploadRecoveryJob(
+        fixture.connection.db,
+        storage,
+        recovery.id,
+        {
+          now: takeoverAt,
+          workerId: "expired-lease-recovery-worker",
+          leaseMilliseconds: 5_000,
+          faultInjector: async (point) => {
+            if (point === "after_claim") {
+              markTakeoverClaimed?.();
+              await holdTakeover;
+            }
+          },
+        },
+      );
+      await takeoverClaimed;
+      const takeoverLease = (await fixture.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.id, recovery.id)))[0];
+      if (!takeoverLease?.leaseExpiresAt) throw new Error("Takeover omitted its Recovery lease.");
+      expect(takeoverLease).toMatchObject({
+        status: "processing",
+        stage: "claimed",
+        lockedBy: "expired-lease-recovery-worker",
+      });
+      expect(takeoverLease.version).toBeGreaterThan(recovery.version);
+      expect(await recoverUploadRecoveryJob(
+        fixture.connection.db,
+        storage,
+        recovery.id,
+        {
+          now: new Date(takeoverAt.getTime() + 1),
+          workerId: "second-recovery-worker",
+        },
+      )).toBe("not_claimed");
+      await expect(advanceUploadRecoveryStage(
+        fixture.connection.db,
+        {
+          id: recovery.id,
+          workerId: "crashed-finalize-worker",
+          version: recovery.version,
+          attemptCount: recovery.attemptCount,
+          leaseExpiresAt: recovery.leaseExpiresAt,
+        },
+        "source_copy_started",
+        new Date(takeoverAt.getTime() + 2),
+      )).rejects.toThrow(/lease|version/i);
+      releaseTakeover?.();
+      await expect(takeover).resolves.toBe("retryable");
       expect((await fixture.connection.db.select().from(assetUploadBatches)
         .where(eq(assetUploadBatches.id, crashed.batch.batchId)))[0]?.status).toBe("failed");
       expect((await fixture.connection.db.select().from(uploadRecoveryJobs)
-        .where(eq(uploadRecoveryJobs.id, recovery.id)))[0]?.status).toBe("retryable");
+        .where(eq(uploadRecoveryJobs.id, recovery.id)))[0]).toMatchObject({
+        status: "retryable",
+        stage: "failed",
+        lockedBy: null,
+        leaseExpiresAt: null,
+        lastError: "finalize_pre_manifest_recovery",
+      });
+      expect(await fixture.connection.db.select().from(finalizeObjectManifestItems).where(
+        eq(finalizeObjectManifestItems.recoveryJobId, recovery.id),
+      )).toHaveLength(0);
+      expect(await fixture.connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, crashed.batch.batchId),
+        eq(objectCleanupJobs.storagePartition, "public"),
+      ))).toHaveLength(0);
+      expect((await fixture.connection.db.select().from(assets)
+        .where(eq(assets.id, crashed.assetId)))[0]).toMatchObject({
+        storagePartition: "private",
+        access: "internal",
+      });
+      expect([...storage.objects.keys()].some((key) => key.startsWith("public:"))).toBe(false);
       await finalizeAdminUploadBatch(
         fixture.connection.db,
         storage,
@@ -585,6 +660,204 @@ describe("Admin Upload persistent Saga and Finalize lease", () => {
       await fixture.connection.close();
     }
   }, 45_000);
+
+  it("rolls back the Pre-Manifest retry transition when its required Audit fails", async () => {
+    const fixture = await setup("pre-manifest-audit-rollback");
+    const storage = new RecoveryStorage();
+    try {
+      const staged = await stageBatch(fixture, storage, "pre-manifest-audit-rollback");
+      await expect(finalizeAdminUploadBatch(
+        fixture.connection.db,
+        storage,
+        fixture.actor,
+        staged.batch.batchId,
+        {
+          workerId: "audit-old-finalizer",
+          leaseMilliseconds: 1_000,
+          faultInjector: (point) => {
+            if (point === "after_finalize_claim") throw new Error("TEST Pre-Manifest crash");
+          },
+        },
+      )).rejects.toThrow(/Pre-Manifest crash/);
+      const recovery = (await fixture.connection.db.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      )))[0];
+      if (!recovery?.leaseExpiresAt) throw new Error("Missing Pre-Manifest Recovery lease.");
+      const failTransitionAudit: typeof writeAuditLog = async (db, input) => {
+        if (
+          input.action === "asset.finalize.crash_recovered" &&
+          input.afterSummary?.recoveryMode === "pre_manifest_retryable"
+        ) {
+          throw new Error("TEST Pre-Manifest Recovery Audit failure");
+        }
+        return writeAuditLog(db, input);
+      };
+      await expect(recoverUploadRecoveryJob(
+        fixture.connection.db,
+        storage,
+        recovery.id,
+        {
+          now: new Date(recovery.leaseExpiresAt.getTime() + 1),
+          workerId: "audit-takeover-worker",
+          leaseMilliseconds: 1_000,
+          auditWriter: failTransitionAudit,
+        },
+      )).rejects.toThrow(/Recovery Audit failure/);
+      const afterAuditFailure = (await fixture.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.id, recovery.id)))[0];
+      if (!afterAuditFailure?.leaseExpiresAt) throw new Error("Claim was not retained after transition rollback.");
+      expect(afterAuditFailure).toMatchObject({
+        status: "processing",
+        stage: "claimed",
+        lockedBy: "audit-takeover-worker",
+      });
+      expect((await fixture.connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("finalizing");
+      expect(await fixture.connection.db.select().from(finalizeObjectManifestItems).where(
+        eq(finalizeObjectManifestItems.recoveryJobId, recovery.id),
+      )).toHaveLength(0);
+      expect(await fixture.connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.storagePartition, "public"),
+      ))).toHaveLength(0);
+      expect(await recoverUploadRecoveryJob(
+        fixture.connection.db,
+        storage,
+        recovery.id,
+        {
+          now: new Date(afterAuditFailure.leaseExpiresAt.getTime() + 1),
+          workerId: "audit-retry-worker",
+        },
+      )).toBe("retryable");
+    } finally {
+      await fixture.connection.close();
+    }
+  }, 30_000);
+
+  it("fails closed for missing-Manifest stage, Cleanup, public Asset, and Attempt contradictions", async () => {
+    const missingManifestCases = [
+      "stage_requires_manifest",
+      "cleanup_without_manifest",
+      "public_asset_without_manifest",
+    ] as const;
+    for (const contradiction of missingManifestCases) {
+      const fixture = await setup(`pre-manifest-${contradiction}`);
+      const storage = new RecoveryStorage();
+      try {
+        const staged = await stageBatch(fixture, storage, contradiction);
+        await expect(finalizeAdminUploadBatch(
+          fixture.connection.db,
+          storage,
+          fixture.actor,
+          staged.batch.batchId,
+          {
+            workerId: `contradiction-${contradiction}`,
+            leaseMilliseconds: 1_000,
+            faultInjector: (point) => {
+              if (point === "after_finalize_claim") throw new Error(`TEST ${contradiction}`);
+            },
+          },
+        )).rejects.toThrow(`TEST ${contradiction}`);
+        const recovery = (await fixture.connection.db.select().from(uploadRecoveryJobs).where(and(
+          eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId),
+          eq(uploadRecoveryJobs.kind, "finalize"),
+        )))[0];
+        if (!recovery?.leaseExpiresAt) throw new Error("Missing contradictory Recovery lease.");
+        if (contradiction === "stage_requires_manifest") {
+          await fixture.connection.db.update(uploadRecoveryJobs).set({ stage: "manifest_registered" })
+            .where(eq(uploadRecoveryJobs.id, recovery.id));
+        } else if (contradiction === "cleanup_without_manifest") {
+          await fixture.connection.db.insert(objectCleanupJobs).values({
+            uploadBatchId: staged.batch.batchId,
+            assetId: staged.assetId,
+            storagePartition: "public",
+            objectKey: `TEST/${contradiction}.jpg`,
+            reason: "TEST contradictory public cleanup",
+            cleanupKind: "generic",
+            status: "pending",
+            nextAttemptAt: new Date(),
+          });
+        } else {
+          await fixture.connection.db.update(assets).set({
+            storagePartition: "public",
+            access: "public",
+          }).where(eq(assets.id, staged.assetId));
+        }
+        expect(await recoverUploadRecoveryJob(
+          fixture.connection.db,
+          storage,
+          recovery.id,
+          {
+            now: new Date(recovery.leaseExpiresAt.getTime() + 1),
+            workerId: `recovery-${contradiction}`,
+          },
+        )).toBe("dead");
+        expect((await fixture.connection.db.select().from(uploadRecoveryJobs)
+          .where(eq(uploadRecoveryJobs.id, recovery.id)))[0]).toMatchObject({
+          status: "dead",
+          stage: "failed",
+          lastError: "finalize_manifest_state_conflict",
+        });
+        expect((await fixture.connection.db.select().from(assetUploadBatches)
+          .where(eq(assetUploadBatches.id, staged.batch.batchId)))[0]?.status).toBe("failed");
+        expect([...storage.objects.keys()].some((key) => key.startsWith("public:"))).toBe(false);
+        const [conflictAudit] = await fixture.connection.db.select().from(auditLogs).where(and(
+          eq(auditLogs.action, "asset.finalize.crash_recovered"),
+          eq(auditLogs.entityId, staged.batch.batchId),
+        ));
+        expect(conflictAudit?.afterSummary).toMatchObject({
+          recoveryMode: "manifest_state_conflict",
+          recoveryStatus: "dead",
+        });
+      } finally {
+        await fixture.connection.close();
+      }
+    }
+
+    const fixture = await setup("manifest-attempt-mismatch");
+    const storage = new RecoveryStorage();
+    try {
+      const staged = await stageBatch(fixture, storage, "manifest-attempt-mismatch");
+      await expect(finalizeAdminUploadBatch(
+        fixture.connection.db,
+        storage,
+        fixture.actor,
+        staged.batch.batchId,
+        {
+          workerId: "attempt-mismatch-finalizer",
+          faultInjector: (point) => {
+            if (point === "after_finalize_manifest_registered") {
+              throw new Error("TEST Attempt mismatch after Manifest");
+            }
+          },
+        },
+      )).rejects.toThrow(/Attempt mismatch/);
+      const recovery = (await fixture.connection.db.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadBatchId, staged.batch.batchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      )))[0];
+      const [cleanup] = await fixture.connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, staged.batch.batchId),
+        eq(objectCleanupJobs.storagePartition, "public"),
+      ));
+      if (!recovery || !cleanup?.finalizeAttempt) throw new Error("Missing Manifest projection fixture.");
+      await fixture.connection.db.update(objectCleanupJobs).set({
+        finalizeAttempt: cleanup.finalizeAttempt + 100,
+      }).where(eq(objectCleanupJobs.id, cleanup.id));
+      expect(await recoverUploadRecoveryJob(
+        fixture.connection.db,
+        storage,
+        recovery.id,
+        { now: new Date(recovery.nextAttemptAt.getTime() + 1), workerId: "attempt-mismatch-recovery" },
+      )).toBe("dead");
+      expect((await fixture.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.id, recovery.id)))[0]?.status).toBe("dead");
+      expect([...storage.objects.keys()].some((key) => key.startsWith("public:"))).toBe(false);
+    } finally {
+      await fixture.connection.close();
+    }
+  }, 60_000);
 
   it("prevents an expired old Finalize worker from committing after safe takeover", async () => {
     const fixture = await setup("finalize-takeover");
@@ -742,13 +1015,13 @@ describe("Admin Upload persistent Saga and Finalize lease", () => {
           now: new Date(exhaustedRecovery.leaseExpiresAt.getTime() + 1),
           workerId: "exhausted-recovery-worker",
         },
-      )).toBe("dead");
+      )).toBe("retryable");
       expect((await fixture.connection.db.select().from(uploadRecoveryJobs)
-        .where(eq(uploadRecoveryJobs.id, exhaustedRecovery.id)))[0]?.status).toBe("dead");
+        .where(eq(uploadRecoveryJobs.id, exhaustedRecovery.id)))[0]?.status).toBe("retryable");
       expect((await fixture.connection.db.select().from(assetUploadBatches)
         .where(eq(assetUploadBatches.id, exhausted.batch.batchId)))[0]).toMatchObject({
         status: "failed",
-        failureReason: "finalize_recovery_dead",
+        failureReason: "finalize_recovered_retryable",
       });
 
       const anomalous = await stageBatch(fixture, storage, "missing-recovery-anomaly");

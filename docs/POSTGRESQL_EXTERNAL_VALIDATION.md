@@ -1,6 +1,6 @@
 # PostgreSQL External Validation — Phase 1A
 
-Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**; Stage 2C **Waiting and not authorized**. Complete PostgreSQL External Validation and Production readiness have not passed. Phase 1B remains paused.
+Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed**; Stage 2C-1 **Failed with one High and stopped**. The Pre-Manifest Recovery remediation is local evidence pending independent code review and a complete Stage 2C-1 rerun from a new database. Remaining Stage 2C work is stopped, complete PostgreSQL External Validation and Production readiness have not passed, and Phase 1B remains paused.
 
 ## Stage 2B independent acceptance — 2026-08-02
 
@@ -12,7 +12,7 @@ Status: PostgreSQL Stage 2A **Passed**; PostgreSQL 18.4 ARM64 Stage 2B **Passed*
 | Blocker / High / Medium | **0 / 0 / 0** |
 | Low | **1 non-blocking Harness automation debt** |
 | Code review | **Passed** |
-| Stage 2C | **Waiting; not authorized** |
+| Stage 2C | **Stage 2C-1 failed; remediation pending independent rerun** |
 | Production Ready | **No** |
 
 Independent evidence passed Fresh and repeat Migration; upgrades from 0005, 0010, 0011, 0012 and 0014; the original SQLSTATE `55P04` path; Journal and original 0011 hash preservation; and catalog verification for 55 tables, 44 enums and 6 triggers. Constraint behavior, idempotent Seed and Readiness checks passed. Identifier truncation produced no actual collision. The evidence worktree was clean and used no formal data or production credential.
