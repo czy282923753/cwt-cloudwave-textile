@@ -1,73 +1,147 @@
-# Asset and upload rules
+# Asset and upload specification
 
-## Post-commit success and evidence addendum
+This is the current normative specification for Upload, Asset, Finalize, Recovery, Cleanup, Storage Adapter and Public Media behavior. It consolidates the active rules; remediation rounds and implementation reports are evidence, not additional state models.
 
-- Finalize core success includes every business write, required Audit, verified Manifest evidence, cancellation of Public compensation and creation of durable Private staging cleanup. Once committed, it is authoritative.
-- Running Private cleanup is best-effort post-commit maintenance. Failure to wake the worker, delete staging bytes, persist cleanup completion, or write maintenance Audit is reported as a non-blocking cleanup warning. The Batch remains completed, the Public Asset remains released, and Public compensation is never re-armed.
-- Retrying a completed Finalize is idempotently successful only for the original active User/Auth Session after exact identity and stored-byte verification. Batch/Intent/Asset/Recovery/Manifest/Cleanup mismatches or a missing/mutated Public object fail closed.
-- A Cleanup worker re-locks and revalidates complete authority immediately before deletion. Any Batch, Intent, Recovery, version, attempt, Manifest item, Asset, partition/kind/key, role, MIME or size mismatch performs no delete and becomes audited dead/manual review. If that Audit fails, the state change rolls back and the work remains retryable.
-- Public eligibility and `/api/public-assets/{assetId}/` require verified Manifest evidence for the authoritative completed Recovery attempt. Legacy Migration 0013/0014 metadata is unverified after Migration 0015 and cannot satisfy Finalize or public gates until storage bytes are read, magic MIME and size match, observations are persisted, and the system revalidation Audit commits. Evidence from superseded attempts remains unverified for diagnosis and cannot authorize the current release.
+## 1. Business and security invariants
 
-## Round 2 operational addendum
+- Public Assets, private Inquiry files and internal Import/staging objects use isolated storage contexts and access policies. Customer files never enter public Assets or an AI knowledge base automatically.
+- Production storage is nonpublic. Public HTML emits only `/api/public-assets/{assetId}/`, never an Object Key or permanent Bucket/CDN URL.
+- Release requires validated bytes, a Passed scan, compatible role/MIME, Ready processing, no deletion, effective public rights and a live eligible Published relationship.
+- External storage side effects are recoverable from durable database state. No external object may first become discoverable only through process memory or a post-failure Audit attempt.
+- Core business state and its required Audit commit atomically. Post-commit maintenance cannot reverse or misreport a committed core success.
+- Source declaration convenience never weakens byte limits, type/signature checks, decode, rate limits, scanning, isolation or private access.
 
-Historical Assets use ADR-0007's two-phase process: migration produces `required/pending`, `assets:rescan-legacy` reads the recorded Public, Private, or Import object and records fresh scanner evidence, and `db:verify` fails for broken Published or Inquiry relations. Deleted or missing objects are `manual_review`; migration and seed never mark them Passed.
+## 2. Current state model
 
-Public images are delivered only through `/api/public-assets/{assetId}/`. The route checks the current Published relation, scan/processing/deletion state, role/MIME compatibility and Effective Rights Decision before reading Local or S3 origin storage. The declaration UI switch is not an authorization input. Public HTML never contains an Object Key or permanent Bucket URL. Phase 1A responses are `private, no-store` so Archive, Unlink, Delete and Rights changes are effective on the next request. A production edge cache may be introduced only after explicit purge or delivery-version invalidation is verified.
+The implemented state sets are:
 
-Public Inquiry uploads use Upload Intent → bounded private upload → scan/decode → Session-bound Asset Token → small Inquiry JSON. Intent, Session, TTL, rate, declared MIME and any supplied Content-Length are checked before streaming. Actual bytes are counted during the stream and aborted immediately above the Intent limit. Missing Content-Length is supported; mismatched, interrupted or oversized bodies create no object, do not consume the Intent and remain retryable. Only a fully bounded body enters private quarantine and scan. Tokens expire, are single-use and are finalized in the Inquiry transaction. Expired and failed Intents and their Assets are handled by retention. The public Inquiry route never uses `arrayBuffer`, `blob`, `formData`, or large multipart parsing.
+- Upload Intent: `created`, `uploading`, `passed`, `failed`, `consumed`, `expired`.
+- Upload Batch: `created`, `uploading`, `ready_to_finalize`, `finalizing`, `completed`, `failed`, `expired`.
+- Asset: `uploaded`, `quarantined`, `scanning`, `ready`, `rejected`, `deleted`; scan is independently `pending`, `passed`, `failed` or `error`.
+- Recovery: `pending`, `processing`, `retryable`, `cleanup_required`, `completed`, `dead`, with persisted stages from preregistration through completion/failure.
+- Cleanup: `standby`, `pending`, `processing`, `completed`, `cancelled`, `dead`.
+- Manifest evidence: `planned`, `written`, `verified`, `unverified`.
 
-Admin Asset Library uploads use a separate `admin_asset` Intent kind: create an authenticated Batch bound to the acting User and active Auth Session; send each file to a raw binary PUT; scan it into Private/Internal staging; then finalize with small JSON. Before the PUT, one preregistration transaction creates the expected Object Key, a nonpublic Asset placeholder, staging Recovery and Cleanup rows, controlled Intent/Batch state and required Audit. Only a complete transaction permits the external write. Category, association target, role, order, declared MIME/size and optional declaration state are server-bound before bytes arrive and revalidated at finalization. Each Intent is TTL-limited and single-use; cross-User, cross-Session, replay and expired requests fail. Expiry retention deletes staged objects and marks the Batch expired.
+These are descriptions of the current implementation, not authorization to add states. A change follows the frozen architecture-change process and engineering complexity gate.
 
-Public release occurs only after every Batch Intent passes. A ready Batch is atomically claimed as `finalizing` in the same transaction that creates/claims its Finalize Recovery row, establishes an owner/expiry/version lease, increments attempts and writes Audit. Concurrent or repeated callers cannot both activate it. Before the first original or derivative put, one transaction writes the complete attempt-scoped Object Manifest and one `standby` compensation row per expected key. `standby` cannot delete. Object copies and image derivatives remain unaddressable until one database transaction revalidates the lease fence, Manifest, all compensation states and object existence, then activates Public storage/access, optional declaration statement, relation rows, consumed Intents, completed Batch, Recovery completion and Audit Logs. On success, the lease is cleared and the exact compensation set is cancelled. On put, derivative, relation, database or Audit failure, authoritative Manifest state remains discoverable, compensation is atomically armed with Audit and the original Asset remains Private/Internal. The Admin UI never sends file bytes through a Server Action, multipart Server Action body, `file.arrayBuffer()`, or large finalize JSON.
+## 3. Upload Intent and Batch
 
-## Finalize compensation and recovery
+Public Inquiry and Admin Asset uploads use separate Intent kinds. Intents are private, short-lived, bound to the acting Session, rate-limited and single-use; replay, expiry and cross-Session use fail closed.
 
-- Staging phases are persisted as preregistered, storage writing/written, scanning and scan passed. A process crash after object persistence is recovered from database state, never an in-memory key list.
-- Finalize phases are persisted from claim through Manifest registration, source copy, original, variants, database finalization, cleanup/failure and completion. The worker renews/fences progress by lease owner, unexpired lease and optimistic version, including periodic heartbeat while a single storage or image operation is in flight.
-- `finalizing` without a usable Recovery record is an abnormal state. Reconciliation recreates or repairs a retryable record, moves the Batch to an explicit failed recovery state and writes a system Audit; it never silently resets history to `ready_to_finalize`.
-- The complete Manifest and standby Cleanup projection precede every Public put, including a provider that persists bytes and then throws. Failure/recovery arms the projection; success cancels it. No fixed grace interval decides deletion eligibility.
-- Claim, success, failure and recovery serialize with lock order Batch → Recovery → Manifest → Cleanup. Cleanup also validates exact Manifest identity/role/MIME/size and refuses a valid Finalize lease.
-- Workers claim jobs with a lease, delete idempotently, and mark completion. An expired processing lease is reclaimable after a worker crash.
-- Transient deletion failure increments the attempt, records only a safe error and schedules exponential retry. Exhausted attempts enter `dead` and create an audited `object_cleanup.dead` operational alert.
-- Recovery/Cleanup reconciliation uses the explicit system actor. Business state and Audit commit in one transaction; if Audit fails, work is not marked complete and remains reclaimable. Failed/recovered Batches stay in an explicit failed/retryable state until a new authorized Finalize claim. Dead work remains failed for investigation. Successful Batches stay completed.
-- Public media delivery never resolves a copied key by key alone. It requires an activated Public/Ready/Passed Asset and effective Published relation, so compensation windows remain inaccessible.
-- Run `pnpm cleanup:objects` from an approved worker/scheduler context. Production schedule, monitoring and dead-letter alert routing must fail closed and are required before deployment.
-- R2/S3 provider behavior remains external validation: conditional/overwrite behavior, delete idempotency, read-after-write/list consistency, SDK retry semantics, private bucket policy, lifecycle/versioning and interruption after provider acknowledgement must be rehearsed against the selected provider.
+Public Inquiry flow is Upload Intent → bounded Private upload → validation/scan → Session-bound Asset Token → small Inquiry JSON. Only a fully accepted Intent may be consumed in the Inquiry transaction. Failed and expired Intents and unlinked assets enter retention handling. Inquiry retries are idempotent.
 
-## Default operator experience
+Admin upload creates a Batch bound to the authenticated User and active Auth Session. Metadata—including category, target association, role, order, declared MIME/size and optional declaration input—is server-bound before bytes arrive and revalidated at Finalize. Each file uses a bounded binary request; Server Actions, multipart Server Action bodies, `file.arrayBuffer()` and large Finalize JSON are not binary transports.
 
-Ordinary asset upload asks only for the file, asset category, optional Product/Fabric Entry/Content association, image role, and sort order.
+Before the first Admin staging `put`, one transaction persists the expected key, Private/Internal Asset placeholder, staging Recovery, Cleanup projection, controlled Intent/Batch states and required Audit. If any part fails, no storage write occurs. A Batch enters `finalizing` only in the transaction that creates or claims its Finalize Recovery, establishes its lease/fence, increments attempts and writes required Audit.
 
-`Enable Source Declaration` defaults to OFF. No source, copyright, authorization, restriction, review, expiry, or facility fields are displayed or populated. Upload, validation, scanning, derivation, association, and use continue normally.
+## 4. Staging and quarantine
 
-## Optional declaration
+Accepted bodies enter Private/Internal staging or Private Inquiry quarantine and remain nonpublic. Staging progress is persisted as preregistered, storage writing/written, scanning and scan passed. A process crash after persistence is recovered from this durable state rather than an in-memory key list.
 
-The operator may enable declarations per asset or upload batch. Optional fields are source type/provider, rights, subject relationship, public/edit permissions, restrictions, evidence, reviewer, review date, expiry date, and whether the facility is CWT-owned.
+Expiry retention removes eligible staged objects and marks the Batch or Intent explicitly. A staged object cannot become public merely because bytes exist or metadata says the upload succeeded.
 
-Disabling a populated declaration warns the operator, hides it from normal editing, preserves values/history, and writes an Audit Log.
+## 5. MIME, magic bytes, decoding and scanning
 
-An operator with `assets.write` may edit declaration content but cannot approve the same statement version. A Reviewer/Publisher or Admin with `assets.declaration.review` records only their own reviewer identity, reviewed version, decision, time and optional reason. The last editor cannot perform normal review. A later declaration-content change increments the statement version and clears the previous review. Admin Override is a separate explicit action with a mandatory reason and Audit Log; it is never presented as normal two-person review.
+Uploads enforce configured size/count and rate limits while streaming actual bytes. `Content-Length`, when supplied, is an early and exact consistency check but never the only limit. Missing `Content-Length` remains bounded. Oversized, mismatched or interrupted bodies create no storage object, do not consume the Intent and remain safely retryable.
 
-## Hints
+The pipeline is: metadata and limit checks → declared MIME check → magic-byte inspection → supported-image decode → quarantine/staging → malware scan → safe derivatives → appropriate release. Failed or unknown production security states fail closed.
 
-Person, logo, certificate/document, or other exception hints are non-blocking. They do not enable declarations, infer ownership or consent, or prevent an ordinary upload.
+Hero, Gallery, Cover, Detail, Thumbnail and Inline accept JPEG, PNG, WebP or AVIF only. Document and Download may also accept PDF. PDF, certificate and document files cannot satisfy Product imagery, Fabric Entry Hero or Content Cover readiness.
 
-## Partner factories
+## 6. Asset, Variant and relationship activation
 
-When declared, a partner factory may use `Subject Relationship = Partner Factory` and `Whether CWT-Owned Facility = No`. CWT photography does not make a facility CWT-owned. Public copy is governed by verified Company Facts.
+Originals and generated Variants remain inaccessible until Finalize verifies the active fence, Manifest, compensation projection and actual object existence. One core database transaction then activates Public storage/access, optional declaration data, relationship rows, consumed Intents, completed Batch/Recovery and required Audit.
 
-## Security pipeline
+Public delivery rechecks Public partition/access, Ready, Passed scan, no deletion, role/MIME compatibility, effective rights and a currently eligible Published Product, Fabric Entry or Content relationship before storage read. Private and Import objects cannot satisfy this route. Generic uploads cannot attach directly to an already Published entity; live relationship changes follow that entity's revision workflow.
 
-Receive metadata → rate/limit checks → inspect MIME and signature → decode supported images → store in quarantine → malware scan → create safe derivatives → release to the appropriate public/private context. Failed or unknown production security states fail closed.
+Phase 1A public media responses remain `private, no-store, max-age=0, must-revalidate` so archive, unlink, delete, scan or rights changes apply on the next request. Edge caching requires separately validated purge or delivery-version invalidation.
 
-Public delivery performs a second fail-closed authorization check: Public partition, Public access, Ready status, Passed scan, no deletion, and an effective association with a Published Product, Published Fabric Entry, or Published Content. Private and Import objects never receive public URLs. A generic upload cannot attach directly to a Published entity; relationship changes for live entities must travel through its revision workflow.
+## 7. Manifest
 
-## Role and MIME matrix
+Before the first Public original or derivative `put`, one transaction records the complete attempt-scoped Object Manifest and a one-to-one `standby` compensation row for every expected key, with required Audit. A `standby` row is not cleanup-claimable.
 
-Hero, Gallery, Cover, Detail, Thumbnail and Inline are image roles and accept only JPEG, PNG, WebP or AVIF. Document and Download accept those image types or PDF. PDF/certificate/document files cannot satisfy Product imagery, Fabric Entry Hero or Content Cover readiness, and public image queries filter them even if a direct database write creates an invalid relation.
+Each Manifest item identifies the attempt and expected role, MIME and byte size. Successful publication requires the current lease/fence, an exact Manifest/projection match and every expected object present. The same transaction cancels the exact standby compensation set.
 
-## Effective rights and concurrency
+Manifest authority comes from stored-byte evidence. `planned`, `written` or Migration-inferred `unverified` evidence cannot authorize Finalize or delivery. `verified` requires audited storage revalidation that records observed MIME, byte size and time. Evidence from a superseded attempt remains historical and cannot authorize or poison the current attempt.
 
-`source_declaration_enabled` controls only field visibility/editability. Effective Rights Decision controls public use and survives switch-off. Declaration content has a statement version; every edit, review or Admin Override also increments an optimistic record version. Requests carry the expected record version. Content change, review invalidation and Audit Log—or review/override and Audit Log—commit in one transaction. A stale record version is rejected. Only an explicit current-version Reviewer/Publisher decision or reason-required Admin Override can replace an effective restriction.
+## 8. Recovery and Cleanup
 
-Inquiry uploads use the Private partition and private access route only. Failed requests and concurrent idempotent losers clean unlinked objects. Customer files cannot be linked to public entities or AI knowledge automatically.
+Staging and Finalize Recovery records persist stage, attempt count, next attempt, last safe error, lease/fence data and completion/failure state. On Public write, derivative, relation, database or required-Audit failure, the authoritative Manifest remains discoverable and compensation is armed atomically with required Audit. The original Asset remains Private/Internal.
+
+Only an audited Finalize failure, expired-lease recovery, fencing decision or explicit operator decision may arm Public compensation. Successful Finalize cancels it. Cleanup never uses a fixed grace period as a substitute for this authority.
+
+Recovery and Cleanup reconciliation are Domain Service operations under the explicit system actor. A reconciled business transition and required Audit share a transaction; Audit failure rolls back the transition and leaves work reclaimable. No failing Audit writer is needed to discover the already-persisted work.
+
+## 9. Lease, heartbeat and fencing
+
+The Finalize claim transaction establishes the owner, expiry, optimistic version and Recovery record before the Batch can be `finalizing`. A second Worker cannot claim a valid lease; an expired lease may be safely reclaimed. A Worker renews the lease during long storage/image operations and fences each persisted stage and final commit by owner, unexpired lease and version.
+
+An expired or replaced Worker cannot commit. Claim, success, failure/recovery and Cleanup coordination use the established lock order Batch → Recovery → Manifest → Cleanup. `finalizing` without a usable Recovery is abnormal; reconciliation creates or repairs a retryable recovery path with required system Audit and never silently resets history to `ready_to_finalize`.
+
+## 10. Finalize Core Commit
+
+Finalize stages persist claim, Manifest registration, source copy, original and Variant writes, database finalization, cleanup/failure and completion. The core success transaction persists:
+
+- Public Asset and relationship activation;
+- consumed Intents;
+- completed Batch and Recovery;
+- cancellation of Public compensation;
+- required Audit;
+- discoverable Private staging Cleanup.
+
+Final commit revalidates current Session identity, lease owner/expiry/version, Manifest/projection and actual-object evidence. Once committed, that result is authoritative. Repeated Finalize is idempotently successful only for the original active User/Auth Session after exact Batch, Intent, Asset, Recovery, Manifest, Cleanup projection and stored-byte verification; missing or mismatched identity/evidence fails closed.
+
+### Required Audit
+
+Required Audit participates in business correctness. It is written in the same transaction as the governed state change; failure rolls back that state change. Claim, release, compensation arming, rights decisions and reconciled business transitions use this boundary.
+
+## 11. Post-Commit Maintenance
+
+After core success, waking Cleanup, deleting Private staging bytes, persisting Cleanup completion and writing maintenance Audit are non-critical maintenance. Failure yields a warning and continues through the existing durable retry or operator path. It must not downgrade the completed Batch, re-arm Public compensation, revoke the released Asset or turn the successful request into failure.
+
+### Non-critical maintenance records
+
+These records describe maintenance performed after authoritative success. They do not participate in the already-committed business result. Their failure is observable and recoverable, but is not converted into a new critical transaction or coordination mechanism by default.
+
+## 12. Cleanup identity revalidation
+
+A Cleanup Worker locks and revalidates complete authority immediately before deletion: Batch, Intent, Recovery, recovery version, attempt, Manifest item, Asset, partition/kind/key, role, MIME and size. It refuses deletion while a valid Finalize lease exists.
+
+Identity or projection mismatch performs no delete and transitions to required audited dead/manual review. If that required Audit fails, the transition rolls back and the job remains reclaimable. Public media never resolves copied bytes by key alone, so compensation windows remain inaccessible.
+
+## 13. Historical Evidence
+
+Historical Assets are never inferred Passed. Migration marks eligible legacy rows `required/pending`; `assets:rescan-legacy` reads the recorded Public, Private or Import object and records byte-backed validation and scan evidence. Missing, failed or deleted sources remain nonpublic and go to `manual_review`.
+
+`db:verify` fails readiness when a Published public entity has a broken Asset relation or a Product has no eligible image, and when an Inquiry attachment is not a Passed Private Inquiry Asset. Seed and fixtures do not manufacture historical scan evidence. Legacy Manifest metadata remains `unverified` until the authoritative storage revalidation and Audit commit.
+
+## 14. Retry, Dead and manual handling
+
+Workers claim jobs with a lease and perform idempotent deletion. Expired processing leases are reclaimable. Transient failures increment attempts, store only safe errors and use the existing exponential retry. Exhausted work becomes `dead` and produces the existing audited operational alert/manual-review path.
+
+Failed or recovered Batches remain explicit and retryable until a new authorized Finalize claim; dead work remains failed for investigation; successful Batches remain completed. The operator UI reports actionable results without exposing Lease, Recovery or Manifest concepts.
+
+The approved worker/scheduler runs `pnpm cleanup:objects`. Production scheduling, monitoring and dead-letter alert routing must fail closed before deployment.
+
+## 15. Source declaration and rights
+
+Ordinary upload asks only for file, category, optional association, image role and sort order. `Enable Source Declaration` is OFF by default. When disabled on a new upload, source, copyright, authorization, relationship, review, expiry and facility fields remain hidden and null; the system does not infer `CWT Original Photography`, `CWT Owned` or any equivalent.
+
+Operators may enable declaration per Asset or Batch. The optional fields cover source/provider, rights, subject relationship, public/edit permission, restrictions, evidence, reviewer, review date, expiry and whether a facility is CWT-owned. Non-blocking person, logo and document hints never infer ownership/consent, enable the declaration or block ordinary upload.
+
+Disabling a populated declaration warns, hides and preserves history and is audited. Declaration editing and review are separate: the last editor cannot approve the same statement version; a later edit increments the statement version and invalidates prior review. Reviewer/Publisher or Admin decisions record the acting reviewer and reviewed version. Admin Override is separate, Admin-only, reason-required and audited. Each mutation uses optimistic record versioning and commits content/review/override plus required Audit atomically.
+
+The UI switch is not an authorization input. Effective Rights Decision controls public use and survives switch-off; only a current-version authorized review or Admin Override may replace an effective restriction. A partner factory may be marked `Partner Factory` and `Whether CWT-Owned Facility = No`; CWT photography never proves facility ownership, and public copy remains governed by verified Company Facts.
+
+## 16. External Validation Required
+
+Before production, validate against the selected real providers and deployment:
+
+- PostgreSQL locking, isolation, deadlocks and query behavior for claims and reconciliation;
+- R2/S3 conditional/overwrite behavior, `HEAD`, delete idempotency, read-after-write/list consistency, SDK retries and interruption after provider acknowledgement;
+- bucket public-access blocking, lifecycle/versioning and credential isolation;
+- media-route cache headers, origin authentication, purge/version invalidation, Range behavior if enabled and large-object memory behavior;
+- production Worker schedule, monitoring, retry/dead-letter alerts and operator runbooks;
+- rate-limit enforcement across multiple application instances.
+
+These boundaries require real external validation; local inference is neither proof nor a reason to invent additional mechanisms.
