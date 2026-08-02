@@ -187,6 +187,67 @@ test("@desktop image-only inquiry is accepted and remains a governed private att
   await expect(privateFile).toHaveAttribute("href", /^\/api\/inquiry-assets\/.*\/$/);
 });
 
+test("@desktop attachment inquiry replays the frozen request after its committed response is lost", async ({
+  page,
+}) => {
+  const email = `e2e-response-loss-${Date.now()}@example.test`;
+  const inquiryBodies: string[] = [];
+  const inquiryStatuses: number[] = [];
+  let intentCreates = 0;
+  let objectUploads = 0;
+
+  await page.route("**/api/upload-intents/**", async (route) => {
+    const request = route.request();
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/upload-intents/") {
+      intentCreates += 1;
+    }
+    if (request.method() === "PUT") objectUploads += 1;
+    await route.continue();
+  });
+  await page.route("**/api/inquiries/", async (route) => {
+    inquiryBodies.push(route.request().postData() ?? "");
+    const committedResponse = await route.fetch();
+    inquiryStatuses.push(committedResponse.status());
+    if (inquiryBodies.length === 1) {
+      await route.abort("connectionfailed");
+      return;
+    }
+    await route.fulfill({ response: committedResponse });
+  });
+
+  await page.goto("/get-quote/");
+  await page.getByLabel("Name", { exact: true }).fill("E2E Response Loss Buyer");
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Upload fabric images", { exact: true }).setInputFiles({
+    name: "frozen-retry.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVQImWMQCaiAIwbiOABfgw3BWckaWgAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  });
+  await page.getByRole("button", { name: "Find Your Fabric Solution", exact: true }).click();
+
+  const uncertain = page.getByRole("alert").filter({ hasText: "Submission outcome uncertain" });
+  await expect(uncertain).toContainText("Submission outcome uncertain");
+  await expect(uncertain).toContainText("frozen-retry.png");
+  await expect(uncertain).toBeFocused();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("E2E Response Loss Buyer");
+  expect(page.url()).not.toContain("upload");
+
+  await page.getByRole("button", { name: "Retry same submission" }).click();
+  await expect(page.getByRole("status")).toContainText("Requirement received");
+  expect(intentCreates).toBe(1);
+  expect(objectUploads).toBe(1);
+  expect(inquiryBodies).toHaveLength(2);
+  expect(inquiryBodies[1]).toBe(inquiryBodies[0]);
+  expect(inquiryStatuses).toEqual([201, 200]);
+
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/inquiries/");
+  await expect(page.getByRole("link", { name: new RegExp(email) })).toHaveCount(1);
+});
+
 test("@desktop operations require authentication and local fixture login reaches the admin shell", async ({
   page,
 }) => {

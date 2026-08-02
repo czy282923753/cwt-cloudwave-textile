@@ -1,31 +1,188 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { captureAttribution, trackPublicEvent } from "./tracking";
+
+const INQUIRY_SUBMIT_TIMEOUT_MS = 20_000;
+
+interface InquiryDraft {
+  name: string;
+  email: string;
+  countryCode: string;
+  whatsapp: string;
+  description: string;
+  website: string;
+}
+
+interface InquiryRequestPayload {
+  name: string;
+  email: string;
+  countryCode: string | null;
+  whatsapp: string | null;
+  description: string | null;
+  uploadTokens: string[];
+  sourcePagePath: string;
+  landingPagePath: string | null;
+  referrer: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  lastNonDirectSource: string | null;
+  lastNonDirectMedium: string | null;
+  lastNonDirectCampaign: string | null;
+  attributionConfidence: "high" | "medium" | "low" | "unavailable";
+  anonymousSessionId: string;
+  idempotencyKey: string;
+  website: string | null;
+}
+
+interface FrozenInquiryAttempt {
+  payload: InquiryRequestPayload;
+  attachmentNames: string[];
+}
+
+type InquiryFormState =
+  | { kind: "draft"; message?: string }
+  | { kind: "uploading" }
+  | { kind: "submitting"; attempt: FrozenInquiryAttempt }
+  | { kind: "uncertain"; attempt: FrozenInquiryAttempt; message: string }
+  | { kind: "definitive_error"; attempt: FrozenInquiryAttempt; message: string }
+  | { kind: "success"; reference: string };
+
+function safeResponseMessage(result: unknown, fallback: string): string {
+  return typeof result === "object" &&
+    result !== null &&
+    "error" in result &&
+    typeof result.error === "string"
+    ? result.error
+    : fallback;
+}
+
+function isSuccessfulInquiryResult(
+  result: unknown,
+): result is { ok: true; reference: string; replayed?: boolean } {
+  return typeof result === "object" &&
+    result !== null &&
+    "ok" in result &&
+    result.ok === true &&
+    "reference" in result &&
+    typeof result.reference === "string";
+}
 
 export function InquiryForm({
   compact = false,
   initialDescription = "",
 }: Readonly<{ compact?: boolean; initialDescription?: string }>) {
   const pathname = usePathname();
-  const idempotencyKey = useRef<string | null>(null);
-  const [state, setState] = useState<
-    | { kind: "idle" }
-    | { kind: "submitting" }
-    | { kind: "success"; reference: string }
-    | { kind: "error"; message: string }
-  >({ kind: "idle" });
+  const frozenAttempt = useRef<FrozenInquiryAttempt | null>(null);
+  const operationInFlight = useRef(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const feedback = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState<InquiryDraft>({
+    name: "",
+    email: "",
+    countryCode: "",
+    whatsapp: "",
+    description: initialDescription,
+    website: "",
+  });
+  const [state, setState] = useState<InquiryFormState>({ kind: "draft" });
 
-  async function submit(formData: FormData): Promise<void> {
-    setState({ kind: "submitting" });
-    const attribution = captureAttribution();
-    idempotencyKey.current ??= crypto.randomUUID();
+  useEffect(() => {
+    if (state.kind === "uncertain" || state.kind === "definitive_error") {
+      feedback.current?.focus();
+    }
+  }, [state.kind]);
+
+  const updateDraft = (field: keyof InquiryDraft, value: string) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  async function sendFrozenAttempt(attempt: FrozenInquiryAttempt): Promise<void> {
+    let response: Response;
     try {
-      const files = formData
-        .getAll("images")
-        .filter((value): value is File => value instanceof File && value.size > 0);
+      response = await fetch("/api/inquiries/", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": attempt.payload.idempotencyKey,
+          "x-cwt-upload-session": attempt.payload.anonymousSessionId,
+        },
+        body: JSON.stringify(attempt.payload),
+        signal: AbortSignal.timeout(INQUIRY_SUBMIT_TIMEOUT_MS),
+      });
+    } catch {
+      setState({
+        kind: "uncertain",
+        attempt,
+        message:
+          "We could not confirm the response. Retry the same submission without uploading again.",
+      });
+      return;
+    }
+
+    let result: unknown;
+    try {
+      result = await response.json();
+    } catch {
+      if (response.ok || response.status >= 500) {
+        setState({
+          kind: "uncertain",
+          attempt,
+          message:
+            "The server response was interrupted. Retry the same submission without uploading again.",
+        });
+      } else {
+        setState({
+          kind: "definitive_error",
+          attempt,
+          message: "The submission was rejected. Review it and start a new inquiry.",
+        });
+      }
+      return;
+    }
+
+    if (response.status >= 500) {
+      setState({
+        kind: "uncertain",
+        attempt,
+        message:
+          "The result is not yet confirmed. Retry the same submission without uploading again.",
+      });
+      return;
+    }
+
+    if (!response.ok || !isSuccessfulInquiryResult(result)) {
+      setState({
+        kind: "definitive_error",
+        attempt,
+        message: safeResponseMessage(
+          result,
+          "The submission could not be accepted. Review it and start a new inquiry.",
+        ),
+      });
+      return;
+    }
+
+    frozenAttempt.current = null;
+    trackPublicEvent("quote_submit_success", pathname, {
+      placement: compact ? "compact_form" : "quote_page",
+    });
+    setState({ kind: "success", reference: result.reference });
+  }
+
+  async function submitDraft(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (operationInFlight.current || frozenAttempt.current) return;
+    operationInFlight.current = true;
+    setState({ kind: "uploading" });
+    const attribution = captureAttribution();
+    const files = Array.from(fileInput.current?.files ?? []).filter((file) => file.size > 0);
+    const idempotencyKey = crypto.randomUUID();
+
+    try {
       const uploadTokens: string[] = [];
       for (const file of files) {
         const intentResponse = await fetch("/api/upload-intents/", {
@@ -64,23 +221,15 @@ export function InquiryForm({
         }
         uploadTokens.push(intent.token);
       }
-      const stringField = (name: string): string => {
-        const value = formData.get(name);
-        return typeof value === "string" ? value : "";
-      };
-      const response = await fetch("/api/inquiries/", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "Idempotency-Key": idempotencyKey.current,
-          "x-cwt-upload-session": attribution.anonymousSessionId,
-        },
-        body: JSON.stringify({
-          name: stringField("name"),
-          email: stringField("email"),
-          countryCode: stringField("countryCode") || null,
-          whatsapp: stringField("whatsapp") || null,
-          description: stringField("description") || null,
+
+      const attempt: FrozenInquiryAttempt = {
+        attachmentNames: files.map((file) => file.name),
+        payload: {
+          name: draft.name,
+          email: draft.email,
+          countryCode: draft.countryCode || null,
+          whatsapp: draft.whatsapp || null,
+          description: draft.description || null,
           uploadTokens,
           sourcePagePath: pathname,
           landingPagePath: attribution.landingPagePath || null,
@@ -93,78 +242,235 @@ export function InquiryForm({
           lastNonDirectCampaign: attribution.lastNonDirectCampaign || null,
           attributionConfidence: attribution.attributionConfidence,
           anonymousSessionId: attribution.anonymousSessionId,
-          idempotencyKey: idempotencyKey.current,
-          website: stringField("website") || null,
-        }),
+          idempotencyKey,
+          website: draft.website || null,
+        },
+      };
+      frozenAttempt.current = attempt;
+      setState({ kind: "submitting", attempt });
+      await sendFrozenAttempt(attempt);
+    } catch (error) {
+      setState({
+        kind: "draft",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Image upload was interrupted. Please try again.",
       });
-      const result = (await response.json()) as unknown;
-      if (
-        !response.ok ||
-        typeof result !== "object" ||
-        result === null ||
-        !("ok" in result) ||
-        result.ok !== true ||
-        !("reference" in result) ||
-        typeof result.reference !== "string"
-      ) {
-        const message =
-          typeof result === "object" &&
-          result !== null &&
-          "error" in result &&
-          typeof result.error === "string"
-            ? result.error
-            : "We could not submit your request. Please try again.";
-        setState({ kind: "error", message });
-        return;
-      }
-      trackPublicEvent("quote_submit_success", pathname, { placement: compact ? "compact_form" : "quote_page" });
-      setState({ kind: "success", reference: result.reference });
-    } catch {
-      setState({ kind: "error", message: "Connection interrupted. Please try again." });
+    } finally {
+      operationInFlight.current = false;
     }
+  }
+
+  async function retryFrozenAttempt(): Promise<void> {
+    const attempt = frozenAttempt.current;
+    if (!attempt || state.kind !== "uncertain" || operationInFlight.current) return;
+    operationInFlight.current = true;
+    setState({ kind: "submitting", attempt });
+    try {
+      await sendFrozenAttempt(attempt);
+    } finally {
+      operationInFlight.current = false;
+    }
+  }
+
+  function startNewInquiry(): void {
+    if (operationInFlight.current) return;
+    frozenAttempt.current = null;
+    setState({
+      kind: "draft",
+      message:
+        "A new submission will use a new request key and upload the selected images again.",
+    });
   }
 
   if (state.kind === "success") {
     return (
-      <div className="rounded-[1.5rem] border border-emerald-600/20 bg-emerald-50 p-6 text-emerald-950" role="status">
+      <div
+        className="rounded-[1.5rem] border border-emerald-600/20 bg-emerald-50 p-6 text-emerald-950"
+        role="status"
+      >
         <h2 className="text-xl font-semibold">Requirement received</h2>
-        <p className="mt-2 text-sm leading-6">Our team can now review your description or private images. Reference: {state.reference}</p>
+        <p className="mt-2 text-sm leading-6">
+          Our team can now review your description or private images. Reference: {state.reference}
+        </p>
       </div>
     );
   }
 
+  const isBusy = state.kind === "uploading" || state.kind === "submitting";
+  const hasFrozenResult = state.kind === "uncertain" || state.kind === "definitive_error";
+  const frozenSummary = hasFrozenResult ? state.attempt : null;
+
   return (
-    <form action={submit} className="grid gap-4">
-      <div className={compact ? "grid gap-4 sm:grid-cols-2" : "grid gap-5 sm:grid-cols-2"}>
-        <label className="form-field">Name <input autoComplete="name" name="name" required /></label>
-        <label className="form-field">Email <input autoComplete="email" name="email" required type="email" /></label>
-        <label className="form-field">Country <input autoComplete="country" maxLength={2} name="countryCode" placeholder="Country code, optional" /></label>
-        <label className="form-field">WhatsApp <input autoComplete="tel" name="whatsapp" placeholder="Optional" /></label>
-      </div>
-      <label className="form-field">Describe what you need <textarea defaultValue={initialDescription} name="description" placeholder="Use, feel, stretch, color, quantity—or leave blank and upload an image." rows={compact ? 3 : 5} /></label>
-      <div className="form-field">
-        <label htmlFor="inquiry-images">Upload fabric images</label>
-        <input
-          accept="image/jpeg,image/png,image/webp"
-          aria-describedby="inquiry-images-help"
-          id="inquiry-images"
-          multiple
-          name="images"
-          onChange={(event) => {
-            if (event.currentTarget.files?.length) {
-              trackPublicEvent("upload_started", pathname, { file_count: event.currentTarget.files.length });
-            }
-          }}
-          type="file"
-        />
-        <span className="text-xs font-normal text-stone-500" id="inquiry-images-help">JPG, PNG or WebP. Files remain private and use expiring access.</span>
-      </div>
-      <div className="hidden" aria-hidden="true"><label>Website<input autoComplete="off" name="website" tabIndex={-1} /></label></div>
-      {state.kind === "error" ? <p className="text-sm text-red-700" role="alert">{state.message}</p> : null}
-      <button className="button-primary justify-center" disabled={state.kind === "submitting"} type="submit">
-        {state.kind === "submitting" ? "Sending securely…" : "Find Your Fabric Solution"}
-      </button>
-      <p className="text-xs leading-5 text-stone-500">Name and Email are required. Add either a description or at least one image.</p>
+    <form className="grid gap-4" onSubmit={(event) => void submitDraft(event)}>
+      <fieldset className="contents" disabled={isBusy || hasFrozenResult}>
+        <div className={compact ? "grid gap-4 sm:grid-cols-2" : "grid gap-5 sm:grid-cols-2"}>
+          <label className="form-field">
+            Name
+            <input
+              autoComplete="name"
+              name="name"
+              onChange={(event) => updateDraft("name", event.currentTarget.value)}
+              required
+              value={draft.name}
+            />
+          </label>
+          <label className="form-field">
+            Email
+            <input
+              autoComplete="email"
+              name="email"
+              onChange={(event) => updateDraft("email", event.currentTarget.value)}
+              required
+              type="email"
+              value={draft.email}
+            />
+          </label>
+          <label className="form-field">
+            Country
+            <input
+              autoComplete="country"
+              maxLength={2}
+              name="countryCode"
+              onChange={(event) => updateDraft("countryCode", event.currentTarget.value)}
+              placeholder="Country code, optional"
+              value={draft.countryCode}
+            />
+          </label>
+          <label className="form-field">
+            WhatsApp
+            <input
+              autoComplete="tel"
+              name="whatsapp"
+              onChange={(event) => updateDraft("whatsapp", event.currentTarget.value)}
+              placeholder="Optional"
+              value={draft.whatsapp}
+            />
+          </label>
+        </div>
+        <label className="form-field">
+          Describe what you need
+          <textarea
+            name="description"
+            onChange={(event) => updateDraft("description", event.currentTarget.value)}
+            placeholder="Use, feel, stretch, color, quantity—or leave blank and upload an image."
+            rows={compact ? 3 : 5}
+            value={draft.description}
+          />
+        </label>
+        <div className="form-field">
+          <label htmlFor="inquiry-images">Upload fabric images</label>
+          <input
+            accept="image/jpeg,image/png,image/webp"
+            aria-describedby="inquiry-images-help"
+            id="inquiry-images"
+            multiple
+            name="images"
+            onChange={(event) => {
+              if (event.currentTarget.files?.length) {
+                trackPublicEvent("upload_started", pathname, {
+                  file_count: event.currentTarget.files.length,
+                });
+              }
+            }}
+            ref={fileInput}
+            type="file"
+          />
+          <span className="text-xs font-normal text-stone-500" id="inquiry-images-help">
+            JPG, PNG or WebP. Files remain private and use expiring access.
+          </span>
+        </div>
+        <div aria-hidden="true" className="hidden">
+          <label>
+            Website
+            <input
+              autoComplete="off"
+              name="website"
+              onChange={(event) => updateDraft("website", event.currentTarget.value)}
+              tabIndex={-1}
+              value={draft.website}
+            />
+          </label>
+        </div>
+      </fieldset>
+
+      {isBusy ? (
+        <p aria-live="polite" className="text-sm text-stone-600" role="status">
+          {state.kind === "uploading"
+            ? "Uploading private images securely…"
+            : "Submitting the frozen request…"}
+        </p>
+      ) : null}
+
+      {state.kind === "draft" && state.message ? (
+        <p className="text-sm text-red-700" role="alert">
+          {state.message}
+        </p>
+      ) : null}
+
+      {hasFrozenResult && frozenSummary ? (
+        <div
+          aria-live="assertive"
+          className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+          ref={feedback}
+          role="alert"
+          tabIndex={-1}
+        >
+          <h2 className="font-semibold">
+            {state.kind === "uncertain"
+              ? "Submission outcome uncertain"
+              : "Submission needs a new attempt"}
+          </h2>
+          <p className="mt-2">{state.message}</p>
+          <dl className="mt-3 grid gap-1">
+            <div>
+              <dt className="inline font-medium">Name: </dt>
+              <dd className="inline">{frozenSummary.payload.name}</dd>
+            </div>
+            <div>
+              <dt className="inline font-medium">Email: </dt>
+              <dd className="inline">{frozenSummary.payload.email}</dd>
+            </div>
+            <div>
+              <dt className="inline font-medium">Images: </dt>
+              <dd className="inline">
+                {frozenSummary.attachmentNames.length
+                  ? frozenSummary.attachmentNames.join(", ")
+                  : "None"}
+              </dd>
+            </div>
+          </dl>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {state.kind === "uncertain" ? (
+              <button
+                className="button-primary"
+                onClick={() => void retryFrozenAttempt()}
+                type="button"
+              >
+                Retry same submission
+              </button>
+            ) : null}
+            <button className="button-secondary" onClick={startNewInquiry} type="button">
+              Edit and start over
+            </button>
+          </div>
+          {state.kind === "uncertain" ? (
+            <p className="mt-3 text-xs">
+              Retrying reuses the same secure upload and does not create another Inquiry.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!hasFrozenResult ? (
+        <button className="button-primary justify-center" disabled={isBusy} type="submit">
+          {isBusy ? "Sending securely…" : "Find Your Fabric Solution"}
+        </button>
+      ) : null}
+      <p className="text-xs leading-5 text-stone-500">
+        Name and Email are required. Add either a description or at least one image.
+      </p>
     </form>
   );
 }
