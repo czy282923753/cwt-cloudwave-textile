@@ -1,11 +1,19 @@
 # Operations runbook — Phase 1A
 
+## Post-commit Finalize and Manifest evidence incidents
+
+- A completed Batch with a completed Finalize Recovery and cancelled Public compensation is committed business success. Private staging cleanup in pending/retryable/dead state is a maintenance incident; do not downgrade the Batch, re-arm Public compensation or tell the operator that the upload failed.
+- For pending Private cleanup, inspect Batch, Intent, staging Recovery, Cleanup identity/version and Audit together, then run the approved cleanup worker. Audit failure must leave the job retryable. Never manually mark cleanup completed merely because the staging object is absent.
+- Before any Cleanup deletion, all locked identity fields must agree. A `dead` row with an identity-mismatch reason is manual-review evidence: preserve the object and records, investigate the divergence and use an audited remediation. Do not edit keys/foreign IDs to force deletion.
+- After Migration 0015, legacy Manifest rows show `evidence_status = unverified`. This is expected and fail-closed. Run the byte-backed historical Manifest revalidation through the authorized system service/worker before expecting those Assets to satisfy public readiness. Missing objects, MIME/size mismatch or failed Audit remain unverified and must not be bypassed.
+- Upgrade order now includes Migration 0015 after 0014. It aborts on orphan Finalize Recovery references or incomplete Finalize Cleanup identity; resolve such rows through a reviewed, audited data-remediation plan rather than deleting evidence. Back up database/storage first and re-run Fresh/Upgrade verification before deployment authorization.
+
 ## Upgrade order for existing Phase 1A data
 
 1. Back up the database and all storage partitions.
 2. Apply migration 0007. Do not serve traffic as ready.
 3. Run `pnpm assets:rescan-legacy`; stale interrupted claims older than 15 minutes are reclaimed automatically. Resolve every missing/rejected item required by a Published entity or Inquiry, then retry one repaired item with `pnpm assets:rescan-legacy --retry-manual {assetId}`.
-4. Apply migrations 0008–0014. Review every Product marked `publication_remediation_required`; never manufacture basis evidence. Reconfirm with an active Reviewer/Publisher or Admin, complete the normal In Review workflow, and republish only after current localization, route and image gates pass.
+4. Apply migrations 0008–0015. Review every Product marked `publication_remediation_required`; never manufacture basis evidence. Reconfirm with an active Reviewer/Publisher or Admin, complete the normal In Review workflow, and republish only after current localization, route, image and verified Manifest-evidence gates pass.
 5. Inspect Source Declaration rows whose Effective Rights is Pending Review, Not Allowed, Revoked, Expired, or Restricted. Turning the UI switch off is not remediation. Only an authorized current-record-version review or reason-required Admin Override may change the effective decision.
 6. Verify server Consent storage and that `conversion_events` contains no Inquiry column before enabling any analytics adapter.
 7. Run `pnpm cleanup:objects` until no due cleanup job remains; investigate every `dead` row and its `object_cleanup.dead` Audit before serving traffic.

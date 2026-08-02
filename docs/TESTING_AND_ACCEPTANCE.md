@@ -1,5 +1,18 @@
 # Testing and Phase 1A acceptance
 
+## Post-commit boundary closure directed matrix
+
+The final directed gate covers core-commit versus post-commit separation, persistent private cleanup, strict completed idempotency, lock-after-read Cleanup identity, restrictive Recovery foreign keys, and byte-backed Manifest evidence. Substantive assertions include:
+
+1. Post-commit worker wake, storage delete, cleanup-state Audit and persistent Audit-writer outages return committed success with a maintenance warning and never re-arm Finalize.
+2. Same-owner/session completed retries return the same Asset IDs without another Public put; a different User/Session, Batch/Asset mismatch or missing Public object fails closed.
+3. Eleven independently corrupted Cleanup identity fields (Batch, Intent, Recovery, Recovery version, attempt, Manifest item, Asset, key, role, MIME and size) cause zero delete and audited dead/manual review; injected Audit failure rolls the state change back.
+4. Legacy unverified Manifest evidence blocks public readiness; failed revalidation Audit rolls back; actual object bytes establish observed MIME/size/time and verified evidence atomically.
+5. Migration 0015 passes Fresh and 0012→latest Upgrade, rejects orphan Finalize Recovery references, enforces nullable-valid/restrictive FK behavior, and marks inferred 0013/0014 evidence unverified.
+6. The Admin client announces core success before navigation and presents cleanup delay as a non-blocking warning, never as a false upload failure.
+
+Local evidence for this closure: directed suites 40/40; ESLint zero warnings; strict TypeScript; Drizzle Check and no-delta Generate; 47 Vitest files/139 tests; Fresh/Upgrade Migration and repeatable Seeds; fresh Next.js 16.2.12 production build with 40 route/static-generation units; Bundle isolation across 20 public manifests/29 files; production dependency audit with no known vulnerability; and Playwright 18/18 on Desktop Chromium/Pixel 7 with `--retries=0`. No retained test was deleted, skipped or weakened. Real PostgreSQL and R2/S3 remain **External Validation Required**.
+
 ## Finalize / Cleanup race-closure directed matrix
 
 The directed suites use real concurrent promises, explicit async barriers, a mutable/fake clock where required, persistent PGlite transactions and fault injection. Static checks are auxiliary only. The executable matrix covers:

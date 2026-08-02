@@ -1,10 +1,87 @@
-# CWT Phase 1A Finalize / Cleanup Race Closure implementation report
+# CWT Phase 1A Post-Commit Boundary Closure implementation report
 
 Date: 2026-08-02
 
 Baseline: frozen CWT Product and Technical Architecture V1.1 plus `AGENTS.md`
 
-Scope: only the final review's one Medium finding, the long-running Finalize versus Public Compensation Cleanup race. Phase 1B, real PostgreSQL/R2/S3/SMTP acceptance, Excel import, AI, multilingual work, deployment, DNS, formal data and unrelated redesign remain excluded.
+Scope: only the sixth independent review's one Medium and three Low findings: Finalize core/post-commit result consistency, completed-Finalize idempotency, lock-after-read Cleanup identity, Finalize Recovery FK integrity, and historical Manifest evidence governance. Phase 1B, real PostgreSQL/R2/S3/SMTP acceptance, Excel import, AI, multilingual work, deployment, DNS, formal data and unrelated redesign remain excluded.
+
+## 1. Authorized finding results
+
+- Medium — a committed Finalize could return failure when later Private Cleanup/Audit failed: fixed locally.
+- Low — Cleanup did not explicitly compare the complete authority after locking: fixed locally.
+- Low — `object_cleanup_jobs.finalize_recovery_id` lacked a database FK: fixed locally.
+- Low — inferred historical Variant Manifest metadata could be treated as verified evidence: fixed locally.
+- Authorized-scope self-check after the full gate: Blocker 0, High 0, Medium 0, Low 0. Independent review remains authoritative; Phase 1B stays paused.
+
+## 2. Finalize core transaction boundary
+
+The fenced core path validates User/Auth Session/permission, Batch, Recovery owner/lease/version/attempt, exact Manifest and Public compensation projection, and actual Public object bytes. One database transaction then activates Assets/Variants and relations, consumes Intents, completes Batch and Recovery, cancels every exact Public compensation row, preregisters durable Private staging cleanup, records byte-backed Manifest evidence and writes all required Audit Logs. Any core business write or Audit failure rolls this transaction back and enters the existing fail-closed compensation path; it cannot report success.
+
+## 3. Post-Commit Cleanup isolation
+
+Private cleanup wake/claim/delete/status reconciliation begins only after the core transaction returns. Its error boundary is structurally outside the core Finalize catch. Wake failure, provider delete failure, cleanup-state Audit failure, persistent Audit-writer outage and maintenance-warning Audit failure keep the cleanup row pending/retryable and return committed success plus a sanitized, non-blocking warning. These paths never call `markFinalizeRecoveryRequired`, re-arm Public compensation, alter the completed Batch/Recovery or expose provider/database errors. The Admin UI announces “uploaded and released,” may append the cleanup warning, navigates to the persisted Asset and never suggests re-uploading.
+
+## 4. Completed Finalize idempotency and catch defense
+
+The Finalize entry and core catch both re-read authoritative state. A completed result is returned only for the original active User/Auth Session when all Intents belong to the Batch and are consumed, every Asset is Public/Ready/Passed, Recovery is completed with no lease, attempt/version-aligned Manifest evidence is verified, every Public compensation row is exactly matched/cancelled, and each actual stored object still matches MIME and byte size. It returns the same Asset IDs, Batch ID, `alreadyFinalized: true`, cleanup state and safe message without another Public write. Another User/Session, mismatched Batch/Intent/Asset/Recovery/projection, or missing/mutated object fails closed. A genuinely completed Finalize is never converted into a lease error or failure compensation.
+
+## 5. Cleanup lock-after-read identity
+
+The worker may pre-read a candidate only to locate work. In the transaction it locks Batch, Intent, Recovery, Manifest, Asset and Cleanup, re-reads the job and compares Job/Batch/Intent/Recovery/version/attempt/Manifest/Asset/partition/kind/key/role/MIME/byte size plus current Cleanup and Recovery states. Deletion occurs only from this locked authority. Any mismatch makes zero storage-delete calls and writes an audited `dead`/manual-review result with a safe reason. If that Audit fails, the status transition rolls back and the work remains retryable.
+
+## 6. Migration 0015 and schema changes
+
+`0015_post-commit-boundary-closure.sql` is forward-only; Migrations 0013/0014 are unchanged. It adds cleanup-kind and Manifest-evidence enums; complete Cleanup Intent/Recovery-version/Manifest identity; observed Manifest MIME/size/time and verification source/status; Intent and Manifest indexes; a nullable restrictive `finalize_recovery_id → upload_recovery_jobs.id` FK; a restrictive Manifest/Recovery FK; and a restrictive Cleanup/Manifest FK. Finalize Cleanup rows are Check-constrained to Public partition plus complete Recovery/Manifest/object metadata. Null remains legal for generic cleanup. Existing orphan Finalize references or incomplete Finalize identity abort upgrade for manual governance instead of being deleted or fabricated.
+
+All pre-0015 Manifest records are conservatively marked `unverified` with source `migration_0015_legacy_inferred`; old inferred byte/time fields remain historical diagnostics only. Public eligibility and controlled media delivery reject unverified evidence. The authorized revalidation reads actual storage bytes, verifies magic MIME/size and complete identity, records observed values/time and `verified` status with system Audit in one transaction. Audit failure rolls it back.
+
+## 7. Files changed
+
+New files: Migration/Snapshot `0015_post-commit-boundary-closure` and `src/uploads/post-commit-boundary.static.test.ts`.
+
+Modified implementation files: Drizzle journal/schema/enums; Admin upload service and feedback component; Upload Recovery and Object Cleanup services; public Asset eligibility/delivery; Migration, Finalize, Recovery, Cleanup and component tests. Modified documentation is limited to `AGENTS.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `ASSET_AND_UPLOADS.md`, `TESTING_AND_ACCEPTANCE.md`, `OPERATIONS_RUNBOOK.md`, and this report. No tracked file was deleted; Migrations 0013/0014 were not modified.
+
+## 8. Directed fault-injection result
+
+The two-stage directed gate passed 40/40 assertions across the selected suites. It proves exact committed-core/private-cleanup-Audit failure behavior; post-commit wake/delete/state/warning/persistent-Audit isolation; later cleanup-worker completion; strict same-owner idempotency and unauthorized/mismatched/object-missing refusal; every requested Cleanup identity mismatch with zero delete; Audit rollback; historical unverified evidence blocking and audited byte-backed promotion; valid/null/invalid/restrictive FK behavior; orphan-upgrade rejection; and Fresh/Upgrade Migration. Core Audit, Manifest, object, lease and Public-compensation failures remain fail-closed rather than being converted into success.
+
+## 9. Full local quality gate
+
+- Environment: Node 24.14.0 arm64, pnpm 11.9.0, Sharp 0.35.3, Lightning CSS 1.32.0 and Next SWC 16.2.12 load.
+- ESLint: pass, zero warnings. TypeScript strict: pass.
+- Drizzle Check: pass. Generate reports no schema delta after 0015.
+- Vitest: 47 files / 139 tests pass. The previous 129 remain; 10 substantive tests were added. No `skip`, `todo` or `only` exists in the searched test source.
+- Migration/Seed: Fresh, retained Upgrade, executable 0012→latest and 0014→0015 orphan/fail-closed paths pass; repeatable core/Fixture Seeds pass.
+- Production Build: a fresh Next.js 16.2.12 build passes after applying 0015 to the isolated local PGlite database; 40 route/static-generation units complete.
+- Public Bundle: the fresh build's 20 public page manifests / 29 referenced files contain no Refine/admin dependency.
+- Dependency audit: no known production vulnerability.
+- Playwright: 18/18 pass on Desktop Chromium and Pixel 7 with `--retries=0`. Public-path HTTP, authenticated Admin operations, upload persistence, inquiries, revision/301, mobile layout and sampled Axe Critical/Serious assertions pass.
+
+The first browser run exposed a success-copy mismatch after the new typed server message (17/18). Core success and maintenance warning were separated without changing the business result; a new build and zero-retry rerun then passed 18/18. This failed run is retained in the report rather than hidden.
+
+## 10. Existing capability regression
+
+All retained tests pass for governed Domain Service/Audit transactions, Product Revision, Published/Index separation, real Product eligibility, historical Asset rescan, Effective Rights, Source Declaration separation/concurrency, Analytics/CRM privacy, server Consent, public/admin streaming upload, Fabric/Content MIME roles, HTTP 301/slash URLs, controlled public media, CRM record authorization, Notification Outbox leases, Inquiry idempotency, Conversion Event/Product Code constraints, Refine public-bundle isolation and non-production global Noindex. The Finalize/Public Compensation state machine and lease/heartbeat design were not redesigned.
+
+## 11. External boundary and remaining validation
+
+Not executed and still **External Validation Required**: real PostgreSQL locking/FK/migration/query behavior; R2/S3 HEAD/get/delete/consistency/interruption semantics; SMTP/scanner providers; Preview/Production deployment; DNS; backup/restore; production retention; formal data and credentials. Real Product validation remains `Waiting for Real Product Data Validation`.
+
+No external Git push, production database, provider account, production key, DNS mutation, Preview/Production deployment or formal data import occurred.
+
+## 12. Local Git record
+
+- Implementation, Migration and executable tests: `adb6a54 fix: isolate finalize post-commit maintenance`.
+- Documentation/evidence is committed separately after this implementation record. No external push was performed.
+
+## 13. Recommendation and phase status
+
+Re-run the independent Post-Commit Boundary directed review. If it reports Blocker 0, High 0 and Medium 0, execute the separately requested independent full regression review before any external validation decision. Phase 1B remains paused and this work does not authorize real PostgreSQL acceptance.
+
+---
+
+The following sections preserve the prior Finalize/Cleanup Race Closure report as historical evidence.
 
 ## 1. Race-closure result
 

@@ -1,5 +1,13 @@
 # Asset and upload rules
 
+## Post-commit success and evidence addendum
+
+- Finalize core success includes every business write, required Audit, verified Manifest evidence, cancellation of Public compensation and creation of durable Private staging cleanup. Once committed, it is authoritative.
+- Running Private cleanup is best-effort post-commit maintenance. Failure to wake the worker, delete staging bytes, persist cleanup completion, or write maintenance Audit is reported as a non-blocking cleanup warning. The Batch remains completed, the Public Asset remains released, and Public compensation is never re-armed.
+- Retrying a completed Finalize is idempotently successful only for the original active User/Auth Session after exact identity and stored-byte verification. Batch/Intent/Asset/Recovery/Manifest/Cleanup mismatches or a missing/mutated Public object fail closed.
+- A Cleanup worker re-locks and revalidates complete authority immediately before deletion. Any Batch, Intent, Recovery, version, attempt, Manifest item, Asset, partition/kind/key, role, MIME or size mismatch performs no delete and becomes audited dead/manual review. If that Audit fails, the state change rolls back and the work remains retryable.
+- Public eligibility and `/api/public-assets/{assetId}/` require verified Manifest evidence when a Manifest exists. Legacy Migration 0013/0014 metadata is unverified after Migration 0015 and cannot satisfy Finalize or public gates until storage bytes are read, magic MIME and size match, observations are persisted, and the system revalidation Audit commits.
+
 ## Round 2 operational addendum
 
 Historical Assets use ADR-0007's two-phase process: migration produces `required/pending`, `assets:rescan-legacy` reads the recorded Public, Private, or Import object and records fresh scanner evidence, and `db:verify` fails for broken Published or Inquiry relations. Deleted or missing objects are `manual_review`; migration and seed never mark them Passed.

@@ -58,6 +58,14 @@ CWT is a modular monolith: one deployable Next.js application with explicit publ
 - Finalize failure and expired-lease recovery reconstruct missing projections from the Manifest, arm only authoritative objects and commit Batch/Recovery/compensation state with Audit. Audit failure rolls back arming. Unexpected projection rows become dead/manual-review evidence rather than deletion authority.
 - Admin writes return `AdminActionResult` through the common adapter, never direct Server Action redirects or `void`. Success carries message, Entity ID and observable navigation intent; failures carry field/form feedback and a sanitized error code.
 
+## Post-commit boundary closure
+
+- Finalize's core success transaction is the last business-commit boundary. It atomically completes the Batch/Recovery/Intents, activates Public Assets and relations, verifies attempt Manifest evidence, cancels exact Public compensation, preregisters Private staging cleanup and writes required Audit.
+- Private cleanup execution is post-commit maintenance. Wake, claim, delete, cleanup-state Audit, or warning-Audit failure returns committed success plus a non-blocking maintenance warning. It cannot call the Finalize failure/re-arm path or mutate completed business state.
+- A completed Batch is not accepted by status alone. Idempotent success requires the original active User/Auth Session and exact persisted Batch/Intent/Asset/Recovery/Manifest/Cleanup identity plus byte-backed verification of every Public object.
+- Cleanup claim uses a pre-read only to locate work. Deletion authority is established after the full lock order and a second read. Batch, Intent, Recovery/version/attempt, Manifest item, Asset, partition/kind/key/role/MIME/size must still agree. A mismatch is audited dead/manual review and performs no storage delete.
+- `finalize_object_manifest_items.evidence_status = verified` is required by public eligibility and delivery. Current Finalize verifies actual stored bytes inside the fenced completion path. Legacy evidence created by Migrations 0013/0014 is forward-marked unverified by Migration 0015 and requires explicit audited storage revalidation.
+
 ## Technology baseline
 
 Use the current patched Next.js Active LTS line verified at initialization, React compatible with it, Node.js 24 LTS, strict TypeScript, Tailwind CSS, PostgreSQL 18 or a compatible supported 17 release, Drizzle stable releases pinned exactly, an S3-compatible storage interface, and Sharp-compatible image processing.
