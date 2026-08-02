@@ -55,6 +55,16 @@ The public form now freezes the Idempotency Key, complete request/attribution pa
 
 A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` environment passed: SQLSTATE `23514` rollback of the dangling direct Route move and its Audit; the legal flattened move; a real advisory-lock wait and bounded closure retry; an adversarial reciprocal race with one PostgreSQL-aborted writer and a valid final graph; same-fingerprint two-Backend Inquiry convergence with exactly one Inquiry, Contact, attachment relation, History, Outbox and Audit; different-fingerprint conflict; and D03 single Apply owner/Audit rollback regression. Advisory locks and idle-in-transaction Sessions ended at zero.
 
+Run that dedicated Harness only against an isolated non-production PostgreSQL administrative database. It creates and removes its own `cwt_joint_remediation_*` database and refuses Production mode or a missing isolation flag:
+
+```sh
+APP_ENV=test \
+DATABASE_DRIVER=postgres \
+DATABASE_URL='postgres://.../postgres' \
+CWT_POSTGRES_JOINT_REMEDIATION_VALIDATION=isolated-test-database \
+pnpm exec tsx scripts/verify-postgres-stage2c-joint-remediation.ts
+```
+
 The real Migration Harness passed Fresh/repeat and 0005, 0010, 0011, 0012, 0014, 0015 and 0016 upgrade/repeat paths; the original enum-compatibility scenarios remained green. Repeat Seed and Readiness passed with 55 tables unchanged. A real browser test let the server return 201 internally, aborted the response before the page received it, then observed an exact second payload and 200 replay with one Intent and one object upload.
 
 This is local remediation evidence, not Stage 2C acceptance. The new joint independent code review and a fresh independent Stage 2C run remain required. No Approved Tag is created, and Phase 1B remains paused.
