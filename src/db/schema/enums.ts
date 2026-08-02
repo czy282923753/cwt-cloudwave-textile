@@ -127,6 +127,7 @@ export const assetUploadBatchStatusEnum = pgEnum("asset_upload_batch_status", [
 ]);
 
 export const objectCleanupStatusEnum = pgEnum("object_cleanup_status", [
+  "standby",
   "pending",
   "processing",
   "completed",
@@ -155,6 +156,7 @@ export const uploadRecoveryStageEnum = pgEnum("upload_recovery_stage", [
   "scanning",
   "scan_passed",
   "claimed",
+  "manifest_registered",
   "source_copy_started",
   "original_written",
   "variants_processing",

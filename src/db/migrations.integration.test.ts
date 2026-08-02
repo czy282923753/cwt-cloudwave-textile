@@ -46,6 +46,7 @@ describe("database migrations", () => {
     expect(names).toContain("inquiries");
     expect(names).toContain("audit_logs");
     expect(names).toContain("upload_recovery_jobs");
+    expect(names).toContain("finalize_object_manifest_items");
     await connection.close();
   }, 15_000);
 
@@ -279,6 +280,172 @@ describe("database migrations", () => {
       await connection.close();
     }
   });
+
+  it("creates standby Public Compensation and an independent authoritative Finalize Object Manifest", async () => {
+    const connection = await createTestDatabase();
+    try {
+      const cleanupColumns = await connection.db.execute<{ column_name: string }>(sql`
+        select column_name from information_schema.columns
+        where table_name = 'object_cleanup_jobs'
+      `);
+      const cleanupNames = new Set(cleanupColumns.rows.map((row) => row.column_name));
+      for (const required of [
+        "finalize_recovery_id",
+        "finalize_attempt",
+        "expected_object_role",
+        "expected_mime_type",
+        "expected_byte_size",
+        "write_completed_at",
+        "armed_at",
+        "armed_reason",
+      ]) {
+        expect(cleanupNames, required).toContain(required);
+      }
+      const manifestColumns = await connection.db.execute<{ column_name: string }>(sql`
+        select column_name from information_schema.columns
+        where table_name = 'finalize_object_manifest_items'
+      `);
+      expect(manifestColumns.rows.map((row) => row.column_name)).toEqual(expect.arrayContaining([
+        "recovery_job_id",
+        "upload_batch_id",
+        "finalize_attempt",
+        "asset_id",
+        "object_key",
+        "object_role",
+        "mime_type",
+        "byte_size",
+        "write_completed_at",
+      ]));
+      const statusValues = await connection.db.execute<{ enumlabel: string }>(sql`
+        select enumlabel from pg_enum
+        join pg_type on pg_type.oid = pg_enum.enumtypid
+        where pg_type.typname = 'object_cleanup_status'
+        order by enumsortorder
+      `);
+      expect(statusValues.rows.map((row) => row.enumlabel)).toEqual([
+        "standby", "pending", "processing", "completed", "cancelled", "dead",
+      ]);
+      const indexes = await connection.db.execute<{ indexname: string }>(sql`
+        select indexname from pg_indexes
+        where tablename in ('object_cleanup_jobs', 'finalize_object_manifest_items')
+      `);
+      expect(indexes.rows.map((row) => row.indexname)).toEqual(expect.arrayContaining([
+        "object_cleanup_jobs_finalize_idx",
+        "finalize_manifest_attempt_object_unique",
+        "finalize_manifest_batch_attempt_idx",
+      ]));
+      expect(await readFile("drizzle/0013_lyrical_black_knight.sql", "utf8"))
+        .toContain("object_cleanup_finalize_state_check");
+      expect(await readFile("drizzle/0014_lumpy_toxin.sql", "utf8"))
+        .toContain('CREATE TABLE "finalize_object_manifest_items"');
+      expect(await readFile("drizzle/meta/0014_snapshot.json", "utf8"))
+        .toContain('"finalize_object_manifest_items"');
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("upgrades 0012 in-flight Public compensation into standby plus a durable Manifest", async () => {
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-finalize-upgrade-"));
+    const metaDirectory = join(temporaryRoot, "meta");
+    await mkdir(metaDirectory);
+    const journal = JSON.parse(await readFile("drizzle/meta/_journal.json", "utf8")) as {
+      version: string;
+      dialect: string;
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    for (const entry of journal.entries.filter((item) => item.idx <= 12)) {
+      await copyFile(`drizzle/${entry.tag}.sql`, join(temporaryRoot, `${entry.tag}.sql`));
+    }
+    await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify({
+      ...journal,
+      entries: journal.entries.filter((item) => item.idx <= 12),
+    }));
+    const client = new PGlite("memory://");
+    const connection = {
+      kind: "pglite" as const,
+      db: drizzle(client, { schema }),
+      close: async () => client.close(),
+    };
+    try {
+      await migrateDatabase(connection, temporaryRoot);
+      await connection.db.execute(sql.raw(`
+        insert into asset_upload_batches (id, status, declared_file_count, expires_at)
+        values ('11111111-1111-4111-8111-111111111111', 'finalizing', 1, now() + interval '1 hour')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into assets
+          (id, upload_batch_id, original_file_name, storage_provider, storage_partition,
+           object_key, access, category, status, declared_mime_type, detected_mime_type,
+           byte_size, sha256, scan_status)
+        values
+          ('22222222-2222-4222-8222-222222222222',
+           '11111111-1111-4111-8111-111111111111', 'TEST-upgrade.jpg', 'test',
+           'private', 'staging/TEST-upgrade.jpg', 'internal', 'product', 'ready',
+           'image/jpeg', 'image/jpeg', 128, 'TEST-upgrade-hash', 'passed')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into upload_recovery_jobs
+          (id, kind, upload_batch_id, status, stage, attempt_count, next_attempt_at,
+           locked_by, locked_at, lease_expires_at, version, expires_at)
+        values
+          ('33333333-3333-4333-8333-333333333333', 'finalize',
+           '11111111-1111-4111-8111-111111111111', 'processing', 'original_written', 1,
+           now(), 'TEST-upgrade-worker', now(), now() + interval '20 minutes', 3,
+           now() + interval '1 hour')
+      `));
+      await connection.db.execute(sql.raw(`
+        insert into object_cleanup_jobs
+          (id, upload_batch_id, asset_id, storage_partition, object_key, reason, status,
+           next_attempt_at)
+        values
+          ('44444444-4444-4444-8444-444444444444',
+           '11111111-1111-4111-8111-111111111111',
+           '22222222-2222-4222-8222-222222222222', 'public',
+           'staging/TEST-upgrade.jpg', 'finalize_public_original_compensation', 'pending', now())
+      `));
+      for (const entry of journal.entries.filter((item) => item.idx > 12)) {
+        await copyFile(`drizzle/${entry.tag}.sql`, join(temporaryRoot, `${entry.tag}.sql`));
+      }
+      await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify(journal));
+      await migrateDatabase(connection, temporaryRoot);
+      const cleanup = await connection.db.execute<{
+        status: string;
+        finalize_recovery_id: string;
+        finalize_attempt: number;
+        armed_at: Date | null;
+      }>(sql.raw(`
+        select status, finalize_recovery_id, finalize_attempt, armed_at
+        from object_cleanup_jobs
+        where id = '44444444-4444-4444-8444-444444444444'
+      `));
+      expect(cleanup.rows[0]).toMatchObject({
+        status: "standby",
+        finalize_recovery_id: "33333333-3333-4333-8333-333333333333",
+        finalize_attempt: 1,
+        armed_at: null,
+      });
+      const manifest = await connection.db.execute<{
+        object_key: string;
+        object_role: string;
+        mime_type: string;
+        byte_size: number;
+      }>(sql.raw(`
+        select object_key, object_role, mime_type, byte_size
+        from finalize_object_manifest_items
+        where recovery_job_id = '33333333-3333-4333-8333-333333333333'
+      `));
+      expect(manifest.rows).toEqual([{
+        object_key: "staging/TEST-upgrade.jpg",
+        object_role: "original",
+        mime_type: "image/jpeg",
+        byte_size: 128,
+      }]);
+    } finally {
+      await connection.close();
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("upgrades the pre-remediation schema without losing the authoritative primary category", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-migration-upgrade-"));

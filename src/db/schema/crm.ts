@@ -215,6 +215,48 @@ export const uploadRecoveryJobs = pgTable(
   ],
 );
 
+/**
+ * Authoritative, attempt-scoped object set for a Finalize Saga.
+ *
+ * This record deliberately lives independently from object_cleanup_jobs: a
+ * missing or damaged compensation row must never erase the durable knowledge
+ * of which Public object was written and may need recovery.
+ */
+export const finalizeObjectManifestItems = pgTable(
+  "finalize_object_manifest_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    recoveryJobId: uuid("recovery_job_id")
+      .notNull()
+      .references(() => uploadRecoveryJobs.id, { onDelete: "cascade" }),
+    uploadBatchId: uuid("upload_batch_id")
+      .notNull()
+      .references(() => assetUploadBatches.id, { onDelete: "cascade" }),
+    finalizeAttempt: integer("finalize_attempt").notNull(),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "restrict" }),
+    objectKey: text("object_key").notNull(),
+    objectRole: text("object_role").notNull(),
+    mimeType: text("mime_type").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    writeCompletedAt: timestamp("write_completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("finalize_manifest_attempt_object_unique").on(
+      table.recoveryJobId,
+      table.finalizeAttempt,
+      table.objectKey,
+    ),
+    index("finalize_manifest_batch_attempt_idx").on(
+      table.uploadBatchId,
+      table.finalizeAttempt,
+    ),
+  ],
+);
+
 export const inquiryAssets = pgTable(
   "inquiry_assets",
   {

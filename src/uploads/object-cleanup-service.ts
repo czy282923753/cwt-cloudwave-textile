@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/audit/service";
 import {
   assetUploadBatches,
   assets,
+  finalizeObjectManifestItems,
   objectCleanupJobs,
   uploadIntents,
   uploadRecoveryJobs,
@@ -15,7 +16,6 @@ import type { ObjectStorage, StoragePartition } from "@/storage";
 
 export const CLEANUP_MAX_ATTEMPTS = 8;
 export const CLEANUP_LEASE_MILLISECONDS = 60_000;
-export const FINALIZE_COMPENSATION_GRACE_MILLISECONDS = 5 * 60_000;
 export const UPLOAD_RECOVERY_SYSTEM_ACTOR = "system:upload-recovery-worker";
 
 export interface ObjectCleanupRegistration {
@@ -24,7 +24,6 @@ export interface ObjectCleanupRegistration {
   storagePartition: StoragePartition;
   objectKey: string;
   reason: string;
-  /** Delay protects an in-flight Finalize from its own cleanup worker. */
   notBefore?: Date;
 }
 
@@ -34,6 +33,7 @@ export async function registerObjectCleanup<
   db: AppDatabase<TQueryResult>,
   input: ObjectCleanupRegistration,
 ): Promise<string> {
+  const now = new Date();
   const rows = await db
     .insert(objectCleanupJobs)
     .values({
@@ -43,15 +43,17 @@ export async function registerObjectCleanup<
       objectKey: input.objectKey,
       reason: input.reason,
       status: "pending",
+      armedAt: now,
+      armedReason: input.reason,
       attemptCount: 0,
       maxAttempts: CLEANUP_MAX_ATTEMPTS,
-      nextAttemptAt: input.notBefore ?? new Date(),
+      nextAttemptAt: input.notBefore ?? now,
       lockedBy: null,
       lockedAt: null,
       leaseExpiresAt: null,
       lastError: null,
       completedAt: null,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [objectCleanupJobs.storagePartition, objectCleanupJobs.objectKey],
@@ -60,15 +62,17 @@ export async function registerObjectCleanup<
         assetId: input.assetId ?? null,
         reason: input.reason,
         status: "pending",
+        armedAt: now,
+        armedReason: input.reason,
         attemptCount: 0,
         maxAttempts: CLEANUP_MAX_ATTEMPTS,
-        nextAttemptAt: input.notBefore ?? new Date(),
+        nextAttemptAt: input.notBefore ?? now,
         lockedBy: null,
         lockedAt: null,
         leaseExpiresAt: null,
         lastError: null,
         completedAt: null,
-        updatedAt: new Date(),
+        updatedAt: now,
       },
     })
     .returning({ id: objectCleanupJobs.id });
@@ -98,29 +102,120 @@ export async function claimObjectCleanupJob<
   workerId: string,
   now = new Date(),
   leaseMilliseconds = CLEANUP_LEASE_MILLISECONDS,
+  auditWriter: typeof writeAuditLog = writeAuditLog,
 ) {
-  const rows = await db
-    .update(objectCleanupJobs)
-    .set({
-      status: "processing",
-      attemptCount: sql`${objectCleanupJobs.attemptCount} + 1`,
-      lockedBy: workerId,
-      lockedAt: now,
-      leaseExpiresAt: new Date(now.getTime() + leaseMilliseconds),
-      lastError: null,
-      updatedAt: now,
-    })
-    .where(and(eq(objectCleanupJobs.id, jobId), claimableCleanup(now)))
-    .returning({
-      id: objectCleanupJobs.id,
-      uploadBatchId: objectCleanupJobs.uploadBatchId,
-      assetId: objectCleanupJobs.assetId,
-      partition: objectCleanupJobs.storagePartition,
-      objectKey: objectCleanupJobs.objectKey,
-      attemptCount: objectCleanupJobs.attemptCount,
-      maxAttempts: objectCleanupJobs.maxAttempts,
+  return db.transaction(async (transaction) => {
+    const candidate = (await transaction.select().from(objectCleanupJobs)
+      .where(eq(objectCleanupJobs.id, jobId)).limit(1))[0];
+    if (!candidate) return null;
+
+    if (candidate.storagePartition === "public" && candidate.uploadBatchId) {
+      if (
+        !candidate.finalizeRecoveryId ||
+        candidate.finalizeAttempt === null ||
+        !candidate.armedAt
+      ) return null;
+      await transaction.execute(sql`
+        select id from asset_upload_batches
+        where id = ${candidate.uploadBatchId}
+        for update
+      `);
+      await transaction.execute(sql`
+        select id from upload_recovery_jobs
+        where id = ${candidate.finalizeRecoveryId}
+        for update
+      `);
+      await transaction.execute(sql`
+        select id from finalize_object_manifest_items
+        where recovery_job_id = ${candidate.finalizeRecoveryId}
+          and finalize_attempt = ${candidate.finalizeAttempt}
+          and object_key = ${candidate.objectKey}
+        for update
+      `);
+      await transaction.execute(sql`
+        select id from object_cleanup_jobs
+        where id = ${candidate.id}
+        for update
+      `);
+      const recovery = (await transaction.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.id, candidate.finalizeRecoveryId),
+        eq(uploadRecoveryJobs.uploadBatchId, candidate.uploadBatchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      )).limit(1))[0];
+      const currentJob = (await transaction.select().from(objectCleanupJobs)
+        .where(eq(objectCleanupJobs.id, candidate.id)).limit(1))[0];
+      const manifestItem = (await transaction.select()
+        .from(finalizeObjectManifestItems)
+        .where(and(
+          eq(finalizeObjectManifestItems.recoveryJobId, candidate.finalizeRecoveryId),
+          eq(finalizeObjectManifestItems.finalizeAttempt, candidate.finalizeAttempt),
+          eq(finalizeObjectManifestItems.objectKey, candidate.objectKey),
+        )).limit(1))[0];
+      if (
+        !recovery ||
+        !manifestItem ||
+        !currentJob?.armedAt ||
+        currentJob.status === "standby" ||
+        currentJob.assetId !== manifestItem.assetId ||
+        currentJob.expectedObjectRole !== manifestItem.objectRole ||
+        currentJob.expectedMimeType !== manifestItem.mimeType ||
+        currentJob.expectedByteSize !== manifestItem.byteSize
+      ) return null;
+      if (
+        recovery.status === "processing" &&
+        recovery.leaseExpiresAt &&
+        recovery.leaseExpiresAt > now
+      ) {
+        return null;
+      }
+      if (recovery.status !== "cleanup_required" && recovery.status !== "dead") {
+        return null;
+      }
+    } else {
+      await transaction.execute(sql`
+        select id from object_cleanup_jobs
+        where id = ${candidate.id}
+        for update
+      `);
+    }
+
+    const rows = await transaction
+      .update(objectCleanupJobs)
+      .set({
+        status: "processing",
+        attemptCount: sql`${objectCleanupJobs.attemptCount} + 1`,
+        lockedBy: workerId,
+        lockedAt: now,
+        leaseExpiresAt: new Date(now.getTime() + leaseMilliseconds),
+        lastError: null,
+        updatedAt: now,
+      })
+      .where(and(eq(objectCleanupJobs.id, jobId), claimableCleanup(now)))
+      .returning({
+        id: objectCleanupJobs.id,
+        uploadBatchId: objectCleanupJobs.uploadBatchId,
+        assetId: objectCleanupJobs.assetId,
+        finalizeRecoveryId: objectCleanupJobs.finalizeRecoveryId,
+        finalizeAttempt: objectCleanupJobs.finalizeAttempt,
+        partition: objectCleanupJobs.storagePartition,
+        objectKey: objectCleanupJobs.objectKey,
+        attemptCount: objectCleanupJobs.attemptCount,
+        maxAttempts: objectCleanupJobs.maxAttempts,
+      });
+    const claimed = rows[0];
+    if (!claimed) return null;
+    await auditWriter(transaction, {
+      action: "object_cleanup.claimed",
+      entityType: "object_cleanup_job",
+      entityId: claimed.id,
+      afterSummary: {
+        systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+        workerId,
+        partition: claimed.partition,
+      },
     });
-  return rows[0] ?? null;
+    return claimed;
+  });
 }
 
 async function reconcileCleanupTransaction<TQueryResult extends PgQueryResultHKT>(
@@ -129,6 +224,8 @@ async function reconcileCleanupTransaction<TQueryResult extends PgQueryResultHKT
     id: string;
     uploadBatchId: string | null;
     assetId: string | null;
+    finalizeRecoveryId: string | null;
+    finalizeAttempt: number | null;
     partition: string;
   },
   now: Date,
@@ -142,7 +239,13 @@ async function reconcileCleanupTransaction<TQueryResult extends PgQueryResultHKT
         and(
           eq(objectCleanupJobs.uploadBatchId, job.uploadBatchId),
           eq(objectCleanupJobs.storagePartition, "public"),
-          inArray(objectCleanupJobs.status, ["pending", "processing", "dead"]),
+          job.finalizeRecoveryId
+            ? eq(objectCleanupJobs.finalizeRecoveryId, job.finalizeRecoveryId)
+            : sql`true`,
+          job.finalizeAttempt !== null
+            ? eq(objectCleanupJobs.finalizeAttempt, job.finalizeAttempt)
+            : sql`true`,
+          inArray(objectCleanupJobs.status, ["standby", "pending", "processing", "dead"]),
         ),
       );
     if (remaining.some((row) => row.status === "dead")) {
@@ -277,6 +380,7 @@ export async function processObjectCleanupJob<
     workerId,
     now,
     options.leaseMilliseconds ?? CLEANUP_LEASE_MILLISECONDS,
+    auditWriter,
   );
   if (!job) return "not_claimed";
   if (!(["public", "private", "imports"] as const).includes(job.partition as StoragePartition)) {
@@ -307,6 +411,8 @@ export async function processObjectCleanupJob<
         id: job.id,
         uploadBatchId: job.uploadBatchId,
         assetId: job.assetId,
+        finalizeRecoveryId: job.finalizeRecoveryId,
+        finalizeAttempt: job.finalizeAttempt,
         partition: job.partition,
       }, now, auditWriter);
       await auditWriter(transaction, {

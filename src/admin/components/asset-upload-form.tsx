@@ -93,10 +93,14 @@ export function AssetUploadForm({ associations }: Readonly<{
       });
       const finalizeResult = await responseJson(finalizeResponse);
       if (!finalizeResponse.ok) throw new Error(typeof finalizeResult.error === "string" ? finalizeResult.error : "Upload Batch finalization failed.");
+      const releasedAssetIds = Array.isArray(finalizeResult.assetIds)
+        ? finalizeResult.assetIds.filter((assetId): assetId is string => typeof assetId === "string")
+        : [];
+      if (releasedAssetIds.length !== files.length) throw new Error("Upload Batch finalization returned an invalid result.");
       formElement.reset();
       setDeclarationEnabled(false);
       setFeedback({ kind: "success", message: `${files.length} asset${files.length === 1 ? "" : "s"} uploaded and released.` });
-      setTimeout(() => router.refresh(), 0);
+      router.replace(`/admin/assets/?uploaded=${encodeURIComponent(releasedAssetIds[0]!)}`);
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Upload failed safely. Try again." });
     } finally {

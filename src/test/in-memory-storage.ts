@@ -34,6 +34,10 @@ export class InMemoryObjectStorage implements ObjectStorage {
     return value;
   }
 
+  async exists(partition: StoragePartition, objectKey: string): Promise<boolean> {
+    return this.objects.has(this.key(partition, objectKey));
+  }
+
   async delete(partition: StoragePartition, objectKey: string): Promise<void> {
     this.objects.delete(this.key(partition, objectKey));
   }

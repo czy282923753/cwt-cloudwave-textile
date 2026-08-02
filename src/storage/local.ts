@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 
 import { env } from "@/config/env";
@@ -63,6 +63,15 @@ export class LocalObjectStorage implements ObjectStorage {
 
   async get(partition: StoragePartition, objectKey: string): Promise<Uint8Array> {
     return readFile(resolveObjectPath(partition, objectKey));
+  }
+
+  async exists(partition: StoragePartition, objectKey: string): Promise<boolean> {
+    try {
+      await access(resolveObjectPath(partition, objectKey));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async delete(partition: StoragePartition, objectKey: string): Promise<void> {

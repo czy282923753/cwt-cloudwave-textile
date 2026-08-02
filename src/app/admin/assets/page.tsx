@@ -33,7 +33,7 @@ export default async function AdminAssetsPage() {
         <AdminTable
           headers={["File", "Category", "Access", "Status", "Declaration"]}
           rows={assets.map((asset) => [
-            <Link className="text-teal-300" href={`/admin/assets/${asset.id}`} key={asset.id}>{asset.fileName}</Link>,
+            <Link className="text-teal-300" href={`/admin/assets/${asset.id}`} key={asset.id} prefetch={false}>{asset.fileName}</Link>,
             asset.category,
             asset.access,
             asset.status,

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -256,5 +256,53 @@ describe("governed mutation Audit atomicity", () => {
     expect(adminActions).not.toMatch(/\.insert\(|\.update\(|\.delete\(/);
     expect(adminActions).not.toMatch(/\bredirect\s*\(/);
     expect(adminActions).not.toMatch(/Promise<void>/);
+  });
+
+  it("scans the complete src boundary for direct Admin writes, redirects, Audit misuse, and ungoverned Finalize/Cleanup mutations", async () => {
+    const entries = await readdir("src", { recursive: true, withFileTypes: true });
+    const sourceFiles = entries
+      .filter((entry) => entry.isFile() && /\.(?:ts|tsx)$/.test(entry.name))
+      .map((entry) => `src/${entry.parentPath.slice(entry.parentPath.indexOf("src") + 4)}/${entry.name}`
+        .replace("src//", "src/"))
+      .filter((file) => !/\.(?:test|spec)\.(?:ts|tsx)$/.test(file));
+    const sources = await Promise.all(sourceFiles.map(async (file) => ({
+      file,
+      source: await readFile(file, "utf8"),
+    })));
+    const auditOnlyRequestBoundaries = new Set([
+      "src/app/api/auth/login/route.ts",
+      "src/app/api/inquiry-assets/[assetId]/route.ts",
+    ]);
+
+    for (const { file, source } of sources) {
+      if (!auditOnlyRequestBoundaries.has(file)) {
+        expect(source, `${file}: required Audit must receive a transaction, not db`)
+          .not.toMatch(/writeAuditLog\s*\(\s*db\s*,/);
+      }
+      if (/^[\s\S]*["']use server["'];/.test(source)) {
+        expect(source, `${file}: Server Action database write`).not.toMatch(/\.(?:insert|update|delete)\(/);
+        expect(source, `${file}: Server Action direct redirect`).not.toMatch(/\bredirect\s*\(/);
+        expect(source, `${file}: Server Action void result`).not.toMatch(/Promise<void>/);
+      }
+    }
+
+    const coordinationMutationFiles = sources.filter(({ source }) =>
+      /\.(?:insert|update|delete)\((?:objectCleanupJobs|uploadRecoveryJobs|finalizeObjectManifestItems)\)/.test(source),
+    ).map(({ file }) => file).sort();
+    expect(coordinationMutationFiles).toEqual([
+      "src/uploads/admin-upload-service.ts",
+      "src/uploads/object-cleanup-service.ts",
+      "src/uploads/service.ts",
+      "src/uploads/upload-recovery-service.ts",
+    ]);
+
+    const finalizeStateMutationFiles = sources.filter(({ source }) =>
+      /status:\s*["'](?:finalizing|cleanup_required)["']/.test(source) &&
+      /\.(?:insert|update)\(/.test(source),
+    ).map(({ file }) => file).sort();
+    expect(finalizeStateMutationFiles).toEqual([
+      "src/uploads/admin-upload-service.ts",
+      "src/uploads/upload-recovery-service.ts",
+    ]);
   });
 });

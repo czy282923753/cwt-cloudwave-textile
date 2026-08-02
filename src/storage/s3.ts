@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -62,6 +63,29 @@ export class S3ObjectStorage implements ObjectStorage {
     );
     if (!response.Body) throw new Error("Stored object returned an empty body.");
     return response.Body.transformToByteArray();
+  }
+
+  async exists(partition: StoragePartition, objectKey: string): Promise<boolean> {
+    assertSafeObjectKey(objectKey);
+    try {
+      await this.client.send(
+        new HeadObjectCommand({ Bucket: requireBucket(partition), Key: objectKey }),
+      );
+      return true;
+    } catch (error) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "$metadata" in error &&
+        typeof error.$metadata === "object" &&
+        error.$metadata !== null &&
+        "httpStatusCode" in error.$metadata &&
+        error.$metadata.httpStatusCode === 404
+      ) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async delete(partition: StoragePartition, objectKey: string): Promise<void> {

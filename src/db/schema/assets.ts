@@ -1,5 +1,6 @@
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -10,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 import {
   assetAccessEnum,
@@ -180,6 +182,14 @@ export const objectCleanupJobs = pgTable(
     objectKey: text("object_key").notNull(),
     reason: text("reason").notNull(),
     status: objectCleanupStatusEnum("status").notNull().default("pending"),
+    finalizeRecoveryId: uuid("finalize_recovery_id"),
+    finalizeAttempt: integer("finalize_attempt"),
+    expectedObjectRole: text("expected_object_role"),
+    expectedMimeType: text("expected_mime_type"),
+    expectedByteSize: integer("expected_byte_size"),
+    writeCompletedAt: timestamp("write_completed_at", { withTimezone: true }),
+    armedAt: timestamp("armed_at", { withTimezone: true }),
+    armedReason: text("armed_reason"),
     attemptCount: integer("attempt_count").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(8),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
@@ -204,6 +214,26 @@ export const objectCleanupJobs = pgTable(
       table.leaseExpiresAt,
     ),
     index("object_cleanup_jobs_batch_idx").on(table.uploadBatchId, table.status),
+    index("object_cleanup_jobs_finalize_idx").on(
+      table.finalizeRecoveryId,
+      table.finalizeAttempt,
+      table.status,
+    ),
+    check(
+      "object_cleanup_finalize_state_check",
+      sql`${table.finalizeRecoveryId} is null or (
+        ${table.storagePartition} = 'public'
+        and ${table.finalizeAttempt} is not null
+        and ${table.expectedObjectRole} is not null
+        and ${table.expectedMimeType} is not null
+        and ${table.expectedByteSize} is not null
+        and (
+          (${table.status} = 'standby' and ${table.armedAt} is null and ${table.completedAt} is null)
+          or (${table.status} = 'cancelled' and ${table.armedAt} is null)
+          or (${table.status} in ('pending', 'processing', 'completed', 'dead') and ${table.armedAt} is not null)
+        )
+      )`,
+    ),
   ],
 );
 

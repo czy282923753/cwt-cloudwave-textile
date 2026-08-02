@@ -14,6 +14,7 @@ export interface ObjectStorage {
     contentType: string,
   ): Promise<StoredObject>;
   get(partition: StoragePartition, objectKey: string): Promise<Uint8Array>;
+  exists(partition: StoragePartition, objectKey: string): Promise<boolean>;
   delete(partition: StoragePartition, objectKey: string): Promise<void>;
   createReadUrl(
     partition: StoragePartition,

@@ -4,10 +4,10 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const refresh = vi.fn();
+const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh }),
+  useRouter: () => ({ replace }),
 }));
 
 import { AssetUploadForm } from "./asset-upload-form";
@@ -22,7 +22,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("AssetUploadForm feedback", () => {
   afterEach(() => {
     cleanup();
-    refresh.mockReset();
+    replace.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -53,10 +53,10 @@ describe("AssetUploadForm feedback", () => {
     await waitFor(() => expect(alert).toHaveFocus());
     expect(alert).toHaveTextContent("failed safely");
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(refresh).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
   });
 
-  it("announces successful Finalize before scheduling the persisted-list refresh", async () => {
+  it("announces successful Finalize and navigates with its persisted Asset ID", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({
         batchId: "test-success-batch",
@@ -75,7 +75,7 @@ describe("AssetUploadForm feedback", () => {
     if (!form) throw new Error("Missing Asset upload form.");
     fireEvent.submit(form);
     expect(await screen.findByRole("status")).toHaveTextContent("1 asset uploaded and released");
-    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/admin/assets/?uploaded=test-success-asset"));
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
