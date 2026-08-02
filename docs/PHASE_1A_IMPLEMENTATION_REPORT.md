@@ -1,8 +1,73 @@
-# CWT Phase 1A Post-Commit Boundary Closure implementation report
+# CWT Phase 1A implementation report
 
 Date: 2026-08-02
 
 Baseline: frozen CWT Product and Technical Architecture V1.1 plus `AGENTS.md`
+
+## Final local acceptance record — 2026-08-02
+
+| Acceptance field | Final status |
+| --- | --- |
+| Phase 1A Local Executable Scope | **Passed** |
+| Independent Review | **Passed** |
+| Blocker | **0** |
+| High | **0** |
+| Medium | **0** |
+| Low | **0** |
+| Technical Debt | **0 new items** |
+| Local development-review loop | **Closed** |
+| Phase 1B | **Paused** |
+| External validation | **Waiting for External Validation** |
+| Real-product validation | **Waiting for Real Product Data Validation** |
+
+The independently accepted code baseline is `94c7ee5df5dc58bb9e28d8a555e90a93d24846da`. The local freeze is recorded by the annotated tag `phase-1a-local-approved-2026-08-02` on the documentation closure commit.
+
+This acceptance applies only to the Phase 1A local executable scope. It must not be described as Production Ready, PostgreSQL External Validation Passed, R2/S3 Passed, SMTP Passed, or Deployment Passed.
+
+## Independently reproduced local evidence
+
+- Runtime: Node 24.14.0 ARM64 and pnpm 11.9.0.
+- ESLint: passed.
+- TypeScript strict: passed.
+- Drizzle Check and Generate: passed with no schema delta.
+- Vitest: 47/47 files and 142/142 tests passed.
+- Fresh/Upgrade Migration and repeatable Seed checks: passed in the local validation environment.
+- Production Build: passed; 40/40 route/static-generation units completed.
+- Playwright: 18/18 passed with `retries=0`.
+- Principal public HTTP paths: 11/11 passed.
+- Public Bundle check: passed; Refine and Admin dependencies did not enter the public Bundle.
+- Dependency Audit: no known production vulnerabilities.
+- Desktop Chromium and Pixel 7 coverage: passed.
+- Sampled Axe checks: no Critical or Serious findings.
+- Git working tree at independent acceptance: clean.
+
+These results are local-scope evidence. They do not replace validation against real providers, production infrastructure, or reviewed real data.
+
+## External Validation Required
+
+1. Real PostgreSQL Fresh and Upgrade Migration execution.
+2. PostgreSQL row locking, transaction isolation, deadlock behavior, and concurrent Workers.
+3. Database Triggers, Advisory Locks, and production-like query plans.
+4. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
+5. Origin isolation and Public Media revocation behavior.
+6. SMTP Delivery Key and Provider idempotency behavior.
+7. Multi-instance distributed rate limiting and Trusted Proxy behavior.
+8. Formal Product evidence, image rights, and Company Facts validation.
+9. Preview/Production deployment, backup and restore, monitoring, and alerting.
+
+No item in this list is marked passed by the local acceptance. External validation does not start automatically, and Phase 1B remains paused.
+
+## Document authority
+
+This implementation report records final status, reproducible evidence, external-validation boundaries, and the Git baseline. It does not define new permanent architecture. Permanent rules remain governed by `AGENTS.md`, approved ADRs, the applicable domain specifications, `docs/ENGINEERING_GOVERNANCE.md`, and `docs/REVIEW_POLICY.md`.
+
+---
+
+## Historical implementation evidence
+
+The remaining sections preserve pre-acceptance implementation and remediation evidence. They are historical records, not newer architecture rules or current Phase recommendations; the final status above supersedes their interim review recommendations.
+
+### Post-Commit Boundary Closure record
 
 Scope: only the sixth independent review's one Medium and three Low findings: Finalize core/post-commit result consistency, completed-Finalize idempotency, lock-after-read Cleanup identity, Finalize Recovery FK integrity, and historical Manifest evidence governance. Phase 1B, real PostgreSQL/R2/S3/SMTP acceptance, Excel import, AI, multilingual work, deployment, DNS, formal data and unrelated redesign remain excluded.
 
