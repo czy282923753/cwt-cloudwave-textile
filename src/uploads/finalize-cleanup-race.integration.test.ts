@@ -1015,6 +1015,20 @@ describe("Finalize and Public Compensation mutual exclusion", () => {
         evidenceSource: "migration_0015_legacy_inferred",
       }).returning({ id: finalizeObjectManifestItems.id });
       if (!manifest) throw new Error("Missing Manifest.");
+      const [supersededManifest] = await connection.db.insert(finalizeObjectManifestItems).values({
+        recoveryJobId: recovery.id,
+        uploadBatchId: batch.id,
+        finalizeAttempt: 0,
+        assetId: asset.id,
+        objectKey: `${asset.objectKey}.superseded-attempt`,
+        objectRole: "variant",
+        mimeType: "image/webp",
+        byteSize: 1,
+        writeCompletedAt: new Date(0),
+        evidenceStatus: "unverified",
+        evidenceSource: "migration_0015_legacy_inferred",
+      }).returning({ id: finalizeObjectManifestItems.id });
+      if (!supersededManifest) throw new Error("Missing superseded Manifest.");
       const [variantManifest] = await connection.db.insert(finalizeObjectManifestItems).values({
         recoveryJobId: recovery.id,
         uploadBatchId: batch.id,
@@ -1103,6 +1117,9 @@ describe("Finalize and Public Compensation mutual exclusion", () => {
         byteSize: variantBytes.byteLength,
         writeCompletedAt: new Date(0),
       });
+      expect((await connection.db.select().from(finalizeObjectManifestItems)
+        .where(eq(finalizeObjectManifestItems.id, supersededManifest.id)))[0]?.evidenceStatus)
+        .toBe("unverified");
       expect((await connection.db.select({ byteSize: assets.byteSize }).from(assets)
         .where(eq(assets.id, asset.id)))[0]?.byteSize).toBe(bytes.byteLength);
       expect((await connection.db.select({ byteSize: assetVariants.byteSize }).from(assetVariants)

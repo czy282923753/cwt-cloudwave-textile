@@ -70,7 +70,13 @@ export function verifiedFinalizeManifestSqlCondition() {
   return sql`not exists (
     select 1
     from finalize_object_manifest_items as finalize_manifest_evidence
+    inner join upload_recovery_jobs as finalize_manifest_recovery
+      on finalize_manifest_recovery.id = finalize_manifest_evidence.recovery_job_id
     where finalize_manifest_evidence.asset_id = ${assets.id}
+      and finalize_manifest_recovery.kind = 'finalize'
+      and finalize_manifest_recovery.status = 'completed'
+      and finalize_manifest_recovery.stage = 'completed'
+      and finalize_manifest_recovery.attempt_count = finalize_manifest_evidence.finalize_attempt
       and finalize_manifest_evidence.evidence_status <> 'verified'
   )`;
 }
