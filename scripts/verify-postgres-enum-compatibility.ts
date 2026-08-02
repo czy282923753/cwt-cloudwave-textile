@@ -326,7 +326,7 @@ async function main(): Promise<void> {
       });
     });
 
-    for (const start of [5, 10, 11, 12, 14, 15]) {
+    for (const start of [5, 10, 11, 12, 14, 15, 16]) {
       await withDatabase(`upgrade_${start}`, async (url) => {
         await applyThrough(url, start);
         await addFixture(url);

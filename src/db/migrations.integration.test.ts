@@ -51,6 +51,31 @@ describe("database migrations", () => {
     expect(names).toContain("audit_logs");
     expect(names).toContain("upload_recovery_jobs");
     expect(names).toContain("finalize_object_manifest_items");
+    const finalStateTriggers = await connection.db.execute<{
+      name: string;
+      deferrable: boolean;
+      initiallyDeferred: boolean;
+    }>(sql`
+      select
+        tgname as name,
+        tgdeferrable as deferrable,
+        tginitdeferred as "initiallyDeferred"
+      from pg_trigger
+      where tgname in ('cwt_route_graph_final_guard', 'cwt_redirect_graph_final_guard')
+      order by tgname
+    `);
+    expect(finalStateTriggers.rows).toEqual([
+      {
+        name: "cwt_redirect_graph_final_guard",
+        deferrable: true,
+        initiallyDeferred: true,
+      },
+      {
+        name: "cwt_route_graph_final_guard",
+        deferrable: true,
+        initiallyDeferred: true,
+      },
+    ]);
     await connection.close();
   }, 15_000);
 

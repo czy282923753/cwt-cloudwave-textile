@@ -9,6 +9,53 @@ import { createTestDatabase } from "@/test/database";
 import { changeEntityRoute, createRedirect, RedirectConflictError } from "./redirects";
 
 describe("Route and Redirect graph mutations", () => {
+  it("rolls back a direct Route move and its Audit when the final Redirect destination dangles", async () => {
+    const connection = await createTestDatabase();
+    const entityId = randomUUID();
+    const routeRows = await connection.db
+      .insert(routes)
+      .values({ path: "/final-guard-y/", entityType: "content", entityId })
+      .returning({ id: routes.id });
+    await connection.db.insert(redirects).values({
+      sourcePath: "/final-guard-x/",
+      destinationPath: "/final-guard-y/",
+      reason: "Synthetic final-state guard fixture",
+    });
+
+    await expect(
+      connection.db.transaction(async (transaction) => {
+        await transaction
+          .update(routes)
+          .set({ path: "/final-guard-z/" })
+          .where(eq(routes.id, routeRows[0]!.id));
+        await transaction.insert(auditLogs).values({
+          action: "test.direct_route.changed",
+          entityType: "content",
+          entityId,
+        });
+      }),
+    ).rejects.toThrow(/final state/i);
+
+    const persistedRoute = await connection.db
+      .select({ path: routes.path })
+      .from(routes)
+      .where(eq(routes.id, routeRows[0]!.id));
+    const persistedRedirect = await connection.db
+      .select({ sourcePath: redirects.sourcePath, destinationPath: redirects.destinationPath })
+      .from(redirects)
+      .where(eq(redirects.sourcePath, "/final-guard-x/"));
+    const persistedAudit = await connection.db
+      .select({ value: count() })
+      .from(auditLogs)
+      .where(eq(auditLogs.action, "test.direct_route.changed"));
+    expect(persistedRoute[0]?.path).toBe("/final-guard-y/");
+    expect(persistedRedirect).toEqual([
+      { sourcePath: "/final-guard-x/", destinationPath: "/final-guard-y/" },
+    ]);
+    expect(Number(persistedAudit[0]?.value)).toBe(0);
+    await connection.close();
+  });
+
   it("flattens inbound Redirects while moving a current Route", async () => {
     const connection = await createTestDatabase();
     const actorRows = await connection.db
