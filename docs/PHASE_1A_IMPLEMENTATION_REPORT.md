@@ -1,32 +1,49 @@
 # CWT Phase 1A implementation report
 
-Date: 2026-08-02
+Initial report: 2026-08-02; final candidate freeze: 2026-08-03
 
 Baseline: frozen CWT Product and Technical Architecture V1.1 plus `AGENTS.md`
 
-## Final local acceptance record — 2026-08-02
+## Phase 1A final candidate freeze — 2026-08-03
 
 | Acceptance field | Final status |
 | --- | --- |
 | Phase 1A Local Executable Scope | **Passed** |
 | Independent Review | **Passed** |
+| PostgreSQL Stage 2A / 2B / 2C | **Passed / Passed / Passed** |
 | Blocker | **0** |
 | High | **0** |
 | Medium | **0** |
-| Low | **0** |
-| Technical Debt | **0 new items** |
+| Low | **2 existing non-blocking items; 0 new** |
+| Phase 1A Candidate | **Frozen** |
 | Local development-review loop | **Closed** |
 | Phase 1B | **Paused** |
-| PostgreSQL Stage 2A | **Passed** |
-| PostgreSQL Stage 2B | **Passed** |
 | Remaining external validation | **Waiting** |
 | Real-product validation | **Waiting for Real Product Data Validation** |
+| Production Ready | **No** |
 
-The independently accepted code baseline is `94c7ee5df5dc58bb9e28d8a555e90a93d24846da`. The local freeze is recorded by the annotated tag `phase-1a-local-approved-2026-08-02` on the documentation closure commit.
+The final candidate code baseline is `3a93c8ddae96f4cf70a721bfc9cbf6ed2404ee10`. Its Stage 2C freeze is recorded by the annotated tag `phase-1a-postgres-stage2c-approved-2026-08-03` on the documentation-only closure commit. The independently accepted earlier local code baseline remains `94c7ee5df5dc58bb9e28d8a555e90a93d24846da`, and its original Tag remains immutable.
 
 The PostgreSQL Stage 2B candidate code baseline is `4b092be396ca54a3e6fe6ec37dc75a7d327ea146`. The original local-acceptance Tag remains immutable at its original documentation closure commit.
 
-The local acceptance applies only to the Phase 1A local executable scope. The later PostgreSQL Stage 2A and Stage 2B results do not mean complete PostgreSQL External Validation, Stage 2C, R2/S3, SMTP or Deployment has passed. Production Ready: **No**.
+Stage 2A, Stage 2B and Stage 2C passed independently against PostgreSQL 18.4 ARM64. This freezes the Phase 1A candidate but does not mean R2/S3, SMTP, distributed rate limiting, production-scale Query Plans, Backup/Restore or Deployment has passed. Production Ready: **No**.
+
+## PostgreSQL Stage 2C independent acceptance — 2026-08-03
+
+| Acceptance field | Result |
+| --- | --- |
+| Candidate code baseline | `3a93c8ddae96f4cf70a721bfc9cbf6ed2404ee10` |
+| PostgreSQL | **18.4 ARM64; official image digest locked** |
+| Stage 2A / Stage 2B / Stage 2C | **Passed / Passed / Passed** |
+| Journal / tables / enums / triggers | **18 (`0000`–`0017`) / 55 / 44 / 8** |
+| Blocker / High / Medium | **0 / 0 / 0** |
+| Low | **2 existing non-blocking items; 0 new** |
+| Phase 1B | **Paused** |
+| Production Ready | **No** |
+
+Independent acceptance used a new isolated container, Volume, Role and database with synthetic data only. Fresh `0000 → 0017`, repeat no-op, and `0005`, `0010`, `0011`, `0012`, `0014`, `0015`, `0016 → 0017` upgrades passed without Enum-compatibility regression. Upload/Finalize/Recovery/Cleanup concurrency, exact Inquiry attachment replay, Route/Redirect graph locking and deferred final-state constraints, Product Revision compare-and-set, Migration Session Lock, normal lock order and the deliberate `40P01` deadlock-victim rollback passed. Seed and Readiness were idempotent, the complete quality gate passed, and the final database had no idle-in-transaction Session, waiting lock or Advisory Lock.
+
+The two retained Low items are Harness-maintenance debt, not product defects: the ordinary suite does not continuously carry the complete race between two operating-system Migration processes, and part of the broader Stage 2C matrix remains in temporary Acceptance Harnesses. The critical D01/D02/D03 PostgreSQL Harness is Git-managed. No code, test, Schema, Migration, Snapshot, Journal or dependency changed during independent acceptance.
 
 ## Independently reproduced local evidence
 
@@ -81,7 +98,7 @@ Directed local evidence passes 22/22 tests across the Upload Saga and Finalize/C
 
 A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two independent connections passes valid-lease denial, unique expired-lease takeover, second-worker `not_claimed`, stale-worker fencing, pre-Manifest retry and completed Finalize, required-Audit rollback, zero idle-in-transaction sessions and zero residual locks. The disposable development container was removed after validation; the retained independent Stage 2C-1 evidence container/database/volume was not modified.
 
-No table, Migration, Schema field, state, enum, Worker, Lease, Recovery type, queue or scheduler was added. The persistent state machine is unchanged. Independent review subsequently confirmed this High is fixed. Stage 2C-1 nevertheless remains stopped until the following Admin-operability Medium is independently reviewed and the complete Stage 2C-1 is rerun from a new database. Stage 2C does not continue automatically, Phase 1B remains paused, and no Approved Tag is created by this remediation.
+No table, Migration, Schema field, state, enum, Worker, Lease, Recovery type, queue or scheduler was added. The persistent state machine is unchanged. Independent review subsequently confirmed this High is fixed. This paragraph records the remediation checkpoint; the later independent Stage 2C acceptance at candidate `3a93c8ddae96f4cf70a721bfc9cbf6ed2404ee10` supersedes its interim stopped status. Phase 1B remains paused.
 
 ## PostgreSQL Stage 2C-1 retryable Asset Admin recovery remediation — 2026-08-02
 
@@ -95,7 +112,7 @@ Directed PGlite and UI evidence passes 2 integration tests and 3 component tests
 
 A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` database with two independent connections verifies the original retryable Batch query and Finalize, no duplicate Intent/Asset and exactly one intended relation, active-lease denial, expired takeover, stale-worker fencing, required-Audit rollback, zero idle-in-transaction sessions and zero residual locks. The disposable container was removed; the retained independent Stage 2C evidence environment was not touched.
 
-The full local gate passes ESLint, TypeScript strict, Drizzle Check/Generate with no Schema or Migration delta, 50/50 Vitest files and 155/155 tests, a fresh Next.js production build with 40/40 generated page units, Public Bundle isolation, dependency audit with no known production vulnerability, and Playwright 19/19 with `retries=0`. Independent review remains required, followed by a complete Stage 2C-1 rerun from a new database. Stage 2C and Phase 1B remain paused; no Approved Tag is created.
+The full local gate passes ESLint, TypeScript strict, Drizzle Check/Generate with no Schema or Migration delta, 50/50 Vitest files and 155/155 tests, a fresh Next.js production build with 40/40 generated page units, Public Bundle isolation, dependency audit with no known production vulnerability, and Playwright 19/19 with `retries=0`. This was the remediation checkpoint. Independent review and the complete Stage 2C rerun later passed at the final candidate baseline; Phase 1B remains paused.
 
 ## PostgreSQL Stage 2C Discovery D01–D03 combined remediation — 2026-08-02
 
@@ -107,7 +124,7 @@ The Discovery Sweep found three independent concurrency ownership gaps on suppor
 
 Migration `0016_lumpy_whistler.sql` adds only the two nullable Inquiry fingerprint columns and their consistency Check Constraint, plus the forward trigger-function replacements. It adds no table, Worker, queue, lease, Recovery type or parallel authority. The route-side Inquiry idempotency shortcut, separate reserve/finalize/release token path and late Product Revision state update were removed or replaced rather than retained as dual paths.
 
-A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` instance with independent clients and explicit database barriers passed all three overlap scenarios: the Route graph ended flattened with no chain; equal Inquiry requests produced one creation and one replay while different requests produced one creation and one conflict; and competing Product Revision reviewers produced one owner, one required Audit and one conflict. No advisory lock or idle-in-transaction Session remained. This is local remediation evidence only. Joint independent code review and a fresh independent PostgreSQL Stage 2C run remain required; Stage 2C acceptance was not rerun, no Approved Tag is created, and Phase 1B remains paused.
+A new disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` instance with independent clients and explicit database barriers passed all three overlap scenarios: the Route graph ended flattened with no chain; equal Inquiry requests produced one creation and one replay while different requests produced one creation and one conflict; and competing Product Revision reviewers produced one owner, one required Audit and one conflict. No advisory lock or idle-in-transaction Session remained. This paragraph records local remediation evidence; the later joint review and independent Stage 2C run passed at the final candidate baseline. Phase 1B remains paused.
 
 The final local gate passes Node 24.14.0 ARM64/pnpm 11.9.0 environment diagnosis, ESLint, TypeScript strict, Drizzle Check and Generate with no additional Schema delta, 52/52 Vitest files and 165/165 tests, Fresh/repeat and 0005/0010/0011/0012/0014/0015 PostgreSQL upgrades, repeat Seed and Readiness, a fresh Production Build with 40/40 generated page units, Public Bundle isolation, Production Dependency Audit with no known vulnerability, and Playwright 19/19 with retries disabled. The disposable remediation database/container and temporary Harness were removed; the retained independent Discovery evidence environment was not modified.
 
@@ -121,21 +138,19 @@ The joint independent review passed D03 Product Revision Apply and returned two 
 
 New disposable PostgreSQL 18.4 evidence passes the dangling direct write (`23514`), legal flattened move, real advisory-lock wait/closure retry, reciprocal adversarial write protection, same/different Inquiry fingerprint races, D03 ownership and zero residual advisory lock/idle transaction. The Migration matrix passes Fresh/repeat and 0005/0010/0011/0012/0014/0015/0016 upgrades. Repeat Seed and Readiness pass with 55 tables. Browser fault injection lets the server commit the first attachment request, hides that response from the page, then confirms an exact 200 replay with one Upload Intent and one object upload.
 
-No existing table, field, enum, state, Worker, Lease, queue, Recovery type, API or approval path was added. There is no old/new parallel submission or graph mutation path. Persistent complexity is unchanged; runtime complexity increases only by final-state validation over changed graph endpoints and one bounded in-memory public-form state machine. The complete local gate passes environment diagnosis, ESLint, TypeScript strict, Drizzle Check/Generate with no Schema delta, 53/53 Vitest files and 169/169 tests, a fresh Production Build with 40/40 generated page units, Public Bundle isolation, Production Dependency Audit with no known vulnerability, and Playwright 20/20 with `retries=0`. This local evidence awaits a new joint independent code review and, if approved, a fresh independent Stage 2C run. Stage 2C acceptance has not been rerun, no Approved Tag is created, and Phase 1B remains paused.
+No existing table, field, enum, state, Worker, Lease, queue, Recovery type, API or approval path was added. There is no old/new parallel submission or graph mutation path. Persistent complexity is unchanged; runtime complexity increases only by final-state validation over changed graph endpoints and one bounded in-memory public-form state machine. The complete local gate passes environment diagnosis, ESLint, TypeScript strict, Drizzle Check/Generate with no Schema delta, 53/53 Vitest files and 169/169 tests, a fresh Production Build with 40/40 generated page units, Public Bundle isolation, Production Dependency Audit with no known vulnerability, and Playwright 20/20 with `retries=0`. Joint independent review and the fresh PostgreSQL Stage 2C run subsequently passed at candidate `3a93c8ddae96f4cf70a721bfc9cbf6ed2404ee10`. The approved freeze is recorded at the top of this report; Phase 1B remains paused.
 
 ## Remaining External Validation Required
 
-1. Joint independent code review of the Stage 2C D01/D02 final-state and Frozen Snapshot remediation and a fresh independent PostgreSQL Stage 2C run.
-2. Remaining PostgreSQL Stage 2C row locking, transaction isolation, deadlock behavior and concurrent Workers after the combined remediation is approved.
-3. PostgreSQL Stage 2C Trigger concurrency, Advisory Locks, production-like query plans, and backup/restore beyond the directed local evidence.
-4. R2/S3 HEAD, Put, Delete, retry, and consistency behavior.
-5. Origin isolation and Public Media revocation behavior.
-6. SMTP Delivery Key and Provider idempotency behavior.
-7. Multi-instance distributed rate limiting and Trusted Proxy behavior.
-8. Formal Product evidence, image rights, and Company Facts validation.
-9. Preview/Production deployment, monitoring, and alerting.
+1. R2/S3 Conditional Write, HEAD consistency, deletion, interruption recovery, Origin isolation and Public Media revocation against the real provider.
+2. SMTP Provider delivery, Delivery Key deduplication, retry and failure recovery.
+3. Multi-instance distributed rate limiting using shared authoritative storage, including contention, Trusted Proxy and fail-closed behavior.
+4. Production-scale Query Plans, Index selection and fallback behavior.
+5. Backup, Restore and rollout Restore Drill.
+6. Preview/Production deployment across required Linux architectures, Cache, DNS, CDN, monitoring and real traffic.
+7. Formal Product evidence, authorized Media and verified Company Facts.
 
-PostgreSQL Stage 2A and Stage 2B are completed evidence and are not repeated in this remaining list. Stage 2C and other external validation do not start automatically, and Phase 1B remains paused.
+PostgreSQL Stage 2A, Stage 2B and Stage 2C are completed evidence and are not repeated in this remaining list. These remaining items do not block the Phase 1A candidate freeze, but they do block Production readiness. They do not start automatically, and Phase 1B remains paused.
 
 ## Document authority
 
@@ -155,7 +170,7 @@ ADR-0010 adds one migration-only compatibility module. A dedicated `max: 1` post
 
 The adapter validates the approved 0011 hash and exact target statement. Only exact Journal-0010 compatibility/recovery states receive an in-memory `IF NOT EXISTS` form for that one statement; the original hash continues into Drizzle's existing Journal, and all remaining SQL is unchanged. There is no second Journal, historical Migration edit, business Schema change or manual SQL step.
 
-New disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` evidence passes Fresh/repeat; 0005, 0010, 0011, 0012 and 0014 upgrades/repeat; the real `pnpm db:migrate` 0010 entry; preflight failure and post-commit recovery; SQLSTATE 42501 enum rollback; 0011/0013 SQLSTATE 42710 batch rollback with Journal retained at 0010; two-client exclusion; backend-termination lock release; and Journal/catalog fail-closed handling. Catalog signatures and one synthetic taxonomy fixture match/persist across upgrade paths. This implementation evidence was subsequently accepted by independent PostgreSQL 18.4 Stage 2B review. Stage 2C and Phase 1B remain paused, and the existing local-approved Tag remains unchanged.
+New disposable PostgreSQL `18.4 (Debian 18.4-1.pgdg13+1)` evidence passes Fresh/repeat; 0005, 0010, 0011, 0012 and 0014 upgrades/repeat; the real `pnpm db:migrate` 0010 entry; preflight failure and post-commit recovery; SQLSTATE 42501 enum rollback; 0011/0013 SQLSTATE 42710 batch rollback with Journal retained at 0010; two-client exclusion; backend-termination lock release; and Journal/catalog fail-closed handling. Catalog signatures and one synthetic taxonomy fixture match/persist across upgrade paths. This implementation evidence was subsequently accepted by independent PostgreSQL 18.4 Stage 2B review. At that checkpoint Stage 2C had not started and Phase 1B was paused; the final status at the top of this report supersedes that interim state.
 
 ### Post-Commit Boundary Closure record
 
