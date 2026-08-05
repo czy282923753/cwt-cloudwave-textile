@@ -19,6 +19,7 @@ import {
   blockDocumentPlainText,
   referencedMediaKeys,
   type BlockDocument,
+  type EditorialBlock,
 } from "./blocks";
 
 export function referencedEditorialEntities(document: BlockDocument): {
@@ -72,7 +73,14 @@ export interface ResolvedBlockProjection {
   mediaAssetIds: ReadonlyMap<string, string>;
   relatedProducts: Readonly<Record<string, ResolvedBlockLink>>;
   relatedArticles: Readonly<Record<string, ResolvedBlockLink>>;
+  renderableDocument: BlockDocument;
+  hasRenderableContent: boolean;
+  referencesValid: boolean;
   readableText: string;
+}
+
+export interface ResolveBlockProjectionOptions {
+  invalidReferences?: "reject" | "filter";
 }
 
 type MediaUsage = "image" | "gallery";
@@ -115,12 +123,19 @@ async function resolveMedia<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   owner: BlockProjectionOwner,
   document: BlockDocument,
-): Promise<Map<string, string>> {
+): Promise<{
+  mediaAssetIds: Map<string, string>;
+  referencesValid: boolean;
+  ambiguityMessage: string | null;
+}> {
   const usage = referencedMediaUsage(document);
   const referencedKeys = referencedMediaKeys(document);
-  if (!referencedKeys.length) return new Map();
+  if (!referencedKeys.length) {
+    return { mediaAssetIds: new Map(), referencesValid: true, ambiguityMessage: null };
+  }
 
   let placements: Array<{ key: string; assetId: string; role: string; isVisible: boolean }>;
+  let ambiguityMessage: string | null = null;
   if (owner.type === "product") {
     const source = owner.media ?? await db
       .select({
@@ -131,7 +146,7 @@ async function resolveMedia<TQueryResult extends PgQueryResultHKT>(
       .from(productAssets)
       .where(eq(productAssets.productId, owner.id));
     if (new Set(source.map((item) => item.assetId)).size !== source.length) {
-      throw new BlockReferenceResolutionError("Product media relationships are ambiguous.");
+      ambiguityMessage = "Product media relationships are ambiguous.";
     }
     placements = source.map((item) => ({ ...item, key: item.assetId }));
   } else {
@@ -146,7 +161,7 @@ async function resolveMedia<TQueryResult extends PgQueryResultHKT>(
       .where(eq(contentAssets.contentId, owner.id));
     const keys = source.flatMap((item) => item.blockKey ? [item.blockKey] : []);
     if (new Set(keys).size !== keys.length) {
-      throw new BlockReferenceResolutionError("Content media Block keys are ambiguous.");
+      ambiguityMessage = "Content media Block keys are ambiguous.";
     }
     placements = source.flatMap((item) => item.blockKey
       ? [{ assetId: item.assetId, role: item.role, isVisible: item.isVisible, key: item.blockKey }]
@@ -161,23 +176,32 @@ async function resolveMedia<TQueryResult extends PgQueryResultHKT>(
       publicReadyImageSqlConditions(),
     ));
   const eligibleAssetIds = new Set(eligibleRows.map((row) => row.id));
-  const byKey = new Map(placements.map((placement) => [placement.key, placement]));
+  const placementsByKey = new Map<string, typeof placements>();
+  for (const placement of placements) {
+    placementsByKey.set(placement.key, [
+      ...(placementsByKey.get(placement.key) ?? []),
+      placement,
+    ]);
+  }
   const resolved = new Map<string, string>();
   for (const key of referencedKeys) {
-    const placement = byKey.get(key);
+    const candidates = placementsByKey.get(key) ?? [];
+    const placement = candidates.length === 1 ? candidates[0] : undefined;
     if (
       !placement ||
       !placement.isVisible ||
       !eligibleAssetIds.has(placement.assetId) ||
       !isRoleCompatible(owner.type, placement.role, usage.get(key) ?? new Set())
     ) {
-      throw new BlockReferenceResolutionError(
-        `${owner.type === "product" ? "Product" : "Content"} Block media must resolve to a visible, role-compatible, public-ready relationship owned by the current record.`,
-      );
+      continue;
     }
     resolved.set(key, placement.assetId);
   }
-  return resolved;
+  return {
+    mediaAssetIds: resolved,
+    referencesValid: !ambiguityMessage && resolved.size === referencedKeys.length,
+    ambiguityMessage,
+  };
 }
 
 async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
@@ -186,6 +210,7 @@ async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
 ): Promise<{
   relatedProducts: Record<string, ResolvedBlockLink>;
   relatedArticles: Record<string, ResolvedBlockLink>;
+  referencesValid: boolean;
 }> {
   const { productIds, contentIds } = referencedEditorialEntities(document);
   const [productRows, contentRows] = await Promise.all([
@@ -222,14 +247,46 @@ async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
           .where(and(inArray(contents.id, contentIds), eq(contents.status, "published")))
       : Promise.resolve([]),
   ]);
-  if (productRows.length !== productIds.length || contentRows.length !== contentIds.length) {
-    throw new BlockReferenceResolutionError(
-      "Related Product and Article Blocks must resolve to current public records.",
-    );
-  }
   return {
     relatedProducts: Object.fromEntries(productRows.map((row) => [row.id, row])),
     relatedArticles: Object.fromEntries(contentRows.map((row) => [row.id, row])),
+    referencesValid:
+      new Set(productRows.map((row) => row.id)).size === productIds.length &&
+      new Set(contentRows.map((row) => row.id)).size === contentIds.length,
+  };
+}
+
+function projectRenderableDocument(
+  document: BlockDocument,
+  mediaAssetIds: ReadonlyMap<string, string>,
+  relatedProducts: Readonly<Record<string, ResolvedBlockLink>>,
+  relatedArticles: Readonly<Record<string, ResolvedBlockLink>>,
+): BlockDocument {
+  const blocks: EditorialBlock[] = [];
+  for (const block of document.blocks) {
+    if (block.type === "image") {
+      if (mediaAssetIds.has(block.mediaKey)) blocks.push(block);
+      continue;
+    }
+    if (block.type === "gallery") {
+      if (block.mediaKeys.every((key) => mediaAssetIds.has(key))) blocks.push(block);
+      continue;
+    }
+    if (block.type === "related_products") {
+      const productIds = block.productIds.filter((id) => relatedProducts[id]);
+      if (productIds.length) blocks.push({ ...block, productIds });
+      continue;
+    }
+    if (block.type === "related_articles") {
+      const contentIds = block.contentIds.filter((id) => relatedArticles[id]);
+      if (contentIds.length) blocks.push({ ...block, contentIds });
+      continue;
+    }
+    blocks.push(block);
+  }
+  return {
+    version: document.version,
+    blocks,
   };
 }
 
@@ -239,19 +296,49 @@ export async function resolveBlockPublicProjection<
   db: AppDatabase<TQueryResult>,
   owner: BlockProjectionOwner,
   document: BlockDocument,
+  options: ResolveBlockProjectionOptions = {},
 ): Promise<ResolvedBlockProjection> {
-  const [mediaAssetIds, links] = await Promise.all([
+  const [media, links] = await Promise.all([
     resolveMedia(db, owner, document),
     resolveRelatedLinks(db, document),
   ]);
+  const referencesValid = media.referencesValid && links.referencesValid;
+  if (options.invalidReferences !== "filter" && !referencesValid) {
+    if (media.ambiguityMessage) {
+      throw new BlockReferenceResolutionError(media.ambiguityMessage);
+    }
+    const mediaReferencesValid = media.referencesValid;
+    throw new BlockReferenceResolutionError(
+      mediaReferencesValid
+        ? "Related Product and Article Blocks must resolve to current public records."
+        : `${owner.type === "product" ? "Product" : "Content"} Block media must resolve to a visible, role-compatible, public-ready relationship owned by the current record.`,
+    );
+  }
+  const renderableDocument = projectRenderableDocument(
+    document,
+    media.mediaAssetIds,
+    links.relatedProducts,
+    links.relatedArticles,
+  );
   const relatedText = [
-    ...Object.values(links.relatedProducts).map((row) => row.label),
-    ...Object.values(links.relatedArticles).map((row) => row.label),
+    ...renderableDocument.blocks.flatMap((block) =>
+      block.type === "related_products"
+        ? block.productIds.map((id) => links.relatedProducts[id]!.label)
+        : [],
+    ),
+    ...renderableDocument.blocks.flatMap((block) =>
+      block.type === "related_articles"
+        ? block.contentIds.map((id) => links.relatedArticles[id]!.label)
+        : [],
+    ),
   ];
   return {
-    mediaAssetIds,
+    mediaAssetIds: media.mediaAssetIds,
     ...links,
-    readableText: [blockDocumentPlainText(document), ...relatedText]
+    renderableDocument,
+    hasRenderableContent: renderableDocument.blocks.some((block) => block.type !== "divider"),
+    referencesValid,
+    readableText: [blockDocumentPlainText(renderableDocument), ...relatedText]
       .filter((value) => value.trim())
       .join("\n")
       .trim(),

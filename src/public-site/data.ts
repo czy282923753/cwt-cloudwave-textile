@@ -265,6 +265,7 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
       db,
       { type: "product", id: product.id },
       narrativeBlocks,
+      { invalidReferences: "filter" },
     );
   } catch {
     return null;
@@ -386,6 +387,12 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
     ...product,
     ...visibleFields,
     narrativeBlocks,
+    narrativeProjection: {
+      document: blockProjection.renderableDocument,
+      hasRenderableContent: blockProjection.hasRenderableContent,
+      readableText: blockProjection.readableText,
+      referencesValid: blockProjection.referencesValid,
+    },
     images: await Promise.all(imageRows.map((row) => toPublicAsset({
       ...row,
       altText: row.placementAltText ?? row.altText,

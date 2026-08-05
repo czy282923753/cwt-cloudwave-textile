@@ -152,9 +152,14 @@ describe("historical and direct Product publication boundary", () => {
       },
     }).where(eq(productLocalizations.productId, productId));
     const productWithDraftRelations = await queryProductByPath(connection.db, path);
-    expect(productWithDraftRelations).toBeNull();
+    expect(Object.keys(productWithDraftRelations?.relatedProducts ?? {})).toEqual([productId]);
+    expect(productWithDraftRelations?.relatedArticles).toEqual({});
+    expect(productWithDraftRelations?.narrativeProjection.referencesValid).toBe(false);
     await connection.db.update(contents).set({ status: "published" }).where(eq(contents.id, draftContentId));
-    expect(await queryProductByPath(connection.db, path)).toBeNull();
+    const productWithDraftProduct = await queryProductByPath(connection.db, path);
+    expect(Object.keys(productWithDraftProduct?.relatedProducts ?? {})).toEqual([productId]);
+    expect(Object.keys(productWithDraftProduct?.relatedArticles ?? {})).toEqual([draftContentId]);
+    expect(productWithDraftProduct?.narrativeProjection.referencesValid).toBe(false);
     await connection.db.update(products).set({
       status: "published",
       realProductBasis: "physical_sample",
@@ -177,8 +182,10 @@ describe("historical and direct Product publication boundary", () => {
       assetId,
       role: "hero",
     });
-    expect(Object.keys((await queryProductByPath(connection.db, path))?.relatedArticles ?? {}))
-      .toEqual([draftContentId]);
+    const productWithPublicRelations = await queryProductByPath(connection.db, path);
+    expect(Object.keys(productWithPublicRelations?.relatedProducts ?? {})).toEqual([productId, draftProductId]);
+    expect(Object.keys(productWithPublicRelations?.relatedArticles ?? {})).toEqual([draftContentId]);
+    expect(productWithPublicRelations?.narrativeProjection.referencesValid).toBe(true);
     await connection.db.update(contents).set({ status: "draft" }).where(eq(contents.id, draftContentId));
     await connection.db.update(productLocalizations).set({
       structuredBlocks: {

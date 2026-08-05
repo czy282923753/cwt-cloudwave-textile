@@ -200,7 +200,9 @@ describe("owner-aware Product Block media", () => {
       document,
     );
     expect(projection.mediaAssetIds.get(fixture.assetA)).toBe(fixture.assetA);
-    expect(renderToStaticMarkup(<BlockRenderer document={document} media={{
+    expect(projection.hasRenderableContent).toBe(true);
+    expect(projection.renderableDocument).toEqual(document);
+    expect(renderToStaticMarkup(<BlockRenderer document={projection.renderableDocument} media={{
       [fixture.assetA]: { id: fixture.assetA, url: "/media/test-product.jpg", alt: "TEST product", caption: null },
     }} />)).toContain("/media/test-product.jpg");
     await fixture.connection.close();
@@ -288,6 +290,33 @@ describe("normalized readable Block projection", () => {
     const connection = await createTestDatabase();
     const projection = await resolveBlockPublicProjection(connection.db, { type: "content", id: crypto.randomUUID() }, parseBlockDocument({ version: 1, blocks: [{ id: "divider", type: "divider" }] }, "content"));
     expect(projection.readableText).toBe("");
+    expect(projection.hasRenderableContent).toBe(false);
+    await connection.close();
+  });
+
+  it("filters unresolved public media from the same projection without inventing narrative", async () => {
+    const connection = await createTestDatabase();
+    const projection = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "product", id: crypto.randomUUID() },
+      productImageDocument(crypto.randomUUID()),
+      { invalidReferences: "filter" },
+    );
+    expect(projection.referencesValid).toBe(false);
+    expect(projection.hasRenderableContent).toBe(false);
+    expect(projection.renderableDocument.blocks).toEqual([]);
+    await connection.close();
+  });
+
+  it("treats a Heading as renderable narrative", async () => {
+    const connection = await createTestDatabase();
+    const projection = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "product", id: crypto.randomUUID() },
+      parseBlockDocument({ version: 1, blocks: [{ id: "heading", type: "heading", level: 2, text: "Renderable heading" }] }, "product"),
+    );
+    expect(projection.hasRenderableContent).toBe(true);
+    expect(projection.readableText).toBe("Renderable heading");
     await connection.close();
   });
 
@@ -302,6 +331,15 @@ describe("normalized readable Block projection", () => {
     const fixture = await productResolverFixture();
     const document = parseBlockDocument({ version: 1, blocks: [{ id: "related", type: "related_products", productIds: [fixture.productB] }] }, "product");
     await expect(resolveBlockPublicProjection(fixture.connection.db, { type: "product", id: fixture.productA }, document)).rejects.toThrow(/current public records/);
+    const filtered = await resolveBlockPublicProjection(
+      fixture.connection.db,
+      { type: "product", id: fixture.productA },
+      document,
+      { invalidReferences: "filter" },
+    );
+    expect(filtered.referencesValid).toBe(false);
+    expect(filtered.hasRenderableContent).toBe(false);
+    expect(filtered.renderableDocument.blocks).toEqual([]);
     await fixture.connection.close();
   });
 
