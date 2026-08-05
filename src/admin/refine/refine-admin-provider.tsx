@@ -10,6 +10,8 @@ const resources = [
   { name: "assets", list: "/admin/assets" },
   { name: "fabric-library", list: "/admin/fabric-library" },
   { name: "contents", list: "/admin/contents" },
+  { name: "home-page", list: "/admin/site/home" },
+  { name: "about-cwt", list: "/admin/site/about" },
   { name: "authors", list: "/admin/authors" },
   { name: "company-facts", list: "/admin/company-facts" },
   { name: "seo", list: "/admin/seo" },

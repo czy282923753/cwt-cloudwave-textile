@@ -21,28 +21,32 @@ const internalHref = z
   .min(1)
   .max(500)
   .regex(/^\/(?!\/)[^\s]*$/, "CTA links must be application-controlled root-relative paths.");
+const blockBase = {
+  id: blockIdSchema,
+  locked: z.boolean().optional(),
+} as const;
 
 const headingBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("heading"),
   level: z.union([z.literal(2), z.literal(3), z.literal(4)]),
   text: shortText,
 }).strict();
 
 const paragraphBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("paragraph"),
   text: bodyText,
 }).strict();
 
 const imageBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("image"),
   mediaKey,
 }).strict();
 
 const galleryBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("gallery"),
   mediaKeys: z.array(mediaKey).min(2).max(12).refine(
     (values) => new Set(values).size === values.length,
@@ -51,7 +55,7 @@ const galleryBlockSchema = z.object({
 }).strict();
 
 const specificationTableBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("specification_table"),
   caption: shortText.optional(),
   rows: z.array(z.object({
@@ -61,7 +65,7 @@ const specificationTableBlockSchema = z.object({
 }).strict();
 
 const comparisonTableBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("comparison_table"),
   caption: shortText.optional(),
   columns: z.array(shortText).min(2).max(8),
@@ -82,27 +86,27 @@ const comparisonTableBlockSchema = z.object({
 });
 
 const textListBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.enum(["feature_list", "bullet_list"]),
   items: z.array(z.string().trim().min(1).max(1_000)).min(1).max(50),
 }).strict();
 
 const calloutBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("callout"),
   title: shortText.optional(),
   text: bodyText,
 }).strict();
 
 const quoteBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("quote"),
   text: bodyText,
   attribution: shortText.optional(),
 }).strict();
 
 const faqBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("faq"),
   items: z.array(z.object({
     question: z.string().trim().min(1).max(500),
@@ -111,19 +115,19 @@ const faqBlockSchema = z.object({
 }).strict();
 
 const relatedProductsBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("related_products"),
   productIds: uuidList,
 }).strict();
 
 const relatedArticlesBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("related_articles"),
   contentIds: uuidList,
 }).strict();
 
 const ctaBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("cta"),
   label: shortText,
   href: internalHref,
@@ -131,7 +135,7 @@ const ctaBlockSchema = z.object({
 }).strict();
 
 const dividerBlockSchema = z.object({
-  id: blockIdSchema,
+  ...blockBase,
   type: z.literal("divider"),
 }).strict();
 

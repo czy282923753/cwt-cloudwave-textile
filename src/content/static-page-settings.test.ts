@@ -43,5 +43,36 @@ describe("fixed Home/About page settings", () => {
         isVisible: true,
       }],
     })).toThrow();
+    expect(() => staticPageConfigSchema.parse({
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      placements: [
+        {
+          assetId: "10000000-0000-4000-8000-000000000001",
+          placementKey: "hero",
+          viewport: "desktop",
+          role: "hero",
+          sortOrder: 0,
+          altText: "Synthetic first hero",
+          caption: null,
+          focalX: 50,
+          focalY: 50,
+          overlayOpacity: 0.2,
+          isVisible: true,
+        },
+        {
+          assetId: "10000000-0000-4000-8000-000000000002",
+          placementKey: "hero",
+          viewport: "desktop",
+          role: "hero",
+          sortOrder: 1,
+          altText: "Synthetic competing hero",
+          caption: null,
+          focalX: 50,
+          focalY: 50,
+          overlayOpacity: 0.2,
+          isVisible: true,
+        },
+      ],
+    })).toThrow(/unique/);
   });
 });

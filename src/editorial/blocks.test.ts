@@ -63,4 +63,15 @@ describe("versioned editorial Block documents", () => {
       blocks: [{ id: "facts", type: "specification_table", rows: [{ label: "GSM", value: "180" }] }],
     }, "product")).toThrow(/relational fields/);
   });
+
+  it("stores backward-compatible human-controlled Block Lock metadata", () => {
+    expect(parseBlockDocument({
+      version: 1,
+      blocks: [{ id: "locked-paragraph", type: "paragraph", text: "Stable", locked: true }],
+    }, "content").blocks[0]).toMatchObject({ locked: true });
+    expect(parseBlockDocument({
+      version: 1,
+      blocks: [{ id: "legacy-unlocked", type: "paragraph", text: "Compatible" }],
+    }, "content").blocks[0]).not.toHaveProperty("locked");
+  });
 });

@@ -3,6 +3,7 @@ import { AdminActionForm } from "@/admin/components/admin-action-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
 import { listAdminAssets, listAdminTaxonomy } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
+import { isEligiblePublicImagePickerAsset } from "@/admin/asset-picker";
 
 export default async function NewProductPage() {
   await requireCurrentUser("products.write");
@@ -10,9 +11,7 @@ export default async function NewProductPage() {
     listAdminTaxonomy(),
     listAdminAssets(),
   ]);
-  const images = allAssets.filter(
-    (asset) => asset.status === "ready" && asset.access === "public",
-  );
+  const images = allAssets.filter((asset) => isEligiblePublicImagePickerAsset(asset));
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
       <AdminPageHeader

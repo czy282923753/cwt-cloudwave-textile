@@ -18,6 +18,47 @@ const aboutPlacementKeys = [
   "inquiry_cta",
 ] as const;
 
+export const HOME_MODULE_ORDER = [...homePlacementKeys] as const;
+export const ABOUT_MODULE_ORDER = [...aboutPlacementKeys] as const;
+
+const internalPathSchema = z.string().trim().min(1).max(500).regex(/^\/(?!\/)[^\s]*$/);
+const ctaCopySchema = z.object({
+  label: z.string().trim().min(1).max(100),
+  href: internalPathSchema,
+}).strict();
+const moduleCopySchema = z.object({
+  eyebrow: z.string().trim().max(120),
+  title: z.string().trim().min(1).max(300),
+  summary: z.string().trim().max(2_000),
+}).strict();
+const factKeyListSchema = z.array(z.string().trim().min(1).max(120)).max(20)
+  .refine((keys) => new Set(keys).size === keys.length, {
+    message: "Company Fact selections must be unique.",
+  });
+const homeCopySchema = z.object({
+  hero: moduleCopySchema.extend({
+    primaryCta: ctaCopySchema,
+    secondaryCta: ctaCopySchema.nullable(),
+  }).strict(),
+  products: moduleCopySchema,
+  applications: moduleCopySchema,
+  fabricLibrary: moduleCopySchema,
+  fabricSourcing: moduleCopySchema,
+  manufacturingStrength: moduleCopySchema.extend({
+    factKeys: factKeyListSchema,
+  }).strict(),
+  inquiryCta: moduleCopySchema.extend({ cta: ctaCopySchema }).strict(),
+}).strict();
+const aboutCopySchema = z.object({
+  hero: moduleCopySchema,
+  introduction: moduleCopySchema,
+  ownedManufacturing: moduleCopySchema.extend({
+    factKeys: factKeyListSchema,
+  }).strict(),
+  serviceStrength: moduleCopySchema,
+  inquiryCta: moduleCopySchema.extend({ cta: ctaCopySchema }).strict(),
+}).strict();
+
 const placementBaseSchema = z.object({
   assetId: z.uuid(),
   placementKey: z.string().min(1).max(80),
@@ -38,6 +79,7 @@ const homeConfigSchema = z.object({
   modules: z.object(Object.fromEntries(
     homePlacementKeys.map((key) => [key, z.boolean()]),
   ) as Record<(typeof homePlacementKeys)[number], z.ZodBoolean>).strict(),
+  copy: homeCopySchema.optional(),
   placements: z.array(placementBaseSchema.extend({
     placementKey: z.enum(homePlacementKeys),
   }).strict()).max(50),
@@ -49,6 +91,7 @@ const aboutConfigSchema = z.object({
   modules: z.object(Object.fromEntries(
     aboutPlacementKeys.map((key) => [key, z.boolean()]),
   ) as Record<(typeof aboutPlacementKeys)[number], z.ZodBoolean>).strict(),
+  copy: aboutCopySchema.optional(),
   placements: z.array(placementBaseSchema.extend({
     placementKey: z.enum(aboutPlacementKeys),
   }).strict()).max(50),
@@ -60,7 +103,7 @@ export const staticPageConfigSchema = z.discriminatedUnion("pageKey", [
 ]).superRefine((config, context) => {
   const keys = new Set<string>();
   for (const [index, placement] of config.placements.entries()) {
-    const key = `${placement.placementKey}:${placement.viewport}:${placement.assetId}`;
+    const key = `${placement.placementKey}:${placement.viewport}`;
     if (keys.has(key)) {
       context.addIssue({
         code: "custom",
@@ -93,6 +136,21 @@ export const DEFAULT_STATIC_PAGE_CONFIGS: Readonly<{
       manufacturing_strength: true,
       inquiry_cta: true,
     },
+    copy: {
+      hero: {
+        eyebrow: "CloudWave Textile · Fabric sourcing from China",
+        title: "Professional Fabric Supplier in China",
+        summary: "From fabric selection to sourcing solutions, CWT helps global brands and manufacturers narrow suitable textile materials through a requirement-led sourcing process.",
+        primaryCta: { label: "Find Your Fabric Solution", href: "/get-quote/" },
+        secondaryCta: { label: "Upload Your Fabric Requirement", href: "/get-quote/#upload" },
+      },
+      products: { eyebrow: "Product matrix", title: "Explore real fabric records", summary: "" },
+      applications: { eyebrow: "Applications", title: "Start from what the fabric needs to do.", summary: "Application pages connect end use with relevant Product records." },
+      fabricLibrary: { eyebrow: "Fabric Library", title: "A visual path into the range", summary: "" },
+      fabricSourcing: { eyebrow: "Fabric & Sourcing", title: "Useful answers before the first sourcing conversation.", summary: "Explore material knowledge, China textile context, and practical sourcing guidance." },
+      manufacturingStrength: { eyebrow: "CWT service strength", title: "Manufacturing and sourcing support around the requirement.", summary: "Public facility facts appear only after evidence-backed verification.", factKeys: [] },
+      inquiryCta: { eyebrow: "Send less. Start faster.", title: "Find Your Fabric Solution", summary: "Share a short description, an image, or both.", cta: { label: "Start an Inquiry", href: "/get-quote/" } },
+    },
     placements: [],
   },
   about: {
@@ -104,6 +162,13 @@ export const DEFAULT_STATIC_PAGE_CONFIGS: Readonly<{
       owned_manufacturing: true,
       service_strength: true,
       inquiry_cta: true,
+    },
+    copy: {
+      hero: { eyebrow: "About CloudWave Textile", title: "A professional fabric supplier and textile sourcing partner in China.", summary: "" },
+      introduction: { eyebrow: "Who CWT is", title: "Supplier and sourcing partner—not a single-product factory story.", summary: "CWT helps overseas buyers describe and narrow fabric requirements from specifications, applications, photos, or sample references." },
+      ownedManufacturing: { eyebrow: "Own Manufacturing", title: "CWT-owned manufacturing evidence", summary: "Only verified CWT-owned facility facts and governed media can appear here.", factKeys: [] },
+      serviceStrength: { eyebrow: "Service capability", title: "Support from matching through delivery coordination.", summary: "Fabric Development & Matching, Sampling & Customization, Quality Check, and Packing & Delivery Support." },
+      inquiryCta: { eyebrow: "Start with the requirement", title: "Let CWT help find the next fabric option.", summary: "", cta: { label: "Find Your Fabric Solution", href: "/get-quote/" } },
     },
     placements: [],
   },

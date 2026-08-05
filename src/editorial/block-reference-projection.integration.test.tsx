@@ -503,4 +503,35 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
     expect((await queryIndexableRoutes(connection.db)).map((row) => row.path)).not.toContain(routeRows[0]!.path);
     await connection.close();
   });
+
+  it("accepts governed fixed CTA paths and rejects nonexistent current Routes", async () => {
+    const connection = await createTestDatabase();
+    const fixed = parseBlockDocument({
+      version: 1,
+      blocks: [{ id: "fixed-cta", type: "cta", label: "Get a Quote", href: "/get-quote/" }],
+    }, "content");
+    await expect(resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: crypto.randomUUID() },
+      fixed,
+    )).resolves.toMatchObject({ referencesValid: true, hasRenderableContent: true });
+    const missing = parseBlockDocument({
+      version: 1,
+      blocks: [{ id: "missing-cta", type: "cta", label: "Missing", href: "/missing-stage2-route/" }],
+    }, "content");
+    await expect(resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: crypto.randomUUID() },
+      missing,
+    )).rejects.toThrow(/current public records and eligible routes/);
+    const filtered = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: crypto.randomUUID() },
+      missing,
+      { invalidReferences: "filter" },
+    );
+    expect(filtered.renderableDocument.blocks).toEqual([]);
+    expect(filtered.hasRenderableContent).toBe(false);
+    await connection.close();
+  });
 });

@@ -73,6 +73,7 @@ const structuredRevisionSnapshotSchema = z.object({
   excerpt: z.string().nullable(),
   document: blockDocumentSchema,
   expectedEditorDocumentVersion: z.number().int().positive(),
+  draftVersion: z.number().int().positive().optional(),
   authorId: z.uuid().optional(),
   type: z.enum(["article", "pillar", "comparison", "how_to", "guide"]).optional(),
   media: z.array(contentMediaPlacementSchema).max(100).optional(),
@@ -218,13 +219,18 @@ export async function createContentDraft<TQueryResult extends PgQueryResultHKT>(
     authorId: string;
     title: string;
     excerpt?: string;
-    body: string;
+    body?: string;
+    initialDocument?: BlockDocument;
   },
 ): Promise<string> {
   requirePermission(actor.role, "content.write");
   const title = input.title.trim();
-  const body = input.body.trim();
-  if (!title || !body) throw new Error("Content title and body are required.");
+  const document = input.initialDocument
+    ? parseBlockDocument(input.initialDocument, "content")
+    : legacyTextToBlockDocument(input.body ?? "");
+  if (!title || !document.blocks.length) {
+    throw new Error("Content title and an initial Block are required.");
+  }
   const path = `/${channelPrefix(input.channel)}/${slugify(title)}/`;
   const collision = await db.select({ id: routes.id }).from(routes).where(eq(routes.path, path));
   if (collision[0]) throw new Error("Content URL already exists.");
@@ -242,7 +248,6 @@ export async function createContentDraft<TQueryResult extends PgQueryResultHKT>(
       .returning({ id: contents.id });
     const contentId = rows[0]?.id;
     if (!contentId) throw new Error("Content insert failed.");
-    const document = legacyTextToBlockDocument(body);
     const snapshot = structuredRevisionSnapshotSchema.parse({
       kind: "content_blocks_v1",
       title,
@@ -300,7 +305,7 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
   input: {
     title: string;
     excerpt?: string | null;
-    body: string;
+    body?: string;
     authorId: string;
     type: typeof contents.$inferInsert.type;
     seoTitle?: string | null;
@@ -317,7 +322,7 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
   const media = normalizeContentMedia(input.assetIds, input.media);
   const document = input.structuredDocument
     ? parseBlockDocument(input.structuredDocument, "content")
-    : legacyTextToBlockDocument(input.body);
+    : legacyTextToBlockDocument(input.body ?? "");
   const [contentRows, authorRows] = await Promise.all([
     db
       .select({
@@ -443,6 +448,244 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
     });
   });
   return null;
+}
+
+export interface ContentBlockDraftSaveResult {
+  editorDocumentVersion: number;
+  revisionId: string | null;
+  revisionVersion: number | null;
+}
+
+export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  contentId: string,
+  input: {
+    title: string;
+    excerpt?: string | null;
+    document: BlockDocument;
+    expectedEditorDocumentVersion: number;
+    revisionId?: string | null;
+    expectedRevisionVersion?: number | null;
+  },
+  options: GovernedMutationOptions = {},
+): Promise<ContentBlockDraftSaveResult> {
+  requirePermission(actor.role, "content.write");
+  const document = parseBlockDocument(input.document, "content");
+  const title = input.title.trim();
+  const excerpt = input.excerpt?.trim() || null;
+  if (!title) throw new Error("Content title is required.");
+  const rows = await db
+    .select({
+      status: contents.status,
+      editorDocumentVersion: contentLocalizations.editorDocumentVersion,
+    })
+    .from(contents)
+    .innerJoin(contentLocalizations, and(
+      eq(contentLocalizations.contentId, contents.id),
+      eq(contentLocalizations.locale, "en"),
+    ))
+    .where(eq(contents.id, contentId))
+    .limit(1);
+  const content = rows[0];
+  if (!content) throw new Error("Content was not found.");
+  if (content.status === "archived") throw new Error("Archived Content cannot be edited.");
+  if (content.editorDocumentVersion !== input.expectedEditorDocumentVersion) {
+    throw new Error("Content changed after this editor loaded; refresh before saving.");
+  }
+  const projection = await validateContentMedia(db, contentId, document, undefined);
+  await assertIndexedContentRemainsReadable(db, contentId, projection.readableText);
+
+  if (content.status !== "published") {
+    await runGovernedMutation(db, async ({ transaction, audit }) => {
+      const updated = await transaction
+        .update(contentLocalizations)
+        .set({
+          title,
+          excerpt,
+          structuredBlocks: document,
+          blocksVersion: document.version,
+          editorDocumentVersion: input.expectedEditorDocumentVersion + 1,
+        })
+        .where(and(
+          eq(contentLocalizations.contentId, contentId),
+          eq(contentLocalizations.locale, "en"),
+          eq(
+            contentLocalizations.editorDocumentVersion,
+            input.expectedEditorDocumentVersion,
+          ),
+        ))
+        .returning({ contentId: contentLocalizations.contentId });
+      if (!updated[0]) throw new Error("Content changed after this editor loaded; refresh before saving.");
+      await transaction.update(contents).set({ updatedAt: new Date() }).where(eq(contents.id, contentId));
+      await audit({
+        actorUserId: actor.userId,
+        action: "content.block_draft.saved",
+        entityType: "content",
+        entityId: contentId,
+        afterSummary: { editorDocumentVersion: input.expectedEditorDocumentVersion + 1 },
+      });
+    }, options);
+    return {
+      editorDocumentVersion: input.expectedEditorDocumentVersion + 1,
+      revisionId: null,
+      revisionVersion: null,
+    };
+  }
+
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const localizationRows = await transaction
+      .select({ editorDocumentVersion: contentLocalizations.editorDocumentVersion })
+      .from(contentLocalizations)
+      .where(and(
+        eq(contentLocalizations.contentId, contentId),
+        eq(contentLocalizations.locale, "en"),
+      ))
+      .limit(1)
+      .for("update");
+    if (localizationRows[0]?.editorDocumentVersion !== input.expectedEditorDocumentVersion) {
+      throw new Error("Content changed after this editor loaded; refresh before saving.");
+    }
+    const draftRows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "content"),
+        eq(editorialRevisions.entityId, contentId),
+        eq(editorialRevisions.locale, "en"),
+        eq(editorialRevisions.status, "draft"),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1)
+      .for("update");
+    const draft = draftRows[0];
+    const expectedRevisionVersion = input.expectedRevisionVersion ?? 0;
+    if (draft) {
+      if (input.revisionId && input.revisionId !== draft.id) {
+        throw new Error("A different Content Draft Revision is current.");
+      }
+      const current = structuredRevisionSnapshotSchema.parse(draft.snapshot);
+      const currentDraftVersion = current.draftVersion ?? 1;
+      if (expectedRevisionVersion !== currentDraftVersion) {
+        const samePayload = JSON.stringify({
+          title: current.title,
+          excerpt: current.excerpt,
+          document: current.document,
+        }) === JSON.stringify({ title, excerpt, document });
+        if (samePayload) {
+          return {
+            editorDocumentVersion: input.expectedEditorDocumentVersion,
+            revisionId: draft.id,
+            revisionVersion: currentDraftVersion,
+          };
+        }
+        throw new Error("Content Draft Revision changed in another editor; reload before saving.");
+      }
+      const snapshot = structuredRevisionSnapshotSchema.parse({
+        ...current,
+        title,
+        excerpt,
+        document,
+        draftVersion: currentDraftVersion + 1,
+      });
+      await transaction
+        .update(editorialRevisions)
+        .set({ snapshot, changeSummary: "Content Block Draft autosave" })
+        .where(and(eq(editorialRevisions.id, draft.id), eq(editorialRevisions.status, "draft")));
+      await audit({
+        actorUserId: actor.userId,
+        action: "content.block_draft.saved",
+        entityType: "editorial_revision",
+        entityId: draft.id,
+        afterSummary: { contentId, draftVersion: currentDraftVersion + 1 },
+      });
+      return {
+        editorDocumentVersion: input.expectedEditorDocumentVersion,
+        revisionId: draft.id,
+        revisionVersion: currentDraftVersion + 1,
+      };
+    }
+    if (input.revisionId || expectedRevisionVersion !== 0) {
+      throw new Error("Content Draft Revision is no longer available.");
+    }
+    const latestRows = await transaction
+      .select({ versionNumber: editorialRevisions.versionNumber })
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "content"),
+        eq(editorialRevisions.entityId, contentId),
+        eq(editorialRevisions.locale, "en"),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1);
+    const snapshot = structuredRevisionSnapshotSchema.parse({
+      kind: "content_blocks_v1",
+      title,
+      excerpt,
+      document,
+      expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
+      draftVersion: 1,
+    });
+    const inserted = await transaction
+      .insert(editorialRevisions)
+      .values({
+        entityType: "content",
+        entityId: contentId,
+        locale: "en",
+        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+        status: "draft",
+        snapshot,
+        changeSummary: "Content Block Draft",
+        createdByUserId: actor.userId,
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = inserted[0]?.id;
+    if (!revisionId) throw new Error("Content Draft Revision insert failed.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.block_draft.created",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { contentId, draftVersion: 1 },
+    });
+    return {
+      editorDocumentVersion: input.expectedEditorDocumentVersion,
+      revisionId,
+      revisionVersion: 1,
+    };
+  }, options);
+}
+
+export async function submitContentBlockDraftForReview<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  contentId: string,
+  revisionId: string,
+  options: GovernedMutationOptions = {},
+): Promise<void> {
+  requirePermission(actor.role, "content.write");
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(editorialRevisions)
+      .set({ status: "in_review", changeSummary: "Content Block Draft submitted for review" })
+      .where(and(
+        eq(editorialRevisions.id, revisionId),
+        eq(editorialRevisions.entityType, "content"),
+        eq(editorialRevisions.entityId, contentId),
+        eq(editorialRevisions.status, "draft"),
+      ))
+      .returning({ id: editorialRevisions.id });
+    if (!updated[0]) throw new Error("Content Draft Revision is not current.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "content.block_draft.review_requested",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { contentId },
+    });
+  }, options);
 }
 
 export async function proposePublishedContentRevision<

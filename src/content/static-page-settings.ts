@@ -1,11 +1,13 @@
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import { z } from "zod";
 
 import { runGovernedMutation, type GovernedMutationOptions } from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
 import {
   assets,
+  companyFacts,
   editorialRevisions,
   sitePageAssets,
   systemSettings,
@@ -34,6 +36,22 @@ export class StaticPageProjectionMismatchError extends Error {
   }
 }
 
+const staticPageDraftSnapshotSchema = z.object({
+  kind: z.literal("static_page_config_v1"),
+  config: staticPageConfigSchema,
+  draftVersion: z.number().int().positive(),
+}).strict();
+
+function parseStaticPageRevisionConfig(input: unknown): StaticPageConfig {
+  const draft = staticPageDraftSnapshotSchema.safeParse(input);
+  return draft.success ? draft.data.config : staticPageConfigSchema.parse(input);
+}
+
+export interface StaticPageDraftSaveResult {
+  revisionId: string;
+  revisionVersion: number;
+}
+
 const ownedManufacturingKeys = new Set(["manufacturing_strength", "owned_manufacturing"]);
 
 async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
@@ -41,6 +59,22 @@ async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
   config: StaticPageConfig,
 ): Promise<void> {
   const livePlacements = deriveStaticPageLivePlacements(config);
+  const factKeys = config.pageKey === "home"
+    ? config.copy?.manufacturingStrength.factKeys ?? []
+    : config.copy?.ownedManufacturing.factKeys ?? [];
+  if (factKeys.length) {
+    const factRows = await db
+      .select({ key: companyFacts.factKey })
+      .from(companyFacts)
+      .where(and(
+        inArray(companyFacts.factKey, factKeys),
+        eq(companyFacts.verificationStatus, "verified"),
+        eq(companyFacts.publicUseAllowed, true),
+      ));
+    if (new Set(factRows.map((row) => row.key)).size !== factKeys.length) {
+      throw new Error("Static-page Company Facts must be verified and approved for public use.");
+    }
+  }
   const assetIds = [...new Set(livePlacements.map((placement) => placement.assetId))];
   if (!assetIds.length) return;
   const rows = await db
@@ -131,6 +165,151 @@ export async function proposeStaticPageConfigRevision<
   }, options);
 }
 
+export async function saveStaticPageConfigDraft<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  input: StaticPageConfig,
+  expectedRevisionId?: string | null,
+  expectedRevisionVersion = 0,
+  options: GovernedMutationOptions = {},
+): Promise<StaticPageDraftSaveResult> {
+  requirePermission(actor.role, "content.write");
+  const config = staticPageConfigSchema.parse(input);
+  await validateStaticPageAssets(db, config);
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const key = `site_page.${config.pageKey}`;
+    await transaction
+      .insert(systemSettings)
+      .values({ key, value: DEFAULT_STATIC_PAGE_CONFIGS[config.pageKey] })
+      .onConflictDoNothing({ target: systemSettings.key });
+    const settingRows = await transaction
+      .select({ id: systemSettings.id })
+      .from(systemSettings)
+      .where(eq(systemSettings.key, key))
+      .limit(1)
+      .for("update");
+    const settingId = settingRows[0]?.id;
+    if (!settingId) throw new Error("Static-page setting could not be resolved.");
+    const draftRows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "static_page"),
+        eq(editorialRevisions.entityId, settingId),
+        eq(editorialRevisions.locale, "en"),
+        eq(editorialRevisions.status, "draft"),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1)
+      .for("update");
+    const draft = draftRows[0];
+    if (draft) {
+      if (expectedRevisionId && expectedRevisionId !== draft.id) {
+        throw new StaticPageProjectionMismatchError();
+      }
+      const current = staticPageDraftSnapshotSchema.parse(draft.snapshot);
+      if (expectedRevisionVersion !== current.draftVersion) {
+        if (JSON.stringify(current.config) === JSON.stringify(config)) {
+          return { revisionId: draft.id, revisionVersion: current.draftVersion };
+        }
+        throw new Error("Static-page Draft changed in another editor; reload before saving.");
+      }
+      const revisionVersion = current.draftVersion + 1;
+      await transaction
+        .update(editorialRevisions)
+        .set({
+          snapshot: { kind: "static_page_config_v1", config, draftVersion: revisionVersion },
+          changeSummary: `${config.pageKey} fixed-page Draft saved`,
+        })
+        .where(and(eq(editorialRevisions.id, draft.id), eq(editorialRevisions.status, "draft")));
+      await audit({
+        actorUserId: actor.userId,
+        action: "static_page.draft.saved",
+        entityType: "editorial_revision",
+        entityId: draft.id,
+        afterSummary: { pageKey: config.pageKey, draftVersion: revisionVersion },
+      });
+      return { revisionId: draft.id, revisionVersion };
+    }
+    if (expectedRevisionId || expectedRevisionVersion !== 0) {
+      throw new Error("Static-page Draft Revision is no longer current.");
+    }
+    const latestRows = await transaction
+      .select({ versionNumber: editorialRevisions.versionNumber })
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "static_page"),
+        eq(editorialRevisions.entityId, settingId),
+        eq(editorialRevisions.locale, "en"),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1);
+    const inserted = await transaction
+      .insert(editorialRevisions)
+      .values({
+        entityType: "static_page",
+        entityId: settingId,
+        locale: "en",
+        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+        status: "draft",
+        snapshot: { kind: "static_page_config_v1", config, draftVersion: 1 },
+        changeSummary: `${config.pageKey} fixed-page Draft`,
+        createdByUserId: actor.userId,
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = inserted[0]?.id;
+    if (!revisionId) throw new Error("Static-page Draft Revision insert failed.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "static_page.draft.created",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { pageKey: config.pageKey, draftVersion: 1 },
+    });
+    return { revisionId, revisionVersion: 1 };
+  }, options);
+}
+
+export async function submitStaticPageConfigDraftForReview<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  revisionId: string,
+  options: GovernedMutationOptions = {},
+): Promise<void> {
+  requirePermission(actor.role, "content.write");
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const revisionRows = await transaction
+      .select({ snapshot: editorialRevisions.snapshot })
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.id, revisionId),
+        eq(editorialRevisions.entityType, "static_page"),
+        eq(editorialRevisions.status, "draft"),
+      ))
+      .limit(1)
+      .for("update");
+    const revision = revisionRows[0];
+    if (!revision) throw new Error("Static-page Draft Revision is not current.");
+    const config = parseStaticPageRevisionConfig(revision.snapshot);
+    await validateStaticPageAssets(transaction, config);
+    await transaction
+      .update(editorialRevisions)
+      .set({ status: "in_review", changeSummary: `${config.pageKey} fixed-page Draft submitted for review` })
+      .where(and(eq(editorialRevisions.id, revisionId), eq(editorialRevisions.status, "draft")));
+    await audit({
+      actorUserId: actor.userId,
+      action: "static_page.draft.review_requested",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { pageKey: config.pageKey },
+    });
+  }, options);
+}
+
 export async function applyStaticPageConfigRevision<
   TQueryResult extends PgQueryResultHKT,
 >(
@@ -156,7 +335,7 @@ export async function applyStaticPageConfigRevision<
     if (!revision || (revision.status !== "in_review" && revision.status !== "applied")) {
       throw new Error("Static-page revision is not eligible for approval.");
     }
-    const config = staticPageConfigSchema.parse(revision.snapshot);
+    const config = parseStaticPageRevisionConfig(revision.snapshot);
     const settingRows = await transaction
       .select({ id: systemSettings.id, key: systemSettings.key, value: systemSettings.value })
       .from(systemSettings)

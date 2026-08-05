@@ -46,9 +46,11 @@ import {
   rejectProductRevision,
   rejectProductReview,
   reviewProductField,
+  saveProductBlockDraft,
   setProductIndexStatus,
+  submitProductBlockDraftForReview,
   submitProductForReview,
-  updateProductEditorialCopy,
+  updateProductBlocks,
   updateProductFacts,
   updateProductSeo,
   updateProductStructure,
@@ -69,7 +71,9 @@ import {
   publishContent,
   rejectContentReview,
   rejectContentRevision,
+  saveContentBlockDraft,
   setContentIndexStatus,
+  submitContentBlockDraftForReview,
   submitContentForReview,
   updateContent,
 } from "@/content/content-service";
@@ -83,8 +87,16 @@ import {
   updateCompanyFact,
   verifyCompanyFact,
 } from "@/content/company-facts-service";
+import {
+  applyStaticPageConfigRevision,
+  saveStaticPageConfigDraft,
+  staticPageConfigSchema,
+  submitStaticPageConfigDraftForReview,
+  type StaticPageConfig,
+} from "@/content/static-page-settings";
 import { databaseConnection } from "@/db/client";
 import { contents } from "@/db/schema";
+import { blockDocumentSchema } from "@/editorial/blocks";
 import { eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/types";
 import { updateSeoMetadata } from "@/seo/metadata-service";
@@ -99,6 +111,7 @@ import {
 
 import { currentActor } from "./actor";
 import {
+  adminActionFailure,
   AdminFieldValidationError,
   type AdminMutationOutcome,
 } from "./action-result";
@@ -176,6 +189,254 @@ async function withDatabase<TResult>(
   return operation(databaseConnection.db);
 }
 
+const blockSaveRequestSchema = z.object({
+  entityType: z.enum(["product", "content"]),
+  entityId: z.uuid(),
+  title: z.string().trim().min(1).max(300),
+  summary: z.string().trim().max(2_000).nullable(),
+  document: blockDocumentSchema,
+  expectedEditorDocumentVersion: z.number().int().positive(),
+  revisionId: z.uuid().nullable(),
+  expectedRevisionVersion: z.number().int().nonnegative().nullable(),
+}).strict();
+
+export type BlockSaveResult =
+  | {
+      success: true;
+      editorDocumentVersion: number;
+      revisionId: string | null;
+      revisionVersion: number | null;
+    }
+  | {
+      success: false;
+      message: string;
+      formError: string;
+      fieldErrors: Readonly<Record<string, readonly string[]>>;
+      errorCode: "VALIDATION_ERROR" | "FORBIDDEN" | "CONFLICT" | "NOT_FOUND" | "AUDIT_FAILURE" | "NETWORK_ERROR" | "UNKNOWN_ERROR";
+    };
+
+const quickCreateProductRelationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("taxonomy"),
+    name: z.string().trim().min(1).max(160),
+    dimension: z.enum([
+      "material_fiber",
+      "structure_construction",
+      "commercial_collection",
+      "surface_hand_feel",
+    ]),
+    productCodePrefix: z.string().trim().max(8).nullable(),
+  }).strict(),
+  z.object({
+    kind: z.literal("application"),
+    name: z.string().trim().min(1).max(160),
+  }).strict(),
+]);
+
+export type QuickCreateProductRelationResult =
+  | {
+      success: true;
+      id: string;
+      kind: "taxonomy" | "application";
+      label: string;
+      detail: string;
+    }
+  | {
+      success: false;
+      message: string;
+      formError: string;
+      fieldErrors: Readonly<Record<string, readonly string[]>>;
+      errorCode: "VALIDATION_ERROR" | "FORBIDDEN" | "CONFLICT" | "NOT_FOUND" | "AUDIT_FAILURE" | "NETWORK_ERROR" | "UNKNOWN_ERROR";
+    };
+
+export async function quickCreateProductRelation(
+  input: unknown,
+): Promise<QuickCreateProductRelationResult> {
+  try {
+    const parsed = quickCreateProductRelationSchema.parse(input);
+    const actor = await currentActor();
+    const id = parsed.kind === "taxonomy"
+      ? await withDatabase((db) => createTaxonomyTerm(db, actor, {
+          internalKey: `quick-${slugify(parsed.name)}`,
+          name: parsed.name,
+          dimension: parsed.dimension,
+          productCodePrefix: parsed.productCodePrefix,
+        }))
+      : await withDatabase((db) => createApplicationDraft(db, actor, {
+          internalKey: `quick-${slugify(parsed.name)}`,
+          name: parsed.name,
+        }));
+    revalidatePath("/admin/products/[id]", "page");
+    revalidatePath(parsed.kind === "taxonomy" ? "/admin/taxonomy" : "/admin/applications");
+    return {
+      success: true,
+      id,
+      kind: parsed.kind,
+      label: parsed.name,
+      detail: parsed.kind === "taxonomy" ? parsed.dimension : "draft",
+    };
+  } catch (error) {
+    const failure = adminActionFailure(error);
+    if (failure.success) throw new Error("Expected a failed quick-create result.");
+    return {
+      success: false,
+      message: failure.message,
+      formError: failure.formError,
+      fieldErrors: failure.fieldErrors,
+      errorCode: failure.errorCode,
+    };
+  }
+}
+
+export async function saveBlockDocument(input: unknown): Promise<BlockSaveResult> {
+  try {
+    const parsed = blockSaveRequestSchema.parse(input);
+    const actor = await currentActor();
+    const result = parsed.entityType === "product"
+      ? await withDatabase((db) => saveProductBlockDraft(db, actor, parsed.entityId, {
+          name: parsed.title,
+          shortDescription: parsed.summary,
+          document: parsed.document,
+          expectedEditorDocumentVersion: parsed.expectedEditorDocumentVersion,
+          revisionId: parsed.revisionId,
+          expectedRevisionVersion: parsed.expectedRevisionVersion,
+        }))
+      : await withDatabase((db) => saveContentBlockDraft(db, actor, parsed.entityId, {
+          title: parsed.title,
+          excerpt: parsed.summary,
+          document: parsed.document,
+          expectedEditorDocumentVersion: parsed.expectedEditorDocumentVersion,
+          revisionId: parsed.revisionId,
+          expectedRevisionVersion: parsed.expectedRevisionVersion,
+        }));
+    revalidatePath(`/admin/${parsed.entityType === "product" ? "products" : "contents"}/${parsed.entityId}`);
+    revalidatePath(`/admin/preview/${parsed.entityType}/${parsed.entityId}`);
+    return { success: true, ...result };
+  } catch (error) {
+    const failure = adminActionFailure(error);
+    if (failure.success) throw new Error("Expected a failed Block save result.");
+    return {
+      success: false,
+      message: failure.message,
+      formError: failure.formError,
+      fieldErrors: failure.fieldErrors,
+      errorCode: failure.errorCode,
+    };
+  }
+}
+
+export async function submitBlockDraftForReviewAction(
+  form: FormData,
+): Promise<AdminMutationOutcome> {
+  const actor = await currentActor();
+  const entityType = parseRequiredField(z.enum(["product", "content"]), form, "entityType");
+  const entityId = requiredString(form, "entityId");
+  const revisionId = requiredString(form, "revisionId");
+  if (entityType === "product") {
+    await withDatabase((db) => submitProductBlockDraftForReview(
+      db,
+      actor,
+      entityId,
+      revisionId,
+    ));
+  } else {
+    await withDatabase((db) => submitContentBlockDraftForReview(
+      db,
+      actor,
+      entityId,
+      revisionId,
+    ));
+  }
+  revalidatePath(`/admin/${entityType === "product" ? "products" : "contents"}/${entityId}`);
+  return mutationResult(entityId);
+}
+
+const homeModuleKeys = ["hero", "products", "applications", "fabric_library", "fabric_sourcing", "manufacturing_strength", "inquiry_cta"] as const;
+const aboutModuleKeys = ["hero", "introduction", "owned_manufacturing", "service_strength", "inquiry_cta"] as const;
+
+function fieldValue(form: FormData, key: string): string {
+  const value = form.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseStaticPageConfigForm(form: FormData): StaticPageConfig {
+  const pageKey = parseRequiredField(z.enum(["home", "about"]), form, "pageKey");
+  const moduleKeys = pageKey === "home" ? homeModuleKeys : aboutModuleKeys;
+  const modules = Object.fromEntries(moduleKeys.map((key) => [key, form.get(`module:${key}`) === "true"]));
+  const placements = moduleKeys.flatMap((placementKey) => (["desktop", "mobile"] as const).flatMap((viewport) => {
+    const assetId = optionalString(form, `asset:${placementKey}:${viewport}`);
+    if (!assetId) return [];
+    return [{
+      assetId,
+      placementKey,
+      viewport,
+      role: "hero" as const,
+      sortOrder: 0,
+      altText: requiredString(form, `alt:${placementKey}:${viewport}`),
+      caption: optionalString(form, `caption:${placementKey}:${viewport}`) ?? null,
+      focalX: Number(fieldValue(form, `focalX:${placementKey}:${viewport}`) || 50),
+      focalY: Number(fieldValue(form, `focalY:${placementKey}:${viewport}`) || 50),
+      overlayOpacity: Number(fieldValue(form, `overlay:${placementKey}:${viewport}`) || 0),
+      isVisible: form.get(`visible:${placementKey}:${viewport}`) === "true",
+    }];
+  }));
+  const copy = pageKey === "home" ? {
+    hero: {
+      eyebrow: fieldValue(form, "copy:hero:eyebrow"),
+      title: requiredString(form, "copy:hero:title"),
+      summary: fieldValue(form, "copy:hero:summary"),
+      primaryCta: { label: requiredString(form, "copy:hero:primaryLabel"), href: requiredString(form, "copy:hero:primaryHref") },
+      secondaryCta: optionalString(form, "copy:hero:secondaryLabel") && optionalString(form, "copy:hero:secondaryHref")
+        ? { label: requiredString(form, "copy:hero:secondaryLabel"), href: requiredString(form, "copy:hero:secondaryHref") }
+        : null,
+    },
+    products: { eyebrow: fieldValue(form, "copy:products:eyebrow"), title: requiredString(form, "copy:products:title"), summary: fieldValue(form, "copy:products:summary") },
+    applications: { eyebrow: fieldValue(form, "copy:applications:eyebrow"), title: requiredString(form, "copy:applications:title"), summary: fieldValue(form, "copy:applications:summary") },
+    fabricLibrary: { eyebrow: fieldValue(form, "copy:fabricLibrary:eyebrow"), title: requiredString(form, "copy:fabricLibrary:title"), summary: fieldValue(form, "copy:fabricLibrary:summary") },
+    fabricSourcing: { eyebrow: fieldValue(form, "copy:fabricSourcing:eyebrow"), title: requiredString(form, "copy:fabricSourcing:title"), summary: fieldValue(form, "copy:fabricSourcing:summary") },
+    manufacturingStrength: { eyebrow: fieldValue(form, "copy:manufacturingStrength:eyebrow"), title: requiredString(form, "copy:manufacturingStrength:title"), summary: fieldValue(form, "copy:manufacturingStrength:summary"), factKeys: form.getAll("factKeys").filter((value): value is string => typeof value === "string") },
+    inquiryCta: { eyebrow: fieldValue(form, "copy:inquiryCta:eyebrow"), title: requiredString(form, "copy:inquiryCta:title"), summary: fieldValue(form, "copy:inquiryCta:summary"), cta: { label: requiredString(form, "copy:inquiryCta:label"), href: requiredString(form, "copy:inquiryCta:href") } },
+  } : {
+    hero: { eyebrow: fieldValue(form, "copy:hero:eyebrow"), title: requiredString(form, "copy:hero:title"), summary: fieldValue(form, "copy:hero:summary") },
+    introduction: { eyebrow: fieldValue(form, "copy:introduction:eyebrow"), title: requiredString(form, "copy:introduction:title"), summary: fieldValue(form, "copy:introduction:summary") },
+    ownedManufacturing: { eyebrow: fieldValue(form, "copy:ownedManufacturing:eyebrow"), title: requiredString(form, "copy:ownedManufacturing:title"), summary: fieldValue(form, "copy:ownedManufacturing:summary"), factKeys: form.getAll("factKeys").filter((value): value is string => typeof value === "string") },
+    serviceStrength: { eyebrow: fieldValue(form, "copy:serviceStrength:eyebrow"), title: requiredString(form, "copy:serviceStrength:title"), summary: fieldValue(form, "copy:serviceStrength:summary") },
+    inquiryCta: { eyebrow: fieldValue(form, "copy:inquiryCta:eyebrow"), title: requiredString(form, "copy:inquiryCta:title"), summary: fieldValue(form, "copy:inquiryCta:summary"), cta: { label: requiredString(form, "copy:inquiryCta:label"), href: requiredString(form, "copy:inquiryCta:href") } },
+  };
+  return staticPageConfigSchema.parse({ version: 1, pageKey, modules, copy, placements });
+}
+
+export async function saveStaticPageDraftAction(form: FormData): Promise<AdminMutationOutcome> {
+  const actor = await currentActor();
+  const config = parseStaticPageConfigForm(form);
+  const result = await withDatabase((db) => saveStaticPageConfigDraft(
+    db,
+    actor,
+    config,
+    optionalString(form, "revisionId") ?? null,
+    Number(fieldValue(form, "revisionVersion") || 0),
+  ));
+  revalidatePath(`/admin/site/${config.pageKey}`);
+  revalidatePath(`/admin/preview/site/${config.pageKey}`);
+  return mutationResult(result.revisionId);
+}
+
+export async function submitStaticPageDraftReviewAction(form: FormData): Promise<AdminMutationOutcome> {
+  const actor = await currentActor();
+  const pageKey = parseRequiredField(z.enum(["home", "about"]), form, "pageKey");
+  await withDatabase((db) => submitStaticPageConfigDraftForReview(db, actor, requiredString(form, "revisionId")));
+  revalidatePath(`/admin/site/${pageKey}`);
+  return mutationResult();
+}
+
+export async function applyStaticPageRevisionAction(form: FormData): Promise<AdminMutationOutcome> {
+  const actor = await currentActor();
+  const pageKey = await withDatabase((db) => applyStaticPageConfigRevision(db, actor, requiredString(form, "revisionId")));
+  revalidatePath(`/admin/site/${pageKey}`);
+  revalidatePath(pageKey === "home" ? "/" : "/about/");
+  return mutationResult();
+}
+
 export async function createProductAction(form: FormData): Promise<AdminMutationOutcome> {
   requireFields(form, ["name", "primaryTaxonomyTermId", "assetIds"]);
   const actor = await currentActor();
@@ -204,11 +465,19 @@ export async function createProductAction(form: FormData): Promise<AdminMutation
 export async function updateProductEditorialAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const productId = requiredString(form, "productId");
+  let structuredDocument: unknown;
+  try {
+    structuredDocument = JSON.parse(requiredString(form, "structuredDocument"));
+  } catch {
+    throw new AdminFieldValidationError({
+      structuredDocument: ["The structured Product document is invalid."],
+    });
+  }
   await withDatabase((db) =>
-    updateProductEditorialCopy(db, actor, productId, {
+    updateProductBlocks(db, actor, productId, {
       name: requiredString(form, "name"),
       shortDescription: optionalString(form, "shortDescription") ?? null,
-      fullDescription: optionalString(form, "fullDescription") ?? null,
+      document: blockDocumentSchema.parse(structuredDocument),
       expectedEditorDocumentVersion: Number(
         requiredString(form, "expectedEditorDocumentVersion"),
       ),
@@ -724,7 +993,7 @@ export async function changeApplicationSlugAction(form: FormData): Promise<Admin
 }
 
 export async function createContentAction(form: FormData): Promise<AdminMutationOutcome> {
-  requireFields(form, ["channel", "type", "authorId", "title", "body"]);
+  requireFields(form, ["channel", "type", "authorId", "title", "initialParagraph"]);
   const actor = await currentActor();
   const channel = parseRequiredField(
     z.enum(["fabric_knowledge", "china_textile_guide", "china_sourcing_guide"]),
@@ -745,7 +1014,14 @@ export async function createContentAction(form: FormData): Promise<AdminMutation
       ...(optionalString(form, "excerpt")
         ? { excerpt: requiredString(form, "excerpt") }
         : {}),
-      body: requiredString(form, "body"),
+      initialDocument: blockDocumentSchema.parse({
+        version: 1,
+        blocks: [{
+          id: "initial-paragraph",
+          type: "paragraph",
+          text: requiredString(form, "initialParagraph"),
+        }],
+      }),
     }),
   );
   revalidatePath("/admin/contents");
@@ -755,6 +1031,14 @@ export async function createContentAction(form: FormData): Promise<AdminMutation
 export async function updateContentAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
+  let structuredDocument: unknown;
+  try {
+    structuredDocument = JSON.parse(requiredString(form, "structuredDocument"));
+  } catch {
+    throw new AdminFieldValidationError({
+      structuredDocument: ["The structured Content document is invalid."],
+    });
+  }
   const assetIds = form
     .getAll("assetIds")
     .filter((value): value is string => typeof value === "string" && Boolean(value))
@@ -774,7 +1058,7 @@ export async function updateContentAction(form: FormData): Promise<AdminMutation
       ),
       title: requiredString(form, "title"),
       excerpt: optionalString(form, "excerpt") ?? null,
-      body: requiredString(form, "body"),
+      structuredDocument: blockDocumentSchema.parse(structuredDocument),
       expectedEditorDocumentVersion: Number(
         requiredString(form, "expectedEditorDocumentVersion"),
       ),

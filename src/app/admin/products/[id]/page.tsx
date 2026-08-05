@@ -13,21 +13,27 @@ import {
   reviewProductFieldAction,
   setProductIndexAction,
   submitProductReviewAction,
-  updateProductEditorialAction,
+  submitBlockDraftForReviewAction,
   updateProductFactsAction,
   updateProductSeoAction,
   updateProductStructureAction,
 } from "@/admin/actions";
 import { AdminActionForm } from "@/admin/components/admin-action-form";
+import { BlockEditor } from "@/admin/components/block-editor";
+import { AssetUploadForm } from "@/admin/components/asset-upload-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
+import { MediaPlacementEditor } from "@/admin/components/media-placement-editor";
+import { ProductRelationSelectors } from "@/admin/components/product-relation-selectors";
 import {
   getAdminProduct,
+  getEditorialPickerOptions,
   listAdminApplications,
   listAdminAssets,
   listAdminTaxonomy,
 } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
-import { blockDocumentPlainText, parseBlockDocument } from "@/editorial/blocks";
+import { isEligiblePublicImagePickerAsset } from "@/admin/asset-picker";
+import { blockDocumentSchema, parseBlockDocument } from "@/editorial/blocks";
 
 const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 const panelClass = "grid gap-4 rounded-2xl border border-white/10 bg-slate-900 p-6";
@@ -37,30 +43,65 @@ export default async function ProductEditorPage({
 }: Readonly<{ params: Promise<{ id: string }> }>) {
   const currentUser = await requireCurrentUser("products.read");
   const { id } = await params;
-  const [product, taxonomy, applications, allAssets] = await Promise.all([
+  const [product, taxonomy, applications, allAssets, pickerOptions] = await Promise.all([
     getAdminProduct(id),
     listAdminTaxonomy(),
     listAdminApplications(),
     listAdminAssets(),
+    getEditorialPickerOptions(),
   ]);
   if (!product) notFound();
   const selectedTaxonomy = new Set(product.taxonomy.map((row) => row.taxonomyTermId));
   const primaryTaxonomy = product.taxonomy.find((row) => row.isPrimary)?.taxonomyTermId;
   const selectedApplications = new Set(product.applicationIds);
-  const selectedAssets = new Set(product.assets.map((row) => row.assetId));
-  const heroAsset = product.assets.find((row) => row.role === "hero")?.assetId;
-  const readyAssets = allAssets.filter(
-    (asset) =>
-      asset.status === "ready" &&
-      asset.scanStatus === "passed" &&
-      asset.access === "public" &&
-      asset.deletedAt === null,
+  const readyAssets = allAssets.filter((asset) =>
+    isEligiblePublicImagePickerAsset(asset),
   );
   const reviewStatus = new Map(
     product.fieldReviews.map((review) => [review.fieldName, review.status]),
   );
   const narrativeDocument = parseBlockDocument(product.structuredBlocks, "product");
-  const narrativeText = blockDocumentPlainText(narrativeDocument);
+  const draftRevision = product.revisions.find((revision) => revision.status === "draft");
+  const draftSnapshot = draftRevision?.kind;
+  const draftDocument = typeof draftSnapshot === "object" && draftSnapshot !== null &&
+    "kind" in draftSnapshot && draftSnapshot.kind === "editorial_blocks" &&
+    "document" in draftSnapshot
+    ? blockDocumentSchema.safeParse(draftSnapshot.document)
+    : null;
+  const editorDocument = draftDocument?.success ? draftDocument.data : narrativeDocument;
+  const editorTitle = typeof draftSnapshot === "object" && draftSnapshot !== null &&
+    "name" in draftSnapshot && typeof draftSnapshot.name === "string"
+    ? draftSnapshot.name
+    : product.name;
+  const editorSummary = typeof draftSnapshot === "object" && draftSnapshot !== null &&
+    "shortDescription" in draftSnapshot &&
+    (typeof draftSnapshot.shortDescription === "string" || draftSnapshot.shortDescription === null)
+    ? draftSnapshot.shortDescription
+    : product.shortDescription;
+  const draftVersion = typeof draftSnapshot === "object" && draftSnapshot !== null &&
+    "draftVersion" in draftSnapshot && typeof draftSnapshot.draftVersion === "number"
+    ? draftSnapshot.draftVersion
+    : draftRevision ? 1 : null;
+  const assetNames = new Map(allAssets.map((asset) => [asset.id, asset.fileName]));
+  const mediaAssets = allAssets
+    .filter((asset) => readyAssets.some((ready) => ready.id === asset.id) || product.assets.some((placement) => placement.assetId === asset.id))
+    .map((asset) => ({
+      id: asset.id,
+      label: `${asset.fileName} · ${asset.status}/${asset.scanStatus}`,
+      selectable: readyAssets.some((ready) => ready.id === asset.id),
+    }));
+  const eligibleAssetIds = new Set(readyAssets.map((asset) => asset.id));
+  const blockMediaOptions = product.assets.filter((asset) =>
+    asset.isVisible && eligibleAssetIds.has(asset.assetId),
+  ).map((asset) => ({
+    id: asset.assetId,
+    value: asset.assetId,
+    label: `${asset.role} · ${assetNames.get(asset.assetId) ?? asset.assetId}`,
+    usages: [
+      ...((asset.role !== "gallery" ? ["image"] : []) as Array<"image">),
+      ...((asset.role !== "hero" ? ["gallery"] : []) as Array<"gallery">),
+    ],
+  }));
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
@@ -76,16 +117,23 @@ export default async function ProductEditorPage({
           </p>
         ) : null}
 
-        <AdminActionForm action={updateProductEditorialAction} className={panelClass} successMessage="Product copy saved.">
-          <h2 className="text-xl font-semibold">Editorial copy</h2>
-          <input name="productId" type="hidden" value={product.id} />
-          <input name="expectedEditorDocumentVersion" type="hidden" value={product.editorDocumentVersion} />
-          <label className="grid gap-2">Product Name<input className={inputClass} defaultValue={product.name} name="name" required /></label>
-          <label className="grid gap-2">Short Description<textarea className={inputClass} defaultValue={product.shortDescription ?? ""} name="shortDescription" rows={3} /></label>
-          <label className="grid gap-2">Narrative Paragraph<textarea className={inputClass} defaultValue={narrativeText} name="fullDescription" rows={8} /></label>
-          <p className="text-xs text-slate-400">This Stage 1 writer saves one validated Paragraph Block. The full Block Editor UX belongs to Stage 2.</p>
-          <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Save or propose editorial copy</button>
-        </AdminActionForm>
+        <BlockEditor
+          contentOptions={pickerOptions.contents}
+          draftRevisionId={draftRevision?.id ?? null}
+          draftRevisionVersion={draftVersion}
+          editorDocumentVersion={product.editorDocumentVersion}
+          entityId={product.id}
+          entityType="product"
+          initialDocument={editorDocument}
+          initialSummary={editorSummary}
+          initialTitle={editorTitle}
+          internalLinkOptions={pickerOptions.links}
+          mediaOptions={blockMediaOptions}
+          previewHref={`/admin/preview/product/${product.id}/`}
+          productOptions={pickerOptions.products}
+        />
+        {draftRevision ? <AdminActionForm action={submitBlockDraftForReviewAction} className={panelClass} successMessage="Product Block Draft submitted for review."><h2 className="text-xl font-semibold">Product Block Draft Revision</h2><p className="text-sm text-slate-300">Autosave remains Draft-only. Submit explicitly when this revision is ready for human review.</p><input name="entityType" type="hidden" value="product" /><input name="entityId" type="hidden" value={product.id} /><input name="revisionId" type="hidden" value={draftRevision.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Submit Block Draft for Review</button></AdminActionForm> : null}
+        <AssetUploadForm associations={[{ value: `product:${product.id}`, label: product.name, group: "Product" }]} returnTo={`/admin/products/${product.id}/`} />
 
         <AdminActionForm action={updateProductFactsAction} className={`${panelClass} border-amber-300/20 sm:grid-cols-2`} successMessage="Product facts saved as provided data.">
           <div className="sm:col-span-2">
@@ -137,20 +185,14 @@ export default async function ProductEditorPage({
         <AdminActionForm action={updateProductStructureAction} className={panelClass} successMessage="Product relations and display structure saved.">
           <h2 className="text-xl font-semibold">Taxonomy, Applications, media, and structured content</h2>
           <input name="productId" type="hidden" value={product.id} />
-          <label className="grid gap-2">Primary Category<select className={inputClass} defaultValue={primaryTaxonomy} name="primaryTaxonomyTermId" required>{taxonomy.map((term) => <option key={term.id} value={term.id}>{term.name} · {term.dimension}</option>)}</select></label>
-          <fieldset className="grid max-h-56 gap-2 overflow-auto rounded-xl border border-white/10 p-4">
-            <legend>Additional Categories</legend>
-            {taxonomy.map((term) => <label className="flex gap-2" key={term.id}><input defaultChecked={selectedTaxonomy.has(term.id) && term.id !== primaryTaxonomy} name="taxonomyTermIds" type="checkbox" value={term.id} />{term.name} · {term.dimension}</label>)}
-          </fieldset>
-          <fieldset className="grid max-h-56 gap-2 overflow-auto rounded-xl border border-white/10 p-4">
-            <legend>Applications</legend>
-            {applications.map((application) => <label className="flex gap-2" key={application.id}><input defaultChecked={selectedApplications.has(application.id)} name="applicationIds" type="checkbox" value={application.id} />{application.name} · {application.status}</label>)}
-          </fieldset>
-          <fieldset className="grid max-h-64 gap-2 overflow-auto rounded-xl border border-white/10 p-4">
-            <legend>Product images</legend>
-            {readyAssets.map((asset) => { const current = product.assets.find((row) => row.assetId === asset.id); return <div className="grid gap-3 rounded-xl border border-white/10 p-3 sm:grid-cols-[auto_1fr_8rem]" key={asset.id}><input aria-label={`Select ${asset.fileName}`} defaultChecked={selectedAssets.has(asset.id)} name="assetIds" type="checkbox" value={asset.id} /><span>{asset.fileName}</span><input aria-label={`${asset.fileName} sort order`} className={inputClass} defaultValue={current?.sortOrder ?? 100} min="0" name={`assetSort:${asset.id}`} type="number" /><select aria-label={`${asset.fileName} role`} className={inputClass} defaultValue={current?.role === "hero" ? "gallery" : current?.role ?? "gallery"} name={`assetRole:${asset.id}`}><option value="gallery">Gallery</option><option value="detail">Detail</option><option value="application">Application</option></select><label className="flex items-center gap-2"><input defaultChecked={current?.isVisible ?? true} name={`assetVisible:${asset.id}`} type="checkbox" value="true" />Visible</label><input aria-label={`${asset.fileName} placement alt text`} className={inputClass} defaultValue={current?.altText ?? ""} name={`assetAlt:${asset.id}`} placeholder="Placement Alt Text" /><input aria-label={`${asset.fileName} caption`} className={`${inputClass} sm:col-span-2`} defaultValue={current?.caption ?? ""} name={`assetCaption:${asset.id}`} placeholder="Optional Caption" /></div>; })}
-          </fieldset>
-          <label className="grid gap-2">Primary Image<select className={inputClass} defaultValue={heroAsset} name="heroAssetId" required>{readyAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.fileName}</option>)}</select></label>
+          <ProductRelationSelectors
+            applications={applications}
+            initialAdditional={[...selectedTaxonomy].filter((id) => id !== primaryTaxonomy)}
+            initialApplications={[...selectedApplications]}
+            initialPrimary={primaryTaxonomy ?? ""}
+            taxonomy={taxonomy}
+          />
+          <MediaPlacementEditor assets={mediaAssets} entityType="product" initial={product.assets} />
           <label className="grid gap-2">Tags — comma or line separated<textarea className={inputClass} defaultValue={product.tags.join(", ")} name="tagNames" rows={3} /></label>
           <label className="grid gap-2">Features — one per line<textarea className={inputClass} defaultValue={product.features.join("\n")} name="features" rows={5} /></label>
           <label className="grid gap-2">FAQs — one Question | Answer per line<textarea className={inputClass} defaultValue={product.faqs.map((faq) => `${faq.question} | ${faq.answer}`).join("\n")} name="faqs" rows={6} /></label>

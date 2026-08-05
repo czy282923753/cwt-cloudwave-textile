@@ -16,8 +16,9 @@ async function responseJson(response: Response): Promise<Record<string, unknown>
   return value as Record<string, unknown>;
 }
 
-export function AssetUploadForm({ associations }: Readonly<{
+export function AssetUploadForm({ associations, returnTo = "/admin/assets/" }: Readonly<{
   associations: readonly { value: string; label: string; group: string }[];
+  returnTo?: string;
 }>) {
   const router = useRouter();
   const [declarationEnabled, setDeclarationEnabled] = useState(false);
@@ -106,7 +107,8 @@ export function AssetUploadForm({ associations }: Readonly<{
       formElement.reset();
       setDeclarationEnabled(false);
       setFeedback({ kind: "success", message: `${finalizeMessage}${maintenanceWarning}` });
-      router.replace(`/admin/assets/?uploaded=${encodeURIComponent(releasedAssetIds[0]!)}`);
+      const returnSeparator = returnTo.includes("?") ? "&" : "?";
+      router.replace(`${returnTo}${returnSeparator}uploaded=${encodeURIComponent(releasedAssetIds[0]!)}`);
     } catch (error) {
       setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Upload failed safely. Try again." });
     } finally {

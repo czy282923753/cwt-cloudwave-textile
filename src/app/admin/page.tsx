@@ -10,6 +10,8 @@ const areas: ReadonlyArray<readonly [string, string, Permission]> = [
   ["Assets", "/admin/assets/", "assets.read"],
   ["Fabric Library", "/admin/fabric-library/", "products.read"],
   ["Contents", "/admin/contents/", "content.read"],
+  ["Home Page Settings", "/admin/site/home/", "content.read"],
+  ["About CWT Settings", "/admin/site/about/", "content.read"],
   ["Authors", "/admin/authors/", "content.read"],
   ["Company Facts", "/admin/company-facts/", "company_facts.manage"],
   ["SEO Routes", "/admin/seo/", "seo.manage"],

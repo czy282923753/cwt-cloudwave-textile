@@ -24,6 +24,8 @@ import {
   redirects,
   routes,
   seoMetadata,
+  sitePageAssets,
+  systemSettings,
   taxonomyTermLocalizations,
   taxonomyTerms,
 } from "@/db/schema";
@@ -33,6 +35,12 @@ import type { AppDatabase } from "@/db/types";
 import { createObjectStorage } from "@/storage";
 import { parseBlockDocument } from "@/editorial/blocks";
 import { resolveBlockPublicProjection } from "@/editorial/block-references";
+import {
+  DEFAULT_STATIC_PAGE_CONFIGS,
+  isPersistedStaticPagePlacementLive,
+  staticPageConfigSchema,
+  type StaticPageConfig,
+} from "@/content/static-page-projection";
 
 import { resolveVisibleProductFields } from "./product-visibility";
 import { assertPublicAssetCandidate } from "./public-asset-policy";
@@ -55,6 +63,117 @@ export async function getVerifiedPublicCompanyFacts() {
   return databaseConnection.kind === "pglite"
     ? listVerifiedPublicCompanyFacts(databaseConnection.db)
     : listVerifiedPublicCompanyFacts(databaseConnection.db);
+}
+
+export interface PublicStaticPagePlacement {
+  placementKey: string;
+  viewport: "desktop" | "mobile";
+  sortOrder: number;
+  focalX: number;
+  focalY: number;
+  overlayOpacity: number;
+  asset: PublicAsset;
+}
+
+async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  pageKey: "home" | "about",
+): Promise<{ config: StaticPageConfig; placements: PublicStaticPagePlacement[]; facts: string[] }> {
+  const settingRows = await db
+    .select({ id: systemSettings.id, value: systemSettings.value })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, `site_page.${pageKey}`))
+    .limit(1);
+  const setting = settingRows[0];
+  const parsed = setting ? staticPageConfigSchema.safeParse(setting.value) : null;
+  const config: StaticPageConfig = parsed?.success
+    ? parsed.data
+    : DEFAULT_STATIC_PAGE_CONFIGS[pageKey];
+  const relationRows = setting ? await db
+    .select({
+      systemSettingId: sitePageAssets.systemSettingId,
+      assetId: sitePageAssets.assetId,
+      pageKey: sitePageAssets.pageKey,
+      placementKey: sitePageAssets.placementKey,
+      viewport: sitePageAssets.viewport,
+      role: sitePageAssets.role,
+      sortOrder: sitePageAssets.sortOrder,
+      altText: sitePageAssets.altText,
+      caption: sitePageAssets.caption,
+      focalX: sitePageAssets.focalX,
+      focalY: sitePageAssets.focalY,
+      isVisible: sitePageAssets.isVisible,
+      objectKey: assets.objectKey,
+      storagePartition: assets.storagePartition,
+      access: assets.access,
+      status: assets.status,
+      scanStatus: assets.scanStatus,
+      deletedAt: assets.deletedAt,
+      effectiveRightsDecision: assets.effectiveRightsDecision,
+      publicUsePermission: assets.publicUsePermission,
+      rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
+      declarationExpiryDate: assets.declarationExpiryDate,
+      assetAltText: assets.altText,
+      width: assets.width,
+      height: assets.height,
+    })
+    .from(sitePageAssets)
+    .innerJoin(assets, eq(assets.id, sitePageAssets.assetId))
+    .where(and(
+      eq(sitePageAssets.systemSettingId, setting.id),
+      publicReadyImageSqlConditions(),
+    )) : [];
+  const placements: PublicStaticPagePlacement[] = [];
+  for (const row of relationRows) {
+    if (!isPersistedStaticPagePlacementLive(config, row)) continue;
+    const configured = config.placements.find((placement) => (
+      placement.assetId === row.assetId &&
+      placement.placementKey === row.placementKey &&
+      placement.viewport === row.viewport
+    ));
+    if (!configured || (row.viewport !== "desktop" && row.viewport !== "mobile")) continue;
+    const asset = await toPublicAsset({
+      id: row.assetId,
+      objectKey: row.objectKey,
+      storagePartition: row.storagePartition,
+      access: row.access,
+      status: row.status,
+      scanStatus: row.scanStatus,
+      deletedAt: row.deletedAt,
+      effectiveRightsDecision: row.effectiveRightsDecision,
+      publicUsePermission: row.publicUsePermission,
+      rightsPublicWebsiteAllowed: row.rightsPublicWebsiteAllowed,
+      declarationExpiryDate: row.declarationExpiryDate,
+      altText: row.altText ?? row.assetAltText,
+      caption: row.caption,
+      width: row.width,
+      height: row.height,
+    });
+    placements.push({
+      placementKey: row.placementKey,
+      viewport: row.viewport,
+      sortOrder: row.sortOrder,
+      focalX: Number(row.focalX),
+      focalY: Number(row.focalY),
+      overlayOpacity: configured.overlayOpacity,
+      asset,
+    });
+  }
+  const verifiedFacts = await listVerifiedPublicCompanyFacts(db);
+  const factKeys = config.pageKey === "home"
+    ? config.copy?.manufacturingStrength.factKeys ?? []
+    : config.copy?.ownedManufacturing.factKeys ?? [];
+  return {
+    config,
+    placements: placements.sort((left, right) => left.sortOrder - right.sortOrder),
+    facts: factKeys.flatMap((key) => verifiedFacts.get(key) ? [verifiedFacts.get(key)!] : []),
+  };
+}
+
+export async function getPublicStaticPage(pageKey: "home" | "about") {
+  return databaseConnection.kind === "pglite"
+    ? queryPublicStaticPage(databaseConnection.db, pageKey)
+    : queryPublicStaticPage(databaseConnection.db, pageKey);
 }
 
 async function assetUrl(partition: string, assetId: string): Promise<string> {

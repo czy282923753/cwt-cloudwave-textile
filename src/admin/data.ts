@@ -1,8 +1,9 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { databaseConnection } from "@/db/client";
 import type { Actor } from "@/catalog/product-service";
+import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
 import { requireInquiryRecordAccess } from "@/crm/authorization";
 import {
   applicationLocalizations,
@@ -39,11 +40,17 @@ import {
   products,
   routes,
   seoMetadata,
+  systemSettings,
   taxonomyTermLocalizations,
   taxonomyTerms,
   users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import {
+  DEFAULT_STATIC_PAGE_CONFIGS,
+  staticPageConfigSchema,
+  type StaticPageConfig,
+} from "@/content/static-page-projection";
 
 async function queryProducts<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
@@ -263,10 +270,18 @@ async function queryReadyAssets<TQueryResult extends PgQueryResultHKT>(
       fileName: assets.originalFileName,
       category: assets.category,
       access: assets.access,
+      storagePartition: assets.storagePartition,
       status: assets.status,
       scanStatus: assets.scanStatus,
+      detectedMimeType: assets.detectedMimeType,
       deletedAt: assets.deletedAt,
+      effectiveRightsDecision: assets.effectiveRightsDecision,
+      publicUsePermission: assets.publicUsePermission,
+      rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
+      declarationExpiryDate: assets.declarationExpiryDate,
       sourceDeclarationEnabled: assets.sourceDeclarationEnabled,
+      subjectRelationship: assets.subjectRelationship,
+      isCwtOwnedFacility: assets.isCwtOwnedFacility,
       createdAt: assets.createdAt,
     })
     .from(assets)
@@ -277,6 +292,173 @@ export async function listAdminAssets() {
   return databaseConnection.kind === "pglite"
     ? queryReadyAssets(databaseConnection.db)
     : queryReadyAssets(databaseConnection.db);
+}
+
+async function queryEditorialPickerOptions<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+) {
+  const [productRows, contentRows, applicationRows] = await Promise.all([
+    db
+      .select({ id: products.id, label: productLocalizations.name, value: routes.path })
+      .from(products)
+      .innerJoin(productLocalizations, and(
+        eq(productLocalizations.productId, products.id),
+        eq(productLocalizations.locale, "en"),
+      ))
+      .innerJoin(routes, and(
+        eq(routes.entityType, "product"),
+        eq(routes.entityId, products.id),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      ))
+      .where(publicProductEligibilityConditions(db)),
+    db
+      .select({ id: contents.id, label: contentLocalizations.title, value: routes.path })
+      .from(contents)
+      .innerJoin(contentLocalizations, and(
+        eq(contentLocalizations.contentId, contents.id),
+        eq(contentLocalizations.locale, "en"),
+      ))
+      .innerJoin(routes, and(
+        eq(routes.entityType, "content"),
+        eq(routes.entityId, contents.id),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      ))
+      .where(eq(contents.status, "published")),
+    db
+      .select({ id: applications.id, label: applicationLocalizations.name, value: routes.path })
+      .from(applications)
+      .innerJoin(applicationLocalizations, and(
+        eq(applicationLocalizations.applicationId, applications.id),
+        eq(applicationLocalizations.locale, "en"),
+      ))
+      .innerJoin(routes, and(
+        eq(routes.entityType, "application"),
+        eq(routes.entityId, applications.id),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      ))
+      .where(eq(applications.status, "published")),
+  ]);
+  const fixed = [
+    { id: "fixed-home", label: "Home", value: "/" },
+    { id: "fixed-products", label: "Products", value: "/products/" },
+    { id: "fixed-applications", label: "Applications", value: "/applications/" },
+    { id: "fixed-library", label: "Fabric Library", value: "/fabric-library/" },
+    { id: "fixed-resources", label: "Fabric & Sourcing", value: "/resources/" },
+    { id: "fixed-about", label: "About CWT", value: "/about/" },
+    { id: "fixed-quote", label: "Get a Quote", value: "/get-quote/" },
+  ];
+  return {
+    products: productRows.map((row) => ({ id: row.id, label: row.label, value: row.id })),
+    contents: contentRows.map((row) => ({ id: row.id, label: row.label, value: row.id })),
+    links: [
+      ...fixed,
+      ...productRows.map((row) => ({ id: `product-${row.id}`, label: `Product · ${row.label}`, value: row.value })),
+      ...applicationRows.map((row) => ({ id: `application-${row.id}`, label: `Application · ${row.label}`, value: row.value })),
+      ...contentRows.map((row) => ({ id: `content-${row.id}`, label: `Content · ${row.label}`, value: row.value })),
+    ],
+  };
+}
+
+export async function getEditorialPickerOptions() {
+  return databaseConnection.kind === "pglite"
+    ? queryEditorialPickerOptions(databaseConnection.db)
+    : queryEditorialPickerOptions(databaseConnection.db);
+}
+
+function staticPageConfigFromRevision(
+  snapshot: unknown,
+  pageKey: "home" | "about",
+): { config: StaticPageConfig; draftVersion: number | null } | null {
+  const direct = staticPageConfigSchema.safeParse(snapshot);
+  if (direct.success && direct.data.pageKey === pageKey) {
+    return { config: direct.data, draftVersion: null };
+  }
+  if (typeof snapshot !== "object" || snapshot === null || !("config" in snapshot)) return null;
+  const wrapped = staticPageConfigSchema.safeParse(snapshot.config);
+  if (!wrapped.success || wrapped.data.pageKey !== pageKey) return null;
+  return {
+    config: wrapped.data,
+    draftVersion: "draftVersion" in snapshot && typeof snapshot.draftVersion === "number"
+      ? snapshot.draftVersion
+      : null,
+  };
+}
+
+async function queryAdminStaticPage<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  pageKey: "home" | "about",
+) {
+  const settingRows = await db
+    .select({ id: systemSettings.id, value: systemSettings.value, updatedAt: systemSettings.updatedAt, updatedByUserId: systemSettings.updatedByUserId })
+    .from(systemSettings)
+    .where(eq(systemSettings.key, `site_page.${pageKey}`))
+    .limit(1);
+  const setting = settingRows[0];
+  const live = setting ? staticPageConfigSchema.safeParse(setting.value) : null;
+  const revisions = setting ? await db
+    .select({
+      id: editorialRevisions.id,
+      status: editorialRevisions.status,
+      versionNumber: editorialRevisions.versionNumber,
+      snapshot: editorialRevisions.snapshot,
+      changeSummary: editorialRevisions.changeSummary,
+      createdAt: editorialRevisions.createdAt,
+      createdByUserId: editorialRevisions.createdByUserId,
+    })
+    .from(editorialRevisions)
+    .where(and(
+      eq(editorialRevisions.entityType, "static_page"),
+      eq(editorialRevisions.entityId, setting.id),
+      eq(editorialRevisions.locale, "en"),
+    ))
+    .orderBy(desc(editorialRevisions.versionNumber)) : [];
+  const pendingRow = revisions.find((revision) => revision.status === "draft" || revision.status === "in_review");
+  const pending = pendingRow ? staticPageConfigFromRevision(pendingRow.snapshot, pageKey) : null;
+  const facts = await db
+    .select({ id: companyFacts.id, key: companyFacts.factKey, statement: companyFacts.statement })
+    .from(companyFacts)
+    .where(and(eq(companyFacts.verificationStatus, "verified"), eq(companyFacts.publicUseAllowed, true)));
+  const modifierIds = [...new Set([
+    setting?.updatedByUserId,
+    pendingRow?.createdByUserId,
+  ].filter((value): value is string => Boolean(value)))];
+  const modifierRows = modifierIds.length
+    ? await db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, modifierIds))
+    : [];
+  const modifierNames = new Map(modifierRows.map((row) => [row.id, row.name]));
+  return {
+    settingId: setting?.id ?? null,
+    liveConfig: live?.success ? live.data : DEFAULT_STATIC_PAGE_CONFIGS[pageKey],
+    liveUpdatedAt: setting?.updatedAt ?? null,
+    liveUpdatedByUserId: setting?.updatedByUserId ?? null,
+    liveUpdatedByName: setting?.updatedByUserId
+      ? modifierNames.get(setting.updatedByUserId) ?? setting.updatedByUserId
+      : null,
+    pendingRevision: pendingRow && pending ? {
+      id: pendingRow.id,
+      status: pendingRow.status,
+      versionNumber: pendingRow.versionNumber,
+      config: pending.config,
+      draftVersion: pending.draftVersion,
+      changeSummary: pendingRow.changeSummary,
+      createdAt: pendingRow.createdAt,
+      createdByUserId: pendingRow.createdByUserId,
+      createdByName: pendingRow.createdByUserId
+        ? modifierNames.get(pendingRow.createdByUserId) ?? pendingRow.createdByUserId
+        : null,
+    } : null,
+    revisions,
+    facts,
+  };
+}
+
+export async function getAdminStaticPage(pageKey: "home" | "about") {
+  return databaseConnection.kind === "pglite"
+    ? queryAdminStaticPage(databaseConnection.db, pageKey)
+    : queryAdminStaticPage(databaseConnection.db, pageKey);
 }
 
 async function queryAssetDetail<TQueryResult extends PgQueryResultHKT>(

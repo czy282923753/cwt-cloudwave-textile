@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   assets,
   auditLogs,
+  companyFacts,
   editorialRevisions,
   sitePageAssets,
   systemSettings,
@@ -16,7 +17,9 @@ import {
   applyStaticPageConfigRevision,
   DEFAULT_STATIC_PAGE_CONFIGS,
   proposeStaticPageConfigRevision,
+  saveStaticPageConfigDraft,
   StaticPageProjectionMismatchError,
+  submitStaticPageConfigDraftForReview,
 } from "./static-page-settings";
 
 async function setup() {
@@ -185,6 +188,122 @@ describe("static-page authoritative live projection", () => {
     await expect(applyStaticPageConfigRevision(test.connection.db, test.sales, revisionId)).rejects.toThrow(/permission/i);
     expect((await test.connection.db.select({ status: editorialRevisions.status }).from(editorialRevisions).where(eq(editorialRevisions.id, revisionId)))[0]?.status)
       .toBe("in_review");
+    await test.connection.close();
+  });
+
+  it("accepts only verified public Company Facts in a fixed-page Draft", async () => {
+    const test = await setup();
+    const config = {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      copy: {
+        ...DEFAULT_STATIC_PAGE_CONFIGS.home.copy!,
+        manufacturingStrength: {
+          ...DEFAULT_STATIC_PAGE_CONFIGS.home.copy!.manufacturingStrength,
+          factKeys: ["test-owned-facility"],
+        },
+      },
+    };
+    await expect(saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      config,
+    )).rejects.toThrow(/verified and approved/);
+    await test.connection.db.insert(companyFacts).values({
+      factKey: "test-owned-facility",
+      subject: "TEST owned facility",
+      statement: "Synthetic verified CWT-owned facility fact.",
+      relationshipToCwt: "owned",
+      publicUseAllowed: true,
+      verificationStatus: "verified",
+      verifiedByUserId: test.reviewer.userId,
+      verifiedAt: new Date(),
+    });
+    await expect(saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      config,
+    )).resolves.toMatchObject({ revisionVersion: 1 });
+    await test.connection.close();
+  });
+
+  it("rejects non-owned facility media from manufacturing placements", async () => {
+    const test = await setup();
+    const placement = {
+      assetId: test.assetIds[0]!,
+      placementKey: "manufacturing_strength" as const,
+      viewport: "desktop" as const,
+      role: "detail" as const,
+      sortOrder: 0,
+      altText: "Synthetic facility",
+      caption: null,
+      focalX: 50,
+      focalY: 50,
+      overlayOpacity: 0.2,
+      isVisible: true,
+    };
+    await expect(saveStaticPageConfigDraft(test.connection.db, test.editor, {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      placements: [placement],
+    })).rejects.toThrow(/CWT-owned facility/);
+    await test.connection.db.update(assets).set({
+      subjectRelationship: "cwt",
+      isCwtOwnedFacility: true,
+    }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(saveStaticPageConfigDraft(test.connection.db, test.editor, {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      placements: [placement],
+    })).resolves.toMatchObject({ revisionVersion: 1 });
+    await test.connection.close();
+  });
+
+  it("uses one version-checked Draft, supports response-loss retry, and requires explicit Review", async () => {
+    const test = await setup();
+    const first = await saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      DEFAULT_STATIC_PAGE_CONFIGS.about,
+    );
+    await expect(saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      DEFAULT_STATIC_PAGE_CONFIGS.about,
+    )).resolves.toEqual(first);
+    const changed = {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.about,
+      modules: {
+        ...DEFAULT_STATIC_PAGE_CONFIGS.about.modules,
+        service_strength: false,
+      },
+    };
+    const second = await saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      changed,
+      first.revisionId,
+      first.revisionVersion,
+    );
+    expect(second.revisionVersion).toBe(2);
+    await expect(saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      { ...changed, modules: { ...changed.modules, introduction: false } },
+      first.revisionId,
+      first.revisionVersion,
+    )).rejects.toThrow(/changed in another editor/);
+    await submitStaticPageConfigDraftForReview(
+      test.connection.db,
+      test.editor,
+      first.revisionId,
+    );
+    expect((await test.connection.db.select({
+      status: editorialRevisions.status,
+    }).from(editorialRevisions).where(eq(editorialRevisions.id, first.revisionId)))[0]?.status)
+      .toBe("in_review");
+    await expect(applyStaticPageConfigRevision(
+      test.connection.db,
+      test.reviewer,
+      first.revisionId,
+    )).resolves.toBe("about");
     await test.connection.close();
   });
 });

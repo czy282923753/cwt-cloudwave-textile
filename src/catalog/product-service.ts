@@ -93,6 +93,7 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
     shortDescription: z.string().nullable(),
     document: blockDocumentSchema,
     expectedEditorDocumentVersion: z.number().int().positive(),
+    draftVersion: z.number().int().positive().optional(),
   }),
   z.object({
     kind: z.literal("editorial_copy"),
@@ -744,6 +745,236 @@ export async function updateProductBlocks<TQueryResult extends PgQueryResultHKT>
     structuredDocument: document,
     expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
   });
+}
+
+export interface ProductBlockDraftSaveResult {
+  editorDocumentVersion: number;
+  revisionId: string | null;
+  revisionVersion: number | null;
+}
+
+export async function saveProductBlockDraft<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  input: {
+    name: string;
+    shortDescription?: string | null;
+    document: BlockDocument;
+    expectedEditorDocumentVersion: number;
+    revisionId?: string | null;
+    expectedRevisionVersion?: number | null;
+  },
+  options: GovernedMutationOptions = {},
+): Promise<ProductBlockDraftSaveResult> {
+  requirePermission(actor.role, "products.write");
+  const document = parseBlockDocument(input.document, "product");
+  const name = normalizeProductName(input.name);
+  const shortDescription = input.shortDescription?.trim() || null;
+  const productRows = await db
+    .select({
+      status: products.status,
+      editorDocumentVersion: productLocalizations.editorDocumentVersion,
+    })
+    .from(products)
+    .innerJoin(productLocalizations, and(
+      eq(productLocalizations.productId, products.id),
+      eq(productLocalizations.locale, "en"),
+    ))
+    .where(eq(products.id, productId))
+    .limit(1);
+  const product = productRows[0];
+  if (!product) throw new ProductValidationError("Product was not found.");
+  if (product.status === "archived") {
+    throw new ProductValidationError("Archived Products cannot be edited.");
+  }
+  if (input.expectedEditorDocumentVersion !== product.editorDocumentVersion) {
+    throw new ProductRevisionConflictError(
+      "Product narrative changed after this editor loaded; refresh before saving.",
+    );
+  }
+  await assertProductBlockProjection(db, productId, document, shortDescription);
+  if (product.status !== "published") {
+    await updateProductBlocks(db, actor, productId, {
+      name,
+      shortDescription,
+      document,
+      expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
+    });
+    return {
+      editorDocumentVersion: input.expectedEditorDocumentVersion + 1,
+      revisionId: null,
+      revisionVersion: null,
+    };
+  }
+
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const localizationRows = await transaction
+      .select({ editorDocumentVersion: productLocalizations.editorDocumentVersion })
+      .from(productLocalizations)
+      .where(and(
+        eq(productLocalizations.productId, productId),
+        eq(productLocalizations.locale, "en"),
+      ))
+      .limit(1)
+      .for("update");
+    if (localizationRows[0]?.editorDocumentVersion !== input.expectedEditorDocumentVersion) {
+      throw new ProductRevisionConflictError(
+        "Product narrative changed after this editor loaded; refresh before saving.",
+      );
+    }
+    const draftRows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "product"),
+        eq(editorialRevisions.entityId, productId),
+        eq(editorialRevisions.locale, "en"),
+        eq(editorialRevisions.status, "draft"),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1)
+      .for("update");
+    const draft = draftRows[0];
+    const expectedRevisionVersion = input.expectedRevisionVersion ?? 0;
+    if (draft) {
+      if (input.revisionId && input.revisionId !== draft.id) {
+        throw new ProductRevisionConflictError("A different Product Draft Revision is current.");
+      }
+      const current = productRevisionSnapshotSchema.parse(draft.snapshot);
+      if (current.kind !== "editorial_blocks") {
+        throw new ProductRevisionConflictError("A different Product Draft Revision is current.");
+      }
+      const currentDraftVersion = current.draftVersion ?? 1;
+      const proposedSnapshot = productRevisionSnapshotSchema.parse({
+        kind: "editorial_blocks",
+        name,
+        shortDescription,
+        document,
+        expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
+        draftVersion: currentDraftVersion + 1,
+      });
+      if (expectedRevisionVersion !== currentDraftVersion) {
+        const samePayload = JSON.stringify({
+          name: current.name,
+          shortDescription: current.shortDescription,
+          document: current.document,
+        }) === JSON.stringify({ name, shortDescription, document });
+        if (samePayload) {
+          return {
+            editorDocumentVersion: input.expectedEditorDocumentVersion,
+            revisionId: draft.id,
+            revisionVersion: currentDraftVersion,
+          };
+        }
+        throw new ProductRevisionConflictError(
+          "Product Draft Revision changed in another editor; reload before saving.",
+        );
+      }
+      await transaction
+        .update(editorialRevisions)
+        .set({
+          snapshot: proposedSnapshot,
+          changeSummary: "Product Block Draft autosave",
+        })
+        .where(and(
+          eq(editorialRevisions.id, draft.id),
+          eq(editorialRevisions.status, "draft"),
+        ));
+      await audit({
+        actorUserId: actor.userId,
+        action: "product.block_draft.saved",
+        entityType: "editorial_revision",
+        entityId: draft.id,
+        afterSummary: { productId, draftVersion: currentDraftVersion + 1 },
+      });
+      return {
+        editorDocumentVersion: input.expectedEditorDocumentVersion,
+        revisionId: draft.id,
+        revisionVersion: currentDraftVersion + 1,
+      };
+    }
+    if (input.revisionId || expectedRevisionVersion !== 0) {
+      throw new ProductRevisionConflictError("Product Draft Revision is no longer available.");
+    }
+    const latestRows = await transaction
+      .select({ versionNumber: editorialRevisions.versionNumber })
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "product"),
+        eq(editorialRevisions.entityId, productId),
+        eq(editorialRevisions.locale, "en"),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .limit(1);
+    const snapshot = productRevisionSnapshotSchema.parse({
+      kind: "editorial_blocks",
+      name,
+      shortDescription,
+      document,
+      expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
+      draftVersion: 1,
+    });
+    const inserted = await transaction
+      .insert(editorialRevisions)
+      .values({
+        entityType: "product",
+        entityId: productId,
+        locale: "en",
+        versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
+        status: "draft",
+        snapshot,
+        changeSummary: "Product Block Draft",
+        createdByUserId: actor.userId,
+      })
+      .returning({ id: editorialRevisions.id });
+    const revisionId = inserted[0]?.id;
+    if (!revisionId) throw new ProductValidationError("Product Draft Revision insert failed.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.block_draft.created",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { productId, draftVersion: 1 },
+    });
+    return {
+      editorDocumentVersion: input.expectedEditorDocumentVersion,
+      revisionId,
+      revisionVersion: 1,
+    };
+  }, options);
+}
+
+export async function submitProductBlockDraftForReview<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  revisionId: string,
+  options: GovernedMutationOptions = {},
+): Promise<void> {
+  requirePermission(actor.role, "products.write");
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(editorialRevisions)
+      .set({ status: "in_review", changeSummary: "Product Block Draft submitted for review" })
+      .where(and(
+        eq(editorialRevisions.id, revisionId),
+        eq(editorialRevisions.entityType, "product"),
+        eq(editorialRevisions.entityId, productId),
+        eq(editorialRevisions.status, "draft"),
+      ))
+      .returning({ id: editorialRevisions.id });
+    if (!updated[0]) throw new ProductRevisionConflictError("Product Draft Revision is not current.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.block_draft.review_requested",
+      entityType: "editorial_revision",
+      entityId: revisionId,
+      afterSummary: { productId },
+    });
+  }, options);
 }
 
 export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(

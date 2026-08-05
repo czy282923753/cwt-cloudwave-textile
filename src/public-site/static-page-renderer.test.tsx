@@ -1,0 +1,141 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import { DEFAULT_STATIC_PAGE_CONFIGS } from "@/content/static-page-projection";
+
+import type { PublicStaticPagePlacement } from "./data";
+import { StaticAboutRenderer, StaticHomeRenderer } from "./static-page-renderer";
+
+function renderHome(
+  config = DEFAULT_STATIC_PAGE_CONFIGS.home,
+  placements: readonly PublicStaticPagePlacement[] = [],
+) {
+  return renderToStaticMarkup(
+    <StaticHomeRenderer
+      applications={[]}
+      config={config}
+      contents={[]}
+      facts={[]}
+      libraryEntries={[]}
+      placements={placements}
+      products={[]}
+    />,
+  );
+}
+
+describe("fixed Home/About public renderer", () => {
+  it("renders the frozen Home module sequence and omits disabled modules from the DOM", () => {
+    const html = renderHome();
+    const titles = [
+      "Professional Fabric Supplier in China",
+      "Explore real fabric records",
+      "Start from what the fabric needs to do.",
+      "A visual path into the range",
+      "Useful answers before the first sourcing conversation.",
+      "Manufacturing and sourcing support around the requirement.",
+      "Send less. Start faster.",
+    ];
+    const positions = titles.map((title) => html.indexOf(title));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect([...positions].sort((left, right) => left - right)).toEqual(positions);
+
+    const disabled = {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      modules: {
+        ...DEFAULT_STATIC_PAGE_CONFIGS.home.modules,
+        applications: false,
+      },
+    };
+    const disabledHtml = renderHome(disabled);
+    expect(disabledHtml).not.toContain("Start from what the fabric needs to do.");
+    expect(disabledHtml).not.toContain("Explore Applications");
+  });
+
+  it("uses viewport-specific governed media, focal point, overlay, Alt, and Caption", () => {
+    const placements: PublicStaticPagePlacement[] = [
+      {
+        placementKey: "hero",
+        viewport: "desktop",
+        sortOrder: 0,
+        focalX: 20,
+        focalY: 30,
+        overlayOpacity: 0.4,
+        asset: {
+          id: "10000000-0000-4000-8000-000000000001",
+          url: "/api/public/assets/10000000-0000-4000-8000-000000000001/",
+          alt: "Synthetic desktop hero",
+          caption: "Desktop caption",
+          width: 1200,
+          height: 900,
+        },
+      },
+      {
+        placementKey: "hero",
+        viewport: "mobile",
+        sortOrder: 1,
+        focalX: 70,
+        focalY: 60,
+        overlayOpacity: 0.2,
+        asset: {
+          id: "10000000-0000-4000-8000-000000000002",
+          url: "/api/public/assets/10000000-0000-4000-8000-000000000002/",
+          alt: "Synthetic mobile hero",
+          caption: "Mobile caption",
+          width: 600,
+          height: 900,
+        },
+      },
+    ];
+    const html = renderHome(DEFAULT_STATIC_PAGE_CONFIGS.home, placements);
+    expect(html).toContain("Synthetic desktop hero");
+    expect(html).toContain("Synthetic mobile hero");
+    expect(html).toContain("object-position:20% 30%");
+    expect(html).toContain("object-position:70% 60%");
+    expect(html).toContain("opacity:0.4");
+    expect(html).toContain("opacity:0.2");
+    expect(html).toContain("Desktop caption");
+    expect(html).toContain("Mobile caption");
+    expect(html).not.toContain("test/hero-object-key");
+  });
+
+  it("renders only facts supplied by the verified public projection", () => {
+    const withoutFacts = renderToStaticMarkup(
+      <StaticAboutRenderer
+        config={DEFAULT_STATIC_PAGE_CONFIGS.about}
+        facts={[]}
+        placements={[]}
+      />,
+    );
+    const withFact = renderToStaticMarkup(
+      <StaticAboutRenderer
+        config={DEFAULT_STATIC_PAGE_CONFIGS.about}
+        facts={["Synthetic verified owned-facility fact."]}
+        placements={[]}
+      />,
+    );
+    expect(withoutFacts).not.toContain("Synthetic verified owned-facility fact.");
+    expect(withFact).toContain("Synthetic verified owned-facility fact.");
+    expect(withFact).not.toContain("partner factory");
+  });
+
+  it("keeps one page-level H1 when the governed Hero module is disabled", () => {
+    const homeHtml = renderHome({
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      modules: { ...DEFAULT_STATIC_PAGE_CONFIGS.home.modules, hero: false },
+    });
+    const aboutHtml = renderToStaticMarkup(
+      <StaticAboutRenderer
+        config={{
+          ...DEFAULT_STATIC_PAGE_CONFIGS.about,
+          modules: { ...DEFAULT_STATIC_PAGE_CONFIGS.about.modules, hero: false },
+        }}
+        facts={[]}
+        placements={[]}
+      />,
+    );
+    expect(homeHtml).toContain('<h1 class="sr-only">CloudWave Textile</h1>');
+    expect(homeHtml).not.toContain(DEFAULT_STATIC_PAGE_CONFIGS.home.copy!.hero.title);
+    expect(aboutHtml).toContain('<h1 class="sr-only">About CloudWave Textile</h1>');
+    expect(aboutHtml).not.toContain(DEFAULT_STATIC_PAGE_CONFIGS.about.copy!.hero.title);
+  });
+});

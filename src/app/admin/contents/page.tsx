@@ -42,7 +42,7 @@ export default async function AdminContentsPage() {
           </select>
           <input className="rounded-lg bg-slate-950 p-3" name="title" placeholder="Title" required />
           <textarea className="rounded-lg bg-slate-950 p-3" name="excerpt" placeholder="Optional excerpt" rows={3} />
-          <textarea className="rounded-lg bg-slate-950 p-3" name="body" placeholder="Article body" required rows={10} />
+          <textarea className="rounded-lg bg-slate-950 p-3" name="initialParagraph" placeholder="Initial Paragraph Block" required rows={10} />
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Create Draft</button>
         </AdminActionForm>
       </div>

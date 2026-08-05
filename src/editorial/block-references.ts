@@ -4,6 +4,7 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
 import {
   assets,
+  applications,
   contentAssets,
   contentLocalizations,
   contents,
@@ -256,11 +257,65 @@ async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
   };
 }
 
+const fixedInternalPaths = new Set([
+  "/",
+  "/products/",
+  "/applications/",
+  "/fabric-library/",
+  "/resources/",
+  "/fabric-knowledge/",
+  "/china-textile-guide/",
+  "/china-sourcing-guide/",
+  "/about/",
+  "/get-quote/",
+  "/get-quote/#upload",
+]);
+
+async function resolveInternalCtaHrefs<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  document: BlockDocument,
+): Promise<Set<string>> {
+  const hrefs = [...new Set(document.blocks.flatMap((block) => block.type === "cta" ? [block.href] : []))];
+  const resolved = new Set(hrefs.filter((href) => fixedInternalPaths.has(href)));
+  const routed = hrefs.filter((href) => !fixedInternalPaths.has(href));
+  if (!routed.length) return resolved;
+  const routeRows = await db
+    .select({ path: routes.path, entityType: routes.entityType, entityId: routes.entityId })
+    .from(routes)
+    .where(and(inArray(routes.path, routed), eq(routes.locale, "en"), eq(routes.isCurrent, true)));
+  const productIds = routeRows.flatMap((row) =>
+    row.entityType === "product" && row.entityId ? [row.entityId] : [],
+  );
+  const contentIds = routeRows.flatMap((row) =>
+    row.entityType === "content" && row.entityId ? [row.entityId] : [],
+  );
+  const applicationIds = routeRows.flatMap((row) =>
+    row.entityType === "application" && row.entityId ? [row.entityId] : [],
+  );
+  const [eligibleProducts, eligibleContents, eligibleApplications] = await Promise.all([
+    productIds.length ? db.select({ id: products.id }).from(products).where(and(inArray(products.id, productIds), publicProductEligibilityConditions(db))) : Promise.resolve([]),
+    contentIds.length ? db.select({ id: contents.id }).from(contents).where(and(inArray(contents.id, contentIds), eq(contents.status, "published"))) : Promise.resolve([]),
+    applicationIds.length ? db.select({ id: applications.id }).from(applications).where(and(inArray(applications.id, applicationIds), eq(applications.status, "published"))) : Promise.resolve([]),
+  ]);
+  const eligibleIds = new Set([...eligibleProducts, ...eligibleContents, ...eligibleApplications].map((row) => row.id));
+  for (const route of routeRows) {
+    if (
+      (route.entityType === "product" || route.entityType === "content" || route.entityType === "application") &&
+      route.entityId !== null &&
+      eligibleIds.has(route.entityId)
+    ) {
+      resolved.add(route.path);
+    }
+  }
+  return resolved;
+}
+
 function projectRenderableDocument(
   document: BlockDocument,
   mediaAssetIds: ReadonlyMap<string, string>,
   relatedProducts: Readonly<Record<string, ResolvedBlockLink>>,
   relatedArticles: Readonly<Record<string, ResolvedBlockLink>>,
+  validInternalHrefs: ReadonlySet<string>,
 ): BlockDocument {
   const blocks: EditorialBlock[] = [];
   for (const block of document.blocks) {
@@ -282,6 +337,10 @@ function projectRenderableDocument(
       if (contentIds.length) blocks.push({ ...block, contentIds });
       continue;
     }
+    if (block.type === "cta") {
+      if (validInternalHrefs.has(block.href)) blocks.push(block);
+      continue;
+    }
     blocks.push(block);
   }
   return {
@@ -298,11 +357,13 @@ export async function resolveBlockPublicProjection<
   document: BlockDocument,
   options: ResolveBlockProjectionOptions = {},
 ): Promise<ResolvedBlockProjection> {
-  const [media, links] = await Promise.all([
+  const [media, links, validInternalHrefs] = await Promise.all([
     resolveMedia(db, owner, document),
     resolveRelatedLinks(db, document),
+    resolveInternalCtaHrefs(db, document),
   ]);
-  const referencesValid = media.referencesValid && links.referencesValid;
+  const ctaHrefs = document.blocks.flatMap((block) => block.type === "cta" ? [block.href] : []);
+  const referencesValid = media.referencesValid && links.referencesValid && ctaHrefs.every((href) => validInternalHrefs.has(href));
   if (options.invalidReferences !== "filter" && !referencesValid) {
     if (media.ambiguityMessage) {
       throw new BlockReferenceResolutionError(media.ambiguityMessage);
@@ -310,7 +371,7 @@ export async function resolveBlockPublicProjection<
     const mediaReferencesValid = media.referencesValid;
     throw new BlockReferenceResolutionError(
       mediaReferencesValid
-        ? "Related Product and Article Blocks must resolve to current public records."
+        ? "Related Product, Article, and internal CTA references must resolve to current public records and eligible routes."
         : `${owner.type === "product" ? "Product" : "Content"} Block media must resolve to a visible, role-compatible, public-ready relationship owned by the current record.`,
     );
   }
@@ -319,6 +380,7 @@ export async function resolveBlockPublicProjection<
     media.mediaAssetIds,
     links.relatedProducts,
     links.relatedArticles,
+    validInternalHrefs,
   );
   const relatedText = [
     ...renderableDocument.blocks.flatMap((block) =>

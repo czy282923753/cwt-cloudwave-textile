@@ -256,10 +256,11 @@ test("@desktop independent Product modules and Revision approval remain projecti
 
 test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or horizontal overflow", async ({ page }) => {
   const fixture = blockProjectionFixtures;
-  for (const width of [320, 375, 390, 768, 1440]) {
+  for (const width of [320, 375, 390, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: width < 800 ? 900 : 1000 });
     for (const path of [
       "/",
+      "/about/",
       fixture.renderableProductPaths.empty,
       fixture.renderableProductPaths.paragraph,
       fixture.productPath,
@@ -276,6 +277,57 @@ test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or
     await page.goto("/");
     if (width < 1024) await expect(page.locator("summary").filter({ hasText: "Menu" })).toBeVisible();
   }
+});
+
+test("@all Stage 2 fixed-page settings and shared Block Editor remain keyboard-operable", async ({ page }) => {
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/site/home/");
+  await expect(page.getByRole("heading", { name: "Home Page Settings" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Preview Draft" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Desktop · 1200px" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Mobile · 390px" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Fixed modules" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerWidth),
+  );
+  const pageSettingsAccessibility = await new AxeBuilder({ page }).include("main").analyze();
+  expect(
+    pageSettingsAccessibility.violations.filter((violation) =>
+      ["critical", "serious"].includes(violation.impact ?? ""),
+    ),
+  ).toEqual([]);
+
+  await page.goto("/admin/products/");
+  await openLinkedRecord(
+    page,
+    page.getByRole("link", { name: /TEST FIXTURE Fabric Sample 03/ }),
+  );
+  const editor = page.locator('[data-block-editor="product"]');
+  await expect(editor.getByRole("heading", { name: "Structured Block Editor" })).toBeVisible();
+  const blocks = editor.locator("article");
+  const initialBlockCount = await blocks.count();
+  await editor.getByRole("button", { name: "Insert Block", exact: true }).click();
+  await expect(blocks).toHaveCount(initialBlockCount + 1);
+  const inserted = blocks.last();
+  await inserted.getByRole("button", { name: "Lock", exact: true }).click();
+  await expect(inserted.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  await inserted.getByRole("button", { name: "Unlock", exact: true }).click();
+  await editor.getByRole("button", { name: "Undo", exact: true }).click();
+  await editor.getByRole("button", { name: "Undo", exact: true }).click();
+  await editor.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(blocks).toHaveCount(initialBlockCount);
+  await expect(editor.getByRole("button", { name: "Redo", exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerWidth),
+  );
+  const accessibility = await new AxeBuilder({ page })
+    .include('[data-block-editor="product"]')
+    .analyze();
+  expect(
+    accessibility.violations.filter((violation) =>
+      ["critical", "serious"].includes(violation.impact ?? ""),
+    ),
+  ).toEqual([]);
 });
 
 test("@desktop remediation public routes produce no Console, page, or Hydration errors", async ({ page }) => {
@@ -531,9 +583,13 @@ test("@desktop a Published Product edit stays pending until approval", async ({ 
   expect(await published.text()).toContain('"Product"');
   const replacement = `E2E approved editorial revision ${Date.now()}.`;
   await page.getByLabel("Short Description").fill(replacement);
+  await page.getByRole("button", { name: "Save now" }).click();
+  await expect(page.getByText("Draft saved. Review, Apply, Publish, and Index remain explicit actions."))
+    .toBeVisible();
+  await page.reload();
   await submitServerAction(
     page,
-    page.getByRole("button", { name: "Save or propose editorial copy" }),
+    page.getByRole("button", { name: "Submit Block Draft for Review" }),
   );
   await expect(page.getByText(/editorial_blocks · in_review/).first()).toBeVisible();
   const publicBefore = await page.request.get(fixtureProductPath);
