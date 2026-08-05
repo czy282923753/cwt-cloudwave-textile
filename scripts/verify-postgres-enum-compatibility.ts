@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
 
+import { createProductDraft } from "../src/catalog/product-service";
 import { env } from "../src/config/env";
 import {
   migratePostgresWithEnumCompatibility,
@@ -421,6 +422,90 @@ async function main(): Promise<void> {
       } finally {
         await client.end();
       }
+    });
+
+    await withDatabase("stage1_product_code_contention", async (url) => {
+      await migrateLatest(url);
+      const fixture = validationClient(url);
+      const actorId = "8f7fa947-a283-4cc6-bdb9-a2417c47f8d2";
+      const categoryId = "8f7fa947-a283-4cc6-bdb9-a2417c47f8d3";
+      const assetId = "8f7fa947-a283-4cc6-bdb9-a2417c47f8d4";
+      try {
+        await fixture`
+          insert into users (id, email, display_name, role, password_hash)
+          values (${actorId}::uuid, 'stage1-postgres-product@example.test', 'TEST Stage 1 Product', 'product_editor', 'test')
+        `;
+        await fixture`
+          insert into taxonomy_terms (id, internal_key, product_code_prefix, dimension)
+          values (${categoryId}::uuid, 'TEST-stage1-postgres-product-code', 'PGC', 'material_fiber')
+        `;
+        await fixture`
+          insert into assets (
+            id, original_file_name, storage_provider, storage_partition, object_key,
+            access, category, status, scan_status, declared_mime_type,
+            detected_mime_type, byte_size, sha256
+          ) values (
+            ${assetId}::uuid, 'TEST-stage1-postgres.jpg', 'test', 'public',
+            'test/stage1-postgres.jpg', 'public', 'product', 'ready', 'passed',
+            'image/jpeg', 'image/jpeg', 100, 'stage1-postgres-product-code'
+          )
+        `;
+      } finally {
+        await fixture.end();
+      }
+      const firstClient = validationClient(url);
+      const secondClient = validationClient(url);
+      try {
+        await Promise.all([
+          createProductDraft(
+            drizzlePostgres(firstClient),
+            { userId: actorId, role: "product_editor" },
+            {
+              name: "Synthetic PostgreSQL Chiffon Fabric",
+              primaryTaxonomyTermId: categoryId,
+              assetIds: [assetId],
+            },
+          ),
+          createProductDraft(
+            drizzlePostgres(secondClient),
+            { userId: actorId, role: "product_editor" },
+            {
+              name: "Synthetic PostgreSQL Mesh Fabric",
+              primaryTaxonomyTermId: categoryId,
+              assetIds: [assetId],
+            },
+          ),
+        ]);
+      } finally {
+        await Promise.all([firstClient.end(), secondClient.end()]);
+      }
+      const verification = validationClient(url);
+      try {
+        const codes = await verification<{ product_code: string }[]>`
+          select product_code from products order by product_code
+        `;
+        const audits = await verification<{ count: string }[]>`
+          select count(*)::text as count from audit_logs where action = 'product.draft.created'
+        `;
+        if (
+          JSON.stringify(codes.map((row) => row.product_code)) !==
+            JSON.stringify(["CWT-PGC-001", "CWT-PGC-002"]) ||
+          Number(audits[0]?.count ?? 0) !== 2
+        ) {
+          throw new Error(
+            `Concurrent Product Code allocation did not serialize with Audit: ${JSON.stringify({
+              codes,
+              auditCount: Number(audits[0]?.count ?? 0),
+            })}`,
+          );
+        }
+      } finally {
+        await verification.end();
+      }
+      evidence.push({
+        scenario: "Stage 1 Product Code contention and atomic Audit",
+        result: "passed",
+      });
     });
 
     await withDatabase("before_preflight_failure", async (url) => {
