@@ -15,6 +15,10 @@ import {
 import type { AppDatabase } from "@/db/types";
 import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
 import {
+  isPersistedStaticPagePlacementLive,
+  staticPageConfigSchema,
+} from "@/content/static-page-projection";
+import {
   isAllowedImageMimeType,
   publicAttachmentRoles,
   publicImageRoles,
@@ -77,7 +81,22 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
       )
       .limit(1),
     db
-      .select({ id: sitePageAssets.id })
+      .select({
+        systemSettingId: sitePageAssets.systemSettingId,
+        assetId: sitePageAssets.assetId,
+        pageKey: sitePageAssets.pageKey,
+        placementKey: sitePageAssets.placementKey,
+        viewport: sitePageAssets.viewport,
+        role: sitePageAssets.role,
+        sortOrder: sitePageAssets.sortOrder,
+        altText: sitePageAssets.altText,
+        caption: sitePageAssets.caption,
+        focalX: sitePageAssets.focalX,
+        focalY: sitePageAssets.focalY,
+        isVisible: sitePageAssets.isVisible,
+        settingKey: systemSettings.key,
+        settingValue: systemSettings.value,
+      })
       .from(sitePageAssets)
       .innerJoin(systemSettings, eq(systemSettings.id, sitePageAssets.systemSettingId))
       .where(
@@ -87,11 +106,16 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
           eq(sitePageAssets.isVisible, true),
           inArray(systemSettings.key, ["site_page.home", "site_page.about"]),
         ),
-      )
-      .limit(1),
+      ),
   ]);
+  const hasLiveStaticPageRelation = sitePageRows.some((row) => {
+    const config = staticPageConfigSchema.safeParse(row.settingValue);
+    return config.success &&
+      row.settingKey === `site_page.${config.data.pageKey}` &&
+      isPersistedStaticPagePlacementLive(config.data, row);
+  });
   return Boolean(
-    productRows[0] || fabricRows[0] || contentRows[0] || sitePageRows[0],
+    productRows[0] || fabricRows[0] || contentRows[0] || hasLiveStaticPageRelation,
   );
 }
 

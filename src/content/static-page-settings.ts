@@ -1,6 +1,5 @@
 import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
-import { z } from "zod";
 
 import { runGovernedMutation, type GovernedMutationOptions } from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
@@ -13,127 +12,27 @@ import {
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { publicReadyImageSqlConditions } from "@/uploads/asset-eligibility";
+import {
+  DEFAULT_STATIC_PAGE_CONFIGS,
+  deriveStaticPageLivePlacements,
+  expectedStaticPagePlacementRows,
+  staticPageConfigSchema,
+  staticPagePlacementProjectionMatches,
+  type StaticPageConfig,
+} from "./static-page-projection";
 
-const homeModulesSchema = z.object({
-  hero: z.boolean(),
-  products: z.boolean(),
-  applications: z.boolean(),
-  fabric_library: z.boolean(),
-  fabric_sourcing: z.boolean(),
-  manufacturing_strength: z.boolean(),
-  inquiry_cta: z.boolean(),
-}).strict();
+export {
+  DEFAULT_STATIC_PAGE_CONFIGS,
+  staticPageConfigSchema,
+  type StaticPageConfig,
+} from "./static-page-projection";
 
-const aboutModulesSchema = z.object({
-  hero: z.boolean(),
-  introduction: z.boolean(),
-  owned_manufacturing: z.boolean(),
-  service_strength: z.boolean(),
-  inquiry_cta: z.boolean(),
-}).strict();
-
-const placementBaseSchema = z.object({
-  assetId: z.uuid(),
-  placementKey: z.string().min(1).max(80),
-  viewport: z.enum(["desktop", "mobile"]),
-  role: z.enum(["hero", "gallery", "detail"]),
-  sortOrder: z.number().int().min(0).max(1_000),
-  altText: z.string().trim().min(1).max(500),
-  caption: z.string().trim().min(1).max(1_000).nullable(),
-  focalX: z.number().min(0).max(100),
-  focalY: z.number().min(0).max(100),
-  overlayOpacity: z.number().min(0).max(0.9),
-  isVisible: z.boolean(),
-}).strict();
-
-const homePlacementKeys = [
-  "hero",
-  "products",
-  "applications",
-  "fabric_library",
-  "fabric_sourcing",
-  "manufacturing_strength",
-  "inquiry_cta",
-] as const;
-const aboutPlacementKeys = [
-  "hero",
-  "introduction",
-  "owned_manufacturing",
-  "service_strength",
-  "inquiry_cta",
-] as const;
-
-const homeConfigSchema = z.object({
-  version: z.literal(1),
-  pageKey: z.literal("home"),
-  modules: homeModulesSchema,
-  placements: z.array(placementBaseSchema.extend({
-    placementKey: z.enum(homePlacementKeys),
-  }).strict()).max(50),
-}).strict();
-
-const aboutConfigSchema = z.object({
-  version: z.literal(1),
-  pageKey: z.literal("about"),
-  modules: aboutModulesSchema,
-  placements: z.array(placementBaseSchema.extend({
-    placementKey: z.enum(aboutPlacementKeys),
-  }).strict()).max(50),
-}).strict();
-
-export const staticPageConfigSchema = z.discriminatedUnion("pageKey", [
-  homeConfigSchema,
-  aboutConfigSchema,
-]).superRefine((config, context) => {
-  const keys = new Set<string>();
-  for (const [index, placement] of config.placements.entries()) {
-    const key = `${placement.placementKey}:${placement.viewport}:${placement.assetId}`;
-    if (keys.has(key)) {
-      context.addIssue({
-        code: "custom",
-        message: "Static-page Asset placements must be unique.",
-        path: ["placements", index],
-      });
-    }
-    keys.add(key);
+export class StaticPageProjectionMismatchError extends Error {
+  constructor() {
+    super("Applied static-page revision does not match the current live projection.");
+    this.name = "StaticPageProjectionMismatchError";
   }
-});
-
-export type StaticPageConfig = z.infer<typeof staticPageConfigSchema>;
-type HomeStaticPageConfig = Extract<StaticPageConfig, { pageKey: "home" }>;
-type AboutStaticPageConfig = Extract<StaticPageConfig, { pageKey: "about" }>;
-
-export const DEFAULT_STATIC_PAGE_CONFIGS: Readonly<{
-  home: HomeStaticPageConfig;
-  about: AboutStaticPageConfig;
-}> = {
-  home: {
-    version: 1,
-    pageKey: "home",
-    modules: {
-      hero: true,
-      products: true,
-      applications: true,
-      fabric_library: true,
-      fabric_sourcing: true,
-      manufacturing_strength: true,
-      inquiry_cta: true,
-    },
-    placements: [],
-  },
-  about: {
-    version: 1,
-    pageKey: "about",
-    modules: {
-      hero: true,
-      introduction: true,
-      owned_manufacturing: true,
-      service_strength: true,
-      inquiry_cta: true,
-    },
-    placements: [],
-  },
-};
+}
 
 const ownedManufacturingKeys = new Set(["manufacturing_strength", "owned_manufacturing"]);
 
@@ -141,7 +40,8 @@ async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   config: StaticPageConfig,
 ): Promise<void> {
-  const assetIds = [...new Set(config.placements.map((placement) => placement.assetId))];
+  const livePlacements = deriveStaticPageLivePlacements(config);
+  const assetIds = [...new Set(livePlacements.map((placement) => placement.assetId))];
   if (!assetIds.length) return;
   const rows = await db
     .select({
@@ -155,7 +55,7 @@ async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
     throw new Error("Static-page media must use ready, scanned, rights-eligible public Assets.");
   }
   const byId = new Map(rows.map((row) => [row.id, row]));
-  for (const placement of config.placements) {
+  for (const placement of livePlacements) {
     if (!ownedManufacturingKeys.has(placement.placementKey)) continue;
     const asset = byId.get(placement.assetId);
     if (
@@ -242,18 +142,59 @@ export async function applyStaticPageConfigRevision<
   requirePermission(actor.role, "content.publish");
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const revisionRows = await transaction
-      .update(editorialRevisions)
-      .set({ status: "applied", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .select()
+      .from(editorialRevisions)
       .where(
         and(
           eq(editorialRevisions.id, revisionId),
           eq(editorialRevisions.entityType, "static_page"),
-          eq(editorialRevisions.status, "in_review"),
         ),
       )
-      .returning();
+      .limit(1)
+      .for("update");
     const revision = revisionRows[0];
-    if (!revision) throw new Error("Static-page revision is not eligible for approval.");
+    if (!revision || (revision.status !== "in_review" && revision.status !== "applied")) {
+      throw new Error("Static-page revision is not eligible for approval.");
+    }
+    const config = staticPageConfigSchema.parse(revision.snapshot);
+    const settingRows = await transaction
+      .select({ id: systemSettings.id, key: systemSettings.key, value: systemSettings.value })
+      .from(systemSettings)
+      .where(eq(systemSettings.id, revision.entityId))
+      .limit(1)
+      .for("update");
+    const setting = settingRows[0];
+    if (!setting || setting.key !== `site_page.${config.pageKey}`) {
+      throw new StaticPageProjectionMismatchError();
+    }
+    if (revision.status === "applied") {
+      const currentConfig = staticPageConfigSchema.safeParse(setting.value);
+      const relationRows = await transaction
+        .select({
+          systemSettingId: sitePageAssets.systemSettingId,
+          assetId: sitePageAssets.assetId,
+          pageKey: sitePageAssets.pageKey,
+          placementKey: sitePageAssets.placementKey,
+          viewport: sitePageAssets.viewport,
+          role: sitePageAssets.role,
+          sortOrder: sitePageAssets.sortOrder,
+          altText: sitePageAssets.altText,
+          caption: sitePageAssets.caption,
+          focalX: sitePageAssets.focalX,
+          focalY: sitePageAssets.focalY,
+          isVisible: sitePageAssets.isVisible,
+        })
+        .from(sitePageAssets)
+        .where(eq(sitePageAssets.systemSettingId, revision.entityId));
+      if (
+        !currentConfig.success ||
+        JSON.stringify(currentConfig.data) !== JSON.stringify(config) ||
+        !staticPagePlacementProjectionMatches(revision.entityId, config, relationRows)
+      ) {
+        throw new StaticPageProjectionMismatchError();
+      }
+      return config.pageKey;
+    }
     const newerRows = await transaction
       .select({ id: editorialRevisions.id })
       .from(editorialRevisions)
@@ -266,39 +207,41 @@ export async function applyStaticPageConfigRevision<
       )
       .limit(1);
     if (newerRows[0]) throw new Error("A newer static-page revision exists.");
-    const config = staticPageConfigSchema.parse(revision.snapshot);
     await validateStaticPageAssets(transaction, config);
-    const settingRows = await transaction
+    const liveRows = expectedStaticPagePlacementRows(revision.entityId, config);
+    const updatedSettings = await transaction
       .update(systemSettings)
       .set({ value: config, updatedByUserId: actor.userId, updatedAt: new Date() })
       .where(eq(systemSettings.id, revision.entityId))
       .returning({ id: systemSettings.id });
-    if (!settingRows[0]) throw new Error("Static-page setting was not found.");
+    if (!updatedSettings[0]) throw new Error("Static-page setting was not found.");
     await transaction
       .delete(sitePageAssets)
       .where(eq(sitePageAssets.systemSettingId, revision.entityId));
-    if (config.placements.length) {
-      await transaction.insert(sitePageAssets).values(config.placements.map((placement) => ({
-        systemSettingId: revision.entityId,
-        assetId: placement.assetId,
-        pageKey: config.pageKey,
-        placementKey: placement.placementKey,
-        viewport: placement.viewport,
-        role: placement.role,
-        sortOrder: placement.sortOrder,
-        altText: placement.altText,
-        caption: placement.caption,
+    if (liveRows.length) {
+      await transaction.insert(sitePageAssets).values(liveRows.map((placement) => ({
+        ...placement,
         focalX: String(placement.focalX),
         focalY: String(placement.focalY),
-        isVisible: placement.isVisible,
       })));
     }
+    const claimedRows = await transaction
+      .update(editorialRevisions)
+      .set({ status: "applied", reviewedByUserId: actor.userId, reviewedAt: new Date() })
+      .where(
+        and(
+          eq(editorialRevisions.id, revisionId),
+          eq(editorialRevisions.status, "in_review"),
+        ),
+      )
+      .returning({ id: editorialRevisions.id });
+    if (!claimedRows[0]) throw new StaticPageProjectionMismatchError();
     await audit({
       actorUserId: actor.userId,
       action: "static_page.revision.applied",
       entityType: "editorial_revision",
       entityId: revisionId,
-      afterSummary: { pageKey: config.pageKey, placementCount: config.placements.length },
+      afterSummary: { pageKey: config.pageKey, placementCount: liveRows.length },
     });
     return config.pageKey;
   }, options);

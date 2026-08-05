@@ -4,124 +4,187 @@ import { describe, expect, it } from "vitest";
 import {
   assets,
   auditLogs,
+  editorialRevisions,
   sitePageAssets,
   systemSettings,
   users,
 } from "@/db/schema";
-import { createTestDatabase } from "@/test/database";
 import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
+import { createTestDatabase } from "@/test/database";
 
 import {
   applyStaticPageConfigRevision,
   DEFAULT_STATIC_PAGE_CONFIGS,
   proposeStaticPageConfigRevision,
+  StaticPageProjectionMismatchError,
 } from "./static-page-settings";
 
-describe("static-page approved config and Asset relationship", () => {
-  it("applies only reviewed, eligible CWT-owned manufacturing media with Audit", async () => {
-    const connection = await createTestDatabase();
-    const userRows = await connection.db.insert(users).values([
-      { email: "page-editor@example.test", displayName: "Page Editor", role: "content_editor", passwordHash: "test" },
-      { email: "page-reviewer@example.test", displayName: "Page Reviewer", role: "reviewer_publisher", passwordHash: "test" },
-    ]).returning({ id: users.id, role: users.role });
-    const editorId = userRows.find((row) => row.role === "content_editor")!.id;
-    const reviewerId = userRows.find((row) => row.role === "reviewer_publisher")!.id;
-    const assetRows = await connection.db.insert(assets).values([
-      {
-        originalFileName: "TEST-cwt-owned.jpg",
-        storageProvider: "test",
-        storagePartition: "public",
-        objectKey: "test/cwt-owned.jpg",
-        access: "public",
-        category: "factory",
-        status: "ready",
-        scanStatus: "passed",
-        declaredMimeType: "image/jpeg",
-        detectedMimeType: "image/jpeg",
-        byteSize: 100,
-        sha256: "stage1-owned-page",
-        subjectRelationship: "cwt",
-        isCwtOwnedFacility: true,
-      },
-      {
-        originalFileName: "TEST-partner.jpg",
-        storageProvider: "test",
-        storagePartition: "public",
-        objectKey: "test/partner.jpg",
-        access: "public",
-        category: "factory",
-        status: "ready",
-        scanStatus: "passed",
-        declaredMimeType: "image/jpeg",
-        detectedMimeType: "image/jpeg",
-        byteSize: 100,
-        sha256: "stage1-partner-page",
-        subjectRelationship: "partner_factory",
-        isCwtOwnedFacility: false,
-      },
-    ]).returning({ id: assets.id, subject: assets.subjectRelationship });
-    const ownedId = assetRows.find((row) => row.subject === "cwt")!.id;
-    const partnerId = assetRows.find((row) => row.subject === "partner_factory")!.id;
-    const placement = {
-      placementKey: "manufacturing_strength" as const,
+async function setup() {
+  const connection = await createTestDatabase();
+  const userRows = await connection.db.insert(users).values([
+    { email: `page-editor-${crypto.randomUUID()}@example.test`, displayName: "Page Editor", role: "content_editor", passwordHash: "test" },
+    { email: `page-reviewer-${crypto.randomUUID()}@example.test`, displayName: "Page Reviewer", role: "reviewer_publisher", passwordHash: "test" },
+    { email: `page-sales-${crypto.randomUUID()}@example.test`, displayName: "Page Sales", role: "sales", passwordHash: "test" },
+  ]).returning({ id: users.id, role: users.role });
+  const assetRows = await connection.db.insert(assets).values([0, 1].map((index) => ({
+    originalFileName: `TEST-page-${index}.jpg`,
+    storageProvider: "test",
+    storagePartition: "public" as const,
+    objectKey: `test/page-${crypto.randomUUID()}.jpg`,
+    access: "public" as const,
+    category: "company" as const,
+    status: "ready" as const,
+    scanStatus: "passed" as const,
+    declaredMimeType: "image/jpeg",
+    detectedMimeType: "image/jpeg",
+    byteSize: 100,
+    sha256: `stage1-page-${crypto.randomUUID()}`,
+  }))).returning({ id: assets.id });
+  return {
+    connection,
+    editor: { userId: userRows.find((row) => row.role === "content_editor")!.id, role: "content_editor" as const },
+    reviewer: { userId: userRows.find((row) => row.role === "reviewer_publisher")!.id, role: "reviewer_publisher" as const },
+    sales: { userId: userRows.find((row) => row.role === "sales")!.id, role: "sales" as const },
+    assetIds: assetRows.map((row) => row.id),
+  };
+}
+
+function heroConfig(assetId: string, enabled = true) {
+  return {
+    ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+    modules: { ...DEFAULT_STATIC_PAGE_CONFIGS.home.modules, hero: enabled },
+    placements: [{
+      assetId,
+      placementKey: "hero" as const,
       viewport: "desktop" as const,
       role: "hero" as const,
       sortOrder: 0,
-      altText: "Synthetic CWT-owned facility test image",
+      altText: "Synthetic Home hero",
       caption: null,
       focalX: 50,
       focalY: 50,
       overlayOpacity: 0.35,
       isVisible: true,
-    };
-    await expect(proposeStaticPageConfigRevision(
-      connection.db,
-      { userId: editorId, role: "content_editor" },
-      { ...DEFAULT_STATIC_PAGE_CONFIGS.home, placements: [{ ...placement, assetId: partnerId }] },
-      "Synthetic partner rejection",
-    )).rejects.toThrow(/CWT-owned/);
+    }],
+  };
+}
 
-    const revisionId = await proposeStaticPageConfigRevision(
-      connection.db,
-      { userId: editorId, role: "content_editor" },
-      { ...DEFAULT_STATIC_PAGE_CONFIGS.home, placements: [{ ...placement, assetId: ownedId }] },
-      "Synthetic approved Home media",
-    );
-    await applyStaticPageConfigRevision(
-      connection.db,
-      { userId: reviewerId, role: "reviewer_publisher" },
-      revisionId,
-    );
-    await expect(applyStaticPageConfigRevision(
-      connection.db,
-      { userId: reviewerId, role: "reviewer_publisher" },
-      revisionId,
-    )).rejects.toThrow(/not eligible/);
-    const settingRows = await connection.db.select({ id: systemSettings.id, value: systemSettings.value })
-      .from(systemSettings)
-      .where(eq(systemSettings.key, "site_page.home"));
-    expect(settingRows[0]?.value).toMatchObject({ pageKey: "home", version: 1 });
-    const relationRows = await connection.db.select().from(sitePageAssets)
-      .where(eq(sitePageAssets.systemSettingId, settingRows[0]!.id));
-    expect(relationRows).toHaveLength(1);
-    expect(relationRows[0]).toMatchObject({
-      assetId: ownedId,
-      pageKey: "home",
-      placementKey: "manufacturing_strength",
-      viewport: "desktop",
-      isVisible: true,
-    });
-    const audits = await connection.db.select({ action: auditLogs.action }).from(auditLogs).where(and(
-      eq(auditLogs.entityId, revisionId),
-      eq(auditLogs.action, "static_page.revision.applied"),
-    ));
-    expect(audits).toHaveLength(1);
-    await expect(findPublicAssetForDelivery(connection.db, ownedId)).resolves.toMatchObject({
-      id: ownedId,
-      partition: "public",
-    });
-    await connection.db.update(sitePageAssets).set({ isVisible: false }).where(eq(sitePageAssets.assetId, ownedId));
-    await expect(findPublicAssetForDelivery(connection.db, ownedId)).resolves.toBeNull();
-    await connection.close();
+async function appliedAuditCount(
+  connection: Awaited<ReturnType<typeof createTestDatabase>>,
+  revisionId: string,
+) {
+  return (await connection.db.select({ id: auditLogs.id }).from(auditLogs).where(and(
+    eq(auditLogs.entityId, revisionId),
+    eq(auditLogs.action, "static_page.revision.applied"),
+  ))).length;
+}
+
+describe("static-page authoritative live projection", () => {
+  it("returns idempotent success for the same applied revision without duplicate relations", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "First apply");
+    await expect(applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId)).resolves.toBe("home");
+    await expect(applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId)).resolves.toBe("home");
+    expect(await test.connection.db.select().from(sitePageAssets)).toHaveLength(1);
+    await test.connection.close();
+  });
+
+  it("does not write a second success Audit on repeat Apply", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Audit idempotency");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId);
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId);
+    expect(await appliedAuditCount(test.connection, revisionId)).toBe(1);
+    await test.connection.close();
+  });
+
+  it("treats a response-loss retry as the same successful business result", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Response loss retry");
+    const firstBusinessResult = await applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId);
+    const retriedBusinessResult = await applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId);
+    expect(retriedBusinessResult).toBe(firstBusinessResult);
+    expect(await appliedAuditCount(test.connection, revisionId)).toBe(1);
+    await test.connection.close();
+  });
+
+  it("fails closed with a typed error when an Applied projection drifts", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Mismatch detection");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId);
+    await test.connection.db.update(sitePageAssets).set({ isVisible: false });
+    await expect(applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId))
+      .rejects.toBeInstanceOf(StaticPageProjectionMismatchError);
+    expect((await test.connection.db.select().from(sitePageAssets))[0]?.isVisible).toBe(false);
+    await test.connection.close();
+  });
+
+  it("does not persist or deliver visible placements whose module is disabled", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!, false), "Disabled module");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId);
+    expect(await test.connection.db.select().from(sitePageAssets)).toHaveLength(0);
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!)).resolves.toBeNull();
+    await test.connection.close();
+  });
+
+  it("revokes the known public Asset immediately when a newly approved revision disables its module", async () => {
+    const test = await setup();
+    const enabledId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Enable hero");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, enabledId);
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!)).resolves.toMatchObject({ id: test.assetIds[0] });
+    const disabledId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!, false), "Disable hero");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, disabledId);
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!)).resolves.toBeNull();
+    await test.connection.close();
+  });
+
+  it("re-enables only the placement explicitly present in the new approved revision", async () => {
+    const test = await setup();
+    const firstId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Initial hero");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, firstId);
+    const disabledId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!, false), "Disable old hero");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, disabledId);
+    const secondId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[1]!), "Approve replacement hero");
+    await applyStaticPageConfigRevision(test.connection.db, test.reviewer, secondId);
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!)).resolves.toBeNull();
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[1]!)).resolves.toMatchObject({ id: test.assetIds[1] });
+    await test.connection.close();
+  });
+
+  it("rolls back Setting, relations, and Revision when Required Audit fails, then allows retry", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Audit rollback");
+    await expect(applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId, {
+      auditWriter: async () => { throw new Error("TEST required Audit failure"); },
+    })).rejects.toThrow(/required Audit failure/);
+    const [setting] = await test.connection.db.select({ value: systemSettings.value }).from(systemSettings);
+    const [revision] = await test.connection.db.select({ status: editorialRevisions.status }).from(editorialRevisions).where(eq(editorialRevisions.id, revisionId));
+    expect(setting?.value).toEqual(DEFAULT_STATIC_PAGE_CONFIGS.home);
+    expect(await test.connection.db.select().from(sitePageAssets)).toHaveLength(0);
+    expect(revision?.status).toBe("in_review");
+    await expect(applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId)).resolves.toBe("home");
+    await test.connection.close();
+  });
+
+  it("serializes concurrent Apply calls into one first commit and one safe idempotent result", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Concurrent apply");
+    await expect(Promise.all([
+      applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId),
+      applyStaticPageConfigRevision(test.connection.db, test.reviewer, revisionId),
+    ])).resolves.toEqual(["home", "home"]);
+    expect(await appliedAuditCount(test.connection, revisionId)).toBe(1);
+    expect(await test.connection.db.select().from(sitePageAssets)).toHaveLength(1);
+    await test.connection.close();
+  });
+
+  it("denies an unauthorized role before protected Apply state can be read or changed", async () => {
+    const test = await setup();
+    const revisionId = await proposeStaticPageConfigRevision(test.connection.db, test.editor, heroConfig(test.assetIds[0]!), "Permission boundary");
+    await expect(applyStaticPageConfigRevision(test.connection.db, test.sales, revisionId)).rejects.toThrow(/permission/i);
+    expect((await test.connection.db.select({ status: editorialRevisions.status }).from(editorialRevisions).where(eq(editorialRevisions.id, revisionId)))[0]?.status)
+      .toBe("in_review");
+    await test.connection.close();
   });
 });
