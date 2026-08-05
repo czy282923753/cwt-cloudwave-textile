@@ -24,6 +24,11 @@ export default async function NewProductPage() {
           Product Name <input className="rounded-lg bg-slate-950 p-3" name="name" required />
         </label>
         <label className="grid gap-2">
+          Existing Product Code (optional)
+          <input className="rounded-lg bg-slate-950 p-3" name="productCode" pattern="[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*" />
+          <span className="text-xs text-slate-400">Leave blank to generate from the managed Primary Category prefix. No prefix leaves the Draft unassigned.</span>
+        </label>
+        <label className="grid gap-2">
           Primary Category
           <select className="rounded-lg bg-slate-950 p-3" name="primaryTaxonomyTermId" required>
             <option value="">Select…</option>

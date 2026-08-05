@@ -14,7 +14,7 @@ const optionalPositiveIntegerString = z
   .transform((value) => (value === "" ? null : value));
 
 const environmentSchema = z.object({
-  APP_ENV: z.enum(["local", "test", "preview", "production"]).default("local"),
+  APP_ENV: z.enum(["local", "test", "staging", "production"]).default("local"),
   NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3000"),
   NON_PRODUCTION_NOINDEX: z
     .enum(["true", "false"])

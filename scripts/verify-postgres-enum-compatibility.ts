@@ -31,6 +31,8 @@ type Journal = {
 type CatalogEvidence = {
   journalMillis: number | null;
   enumLabels: string[];
+  appEnvironmentLabels: string[];
+  assetRoleLabels: string[];
   tableNames: string[];
   constraintNames: string[];
   indexNames: string[];
@@ -58,6 +60,20 @@ const expectedEnumLabels = [
   "completed",
   "failed",
   "expired",
+];
+const expectedAppEnvironmentLabels = ["local", "test", "staging", "production"];
+const expectedAssetRoleLabels = [
+  "hero",
+  "gallery",
+  "cover",
+  "detail",
+  "application",
+  "thumbnail",
+  "inline",
+  "document",
+  "download",
+  "inquiry",
+  "import",
 ];
 let expectedLatestJournalMillis: number | null = null;
 
@@ -158,6 +174,22 @@ async function collectCatalog(client: Sql): Promise<CatalogEvidence> {
     where namespace.nspname = 'public' and type.typname = 'asset_upload_batch_status'
     order by enum.enumsortorder
   `;
+  const applicationEnvironmentRows = await client<{ enumlabel: string }[]>`
+    select enum.enumlabel
+    from pg_enum as enum
+    join pg_type as type on type.oid = enum.enumtypid
+    join pg_namespace as namespace on namespace.oid = type.typnamespace
+    where namespace.nspname = 'public' and type.typname = 'app_environment'
+    order by enum.enumsortorder
+  `;
+  const assetRoleRows = await client<{ enumlabel: string }[]>`
+    select enum.enumlabel
+    from pg_enum as enum
+    join pg_type as type on type.oid = enum.enumtypid
+    join pg_namespace as namespace on namespace.oid = type.typnamespace
+    where namespace.nspname = 'public' and type.typname = 'asset_role'
+    order by enum.enumsortorder
+  `;
   const tables = await client<{ name: string }[]>`
     select table_name as name
     from information_schema.tables
@@ -192,6 +224,8 @@ async function collectCatalog(client: Sql): Promise<CatalogEvidence> {
   return {
     journalMillis: rawJournal === undefined || rawJournal === null ? null : Number(rawJournal),
     enumLabels: enumRows.map((row) => row.enumlabel),
+    appEnvironmentLabels: applicationEnvironmentRows.map((row) => row.enumlabel),
+    assetRoleLabels: assetRoleRows.map((row) => row.enumlabel),
     tableNames: tables.map((row) => row.name),
     constraintNames: constraints.map((row) => row.name),
     indexNames: indexes.map((row) => row.name),
@@ -263,6 +297,18 @@ function assertLatestCatalog(
   if (JSON.stringify(catalog.enumLabels) !== JSON.stringify(expectedEnumLabels)) {
     throw new Error("Final enum labels or order are incorrect.");
   }
+  if (
+    JSON.stringify(catalog.appEnvironmentLabels) !==
+      JSON.stringify(expectedAppEnvironmentLabels) ||
+    JSON.stringify(catalog.assetRoleLabels) !== JSON.stringify(expectedAssetRoleLabels)
+  ) {
+    throw new Error(
+      `Stage 1 environment or Asset role enum labels are incorrect: ${JSON.stringify({
+        appEnvironmentLabels: catalog.appEnvironmentLabels,
+        assetRoleLabels: catalog.assetRoleLabels,
+      })}`,
+    );
+  }
   if (fixtureExpected && catalog.fixtureCount !== 1) {
     throw new Error("Upgrade fixture data was not preserved.");
   }
@@ -326,7 +372,7 @@ async function main(): Promise<void> {
       });
     });
 
-    for (const start of [5, 10, 11, 12, 14, 15, 16]) {
+    for (const start of [5, 10, 11, 12, 14, 15, 16, 17]) {
       await withDatabase(`upgrade_${start}`, async (url) => {
         await applyThrough(url, start);
         await addFixture(url);

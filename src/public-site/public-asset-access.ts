@@ -9,6 +9,8 @@ import {
   fabricLibraryEntryAssets,
   productAssets,
   products,
+  sitePageAssets,
+  systemSettings,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
@@ -32,7 +34,7 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
       ? [...publicAttachmentRoles]
       : [];
   if (allowedRoles.length === 0) return false;
-  const [productRows, fabricRows, contentRows] = await Promise.all([
+  const [productRows, fabricRows, contentRows, sitePageRows] = await Promise.all([
     db
       .select({ id: products.id })
       .from(productAssets)
@@ -41,6 +43,7 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
         and(
           eq(productAssets.assetId, assetId),
           inArray(productAssets.role, [...publicImageRoles]),
+          eq(productAssets.isVisible, true),
           publicProductEligibilityConditions(db),
         ),
       )
@@ -68,12 +71,28 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
         and(
           eq(contentAssets.assetId, assetId),
           inArray(contentAssets.role, allowedRoles),
+          eq(contentAssets.isVisible, true),
           eq(contents.status, "published"),
         ),
       )
       .limit(1),
+    db
+      .select({ id: sitePageAssets.id })
+      .from(sitePageAssets)
+      .innerJoin(systemSettings, eq(systemSettings.id, sitePageAssets.systemSettingId))
+      .where(
+        and(
+          eq(sitePageAssets.assetId, assetId),
+          inArray(sitePageAssets.role, [...publicImageRoles]),
+          eq(sitePageAssets.isVisible, true),
+          inArray(systemSettings.key, ["site_page.home", "site_page.about"]),
+        ),
+      )
+      .limit(1),
   ]);
-  return Boolean(productRows[0] || fabricRows[0] || contentRows[0]);
+  return Boolean(
+    productRows[0] || fabricRows[0] || contentRows[0] || sitePageRows[0],
+  );
 }
 
 export async function findPublicAssetForDelivery<

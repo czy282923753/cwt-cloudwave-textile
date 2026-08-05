@@ -21,6 +21,7 @@ import {
 import type { AppDatabase } from "@/db/types";
 import { publicProductEligibilityConditions } from "./product-eligibility";
 import { slugify } from "@/seo/path";
+import { normalizeProductCodePrefix } from "./product-data";
 
 import type { Actor } from "./product-service";
 
@@ -60,6 +61,7 @@ export async function createTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
     name: string;
     dimension: typeof taxonomyTerms.$inferInsert.dimension;
     description?: string;
+    productCodePrefix?: string | null;
   },
 ): Promise<string> {
   requirePermission(actor.role, "taxonomy.manage");
@@ -70,7 +72,11 @@ export async function createTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
   return db.transaction(async (transaction) => {
     const rows = await transaction
       .insert(taxonomyTerms)
-      .values({ internalKey: input.internalKey, dimension: input.dimension })
+      .values({
+        internalKey: input.internalKey,
+        dimension: input.dimension,
+        productCodePrefix: normalizeProductCodePrefix(input.productCodePrefix),
+      })
       .returning({ id: taxonomyTerms.id });
     const termId = rows[0]?.id;
     if (!termId) throw new Error("Taxonomy term insert did not return an ID.");
@@ -97,7 +103,11 @@ export async function createTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
       action: "taxonomy.created",
       entityType: "taxonomy",
       entityId: termId,
-      afterSummary: { dimension: input.dimension, path },
+      afterSummary: {
+        dimension: input.dimension,
+        path,
+        productCodePrefix: normalizeProductCodePrefix(input.productCodePrefix),
+      },
     });
     return termId;
   });
@@ -171,6 +181,7 @@ export async function updateTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
     name: string;
     description?: string | null;
     dimension: typeof taxonomyTerms.$inferInsert.dimension;
+    productCodePrefix?: string | null;
   },
 ): Promise<void> {
   requirePermission(actor.role, "taxonomy.manage");
@@ -179,7 +190,11 @@ export async function updateTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
   await db.transaction(async (transaction) => {
     const updated = await transaction
       .update(taxonomyTerms)
-      .set({ dimension: input.dimension, updatedAt: new Date() })
+      .set({
+        dimension: input.dimension,
+        productCodePrefix: normalizeProductCodePrefix(input.productCodePrefix),
+        updatedAt: new Date(),
+      })
       .where(eq(taxonomyTerms.id, termId))
       .returning({ id: taxonomyTerms.id });
     if (!updated[0]) throw new Error("Taxonomy term was not found.");
@@ -200,7 +215,10 @@ export async function updateTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
       action: "taxonomy.updated",
       entityType: "taxonomy",
       entityId: termId,
-      afterSummary: { dimension: input.dimension },
+      afterSummary: {
+        dimension: input.dimension,
+        productCodePrefix: normalizeProductCodePrefix(input.productCodePrefix),
+      },
     });
   });
 }

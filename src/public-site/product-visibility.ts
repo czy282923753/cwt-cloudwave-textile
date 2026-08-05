@@ -6,6 +6,8 @@ export interface ProductVisibilityInput {
   customAvailable: "unknown" | "yes" | "no";
   sampleAvailable: "unknown" | "yes" | "no";
   moqNote: string | null;
+  moqValue?: string | null;
+  moqUnit?: string | null;
   colorOptionsDisplay: "inherit" | "show" | "hide";
   customAvailableDisplay: "inherit" | "show" | "hide";
   sampleAvailableDisplay: "inherit" | "show" | "hide";
@@ -27,5 +29,13 @@ export function resolveVisibleProductFields(
     sampleAvailable:
       product.sampleAvailableDisplay === "show" ? product.sampleAvailable : null,
     moqNote: product.moqNoteDisplay === "show" ? product.moqNote : null,
+    moqValue:
+      verifiedFields.has("moqValue") && verifiedFields.has("moqUnit")
+        ? product.moqValue
+        : null,
+    moqUnit:
+      verifiedFields.has("moqValue") && verifiedFields.has("moqUnit")
+        ? product.moqUnit
+        : null,
   };
 }

@@ -31,6 +31,9 @@ import { databaseConnection } from "@/db/client";
 import { listVerifiedPublicCompanyFacts } from "@/content/company-facts-service";
 import type { AppDatabase } from "@/db/types";
 import { createObjectStorage } from "@/storage";
+import { parseBlockDocument } from "@/editorial/blocks";
+import { referencedEditorialEntities } from "@/editorial/block-references";
+import type { BlockRelatedLink } from "@/editorial/block-renderer";
 
 import { resolveVisibleProductFields } from "./product-visibility";
 import { assertPublicAssetCandidate } from "./public-asset-policy";
@@ -44,8 +47,82 @@ export interface PublicAsset {
   id: string;
   url: string;
   alt: string;
+  caption: string | null;
   width: number | null;
   height: number | null;
+}
+
+async function queryPublishedEditorialLinks<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  document: ReturnType<typeof parseBlockDocument>,
+): Promise<{
+  relatedProducts: Record<string, BlockRelatedLink>;
+  relatedArticles: Record<string, BlockRelatedLink>;
+}> {
+  const { productIds, contentIds } = referencedEditorialEntities(document);
+  const [productRows, contentRows] = await Promise.all([
+    productIds.length
+      ? db
+          .select({
+            id: products.id,
+            label: productLocalizations.name,
+            href: routes.path,
+          })
+          .from(products)
+          .innerJoin(
+            productLocalizations,
+            and(
+              eq(productLocalizations.productId, products.id),
+              eq(productLocalizations.locale, "en"),
+            ),
+          )
+          .innerJoin(
+            routes,
+            and(
+              eq(routes.entityType, "product"),
+              eq(routes.entityId, products.id),
+              eq(routes.locale, "en"),
+              eq(routes.isCurrent, true),
+            ),
+          )
+          .where(
+            and(
+              inArray(products.id, productIds),
+              publicProductEligibilityConditions(db),
+            ),
+          )
+      : Promise.resolve([]),
+    contentIds.length
+      ? db
+          .select({
+            id: contents.id,
+            label: contentLocalizations.title,
+            href: routes.path,
+          })
+          .from(contents)
+          .innerJoin(
+            contentLocalizations,
+            and(
+              eq(contentLocalizations.contentId, contents.id),
+              eq(contentLocalizations.locale, "en"),
+            ),
+          )
+          .innerJoin(
+            routes,
+            and(
+              eq(routes.entityType, "content"),
+              eq(routes.entityId, contents.id),
+              eq(routes.locale, "en"),
+              eq(routes.isCurrent, true),
+            ),
+          )
+          .where(and(inArray(contents.id, contentIds), eq(contents.status, "published")))
+      : Promise.resolve([]),
+  ]);
+  return {
+    relatedProducts: Object.fromEntries(productRows.map((row) => [row.id, row])),
+    relatedArticles: Object.fromEntries(contentRows.map((row) => [row.id, row])),
+  };
 }
 
 export async function getVerifiedPublicCompanyFacts() {
@@ -75,6 +152,7 @@ async function toPublicAsset(row: {
   rightsPublicWebsiteAllowed: boolean | null;
   declarationExpiryDate: Date | null;
   altText: string | null;
+  caption?: string | null;
   width: number | null;
   height: number | null;
 }): Promise<PublicAsset> {
@@ -83,6 +161,7 @@ async function toPublicAsset(row: {
     id: row.id,
     url: await assetUrl(row.storagePartition, row.id),
     alt: row.altText ?? "",
+    caption: row.caption ?? null,
     width: row.width,
     height: row.height,
   };
@@ -111,6 +190,8 @@ export async function queryPublishedProducts<TQueryResult extends PgQueryResultH
       assetRightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
       assetDeclarationExpiryDate: assets.declarationExpiryDate,
       altText: assets.altText,
+      placementAltText: productAssets.altText,
+      placementCaption: productAssets.caption,
       width: assets.width,
       height: assets.height,
     })
@@ -133,7 +214,11 @@ export async function queryPublishedProducts<TQueryResult extends PgQueryResultH
     .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
     .leftJoin(
       productAssets,
-      and(eq(productAssets.productId, products.id), eq(productAssets.role, "hero")),
+      and(
+        eq(productAssets.productId, products.id),
+        eq(productAssets.role, "hero"),
+        eq(productAssets.isVisible, true),
+      ),
     )
     .leftJoin(
       assets,
@@ -172,7 +257,8 @@ export async function queryPublishedProducts<TQueryResult extends PgQueryResultH
               publicUsePermission: row.assetPublicUsePermission,
               rightsPublicWebsiteAllowed: row.assetRightsPublicWebsiteAllowed,
               declarationExpiryDate: row.assetDeclarationExpiryDate,
-              altText: row.altText,
+              altText: row.placementAltText ?? row.altText,
+              caption: row.placementCaption,
               width: row.width,
               height: row.height,
             })
@@ -196,7 +282,8 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
       id: products.id,
       name: productLocalizations.name,
       shortDescription: productLocalizations.shortDescription,
-      fullDescription: productLocalizations.fullDescription,
+      structuredBlocks: productLocalizations.structuredBlocks,
+      blocksVersion: productLocalizations.blocksVersion,
       composition: products.composition,
       weightGsm: products.weightGsm,
       widthCm: products.widthCm,
@@ -204,6 +291,8 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
       customAvailable: products.customAvailable,
       sampleAvailable: products.sampleAvailable,
       moqNote: products.moqNote,
+      moqValue: products.moqValue,
+      moqUnit: products.moqUnit,
       colorOptionsDisplay: products.colorOptionsDisplay,
       customAvailableDisplay: products.customAvailableDisplay,
       sampleAvailableDisplay: products.sampleAvailableDisplay,
@@ -237,7 +326,22 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
     .limit(1);
   const product = rows[0];
   if (!product) return null;
-  const [imageRows, featureRows, faqRows, reviewRows, applicationRows, taxonomyRows] =
+  let narrativeBlocks;
+  try {
+    if (product.blocksVersion !== 1) return null;
+    narrativeBlocks = parseBlockDocument(product.structuredBlocks, "product");
+  } catch {
+    return null;
+  }
+  const [
+    imageRows,
+    featureRows,
+    faqRows,
+    reviewRows,
+    applicationRows,
+    taxonomyRows,
+    relatedLinks,
+  ] =
     await Promise.all([
       db
         .select({
@@ -253,6 +357,8 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
           rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
           declarationExpiryDate: assets.declarationExpiryDate,
           altText: assets.altText,
+          placementAltText: productAssets.altText,
+          placementCaption: productAssets.caption,
           width: assets.width,
           height: assets.height,
         })
@@ -261,6 +367,7 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
         .where(
           and(
             eq(productAssets.productId, product.id),
+            eq(productAssets.isVisible, true),
             inArray(productAssets.role, [...publicImageRoles]),
             publicReadyImageSqlConditions(),
           ),
@@ -337,17 +444,24 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
           ),
         )
         .where(eq(productTaxonomyTerms.productId, product.id)),
+      queryPublishedEditorialLinks(db, narrativeBlocks),
     ]);
   const verified = new Set(reviewRows.map((row) => row.fieldName));
   const visibleFields = resolveVisibleProductFields(product, verified);
   return {
     ...product,
     ...visibleFields,
-    images: await Promise.all(imageRows.map(toPublicAsset)),
+    narrativeBlocks,
+    images: await Promise.all(imageRows.map((row) => toPublicAsset({
+      ...row,
+      altText: row.placementAltText ?? row.altText,
+      caption: row.placementCaption,
+    }))),
     features: featureRows,
     faqs: faqRows,
     applications: applicationRows,
     taxonomy: taxonomyRows,
+    ...relatedLinks,
   };
 }
 
@@ -600,7 +714,8 @@ async function queryContents<TQueryResult extends PgQueryResultHKT>(
       type: contents.type,
       title: contentLocalizations.title,
       excerpt: contentLocalizations.excerpt,
-      body: contentLocalizations.body,
+      structuredBlocks: contentLocalizations.structuredBlocks,
+      blocksVersion: contentLocalizations.blocksVersion,
       authorName: authors.displayName,
       publishedAt: contents.publishedAt,
       path: routes.path,
@@ -620,7 +735,15 @@ async function queryContents<TQueryResult extends PgQueryResultHKT>(
         : eq(contents.status, "published"),
     )
     .orderBy(desc(contents.publishedAt));
-  return base;
+  const rows = await base;
+  return rows.flatMap((row) => {
+    try {
+      if (row.blocksVersion !== 1) return [];
+      return [{ ...row, document: parseBlockDocument(row.structuredBlocks, "content") }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 export async function listPublishedContents(channel?: typeof contents.$inferSelect.channel) {
@@ -636,7 +759,20 @@ export async function getPublishedContentByPath(path: string) {
   const imageRows = databaseConnection.kind === "pglite"
     ? await queryPublicContentImages(databaseConnection.db, content.id)
     : await queryPublicContentImages(databaseConnection.db, content.id);
-  return { ...content, images: await Promise.all(imageRows.map(toPublicAsset)) };
+  const images = await Promise.all(imageRows.map((row) => toPublicAsset({
+    ...row,
+    altText: row.placementAltText ?? row.altText,
+    caption: row.placementCaption,
+  })));
+  const blockMedia: Record<string, PublicAsset> = {};
+  imageRows.forEach((row, index) => {
+    const image = images[index];
+    if (row.blockKey && image) blockMedia[row.blockKey] = image;
+  });
+  const relatedLinks = databaseConnection.kind === "pglite"
+    ? await queryPublishedEditorialLinks(databaseConnection.db, content.document)
+    : await queryPublishedEditorialLinks(databaseConnection.db, content.document);
+  return { ...content, images, blockMedia, ...relatedLinks };
 }
 
 export async function queryPublicContentImages<
@@ -656,6 +792,9 @@ export async function queryPublicContentImages<
         rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
         declarationExpiryDate: assets.declarationExpiryDate,
         altText: assets.altText,
+        placementAltText: contentAssets.altText,
+        placementCaption: contentAssets.caption,
+        blockKey: contentAssets.blockKey,
         width: assets.width,
         height: assets.height,
       })
@@ -668,7 +807,12 @@ export async function queryPublicContentImages<
           publicReadyImageSqlConditions(),
         ),
       )
-      .where(eq(contentAssets.contentId, contentId))
+      .where(
+        and(
+          eq(contentAssets.contentId, contentId),
+          eq(contentAssets.isVisible, true),
+        ),
+      )
       .orderBy(asc(contentAssets.sortOrder));
 }
 

@@ -112,7 +112,7 @@ export function analyticsConsentCookieOptions() {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: env.APP_ENV === "production" || env.APP_ENV === "preview",
+    secure: env.APP_ENV === "production" || env.APP_ENV === "staging",
     path: "/",
     maxAge: 31_536_000,
   };

@@ -3,7 +3,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 export const appEnvironmentEnum = pgEnum("app_environment", [
   "local",
   "test",
-  "preview",
+  "staging",
   "production",
 ]);
 
@@ -184,6 +184,7 @@ export const assetRoleEnum = pgEnum("asset_role", [
   "gallery",
   "cover",
   "detail",
+  "application",
   "thumbnail",
   "inline",
   "document",

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { env, publicIndexingAllowed } from "@/config/env";
+import { blockDocumentPlainText } from "@/editorial/blocks";
+import { BlockRenderer } from "@/editorial/block-renderer";
 import { getPublishedProductByPath } from "@/public-site/data";
 import { ProductViewTracker } from "@/public-site/product-view-tracker";
 import { PublicShell } from "@/public-site/shell";
@@ -54,7 +56,8 @@ export default async function ProductPage({
     product.sampleAvailable && product.sampleAvailable !== "unknown"
       ? ["Sample available", product.sampleAvailable === "yes" ? "Yes" : "No"]
       : null,
-    product.moqNote ? ["MOQ", product.moqNote] : null,
+    product.moqValue && product.moqUnit ? ["MOQ", `${product.moqValue} ${product.moqUnit}`] : null,
+    product.moqNote ? ["MOQ note", product.moqNote] : null,
   ].filter((item): item is string[] => item !== null);
   const productSchema = {
     "@context": "https://schema.org",
@@ -62,7 +65,9 @@ export default async function ProductPage({
       {
         "@type": "Product",
         name: product.name,
-        description: product.shortDescription ?? product.fullDescription ?? undefined,
+        description:
+          product.shortDescription ??
+          (blockDocumentPlainText(product.narrativeBlocks) || undefined),
         brand: { "@type": "Brand", name: "CloudWave Textile" },
         additionalProperty: specifications.map(([name, value]) => ({
           "@type": "PropertyValue",
@@ -92,6 +97,9 @@ export default async function ProductPage({
         : []),
     ],
   };
+  const blockMedia = Object.fromEntries(
+    product.images.map((image) => [image.id, image]),
+  );
   return (
     <PublicShell>
       <ProductViewTracker path={product.path} />
@@ -113,7 +121,7 @@ export default async function ProductPage({
 
         {specifications.length ? <section className="border-y border-stone-200 bg-white"><div className="site-container py-16"><p className="eyebrow">Confirmed details</p><h2 className="section-title mt-4">Specifications</h2><dl className="mt-8 grid gap-px overflow-hidden rounded-3xl border border-stone-200 bg-stone-200 sm:grid-cols-2 lg:grid-cols-3">{specifications.map(([label, value]) => <div className="bg-white p-6" key={label}><dt className="text-xs font-semibold uppercase tracking-wider text-stone-500">{label}</dt><dd className="mt-2 text-lg font-medium text-[#143a34]">{value}</dd></div>)}</dl></div></section> : null}
 
-        {(product.fullDescription || product.features.length || product.applications.length) ? <section className="site-container grid gap-12 py-20 lg:grid-cols-[1.2fr_.8fr]">{product.fullDescription ? <div><p className="eyebrow">Product context</p><h2 className="section-title mt-4">About this fabric</h2><div className="prose-cwt mt-7 whitespace-pre-line">{product.fullDescription}</div></div> : null}<aside className="grid content-start gap-8">{product.features.length ? <div className="rounded-3xl bg-[#e6eee9] p-7"><h2 className="text-xl font-semibold text-[#143a34]">Features</h2><ul className="mt-5 grid gap-3 text-stone-600">{product.features.map((feature) => <li key={feature.label}>— {feature.label}</li>)}</ul></div> : null}{product.applications.length ? <div><h2 className="text-xl font-semibold text-[#143a34]">Applications</h2><div className="mt-4 flex flex-wrap gap-2">{product.applications.map((application) => application.path ? <Link className="rounded-full bg-[#143f38] px-4 py-2 text-sm text-white" href={application.path} key={application.name}>{application.name}</Link> : null)}</div></div> : null}</aside></section> : null}
+        {(product.narrativeBlocks.blocks.length || product.features.length || product.applications.length) ? <section className="site-container grid gap-12 py-20 lg:grid-cols-[1.2fr_.8fr]">{product.narrativeBlocks.blocks.length ? <div><p className="eyebrow">Product context</p><h2 className="section-title mt-4">About this fabric</h2><div className="mt-7"><BlockRenderer document={product.narrativeBlocks} media={blockMedia} relatedArticles={product.relatedArticles} relatedProducts={product.relatedProducts} /></div></div> : null}<aside className="grid content-start gap-8">{product.features.length ? <div className="rounded-3xl bg-[#e6eee9] p-7"><h2 className="text-xl font-semibold text-[#143a34]">Features</h2><ul className="mt-5 grid gap-3 text-stone-600">{product.features.map((feature) => <li key={feature.label}>— {feature.label}</li>)}</ul></div> : null}{product.applications.length ? <div><h2 className="text-xl font-semibold text-[#143a34]">Applications</h2><div className="mt-4 flex flex-wrap gap-2">{product.applications.map((application) => application.path ? <Link className="rounded-full bg-[#143f38] px-4 py-2 text-sm text-white" href={application.path} key={application.name}>{application.name}</Link> : null)}</div></div> : null}</aside></section> : null}
 
         {product.faqs.length ? <section className="bg-[#eadfce] py-20"><div className="site-container max-w-4xl"><p className="eyebrow">Questions</p><h2 className="section-title mt-4">Fabric FAQ</h2><div className="mt-8 divide-y divide-stone-300">{product.faqs.map((faq) => <details className="py-5" key={faq.question}><summary className="cursor-pointer font-semibold text-[#143a34]">{faq.question}</summary><p className="mt-3 leading-7 text-stone-600">{faq.answer}</p></details>)}</div></div></section> : null}
         <section className="bg-[#143f38] py-20 text-white"><div className="site-container flex flex-wrap items-center justify-between gap-8"><div><p className="eyebrow !text-[#9bd6c5]">Not sure this is the exact match?</p><h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">Send the reference. Start the conversation.</h2></div><TrackedLink className="button-primary" eventName="quote_cta_click" href="/get-quote/" placement="product_footer">Find Your Fabric Solution</TrackedLink></div></section>

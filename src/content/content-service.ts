@@ -23,6 +23,15 @@ import {
   seoTopicMembers,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import {
+  blockDocumentPlainText,
+  blockDocumentSchema,
+  legacyTextToBlockDocument,
+  parseBlockDocument,
+  referencedMediaKeys,
+  type BlockDocument,
+} from "@/editorial/blocks";
+import { assertEditorialBlockReferencesExist } from "@/editorial/block-references";
 import { slugify } from "@/seo/path";
 import {
   publicReadyAssetSqlConditions,
@@ -30,7 +39,17 @@ import {
   roleMimeSqlCondition,
 } from "@/uploads/asset-eligibility";
 
-const revisionSnapshotSchema = z.object({
+const contentMediaPlacementSchema = z.object({
+  assetId: z.uuid(),
+  role: z.enum(["cover", "inline", "gallery", "detail"]),
+  sortOrder: z.number().int().min(0).max(10_000),
+  altText: z.string().trim().min(1).max(500).nullable(),
+  caption: z.string().trim().min(1).max(1_000).nullable(),
+  isVisible: z.boolean(),
+  blockKey: z.string().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/).nullable(),
+}).strict();
+
+const legacyRevisionSnapshotSchema = z.object({
   title: z.string().min(1),
   excerpt: z.string().nullable(),
   body: z.string().min(1),
@@ -45,7 +64,115 @@ const revisionSnapshotSchema = z.object({
       focusKeyword: z.string().nullable(),
     })
     .optional(),
-});
+}).strict();
+
+const structuredRevisionSnapshotSchema = z.object({
+  kind: z.literal("content_blocks_v1"),
+  title: z.string().min(1),
+  excerpt: z.string().nullable(),
+  document: blockDocumentSchema,
+  expectedEditorDocumentVersion: z.number().int().positive(),
+  authorId: z.uuid().optional(),
+  type: z.enum(["article", "pillar", "comparison", "how_to", "guide"]).optional(),
+  media: z.array(contentMediaPlacementSchema).max(100).optional(),
+  seo: z.object({
+    routeId: z.uuid(),
+    title: z.string().nullable(),
+    metaDescription: z.string().nullable(),
+    focusKeyword: z.string().nullable(),
+  }).strict().optional(),
+}).strict();
+
+const revisionSnapshotSchema = z.union([
+  structuredRevisionSnapshotSchema,
+  legacyRevisionSnapshotSchema,
+]);
+
+type ContentMediaPlacement = z.infer<typeof contentMediaPlacementSchema>;
+
+function normalizeContentMedia(
+  assetIds: readonly string[] | undefined,
+  media: readonly ContentMediaPlacement[] | undefined,
+): ContentMediaPlacement[] | undefined {
+  if (media) {
+    return media.map((item) => ({
+      ...item,
+      altText: item.altText?.trim() || null,
+      caption: item.caption?.trim() || null,
+      blockKey: item.blockKey?.trim() || null,
+    }));
+  }
+  if (!assetIds) return undefined;
+  return [...new Set(assetIds)].map((assetId, sortOrder) => ({
+    assetId,
+    role: sortOrder === 0 ? "cover" : "inline",
+    sortOrder,
+    altText: null,
+    caption: null,
+    isVisible: true,
+    blockKey: null,
+  }));
+}
+
+async function validateContentMedia<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  document: BlockDocument,
+  media: readonly ContentMediaPlacement[] | undefined,
+): Promise<void> {
+  await assertEditorialBlockReferencesExist(db, document);
+  if (!media) {
+    if (referencedMediaKeys(document).length) {
+      throw new Error("Image and Gallery Blocks require Content media placements.");
+    }
+    return;
+  }
+  if (new Set(media.map((item) => item.assetId)).size !== media.length) {
+    throw new Error("Content media Assets must be unique.");
+  }
+  if (media.filter((item) => item.role === "cover").length > 1) {
+    throw new Error("Content may have at most one Cover image.");
+  }
+  const blockKeys = media.flatMap((item) => item.blockKey ? [item.blockKey] : []);
+  if (new Set(blockKeys).size !== blockKeys.length) {
+    throw new Error("Content media Block keys must be unique.");
+  }
+  const availableBlockKeys = new Set(blockKeys);
+  const missingReferences = referencedMediaKeys(document).filter(
+    (key) => !availableBlockKeys.has(key),
+  );
+  if (missingReferences.length) {
+    throw new Error("Every Image or Gallery Block must reference a Content media placement.");
+  }
+  if (!media.length) return;
+  const assetRows = await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(inArray(assets.id, media.map((item) => item.assetId)), publicReadyImageSqlConditions()));
+  if (assetRows.length !== media.length) {
+    throw new Error("Content Assets must be ready, scanned public Assets.");
+  }
+}
+
+async function applyContentMedia<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  contentId: string,
+  media: readonly ContentMediaPlacement[] | undefined,
+): Promise<void> {
+  if (!media) return;
+  await db.delete(contentAssets).where(eq(contentAssets.contentId, contentId));
+  if (media.length) {
+    await db.insert(contentAssets).values(media.map((item) => ({
+      contentId,
+      assetId: item.assetId,
+      role: item.role,
+      sortOrder: item.sortOrder,
+      altText: item.altText,
+      caption: item.caption,
+      isVisible: item.isVisible,
+      blockKey: item.blockKey,
+    })));
+  }
+}
 
 type ContentChannel = typeof contents.$inferInsert.channel;
 
@@ -90,15 +217,23 @@ export async function createContentDraft<TQueryResult extends PgQueryResultHKT>(
       .returning({ id: contents.id });
     const contentId = rows[0]?.id;
     if (!contentId) throw new Error("Content insert failed.");
-    const snapshot = {
+    const document = legacyTextToBlockDocument(body);
+    const snapshot = structuredRevisionSnapshotSchema.parse({
+      kind: "content_blocks_v1",
       title,
       excerpt: input.excerpt?.trim() || null,
-      body,
-    };
+      document,
+      expectedEditorDocumentVersion: 1,
+    });
     await transaction.insert(contentLocalizations).values({
       contentId,
       locale: "en",
-      ...snapshot,
+      title: snapshot.title,
+      excerpt: snapshot.excerpt,
+      body: "",
+      structuredBlocks: snapshot.document,
+      blocksVersion: 1,
+      editorDocumentVersion: 1,
     });
     await transaction.insert(editorialRevisions).values({
       entityType: "content",
@@ -147,22 +282,32 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
     metaDescription?: string | null;
     focusKeyword?: string | null;
     assetIds?: readonly string[];
+    media?: readonly ContentMediaPlacement[];
+    structuredDocument?: BlockDocument;
+    expectedEditorDocumentVersion?: number;
     changeSummary?: string;
   },
 ): Promise<string | null> {
   requirePermission(actor.role, "content.write");
-  const snapshot = revisionSnapshotSchema.parse({
-    title: input.title.trim(),
-    excerpt: input.excerpt?.trim() || null,
-    body: input.body.trim(),
-    authorId: input.authorId,
-    type: input.type,
-    ...(input.assetIds ? { assetIds: [...new Set(input.assetIds)] } : {}),
-  });
+  const media = normalizeContentMedia(input.assetIds, input.media);
+  const document = input.structuredDocument
+    ? parseBlockDocument(input.structuredDocument, "content")
+    : legacyTextToBlockDocument(input.body);
   const [contentRows, authorRows] = await Promise.all([
     db
-      .select({ status: contents.status, routeId: routes.id })
+      .select({
+        status: contents.status,
+        routeId: routes.id,
+        editorDocumentVersion: contentLocalizations.editorDocumentVersion,
+      })
       .from(contents)
+      .innerJoin(
+        contentLocalizations,
+        and(
+          eq(contentLocalizations.contentId, contents.id),
+          eq(contentLocalizations.locale, "en"),
+        ),
+      )
       .innerJoin(
         routes,
         and(
@@ -180,26 +325,28 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
       .where(and(eq(authors.id, input.authorId), eq(authors.isActive, true)))
       .limit(1),
   ]);
-  const status = contentRows[0]?.status;
+  const current = contentRows[0];
+  const snapshot = structuredRevisionSnapshotSchema.parse({
+    kind: "content_blocks_v1",
+    title: input.title.trim(),
+    excerpt: input.excerpt?.trim() || null,
+    document,
+    expectedEditorDocumentVersion:
+      input.expectedEditorDocumentVersion ?? current?.editorDocumentVersion,
+    authorId: input.authorId,
+    type: input.type,
+    ...(media ? { media } : {}),
+  });
+  const status = current?.status;
   if (!status) throw new Error("Content was not found.");
   if (!authorRows[0]) throw new Error("Content Author must be active.");
-  if (snapshot.assetIds?.length) {
-    const assetRows = await db
-      .select({ id: assets.id })
-      .from(assets)
-      .where(
-        and(
-          inArray(assets.id, snapshot.assetIds),
-          publicReadyImageSqlConditions(),
-        ),
-      );
-    if (assetRows.length !== snapshot.assetIds.length) {
-      throw new Error("Content Assets must be ready, scanned public Assets.");
-    }
+  if (snapshot.expectedEditorDocumentVersion !== current.editorDocumentVersion) {
+    throw new Error("Content changed after this editor loaded; refresh before saving.");
   }
+  await validateContentMedia(db, snapshot.document, snapshot.media);
   if (status === "archived") throw new Error("Archived Content cannot be edited.");
   const seo = {
-    routeId: contentRows[0]!.routeId,
+    routeId: current.routeId,
     title: input.seoTitle?.trim() || null,
     metaDescription: input.metaDescription?.trim() || null,
     focusKeyword: input.focusKeyword?.trim() || null,
@@ -208,41 +355,44 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
     return proposePublishedContentRevision(db, actor, contentId, {
       title: snapshot.title,
       excerpt: snapshot.excerpt,
-      body: snapshot.body,
+      document: snapshot.document,
+      expectedEditorDocumentVersion: snapshot.expectedEditorDocumentVersion,
       authorId: input.authorId,
       type: input.type,
-      ...(snapshot.assetIds ? { assetIds: snapshot.assetIds } : {}),
+      ...(snapshot.media ? { media: snapshot.media } : {}),
       seo,
       changeSummary: input.changeSummary?.trim() || "Published Content update",
     });
   }
   await db.transaction(async (transaction) => {
-    await transaction
+    const updatedLocalization = await transaction
       .update(contentLocalizations)
-      .set({ title: snapshot.title, excerpt: snapshot.excerpt, body: snapshot.body })
+      .set({
+        title: snapshot.title,
+        excerpt: snapshot.excerpt,
+        structuredBlocks: snapshot.document,
+        blocksVersion: 1,
+        editorDocumentVersion: snapshot.expectedEditorDocumentVersion + 1,
+      })
       .where(
         and(
           eq(contentLocalizations.contentId, contentId),
           eq(contentLocalizations.locale, "en"),
+          eq(
+            contentLocalizations.editorDocumentVersion,
+            snapshot.expectedEditorDocumentVersion,
+          ),
         ),
-      );
+      )
+      .returning({ contentId: contentLocalizations.contentId });
+    if (!updatedLocalization[0]) {
+      throw new Error("Content changed after this editor loaded; refresh before saving.");
+    }
     await transaction
       .update(contents)
       .set({ authorId: input.authorId, type: input.type, updatedAt: new Date() })
       .where(eq(contents.id, contentId));
-    if (snapshot.assetIds) {
-      await transaction.delete(contentAssets).where(eq(contentAssets.contentId, contentId));
-      if (snapshot.assetIds.length) {
-        await transaction.insert(contentAssets).values(
-          snapshot.assetIds.map((assetId, sortOrder) => ({
-            contentId,
-            assetId,
-            role: sortOrder === 0 ? ("cover" as const) : ("inline" as const),
-            sortOrder,
-          })),
-        );
-      }
-    }
+    await applyContentMedia(transaction, contentId, snapshot.media);
     await transaction
       .update(seoMetadata)
       .set({
@@ -272,10 +422,13 @@ export async function proposePublishedContentRevision<
   input: {
     title: string;
     excerpt?: string | null;
-    body: string;
+    body?: string;
+    document?: BlockDocument;
+    expectedEditorDocumentVersion?: number;
     authorId?: string;
     type?: typeof contents.$inferInsert.type;
     assetIds?: readonly string[];
+    media?: readonly ContentMediaPlacement[];
     seo?: {
       routeId: string;
       title: string | null;
@@ -295,15 +448,38 @@ export async function proposePublishedContentRevision<
   if (contentRows[0]?.status !== "published") {
     throw new Error("Revision workflow is reserved for published content.");
   }
-  const snapshot = revisionSnapshotSchema.parse({
+  const localizationRows = await db
+    .select({ editorDocumentVersion: contentLocalizations.editorDocumentVersion })
+    .from(contentLocalizations)
+    .where(
+      and(
+        eq(contentLocalizations.contentId, contentId),
+        eq(contentLocalizations.locale, "en"),
+      ),
+    )
+    .limit(1);
+  const editorDocumentVersion = localizationRows[0]?.editorDocumentVersion;
+  if (!editorDocumentVersion) throw new Error("Content localization was not found.");
+  const document = input.document
+    ? parseBlockDocument(input.document, "content")
+    : legacyTextToBlockDocument(input.body);
+  const media = normalizeContentMedia(input.assetIds, input.media);
+  const snapshot = structuredRevisionSnapshotSchema.parse({
+    kind: "content_blocks_v1",
     title: input.title.trim(),
     excerpt: input.excerpt?.trim() || null,
-    body: input.body.trim(),
+    document,
+    expectedEditorDocumentVersion:
+      input.expectedEditorDocumentVersion ?? editorDocumentVersion,
     ...(input.authorId ? { authorId: input.authorId } : {}),
     ...(input.type ? { type: input.type } : {}),
-    ...(input.assetIds ? { assetIds: [...new Set(input.assetIds)] } : {}),
+    ...(media ? { media } : {}),
     ...(input.seo ? { seo: input.seo } : {}),
   });
+  if (snapshot.expectedEditorDocumentVersion !== editorDocumentVersion) {
+    throw new Error("Content changed after this revision was prepared.");
+  }
+  await validateContentMedia(db, snapshot.document, snapshot.media);
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
@@ -398,6 +574,17 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
       throw new Error("A newer Content revision exists; this revision is stale.");
     }
     const snapshot = revisionSnapshotSchema.parse(revision.snapshot);
+    let document: BlockDocument;
+    let media: ContentMediaPlacement[] | undefined;
+    let expectedEditorDocumentVersion: number | undefined;
+    if ("kind" in snapshot) {
+      document = parseBlockDocument(snapshot.document, "content");
+      media = snapshot.media;
+      expectedEditorDocumentVersion = snapshot.expectedEditorDocumentVersion;
+    } else {
+      document = legacyTextToBlockDocument(snapshot.body);
+      media = normalizeContentMedia(snapshot.assetIds, undefined);
+    }
     if (snapshot.authorId) {
       const authorRows = await transaction
         .select({ id: authors.id })
@@ -406,33 +593,43 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
         .limit(1);
       if (!authorRows[0]) throw new Error("Content revision Author must still be active.");
     }
-    if (snapshot.assetIds?.length) {
-      const assetRows = await transaction
-        .select({ id: assets.id })
-        .from(assets)
-        .where(
-          and(
-            inArray(assets.id, snapshot.assetIds),
-            publicReadyImageSqlConditions(),
-          ),
-        );
-      if (assetRows.length !== snapshot.assetIds.length) {
-        throw new Error("Content revision Assets are no longer publicly eligible.");
-      }
-    }
-    await transaction
-      .update(contentLocalizations)
-      .set({
-        title: snapshot.title,
-        excerpt: snapshot.excerpt,
-        body: snapshot.body,
-      })
+    await validateContentMedia(transaction, document, media);
+    const localizationRows = await transaction
+      .select({ editorDocumentVersion: contentLocalizations.editorDocumentVersion })
+      .from(contentLocalizations)
       .where(
         and(
           eq(contentLocalizations.contentId, revision.entityId),
           eq(contentLocalizations.locale, revision.locale),
         ),
-      );
+      )
+      .limit(1);
+    const editorDocumentVersion = localizationRows[0]?.editorDocumentVersion;
+    if (!editorDocumentVersion) throw new Error("Content localization was not found.");
+    if (
+      expectedEditorDocumentVersion !== undefined &&
+      expectedEditorDocumentVersion !== editorDocumentVersion
+    ) {
+      throw new Error("Content changed after this revision was proposed.");
+    }
+    const updatedLocalization = await transaction
+      .update(contentLocalizations)
+      .set({
+        title: snapshot.title,
+        excerpt: snapshot.excerpt,
+        structuredBlocks: document,
+        blocksVersion: 1,
+        editorDocumentVersion: editorDocumentVersion + 1,
+      })
+      .where(
+        and(
+          eq(contentLocalizations.contentId, revision.entityId),
+          eq(contentLocalizations.locale, revision.locale),
+          eq(contentLocalizations.editorDocumentVersion, editorDocumentVersion),
+        ),
+      )
+      .returning({ contentId: contentLocalizations.contentId });
+    if (!updatedLocalization[0]) throw new Error("Content changed during revision apply.");
     await transaction
       .update(editorialRevisions)
       .set({ status: "applied", reviewedByUserId: actor.userId, reviewedAt: new Date() })
@@ -447,21 +644,7 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
         reviewedAt: new Date(),
       })
       .where(eq(contents.id, revision.entityId));
-    if (snapshot.assetIds) {
-      await transaction
-        .delete(contentAssets)
-        .where(eq(contentAssets.contentId, revision.entityId));
-      if (snapshot.assetIds.length) {
-        await transaction.insert(contentAssets).values(
-          snapshot.assetIds.map((assetId, sortOrder) => ({
-            contentId: revision.entityId,
-            assetId,
-            role: sortOrder === 0 ? ("cover" as const) : ("inline" as const),
-            sortOrder,
-          })),
-        );
-      }
-    }
+    await applyContentMedia(transaction, revision.entityId, media);
     if (snapshot.seo) {
       const routeRows = await transaction
         .select({ id: routes.id })
@@ -560,6 +743,22 @@ export async function publishContent<TQueryResult extends PgQueryResultHKT>(
   options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "content.publish");
+  const localizationRows = await db
+    .select({
+      structuredBlocks: contentLocalizations.structuredBlocks,
+      blocksVersion: contentLocalizations.blocksVersion,
+    })
+    .from(contentLocalizations)
+    .where(
+      and(
+        eq(contentLocalizations.contentId, contentId),
+        eq(contentLocalizations.locale, "en"),
+      ),
+    )
+    .limit(1);
+  if (localizationRows[0]?.blocksVersion !== 1) {
+    throw new Error("Content Block document version is unsupported.");
+  }
   const invalidAssets = await db
     .select({ count: count() })
     .from(contentAssets)
@@ -576,6 +775,24 @@ export async function publishContent<TQueryResult extends PgQueryResultHKT>(
   if (Number(invalidAssets[0]?.count ?? 0) > 0) {
     throw new Error("Content publication contains an invalid Asset role or MIME type.");
   }
+  const document = parseBlockDocument(localizationRows[0].structuredBlocks, "content");
+  const placementRows = await db
+    .select({
+      assetId: contentAssets.assetId,
+      role: contentAssets.role,
+      sortOrder: contentAssets.sortOrder,
+      altText: contentAssets.altText,
+      caption: contentAssets.caption,
+      isVisible: contentAssets.isVisible,
+      blockKey: contentAssets.blockKey,
+    })
+    .from(contentAssets)
+    .where(eq(contentAssets.contentId, contentId));
+  const placements = placementRows.flatMap((row) => {
+    const parsed = contentMediaPlacementSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+  await validateContentMedia(db, document, placements);
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(contents)
@@ -610,7 +827,8 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
     .select({
       status: contents.status,
       title: contentLocalizations.title,
-      body: contentLocalizations.body,
+      structuredBlocks: contentLocalizations.structuredBlocks,
+      blocksVersion: contentLocalizations.blocksVersion,
       routeId: routes.id,
       seoTitle: seoMetadata.title,
       metaDescription: seoMetadata.metaDescription,
@@ -636,6 +854,15 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
     .limit(1);
   const content = rows[0];
   if (!content) throw new Error("Content SEO record was not found.");
+  let narrativeText = "";
+  try {
+    if (content.blocksVersion !== 1) throw new Error("Unsupported Block version.");
+    narrativeText = blockDocumentPlainText(
+      parseBlockDocument(content.structuredBlocks, "content"),
+    );
+  } catch {
+    narrativeText = "";
+  }
   if (indexStatus === "index") {
     const [intents, topics, links] = await Promise.all([
       db
@@ -659,7 +886,7 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
     if (
       content.status !== "published" ||
       !content.title.trim() ||
-      !content.body.trim() ||
+      !narrativeText ||
       !content.seoTitle?.trim() ||
       !content.metaDescription?.trim() ||
       Number(intents[0]?.count ?? 0) < 1 ||

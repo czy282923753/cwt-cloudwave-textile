@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 
 import {
+  assignProductCodeAction,
   applyProductRevisionAction,
   archiveProductAction,
   changeProductSlugAction,
   confirmRealProductAction,
+  correctProductCodeAction,
   publishProductAction,
   rejectProductRevisionAction,
   rejectProductReviewAction,
@@ -25,6 +27,7 @@ import {
   listAdminTaxonomy,
 } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
+import { blockDocumentPlainText, parseBlockDocument } from "@/editorial/blocks";
 
 const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 const panelClass = "grid gap-4 rounded-2xl border border-white/10 bg-slate-900 p-6";
@@ -32,7 +35,7 @@ const panelClass = "grid gap-4 rounded-2xl border border-white/10 bg-slate-900 p
 export default async function ProductEditorPage({
   params,
 }: Readonly<{ params: Promise<{ id: string }> }>) {
-  await requireCurrentUser("products.read");
+  const currentUser = await requireCurrentUser("products.read");
   const { id } = await params;
   const [product, taxonomy, applications, allAssets] = await Promise.all([
     getAdminProduct(id),
@@ -56,6 +59,8 @@ export default async function ProductEditorPage({
   const reviewStatus = new Map(
     product.fieldReviews.map((review) => [review.fieldName, review.status]),
   );
+  const narrativeDocument = parseBlockDocument(product.structuredBlocks, "product");
+  const narrativeText = blockDocumentPlainText(narrativeDocument);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
@@ -74,9 +79,11 @@ export default async function ProductEditorPage({
         <AdminActionForm action={updateProductEditorialAction} className={panelClass} successMessage="Product copy saved.">
           <h2 className="text-xl font-semibold">Editorial copy</h2>
           <input name="productId" type="hidden" value={product.id} />
+          <input name="expectedEditorDocumentVersion" type="hidden" value={product.editorDocumentVersion} />
           <label className="grid gap-2">Product Name<input className={inputClass} defaultValue={product.name} name="name" required /></label>
           <label className="grid gap-2">Short Description<textarea className={inputClass} defaultValue={product.shortDescription ?? ""} name="shortDescription" rows={3} /></label>
-          <label className="grid gap-2">Full Description<textarea className={inputClass} defaultValue={product.fullDescription ?? ""} name="fullDescription" rows={8} /></label>
+          <label className="grid gap-2">Narrative Paragraph<textarea className={inputClass} defaultValue={narrativeText} name="fullDescription" rows={8} /></label>
+          <p className="text-xs text-slate-400">This Stage 1 writer saves one validated Paragraph Block. The full Block Editor UX belongs to Stage 2.</p>
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Save or propose editorial copy</button>
         </AdminActionForm>
 
@@ -87,7 +94,6 @@ export default async function ProductEditorPage({
           </div>
           <input name="productId" type="hidden" value={product.id} />
           {[
-            ["Product Code", "productCode", product.productCode],
             ["Supplier Type", "supplierType", product.supplierType],
             ["Composition", "composition", product.composition],
             ["Weight (GSM)", "weightGsm", product.weightGsm],
@@ -98,15 +104,24 @@ export default async function ProductEditorPage({
           ].map(([label, name, value]) => (
             <label className="grid gap-2" key={String(name)}>{label}<input className={inputClass} defaultValue={String(value ?? "")} name={String(name)} /></label>
           ))}
+          <label className="grid gap-2">MOQ Value<input className={inputClass} defaultValue={product.moqValue ?? ""} min="0.01" name="moqValue" step="0.01" type="number" /></label>
+          <label className="grid gap-2">MOQ Unit<select className={inputClass} defaultValue={product.moqUnit ?? ""} name="moqUnit"><option value="">Unknown</option><option value="m">m</option><option value="kg">kg</option><option value="roll">roll</option><option value="yd">yd</option></select></label>
           <label className="grid gap-2">Custom Available<select className={inputClass} defaultValue={product.customAvailable} name="customAvailable"><option value="unknown">Unknown</option><option value="yes">Yes</option><option value="no">No</option></select></label>
           <label className="grid gap-2">Sample Available<select className={inputClass} defaultValue={product.sampleAvailable} name="sampleAvailable"><option value="unknown">Unknown</option><option value="yes">Yes</option><option value="no">No</option></select></label>
           <button className="rounded-xl border border-white/20 px-4 py-3 sm:col-span-2" type="submit">Save or propose factual inputs</button>
         </AdminActionForm>
 
         <section className={panelClass}>
+          <h2 className="text-xl font-semibold">Product Code</h2>
+          <p className="text-sm text-slate-300">Current: {product.productCode ?? "Unassigned"}</p>
+          {!product.productCode ? <AdminActionForm action={assignProductCodeAction} successMessage="Product Code assigned from the managed Primary Category prefix."><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Generate from Primary Category</button></AdminActionForm> : null}
+          {product.productCode && currentUser.role === "admin" ? <AdminActionForm action={correctProductCodeAction} className="grid gap-3 sm:grid-cols-2" successMessage="Product Code correction saved or proposed for the published Product."><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="newProductCode" pattern="[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*" placeholder="Corrected Product Code" required /><input className={inputClass} name="reason" placeholder="Mandatory correction reason" required /><button className="rounded-xl border border-amber-300/40 px-4 py-3 sm:col-span-2" type="submit">Correct with Audit</button></AdminActionForm> : null}
+        </section>
+
+        <section className={panelClass}>
           <h2 className="text-xl font-semibold">Fact review status</h2>
           <div className="grid gap-3 sm:grid-cols-3">
-            {(["composition", "weightGsm", "widthCm"] as const).map((fieldName) => (
+            {(["composition", "weightGsm", "widthCm", "moqValue", "moqUnit"] as const).map((fieldName) => (
               <AdminActionForm action={reviewProductFieldAction} className="grid gap-2 rounded-xl border border-white/10 p-4" key={fieldName} successMessage="Product field review recorded.">
                 <input name="productId" type="hidden" value={product.id} />
                 <input name="fieldName" type="hidden" value={fieldName} />
@@ -133,9 +148,9 @@ export default async function ProductEditorPage({
           </fieldset>
           <fieldset className="grid max-h-64 gap-2 overflow-auto rounded-xl border border-white/10 p-4">
             <legend>Product images</legend>
-            {readyAssets.map((asset) => { const current = product.assets.find((row) => row.assetId === asset.id); return <label className="grid grid-cols-[auto_1fr_5rem] items-center gap-2" key={asset.id}><input defaultChecked={selectedAssets.has(asset.id)} name="assetIds" type="checkbox" value={asset.id} /><span>{asset.fileName}</span><input aria-label={`${asset.fileName} sort order`} className={inputClass} defaultValue={current?.sortOrder ?? 100} min="0" name={`assetSort:${asset.id}`} type="number" /></label>; })}
+            {readyAssets.map((asset) => { const current = product.assets.find((row) => row.assetId === asset.id); return <div className="grid gap-3 rounded-xl border border-white/10 p-3 sm:grid-cols-[auto_1fr_8rem]" key={asset.id}><input aria-label={`Select ${asset.fileName}`} defaultChecked={selectedAssets.has(asset.id)} name="assetIds" type="checkbox" value={asset.id} /><span>{asset.fileName}</span><input aria-label={`${asset.fileName} sort order`} className={inputClass} defaultValue={current?.sortOrder ?? 100} min="0" name={`assetSort:${asset.id}`} type="number" /><select aria-label={`${asset.fileName} role`} className={inputClass} defaultValue={current?.role === "hero" ? "gallery" : current?.role ?? "gallery"} name={`assetRole:${asset.id}`}><option value="gallery">Gallery</option><option value="detail">Detail</option><option value="application">Application</option></select><label className="flex items-center gap-2"><input defaultChecked={current?.isVisible ?? true} name={`assetVisible:${asset.id}`} type="checkbox" value="true" />Visible</label><input aria-label={`${asset.fileName} placement alt text`} className={inputClass} defaultValue={current?.altText ?? ""} name={`assetAlt:${asset.id}`} placeholder="Placement Alt Text" /><input aria-label={`${asset.fileName} caption`} className={`${inputClass} sm:col-span-2`} defaultValue={current?.caption ?? ""} name={`assetCaption:${asset.id}`} placeholder="Optional Caption" /></div>; })}
           </fieldset>
-          <label className="grid gap-2">Hero Image<select className={inputClass} defaultValue={heroAsset} name="heroAssetId" required>{readyAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.fileName}</option>)}</select></label>
+          <label className="grid gap-2">Primary Image<select className={inputClass} defaultValue={heroAsset} name="heroAssetId" required>{readyAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.fileName}</option>)}</select></label>
           <label className="grid gap-2">Tags — comma or line separated<textarea className={inputClass} defaultValue={product.tags.join(", ")} name="tagNames" rows={3} /></label>
           <label className="grid gap-2">Features — one per line<textarea className={inputClass} defaultValue={product.features.join("\n")} name="features" rows={5} /></label>
           <label className="grid gap-2">FAQs — one Question | Answer per line<textarea className={inputClass} defaultValue={product.faqs.map((faq) => `${faq.question} | ${faq.answer}`).join("\n")} name="faqs" rows={6} /></label>

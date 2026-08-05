@@ -39,6 +39,7 @@ export default async function AdminTaxonomyPage() {
                 <input name="routeId" type="hidden" value={term.routeId} />
                 <label className="grid gap-2">Name<input className={inputClass} defaultValue={term.name} name="name" required /></label>
                 <label className="grid gap-2">Dimension<select className={inputClass} defaultValue={term.dimension} name="dimension">{dimensions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                <label className="grid gap-2">Product Code Prefix<input className={inputClass} defaultValue={term.productCodePrefix ?? ""} maxLength={8} minLength={3} name="productCodePrefix" pattern="[A-Z]{3,8}" placeholder="e.g. POL" /></label>
                 <label className="grid gap-2">Description<textarea className={inputClass} defaultValue={term.description ?? ""} name="description" rows={4} /></label>
                 <label className="grid gap-2">SEO Title<input className={inputClass} defaultValue={term.seoTitle ?? ""} name="seoTitle" /></label>
                 <label className="grid gap-2">Meta Description<textarea className={inputClass} defaultValue={term.metaDescription ?? ""} name="metaDescription" rows={3} /></label>
@@ -57,6 +58,7 @@ export default async function AdminTaxonomyPage() {
           <input className={inputClass} name="name" placeholder="English name" required />
           <input className={inputClass} name="internalKey" placeholder="stable-internal-key" required />
           <select className={inputClass} name="dimension" required>{dimensions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          <input className={inputClass} maxLength={8} minLength={3} name="productCodePrefix" pattern="[A-Z]{3,8}" placeholder="Optional Product Code prefix" />
           <textarea className={inputClass} name="description" placeholder="Optional description" rows={4} />
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Create noindex term</button>
         </AdminActionForm>

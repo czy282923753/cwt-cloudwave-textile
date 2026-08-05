@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -73,8 +75,20 @@ export const contentLocalizations = pgTable(
     title: text("title").notNull(),
     excerpt: text("excerpt"),
     body: text("body").notNull(),
+    structuredBlocks: jsonb("structured_blocks")
+      .notNull()
+      .default({ version: 1, blocks: [] }),
+    blocksVersion: integer("blocks_version").notNull().default(1),
+    editorDocumentVersion: integer("editor_document_version").notNull().default(1),
   },
-  (table) => [primaryKey({ columns: [table.contentId, table.locale] })],
+  (table) => [
+    primaryKey({ columns: [table.contentId, table.locale] }),
+    check("content_localizations_blocks_version_check", sql`${table.blocksVersion} = 1`),
+    check(
+      "content_localizations_editor_document_version_check",
+      sql`${table.editorDocumentVersion} > 0`,
+    ),
+  ],
 );
 
 export const contentAssets = pgTable(
@@ -88,8 +102,17 @@ export const contentAssets = pgTable(
       .references(() => assets.id, { onDelete: "restrict" }),
     role: assetRoleEnum("role").notNull().default("inline"),
     sortOrder: integer("sort_order").notNull().default(0),
+    altText: text("alt_text"),
+    caption: text("caption"),
+    isVisible: boolean("is_visible").notNull().default(true),
+    blockKey: text("block_key"),
   },
-  (table) => [primaryKey({ columns: [table.contentId, table.assetId] })],
+  (table) => [
+    primaryKey({ columns: [table.contentId, table.assetId] }),
+    uniqueIndex("content_assets_block_key_unique")
+      .on(table.contentId, table.blockKey)
+      .where(sql`${table.blockKey} is not null`),
+  ],
 );
 
 export const editorialRevisions = pgTable(

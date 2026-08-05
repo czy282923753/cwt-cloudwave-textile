@@ -84,7 +84,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const response = loginRedirect();
     response.cookies.set(env.AUTH_COOKIE_NAME, session.token, {
       httpOnly: true,
-      secure: env.APP_ENV === "production",
+      secure: env.APP_ENV === "production" || env.APP_ENV === "staging",
       sameSite: "strict",
       path: "/",
       expires: session.expiresAt,

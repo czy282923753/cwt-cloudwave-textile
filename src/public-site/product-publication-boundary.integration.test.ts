@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   assets,
+  authors,
   applications,
   applicationLocalizations,
+  contentLocalizations,
+  contents,
   keywordPageMappings,
   productApplications,
   productAssets,
@@ -101,6 +104,60 @@ describe("historical and direct Product publication boundary", () => {
       expect(Boolean(await queryProductByPath(connection.db, path))).toBe(visible);
     };
     await expectVisible(true);
+
+    const draftProductId = await connection.db.transaction(async (transaction) => {
+      const draftProductRows = await transaction.insert(products).values({
+        status: "draft",
+      }).returning({ id: products.id });
+      const id = draftProductRows[0]!.id;
+      await transaction.insert(productTaxonomyTerms).values({
+        productId: id,
+        taxonomyTermId: taxonomyRows[0]!.id,
+        isPrimary: true,
+      });
+      return id;
+    });
+    const authorRows = await connection.db.insert(authors).values({
+      internalKey: "product-boundary-related-author",
+      displayName: "TEST Related Author",
+      isOrganization: true,
+    }).returning({ id: authors.id });
+    const draftContentRows = await connection.db.insert(contents).values({
+      channel: "fabric_knowledge",
+      type: "article",
+      status: "draft",
+      authorId: authorRows[0]!.id,
+      createdByUserId: reviewerId,
+    }).returning({ id: contents.id });
+    const draftContentId = draftContentRows[0]!.id;
+    await connection.db.insert(contentLocalizations).values({
+      contentId: draftContentId,
+      locale: "en",
+      title: "TEST Draft Related Article",
+      body: "",
+    });
+    await connection.db.insert(routes).values({
+      entityType: "content",
+      entityId: draftContentId,
+      locale: "en",
+      path: "/fabric-knowledge/test-draft-related-article/",
+    });
+    await connection.db.update(productLocalizations).set({
+      structuredBlocks: {
+        version: 1,
+        blocks: [
+          { id: "related-products", type: "related_products", productIds: [productId, draftProductId] },
+          { id: "related-articles", type: "related_articles", contentIds: [draftContentId] },
+        ],
+      },
+    }).where(eq(productLocalizations.productId, productId));
+    const productWithDraftRelations = await queryProductByPath(connection.db, path);
+    expect(Object.keys(productWithDraftRelations?.relatedProducts ?? {})).toEqual([productId]);
+    expect(productWithDraftRelations?.relatedArticles).toEqual({});
+    await connection.db.update(contents).set({ status: "published" }).where(eq(contents.id, draftContentId));
+    expect(Object.keys((await queryProductByPath(connection.db, path))?.relatedArticles ?? {}))
+      .toEqual([draftContentId]);
+    await connection.db.update(contents).set({ status: "draft" }).where(eq(contents.id, draftContentId));
 
     await connection.db.update(products).set({ realProductBasis: null }).where(eq(products.id, productId));
     await expectVisible(false);

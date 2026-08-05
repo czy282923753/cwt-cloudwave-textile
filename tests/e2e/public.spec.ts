@@ -370,7 +370,7 @@ test("@desktop a Published Product edit stays pending until approval", async ({ 
     page,
     page.getByRole("button", { name: "Save or propose editorial copy" }),
   );
-  await expect(page.getByText(/editorial_copy · in_review/).first()).toBeVisible();
+  await expect(page.getByText(/editorial_blocks · in_review/).first()).toBeVisible();
   const publicBefore = await page.request.get(fixtureProductPath);
   expect(await publicBefore.text()).not.toContain(replacement);
   await submitServerAction(

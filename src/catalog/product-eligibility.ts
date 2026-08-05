@@ -55,6 +55,7 @@ export function hasEligibleProductImageConditions<
       .where(
         and(
           eq(productAssets.productId, products.id),
+          eq(productAssets.isVisible, true),
           inArray(productAssets.role, [...publicImageRoles]),
           publicReadyImageSqlConditions(now),
         ),

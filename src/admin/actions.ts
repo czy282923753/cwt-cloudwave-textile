@@ -35,10 +35,12 @@ import {
   updateFabricLibraryEntry,
 } from "@/catalog/fabric-library-service";
 import {
+  assignGeneratedProductCode,
   applyProductRevision,
   archiveProduct,
   changeProductSlug,
   confirmRealProductBasis,
+  correctProductCode,
   createProductDraft,
   publishReviewedProduct,
   rejectProductRevision,
@@ -190,6 +192,9 @@ export async function createProductAction(form: FormData): Promise<AdminMutation
       name: requiredString(form, "name"),
       primaryTaxonomyTermId: requiredString(form, "primaryTaxonomyTermId"),
       assetIds,
+      ...(optionalString(form, "productCode")
+        ? { productCode: requiredString(form, "productCode") }
+        : {}),
     }),
   );
   revalidatePath("/admin/products");
@@ -204,6 +209,9 @@ export async function updateProductEditorialAction(form: FormData): Promise<Admi
       name: requiredString(form, "name"),
       shortDescription: optionalString(form, "shortDescription") ?? null,
       fullDescription: optionalString(form, "fullDescription") ?? null,
+      expectedEditorDocumentVersion: Number(
+        requiredString(form, "expectedEditorDocumentVersion"),
+      ),
     }),
   );
   revalidatePath(`/admin/products/${productId}`);
@@ -215,7 +223,6 @@ export async function updateProductFactsAction(form: FormData): Promise<AdminMut
   const productId = requiredString(form, "productId");
   await withDatabase((db) =>
     updateProductFacts(db, actor, productId, {
-      productCode: optionalString(form, "productCode") ?? null,
       supplierType: optionalString(form, "supplierType") ?? null,
       composition: optionalString(form, "composition") ?? null,
       weightGsm: optionalString(form, "weightGsm") ?? null,
@@ -223,6 +230,12 @@ export async function updateProductFactsAction(form: FormData): Promise<AdminMut
       fabricStyle: optionalString(form, "fabricStyle") ?? null,
       colorOptions: optionalString(form, "colorOptions") ?? null,
       moqNote: optionalString(form, "moqNote") ?? null,
+      moqValue: optionalString(form, "moqValue") ?? null,
+      moqUnit: parseOptionalField(
+        z.union([z.enum(["m", "kg", "roll", "yd"]), z.undefined()]),
+        form,
+        "moqUnit",
+      ) ?? null,
       customAvailable: parseRequiredField(
         z.enum(["unknown", "yes", "no"]), form, "customAvailable",
       ),
@@ -230,6 +243,30 @@ export async function updateProductFactsAction(form: FormData): Promise<AdminMut
         z.enum(["unknown", "yes", "no"]), form, "sampleAvailable",
       ),
     }),
+  );
+  revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
+}
+
+export async function assignProductCodeAction(form: FormData): Promise<AdminMutationOutcome> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) => assignGeneratedProductCode(db, actor, productId));
+  revalidatePath(`/admin/products/${productId}`);
+  return mutationResult(productId);
+}
+
+export async function correctProductCodeAction(form: FormData): Promise<AdminMutationOutcome> {
+  const actor = await currentActor();
+  const productId = requiredString(form, "productId");
+  await withDatabase((db) =>
+    correctProductCode(
+      db,
+      actor,
+      productId,
+      requiredString(form, "newProductCode"),
+      requiredString(form, "reason"),
+    ),
   );
   revalidatePath(`/admin/products/${productId}`);
   return mutationResult(productId);
@@ -300,6 +337,7 @@ export async function updateProductStructureAction(form: FormData): Promise<Admi
         Number(form.get(`assetSort:${right}`) ?? 0),
     );
   const primaryTaxonomyTermId = requiredString(form, "primaryTaxonomyTermId");
+  const heroAssetId = requiredString(form, "heroAssetId");
   const taxonomyTermIds = form
     .getAll("taxonomyTermIds")
     .filter((value): value is string => typeof value === "string" && Boolean(value));
@@ -333,7 +371,21 @@ export async function updateProductStructureAction(form: FormData): Promise<Admi
         .map((value) => value.trim())
         .filter(Boolean),
       assetIds,
-      heroAssetId: requiredString(form, "heroAssetId"),
+      heroAssetId,
+      media: assetIds.map((assetId, index) => ({
+        assetId,
+        role: assetId === heroAssetId
+          ? ("hero" as const)
+          : parseRequiredField(
+              z.enum(["gallery", "detail", "application"]),
+              form,
+              `assetRole:${assetId}`,
+            ),
+        sortOrder: Number(form.get(`assetSort:${assetId}`) ?? index + 1),
+        altText: optionalString(form, `assetAlt:${assetId}`) ?? null,
+        caption: optionalString(form, `assetCaption:${assetId}`) ?? null,
+        isVisible: assetId === heroAssetId || form.get(`assetVisible:${assetId}`) === "true",
+      })),
       features: lines("features"),
       faqs,
       colorOptionsDisplay: parseRequiredField(
@@ -363,7 +415,11 @@ export async function reviewProductFieldAction(form: FormData): Promise<AdminMut
       db,
       actor,
       productId,
-      parseRequiredField(z.enum(["composition", "weightGsm", "widthCm"]), form, "fieldName"),
+      parseRequiredField(
+        z.enum(["composition", "weightGsm", "widthCm", "moqValue", "moqUnit"]),
+        form,
+        "fieldName",
+      ),
       parseRequiredField(z.enum(["verified", "rejected"]), form, "verificationStatus"),
     ),
   );
@@ -450,6 +506,7 @@ export async function createTaxonomyAction(form: FormData): Promise<AdminMutatio
       internalKey: requiredString(form, "internalKey"),
       name: requiredString(form, "name"),
       dimension,
+      productCodePrefix: optionalString(form, "productCodePrefix") ?? null,
       ...(optionalString(form, "description")
         ? { description: requiredString(form, "description") }
         : {}),
@@ -466,6 +523,7 @@ export async function updateTaxonomyAction(form: FormData): Promise<AdminMutatio
     updateTaxonomyTerm(db, actor, termId, {
       name: requiredString(form, "name"),
       description: optionalString(form, "description") ?? null,
+      productCodePrefix: optionalString(form, "productCodePrefix") ?? null,
       dimension: parseRequiredField(z.enum([
           "material_fiber",
           "structure_construction",
@@ -697,6 +755,15 @@ export async function createContentAction(form: FormData): Promise<AdminMutation
 export async function updateContentAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const contentId = requiredString(form, "contentId");
+  const assetIds = form
+    .getAll("assetIds")
+    .filter((value): value is string => typeof value === "string" && Boolean(value))
+    .sort(
+      (left, right) =>
+        Number(form.get(`assetSort:${left}`) ?? 0) -
+        Number(form.get(`assetSort:${right}`) ?? 0),
+    );
+  const coverAssetId = optionalString(form, "coverAssetId");
   await withDatabase((db) =>
     updateContent(db, actor, contentId, {
       authorId: requiredString(form, "authorId"),
@@ -708,17 +775,28 @@ export async function updateContentAction(form: FormData): Promise<AdminMutation
       title: requiredString(form, "title"),
       excerpt: optionalString(form, "excerpt") ?? null,
       body: requiredString(form, "body"),
+      expectedEditorDocumentVersion: Number(
+        requiredString(form, "expectedEditorDocumentVersion"),
+      ),
       seoTitle: optionalString(form, "seoTitle") ?? null,
       metaDescription: optionalString(form, "metaDescription") ?? null,
       focusKeyword: optionalString(form, "focusKeyword") ?? null,
-      assetIds: form
-        .getAll("assetIds")
-        .filter((value): value is string => typeof value === "string" && Boolean(value))
-        .sort(
-          (left, right) =>
-            Number(form.get(`assetSort:${left}`) ?? 0) -
-            Number(form.get(`assetSort:${right}`) ?? 0),
-        ),
+      assetIds,
+      media: assetIds.map((assetId, index) => ({
+        assetId,
+        role: assetId === coverAssetId
+          ? ("cover" as const)
+          : parseRequiredField(
+              z.enum(["inline", "gallery", "detail"]),
+              form,
+              `assetRole:${assetId}`,
+            ),
+        sortOrder: Number(form.get(`assetSort:${assetId}`) ?? index),
+        altText: optionalString(form, `assetAlt:${assetId}`) ?? null,
+        caption: optionalString(form, `assetCaption:${assetId}`) ?? null,
+        isVisible: assetId === coverAssetId || form.get(`assetVisible:${assetId}`) === "true",
+        blockKey: optionalString(form, `assetBlockKey:${assetId}`) ?? null,
+      })),
       ...(optionalString(form, "changeSummary")
         ? { changeSummary: requiredString(form, "changeSummary") }
         : {}),

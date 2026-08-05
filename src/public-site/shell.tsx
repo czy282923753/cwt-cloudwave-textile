@@ -20,11 +20,12 @@ export function PublicHeader() {
           <span className="font-semibold tracking-[-0.02em] text-[#143a34]">CloudWave Textile</span>
         </Link>
         <nav aria-label="Primary" className="hidden items-center gap-6 text-sm font-medium text-stone-700 lg:flex">
+          <Link href="/">Home</Link>
           <Link href="/products/">Products</Link>
           <Link href="/applications/">Applications</Link>
           <Link href="/fabric-library/">Fabric Library</Link>
           <div className="group relative py-6">
-            <Link href="/resources/">Resources</Link>
+            <Link href="/resources/">Fabric &amp; Sourcing</Link>
             <div className="invisible absolute left-1/2 top-15 w-56 -translate-x-1/2 rounded-2xl border border-stone-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
               {resources.map(([label, href]) => <Link className="block rounded-xl px-3 py-2 hover:bg-stone-100" href={href} key={href}>{label}</Link>)}
             </div>
@@ -32,12 +33,12 @@ export function PublicHeader() {
           <Link href="/about/">About CWT</Link>
         </nav>
         <div className="hidden items-center gap-3 lg:flex">
-          <TrackedLink className="button-primary" eventName="quote_cta_click" href="/get-quote/" placement="header">Get Quote</TrackedLink>
+          <TrackedLink className="button-primary" eventName="quote_cta_click" href="/get-quote/" placement="header">Get a Quote</TrackedLink>
         </div>
         <details className="relative lg:hidden">
           <summary className="cursor-pointer list-none rounded-lg border border-stone-300 px-3 py-2 text-sm">Menu</summary>
           <nav className="absolute right-0 mt-3 grid w-64 gap-1 rounded-2xl border border-stone-200 bg-white p-3 shadow-xl" aria-label="Mobile">
-            <Link href="/products/">Products</Link><Link href="/applications/">Applications</Link><Link href="/fabric-library/">Fabric Library</Link>{resources.map(([label, href]) => <Link href={href} key={href}>{label}</Link>)}<Link href="/about/">About CWT</Link><Link className="mt-2 rounded-xl bg-[#164f46] px-4 py-3 text-center text-white" href="/get-quote/">Get Quote</Link>
+            <Link href="/">Home</Link><Link href="/products/">Products</Link><Link href="/applications/">Applications</Link><Link href="/fabric-library/">Fabric Library</Link><Link href="/resources/">Fabric &amp; Sourcing</Link>{resources.map(([label, href]) => <Link className="pl-3 text-stone-600" href={href} key={href}>{label}</Link>)}<Link href="/about/">About CWT</Link><Link className="mt-2 rounded-xl bg-[#164f46] px-4 py-3 text-center text-white" href="/get-quote/">Get a Quote</Link>
           </nav>
         </details>
       </div>

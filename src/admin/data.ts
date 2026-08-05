@@ -95,6 +95,8 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
       name: productLocalizations.name,
       shortDescription: productLocalizations.shortDescription,
       fullDescription: productLocalizations.fullDescription,
+      structuredBlocks: productLocalizations.structuredBlocks,
+      editorDocumentVersion: productLocalizations.editorDocumentVersion,
       status: products.status,
       productCode: products.productCode,
       supplierType: products.supplierType,
@@ -104,6 +106,8 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
       fabricStyle: products.fabricStyle,
       colorOptions: products.colorOptions,
       moqNote: products.moqNote,
+      moqValue: products.moqValue,
+      moqUnit: products.moqUnit,
       customAvailable: products.customAvailable,
       sampleAvailable: products.sampleAvailable,
       colorOptionsDisplay: products.colorOptionsDisplay,
@@ -153,7 +157,14 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
         .from(productApplications)
         .where(eq(productApplications.productId, productId)),
       db
-        .select({ assetId: productAssets.assetId, role: productAssets.role, sortOrder: productAssets.sortOrder })
+        .select({
+          assetId: productAssets.assetId,
+          role: productAssets.role,
+          sortOrder: productAssets.sortOrder,
+          altText: productAssets.altText,
+          caption: productAssets.caption,
+          isVisible: productAssets.isVisible,
+        })
         .from(productAssets)
         .where(eq(productAssets.productId, productId))
         .orderBy(productAssets.sortOrder),
@@ -210,6 +221,7 @@ async function queryTaxonomy<TQueryResult extends PgQueryResultHKT>(
       name: taxonomyTermLocalizations.name,
       description: taxonomyTermLocalizations.description,
       dimension: taxonomyTerms.dimension,
+      productCodePrefix: taxonomyTerms.productCodePrefix,
       isActive: taxonomyTerms.isActive,
       routeId: routes.id,
       path: routes.path,
@@ -418,6 +430,8 @@ async function queryContentDetail<TQueryResult extends PgQueryResultHKT>(
       title: contentLocalizations.title,
       excerpt: contentLocalizations.excerpt,
       body: contentLocalizations.body,
+      structuredBlocks: contentLocalizations.structuredBlocks,
+      editorDocumentVersion: contentLocalizations.editorDocumentVersion,
       routeId: routes.id,
       path: routes.path,
       seoTitle: seoMetadata.title,
@@ -448,7 +462,15 @@ async function queryContentDetail<TQueryResult extends PgQueryResultHKT>(
   if (!content) return null;
   const [assetRows, revisions] = await Promise.all([
     db
-      .select({ assetId: contentAssets.assetId, role: contentAssets.role, sortOrder: contentAssets.sortOrder })
+      .select({
+        assetId: contentAssets.assetId,
+        role: contentAssets.role,
+        sortOrder: contentAssets.sortOrder,
+        altText: contentAssets.altText,
+        caption: contentAssets.caption,
+        isVisible: contentAssets.isVisible,
+        blockKey: contentAssets.blockKey,
+      })
       .from(contentAssets)
       .where(eq(contentAssets.contentId, contentId))
       .orderBy(contentAssets.sortOrder),

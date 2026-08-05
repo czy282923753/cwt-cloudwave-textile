@@ -12,4 +12,9 @@ describe("environment safety", () => {
       /Production configuration refused/,
     );
   });
+
+  it("uses staging as the only non-production deployment identity", () => {
+    expect(parseEnvironment({ APP_ENV: "staging" }).APP_ENV).toBe("staging");
+    expect(() => parseEnvironment({ APP_ENV: "preview" })).toThrow();
+  });
 });

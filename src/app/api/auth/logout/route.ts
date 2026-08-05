@@ -29,7 +29,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     response.cookies.set(env.AUTH_COOKIE_NAME, "", {
       httpOnly: true,
-      secure: env.APP_ENV === "production",
+      secure: env.APP_ENV === "production" || env.APP_ENV === "staging",
       sameSite: "strict",
       path: "/",
       maxAge: 0,

@@ -5,6 +5,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -31,6 +32,7 @@ export const taxonomyTerms = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     internalKey: text("internal_key").notNull(),
+    productCodePrefix: text("product_code_prefix"),
     dimension: taxonomyDimensionEnum("dimension").notNull(),
     parentId: uuid("parent_id"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -40,6 +42,13 @@ export const taxonomyTerms = pgTable(
   },
   (table) => [
     uniqueIndex("taxonomy_terms_internal_key_unique").on(table.internalKey),
+    uniqueIndex("taxonomy_terms_product_code_prefix_unique")
+      .on(table.productCodePrefix)
+      .where(sql`${table.productCodePrefix} is not null`),
+    check(
+      "taxonomy_terms_product_code_prefix_check",
+      sql`${table.productCodePrefix} is null or ${table.productCodePrefix} ~ '^[A-Z]{3,8}$'`,
+    ),
     index("taxonomy_terms_dimension_idx").on(table.dimension),
     foreignKey({
       columns: [table.parentId],
@@ -95,6 +104,7 @@ export const products = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     status: recordStatusEnum("status").notNull().default("draft"),
     productCode: text("product_code"),
+    productCodeAssignedAt: timestamp("product_code_assigned_at", { withTimezone: true }),
     realProductBasis: realProductBasisEnum("real_product_basis"),
     realProductEvidenceNote: text("real_product_evidence_note"),
     realProductConfirmedByUserId: uuid("real_product_confirmed_by_user_id").references(
@@ -115,6 +125,8 @@ export const products = pgTable(
     fabricStyle: text("fabric_style"),
     colorOptions: text("color_options"),
     moqNote: text("moq_note"),
+    moqValue: numeric("moq_value", { precision: 12, scale: 2 }),
+    moqUnit: text("moq_unit"),
     customAvailable: triStateEnum("custom_available").notNull().default("unknown"),
     sampleAvailable: triStateEnum("sample_available").notNull().default("unknown"),
     colorOptionsDisplay: displayOverrideEnum("color_options_display")
@@ -149,6 +161,15 @@ export const products = pgTable(
     index("products_status_idx").on(table.status),
     check("products_weight_nonnegative", sql`${table.weightGsm} is null or ${table.weightGsm} > 0`),
     check("products_width_nonnegative", sql`${table.widthCm} is null or ${table.widthCm} > 0`),
+    check("products_moq_positive", sql`${table.moqValue} is null or ${table.moqValue} > 0`),
+    check(
+      "products_moq_value_unit_pair_check",
+      sql`(${table.moqValue} is null) = (${table.moqUnit} is null)`,
+    ),
+    check(
+      "products_moq_unit_check",
+      sql`${table.moqUnit} is null or ${table.moqUnit} in ('m', 'kg', 'roll', 'yd')`,
+    ),
   ],
 );
 
@@ -162,8 +183,20 @@ export const productLocalizations = pgTable(
     name: text("name").notNull(),
     shortDescription: text("short_description"),
     fullDescription: text("full_description"),
+    structuredBlocks: jsonb("structured_blocks")
+      .notNull()
+      .default({ version: 1, blocks: [] }),
+    blocksVersion: integer("blocks_version").notNull().default(1),
+    editorDocumentVersion: integer("editor_document_version").notNull().default(1),
   },
-  (table) => [primaryKey({ columns: [table.productId, table.locale] })],
+  (table) => [
+    primaryKey({ columns: [table.productId, table.locale] }),
+    check("product_localizations_blocks_version_check", sql`${table.blocksVersion} = 1`),
+    check(
+      "product_localizations_editor_document_version_check",
+      sql`${table.editorDocumentVersion} > 0`,
+    ),
+  ],
 );
 
 export const productTaxonomyTerms = pgTable(
@@ -254,8 +287,16 @@ export const productAssets = pgTable(
       .references(() => assets.id, { onDelete: "restrict" }),
     role: assetRoleEnum("role").notNull().default("gallery"),
     sortOrder: integer("sort_order").notNull().default(0),
+    altText: text("alt_text"),
+    caption: text("caption"),
+    isVisible: boolean("is_visible").notNull().default(true),
   },
-  (table) => [primaryKey({ columns: [table.productId, table.assetId] })],
+  (table) => [
+    primaryKey({ columns: [table.productId, table.assetId] }),
+    uniqueIndex("product_assets_one_hero_unique")
+      .on(table.productId)
+      .where(sql`${table.role} = 'hero'`),
+  ],
 );
 
 export const productFieldReviews = pgTable(

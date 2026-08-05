@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { authors, contentLocalizations, contents, users } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
+import { blockDocumentPlainText, parseBlockDocument } from "@/editorial/blocks";
 
 import {
   applyContentRevision,
@@ -10,6 +11,7 @@ import {
   proposePublishedContentRevision,
   publishContent,
   submitContentForReview,
+  updateContent,
 } from "./content-service";
 
 describe("published content revisions", () => {
@@ -79,7 +81,10 @@ describe("published content revisions", () => {
       },
     );
     const before = await connection.db
-      .select({ body: contentLocalizations.body })
+      .select({
+        body: contentLocalizations.body,
+        structuredBlocks: contentLocalizations.structuredBlocks,
+      })
       .from(contentLocalizations)
       .where(
         and(
@@ -87,18 +92,81 @@ describe("published content revisions", () => {
           eq(contentLocalizations.locale, "en"),
         ),
       );
-    expect(before[0]?.body).toBe("Approved fixture body.");
+    expect(before[0]?.body).toBe("");
+    expect(
+      blockDocumentPlainText(parseBlockDocument(before[0]?.structuredBlocks, "content")),
+    ).toBe("Approved fixture body.");
     await applyContentRevision(
       connection.db,
       { userId: reviewerId, role: "reviewer_publisher" },
       revisionId,
     );
     const after = await connection.db
-      .select({ body: contentLocalizations.body })
+      .select({
+        body: contentLocalizations.body,
+        structuredBlocks: contentLocalizations.structuredBlocks,
+      })
       .from(contentLocalizations)
       .innerJoin(contents, eq(contents.id, contentLocalizations.contentId))
       .where(eq(contentLocalizations.contentId, contentId));
-    expect(after[0]?.body).toBe("Unapproved replacement body.");
+    expect(after[0]?.body).toBe("");
+    expect(
+      blockDocumentPlainText(parseBlockDocument(after[0]?.structuredBlocks, "content")),
+    ).toBe("Unapproved replacement body.");
+    await connection.close();
+  });
+
+  it("rejects missing related records and media placements before saving Blocks", async () => {
+    const connection = await createTestDatabase();
+    const userRows = await connection.db.insert(users).values({
+      email: "content-relations@example.test",
+      displayName: "Content Relations",
+      role: "content_editor",
+      passwordHash: "test",
+    }).returning({ id: users.id });
+    const authorRows = await connection.db.insert(authors).values({
+      internalKey: "content-relations-author",
+      displayName: "TEST Relations Author",
+      isOrganization: true,
+    }).returning({ id: authors.id });
+    const actor = { userId: userRows[0]!.id, role: "content_editor" as const };
+    const authorId = authorRows[0]!.id;
+    const contentId = await createContentDraft(connection.db, actor, {
+      channel: "fabric_knowledge",
+      type: "guide",
+      authorId,
+      title: "TEST Block Relations",
+      body: "Initial synthetic copy.",
+    });
+    const baseInput = {
+      title: "TEST Block Relations",
+      body: "",
+      authorId,
+      type: "guide" as const,
+      expectedEditorDocumentVersion: 1,
+    };
+    await expect(updateContent(connection.db, actor, contentId, {
+      ...baseInput,
+      structuredDocument: {
+        version: 1,
+        blocks: [{
+          id: "missing-related-product",
+          type: "related_products",
+          productIds: ["10000000-0000-4000-8000-000000000099"],
+        }],
+      },
+    })).rejects.toThrow(/must reference existing records/);
+    await expect(updateContent(connection.db, actor, contentId, {
+      ...baseInput,
+      structuredDocument: {
+        version: 1,
+        blocks: [{
+          id: "missing-media",
+          type: "image",
+          mediaKey: "hero-image",
+        }],
+      },
+    })).rejects.toThrow(/require Content media placements/);
     await connection.close();
   });
 });

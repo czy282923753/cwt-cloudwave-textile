@@ -15,6 +15,7 @@ export const publicImageRoles = [
   "gallery",
   "cover",
   "detail",
+  "application",
   "thumbnail",
   "inline",
 ] as const;
@@ -102,7 +103,7 @@ export function publicReadyImageSqlConditions(now = new Date()) {
 
 export function roleMimeSqlCondition(roleColumn: SQLWrapper) {
   return sql`(
-    (${roleColumn} in ('hero', 'gallery', 'cover', 'detail', 'thumbnail', 'inline')
+    (${roleColumn} in ('hero', 'gallery', 'cover', 'detail', 'application', 'thumbnail', 'inline')
       and ${assets.detectedMimeType} in ('image/jpeg', 'image/png', 'image/webp', 'image/avif'))
     or
     (${roleColumn} in ('document', 'download')

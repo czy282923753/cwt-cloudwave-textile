@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNotNull, isNull, like, ne, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -30,6 +30,14 @@ import {
   users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import {
+  blockDocumentSchema,
+  blockDocumentPlainText,
+  legacyTextToBlockDocument,
+  parseBlockDocument,
+  type BlockDocument,
+} from "@/editorial/blocks";
+import { assertEditorialBlockReferencesExist } from "@/editorial/block-references";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
 import {
@@ -37,6 +45,15 @@ import {
   publicImageRoles,
   publicReadyImageSqlConditions,
 } from "@/uploads/asset-eligibility";
+
+import {
+  nextGeneratedProductCode,
+  normalizeAssignedProductCode,
+  normalizeComposition,
+  normalizeMoq,
+  normalizePositiveDecimal,
+  normalizeProductName,
+} from "./product-data";
 
 export class ProductValidationError extends Error {
   constructor(message: string) {
@@ -61,12 +78,20 @@ export interface CreateProductDraftInput {
   name: string;
   primaryTaxonomyTermId: string;
   assetIds: readonly string[];
+  productCode?: string;
   requestedSlug?: string;
 }
 
 export const eligibleProductImageMimeTypes = allowedImageMimeTypes;
 
 const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("editorial_blocks"),
+    name: z.string().min(1),
+    shortDescription: z.string().nullable(),
+    document: blockDocumentSchema,
+    expectedEditorDocumentVersion: z.number().int().positive(),
+  }),
   z.object({
     kind: z.literal("editorial_copy"),
     name: z.string().min(1),
@@ -83,8 +108,16 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
     fabricStyle: z.string().nullable().optional(),
     colorOptions: z.string().nullable().optional(),
     moqNote: z.string().nullable().optional(),
+    moqValue: z.string().nullable().optional(),
+    moqUnit: z.enum(["m", "kg", "roll", "yd"]).nullable().optional(),
     customAvailable: z.enum(["unknown", "yes", "no"]).optional(),
     sampleAvailable: z.enum(["unknown", "yes", "no"]).optional(),
+  }),
+  z.object({
+    kind: z.literal("product_code_correction"),
+    previousProductCode: z.string().min(1),
+    newProductCode: z.string().min(1),
+    reason: z.string().min(1).max(500),
   }),
   z.object({
     kind: z.literal("structure"),
@@ -94,6 +127,14 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
     tagNames: z.array(z.string().min(1).max(100)),
     assetIds: z.array(z.uuid()).min(1),
     heroAssetId: z.uuid(),
+    media: z.array(z.object({
+      assetId: z.uuid(),
+      role: z.enum(["hero", "gallery", "detail", "application"]),
+      sortOrder: z.number().int().min(0).max(10_000),
+      altText: z.string().trim().min(1).max(500).nullable(),
+      caption: z.string().trim().min(1).max(1_000).nullable(),
+      isVisible: z.boolean(),
+    }).strict()).min(1).max(100).optional(),
     features: z.array(z.string().min(1).max(300)),
     faqs: z.array(
       z.object({
@@ -145,7 +186,7 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
         status: "in_review",
         snapshot,
         changeSummary:
-          snapshot.kind === "editorial_copy"
+          snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy"
             ? "Published Product editorial update"
             : "Published Product factual update",
         createdByUserId: actor.userId,
@@ -211,6 +252,35 @@ async function assertDraftAssets<TQueryResult extends PgQueryResultHKT>(
   }
 }
 
+async function allocateGeneratedProductCode<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  primaryTaxonomyTermId: string,
+): Promise<string | null> {
+  const categoryRows = await db
+    .select({
+      id: taxonomyTerms.id,
+      active: taxonomyTerms.isActive,
+      prefix: taxonomyTerms.productCodePrefix,
+    })
+    .from(taxonomyTerms)
+    .where(eq(taxonomyTerms.id, primaryTaxonomyTermId))
+    .limit(1)
+    .for("update");
+  const category = categoryRows[0];
+  if (!category?.active) {
+    throw new ProductValidationError("Primary Category must be an active taxonomy term.");
+  }
+  if (!category.prefix) return null;
+  const existingRows = await db
+    .select({ productCode: products.productCode })
+    .from(products)
+    .where(like(products.productCode, `CWT-${category.prefix}-%`));
+  return nextGeneratedProductCode(
+    category.prefix,
+    existingRows.flatMap((row) => row.productCode ? [row.productCode] : []),
+  );
+}
+
 type ProductStructureSnapshot = Extract<
   z.infer<typeof productRevisionSnapshotSchema>,
   { kind: "structure" }
@@ -242,10 +312,29 @@ async function validateProductStructure<TQueryResult extends PgQueryResultHKT>(
   if (applicationRows.length !== new Set(snapshot.applicationIds).size) {
     throw new ProductValidationError("Every Product Application must exist.");
   }
+  const media = snapshot.media ?? snapshot.assetIds.map((assetId, index) => ({
+    assetId,
+    role: assetId === snapshot.heroAssetId ? ("hero" as const) : ("gallery" as const),
+    sortOrder: assetId === snapshot.heroAssetId ? 0 : index + 1,
+    altText: null,
+    caption: null,
+    isVisible: true,
+  }));
   if (!snapshot.assetIds.includes(snapshot.heroAssetId)) {
     throw new ProductValidationError("Hero Image must belong to the Product images.");
   }
-  await assertDraftAssets(db, snapshot.assetIds);
+  if (
+    media.length !== snapshot.assetIds.length ||
+    new Set(media.map((item) => item.assetId)).size !== media.length ||
+    media.some((item) => !snapshot.assetIds.includes(item.assetId))
+  ) {
+    throw new ProductValidationError("Product media placements must match Product image Assets exactly.");
+  }
+  const hero = media.filter((item) => item.role === "hero");
+  if (hero.length !== 1 || hero[0]?.assetId !== snapshot.heroAssetId || !hero[0].isVisible) {
+    throw new ProductValidationError("Product media requires exactly one visible Primary image.");
+  }
+  await assertDraftAssets(db, media.map((item) => item.assetId));
 }
 
 async function applyProductStructure<TQueryResult extends PgQueryResultHKT>(
@@ -257,7 +346,14 @@ async function applyProductStructure<TQueryResult extends PgQueryResultHKT>(
     snapshot.primaryTaxonomyTermId,
     ...snapshot.additionalTaxonomyTermIds,
   ].filter((id, index, all) => all.indexOf(id) === index);
-  const assetIds = [...new Set(snapshot.assetIds)];
+  const media = snapshot.media ?? snapshot.assetIds.map((assetId, index) => ({
+    assetId,
+    role: assetId === snapshot.heroAssetId ? ("hero" as const) : ("gallery" as const),
+    sortOrder: assetId === snapshot.heroAssetId ? 0 : index + 1,
+    altText: null,
+    caption: null,
+    isVisible: true,
+  }));
   const applicationIds = [...new Set(snapshot.applicationIds)];
 
   await db.delete(productTaxonomyTerms).where(eq(productTaxonomyTerms.productId, productId));
@@ -278,11 +374,14 @@ async function applyProductStructure<TQueryResult extends PgQueryResultHKT>(
 
   await db.delete(productAssets).where(eq(productAssets.productId, productId));
   await db.insert(productAssets).values(
-    assetIds.map((assetId, index) => ({
+    media.map((item) => ({
       productId,
-      assetId,
-      role: assetId === snapshot.heroAssetId ? ("hero" as const) : ("gallery" as const),
-      sortOrder: assetId === snapshot.heroAssetId ? 0 : index + 1,
+      assetId: item.assetId,
+      role: item.role,
+      sortOrder: item.sortOrder,
+      altText: item.altText,
+      caption: item.caption,
+      isVisible: item.isVisible,
     })),
   );
 
@@ -348,25 +447,21 @@ export async function createProductDraft<TQueryResult extends PgQueryResultHKT>(
   input: CreateProductDraftInput,
 ): Promise<string> {
   requirePermission(actor.role, "products.write");
-  const name = input.name.trim();
-  if (!name) throw new ProductValidationError("Product Name is required.");
-  const categoryRows = await db
-    .select({ id: taxonomyTerms.id, active: taxonomyTerms.isActive })
-    .from(taxonomyTerms)
-    .where(eq(taxonomyTerms.id, input.primaryTaxonomyTermId))
-    .limit(1);
-  if (!categoryRows[0]?.active) {
-    throw new ProductValidationError("Primary Category must be an active taxonomy term.");
-  }
+  const name = normalizeProductName(input.name);
   await assertDraftAssets(db, input.assetIds);
   const baseSlug = slugify(input.requestedSlug ?? name);
   const path = await uniqueProductPath(db, baseSlug);
 
   return db.transaction(async (transaction) => {
+    const assignedCode = input.productCode
+      ? normalizeAssignedProductCode(input.productCode)
+      : await allocateGeneratedProductCode(transaction, input.primaryTaxonomyTermId);
     const productRows = await transaction
       .insert(products)
       .values({
         status: "draft",
+        productCode: assignedCode,
+        productCodeAssignedAt: assignedCode ? new Date() : null,
         createdByUserId: actor.userId,
       })
       .returning({ id: products.id });
@@ -376,6 +471,9 @@ export async function createProductDraft<TQueryResult extends PgQueryResultHKT>(
       productId,
       locale: "en",
       name,
+      structuredBlocks: { version: 1, blocks: [] },
+      blocksVersion: 1,
+      editorDocumentVersion: 1,
     });
     await transaction.insert(productTaxonomyTerms).values({
       productId,
@@ -472,27 +570,48 @@ export async function updateProductEditorialCopy<
     name: string;
     shortDescription?: string | null;
     fullDescription?: string | null;
+    structuredDocument?: BlockDocument;
+    expectedEditorDocumentVersion?: number;
   },
 ): Promise<string | null> {
   requirePermission(actor.role, "products.write");
-  const name = input.name.trim();
-  if (!name) throw new ProductValidationError("Product Name is required.");
+  const name = normalizeProductName(input.name);
   const productRows = await db
-    .select({ status: products.status })
+    .select({
+      status: products.status,
+      editorDocumentVersion: productLocalizations.editorDocumentVersion,
+    })
     .from(products)
+    .innerJoin(
+      productLocalizations,
+      and(
+        eq(productLocalizations.productId, products.id),
+        eq(productLocalizations.locale, "en"),
+      ),
+    )
     .where(eq(products.id, productId))
     .limit(1);
   const product = productRows[0];
   if (!product) throw new ProductValidationError("Product was not found.");
   const snapshot = productRevisionSnapshotSchema.parse({
-    kind: "editorial_copy",
+    kind: "editorial_blocks",
     name,
     shortDescription: input.shortDescription?.trim() || null,
-    fullDescription: input.fullDescription?.trim() || null,
+    document: input.structuredDocument
+      ? parseBlockDocument(input.structuredDocument, "product")
+      : legacyTextToBlockDocument(input.fullDescription),
+    expectedEditorDocumentVersion:
+      input.expectedEditorDocumentVersion ?? product.editorDocumentVersion,
   });
-  if (snapshot.kind !== "editorial_copy") {
+  if (snapshot.kind !== "editorial_blocks") {
     throw new ProductValidationError("Invalid Product editorial revision.");
   }
+  if (snapshot.expectedEditorDocumentVersion !== product.editorDocumentVersion) {
+    throw new ProductRevisionConflictError(
+      "Product narrative changed after this editor loaded; refresh before saving.",
+    );
+  }
+  await assertEditorialBlockReferencesExist(db, snapshot.document);
   if (product.status === "published") {
     return proposeProductRevision(db, actor, productId, snapshot);
   }
@@ -500,19 +619,31 @@ export async function updateProductEditorialCopy<
     throw new ProductValidationError("Archived Products cannot be edited.");
   }
   await db.transaction(async (transaction) => {
-    await transaction
+    const updated = await transaction
       .update(productLocalizations)
       .set({
         name: snapshot.name,
         shortDescription: snapshot.shortDescription,
-        fullDescription: snapshot.fullDescription,
+        structuredBlocks: snapshot.document,
+        blocksVersion: snapshot.document.version,
+        editorDocumentVersion: snapshot.expectedEditorDocumentVersion + 1,
       })
       .where(
         and(
           eq(productLocalizations.productId, productId),
           eq(productLocalizations.locale, "en"),
+          eq(
+            productLocalizations.editorDocumentVersion,
+            snapshot.expectedEditorDocumentVersion,
+          ),
         ),
+      )
+      .returning({ productId: productLocalizations.productId });
+    if (!updated[0]) {
+      throw new ProductRevisionConflictError(
+        "Product narrative changed after this editor loaded; refresh before saving.",
       );
+    }
     await transaction
       .update(products)
       .set({ updatedAt: new Date() })
@@ -525,6 +656,29 @@ export async function updateProductEditorialCopy<
     });
   });
   return null;
+}
+
+export async function updateProductBlocks<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  input: {
+    name: string;
+    shortDescription?: string | null;
+    document: BlockDocument;
+    expectedEditorDocumentVersion: number;
+  },
+): Promise<string | null> {
+  const document = parseBlockDocument(input.document, "product");
+  return updateProductEditorialCopy(db, actor, productId, {
+    name: input.name,
+    ...(input.shortDescription !== undefined
+      ? { shortDescription: input.shortDescription }
+      : {}),
+    fullDescription: null,
+    structuredDocument: document,
+    expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
+  });
 }
 
 export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
@@ -540,13 +694,15 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
     fabricStyle?: string | null;
     colorOptions?: string | null;
     moqNote?: string | null;
+    moqValue?: string | null;
+    moqUnit?: "m" | "kg" | "roll" | "yd" | null;
     customAvailable?: "unknown" | "yes" | "no";
     sampleAvailable?: "unknown" | "yes" | "no";
   },
 ): Promise<string | null> {
   requirePermission(actor.role, "products.write");
   const statusRows = await db
-    .select({ status: products.status })
+    .select({ status: products.status, productCode: products.productCode })
     .from(products)
     .where(eq(products.id, productId))
     .limit(1);
@@ -555,22 +711,36 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
   if (currentStatus === "archived") {
     throw new ProductValidationError("Archived Products cannot be edited.");
   }
+  const requestedProductCode = input.productCode === undefined
+    ? undefined
+    : input.productCode?.trim()
+      ? normalizeAssignedProductCode(input.productCode)
+      : null;
+  const currentProductCode = statusRows[0]?.productCode ?? null;
+  if (currentProductCode && requestedProductCode !== undefined && requestedProductCode !== currentProductCode) {
+    throw new ProductValidationError(
+      "Assigned Product Codes are immutable here; an Admin must use the dedicated correction flow with a reason.",
+    );
+  }
+  const normalizedMoq = input.moqValue !== undefined || input.moqUnit !== undefined
+    ? normalizeMoq(input.moqValue, input.moqUnit)
+    : null;
   const normalized = productRevisionSnapshotSchema.parse({
     kind: "facts",
     ...(input.productCode !== undefined
-      ? { productCode: input.productCode?.trim() || null }
+      ? { productCode: requestedProductCode }
       : {}),
     ...(input.supplierType !== undefined
       ? { supplierType: input.supplierType?.trim() || null }
       : {}),
     ...(input.composition !== undefined
-      ? { composition: input.composition?.trim() || null }
+      ? { composition: normalizeComposition(input.composition) }
       : {}),
     ...(input.weightGsm !== undefined
-      ? { weightGsm: input.weightGsm?.trim() || null }
+      ? { weightGsm: normalizePositiveDecimal(input.weightGsm, "GSM") }
       : {}),
     ...(input.widthCm !== undefined
-      ? { widthCm: input.widthCm?.trim() || null }
+      ? { widthCm: normalizePositiveDecimal(input.widthCm, "Width") }
       : {}),
     ...(input.fabricStyle !== undefined
       ? { fabricStyle: input.fabricStyle?.trim() || null }
@@ -580,6 +750,9 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
       : {}),
     ...(input.moqNote !== undefined
       ? { moqNote: input.moqNote?.trim() || null }
+      : {}),
+    ...(normalizedMoq
+      ? { moqValue: normalizedMoq.moqValue, moqUnit: normalizedMoq.moqUnit }
       : {}),
     ...(input.customAvailable !== undefined
       ? { customAvailable: input.customAvailable }
@@ -594,17 +767,19 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
   if (currentStatus === "published") {
     return proposeProductRevision(db, actor, productId, normalized);
   }
-  const providedFacts: string[] = [];
-  if (normalized.composition) providedFacts.push("composition");
-  if (normalized.weightGsm) providedFacts.push("weightGsm");
-  if (normalized.widthCm) providedFacts.push("widthCm");
+  const reviewedFacts = ["composition", "weightGsm", "widthCm", "moqValue", "moqUnit"]
+    .flatMap((fieldName) => fieldName in normalized ? [fieldName] : []);
 
   await db.transaction(async (transaction) => {
     await transaction
       .update(products)
       .set({
         ...(normalized.productCode !== undefined
-          ? { productCode: normalized.productCode }
+          ? {
+              productCode: normalized.productCode,
+              productCodeAssignedAt:
+                normalized.productCode && !currentProductCode ? new Date() : undefined,
+            }
           : {}),
         ...(normalized.supplierType !== undefined
           ? { supplierType: normalized.supplierType }
@@ -627,6 +802,12 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
         ...(normalized.moqNote !== undefined
           ? { moqNote: normalized.moqNote }
           : {}),
+        ...(normalized.moqValue !== undefined
+          ? { moqValue: normalized.moqValue }
+          : {}),
+        ...(normalized.moqUnit !== undefined
+          ? { moqUnit: normalized.moqUnit }
+          : {}),
         ...(normalized.customAvailable !== undefined
           ? { customAvailable: normalized.customAvailable }
           : {}),
@@ -636,18 +817,19 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
         updatedAt: new Date(),
       })
       .where(eq(products.id, productId));
-    for (const fieldName of providedFacts) {
+    for (const fieldName of reviewedFacts) {
+      const value = normalized[fieldName as keyof typeof normalized];
       await transaction
         .insert(productFieldReviews)
         .values({
           productId,
           fieldName,
-          verificationStatus: "provided",
+          verificationStatus: value ? "provided" : "empty",
         })
         .onConflictDoUpdate({
           target: [productFieldReviews.productId, productFieldReviews.fieldName],
           set: {
-            verificationStatus: "provided",
+            verificationStatus: value ? "provided" : "empty",
             reviewedByUserId: null,
             reviewedAt: null,
           },
@@ -658,9 +840,140 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
       action: "product.facts.updated",
       entityType: "product",
       entityId: productId,
-      afterSummary: { providedFields: providedFacts },
+      afterSummary: { changedFactualFields: reviewedFacts },
     });
   });
+  return null;
+}
+
+export async function assignGeneratedProductCode<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  options: GovernedMutationOptions = {},
+): Promise<string> {
+  requirePermission(actor.role, "products.write");
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const rows = await transaction
+      .select({
+        status: products.status,
+        productCode: products.productCode,
+        primaryTaxonomyTermId: productTaxonomyTerms.taxonomyTermId,
+      })
+      .from(products)
+      .innerJoin(
+        productTaxonomyTerms,
+        and(
+          eq(productTaxonomyTerms.productId, products.id),
+          eq(productTaxonomyTerms.isPrimary, true),
+        ),
+      )
+      .where(eq(products.id, productId))
+      .limit(1);
+    const product = rows[0];
+    if (!product) throw new ProductValidationError("Product was not found.");
+    if (product.status === "published" || product.status === "archived") {
+      throw new ProductValidationError(
+        "Automatic Product Code assignment is limited to editable non-published Products.",
+      );
+    }
+    if (product.productCode) {
+      throw new ProductValidationError("Product Code is already assigned and cannot be regenerated.");
+    }
+    const productCode = await allocateGeneratedProductCode(
+      transaction,
+      product.primaryTaxonomyTermId,
+    );
+    if (!productCode) {
+      throw new ProductValidationError(
+        "Primary Category has no approved Product Code prefix; automatic generation is refused.",
+      );
+    }
+    const updated = await transaction
+      .update(products)
+      .set({ productCode, productCodeAssignedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(products.id, productId), isNull(products.productCode)))
+      .returning({ id: products.id });
+    if (!updated[0]) {
+      throw new ProductValidationError("Product Code was assigned by another operation.");
+    }
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.code.assigned",
+      entityType: "product",
+      entityId: productId,
+      afterSummary: { productCode },
+    });
+    return productCode;
+  }, options);
+}
+
+export async function correctProductCode<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  newProductCodeInput: string,
+  reasonInput: string,
+  options: GovernedMutationOptions = {},
+): Promise<string | null> {
+  if (actor.role !== "admin") {
+    throw new ProductValidationError("Only an Admin may correct an assigned Product Code.");
+  }
+  const reason = reasonInput.trim();
+  if (!reason) throw new ProductValidationError("Product Code correction requires a reason.");
+  const newProductCode = normalizeAssignedProductCode(newProductCodeInput);
+  const rows = await db
+    .select({ status: products.status, productCode: products.productCode })
+    .from(products)
+    .where(eq(products.id, productId))
+    .limit(1);
+  const product = rows[0];
+  if (!product) throw new ProductValidationError("Product was not found.");
+  if (!product.productCode) {
+    throw new ProductValidationError(
+      "Unassigned Product Codes use the ordinary assignment flow, not correction.",
+    );
+  }
+  if (product.productCode === newProductCode) {
+    throw new ProductValidationError("Corrected Product Code must differ from the current code.");
+  }
+  if (product.status === "archived") {
+    throw new ProductValidationError("Archived Products cannot be corrected.");
+  }
+  const snapshot = productRevisionSnapshotSchema.parse({
+    kind: "product_code_correction",
+    previousProductCode: product.productCode,
+    newProductCode,
+    reason: reason.slice(0, 500),
+  });
+  if (product.status === "published") {
+    return proposeProductRevision(db, actor, productId, snapshot, options);
+  }
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const updated = await transaction
+      .update(products)
+      .set({
+        productCode: newProductCode,
+        productCodeAssignedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(products.id, productId),
+          eq(products.productCode, product.productCode!),
+        ),
+      )
+      .returning({ id: products.id });
+    if (!updated[0]) throw new ProductRevisionConflictError("Product Code changed concurrently.");
+    await audit({
+      actorUserId: actor.userId,
+      action: "product.code.corrected",
+      entityType: "product",
+      entityId: productId,
+      beforeSummary: { productCode: product.productCode },
+      afterSummary: { productCode: newProductCode, reason: reason.slice(0, 500) },
+    });
+  }, options);
   return null;
 }
 
@@ -688,6 +1001,15 @@ export async function updateProductStructure<TQueryResult extends PgQueryResultH
     additionalTaxonomyTermIds: [...new Set(input.additionalTaxonomyTermIds)],
     applicationIds: [...new Set(input.applicationIds)],
     assetIds: [...new Set(input.assetIds)],
+    ...(input.media
+      ? {
+          media: input.media.map((item) => ({
+            ...item,
+            altText: item.altText?.trim() || null,
+            caption: item.caption?.trim() || null,
+          })),
+        }
+      : {}),
     tagNames: input.tagNames
       .map((name) => name.trim())
       .filter(Boolean)
@@ -845,13 +1167,54 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
       );
     }
     const snapshot = productRevisionSnapshotSchema.parse(revision.snapshot);
-    if (snapshot.kind === "editorial_copy") {
+    if (snapshot.kind === "editorial_blocks") {
+      await assertEditorialBlockReferencesExist(transaction, snapshot.document);
+      const updated = await transaction
+        .update(productLocalizations)
+        .set({
+          name: snapshot.name,
+          shortDescription: snapshot.shortDescription,
+          structuredBlocks: parseBlockDocument(snapshot.document, "product"),
+          blocksVersion: snapshot.document.version,
+          editorDocumentVersion: snapshot.expectedEditorDocumentVersion + 1,
+        })
+        .where(
+          and(
+            eq(productLocalizations.productId, revision.entityId),
+            eq(productLocalizations.locale, revision.locale),
+            eq(
+              productLocalizations.editorDocumentVersion,
+              snapshot.expectedEditorDocumentVersion,
+            ),
+          ),
+        )
+        .returning({ productId: productLocalizations.productId });
+      if (!updated[0]) {
+        throw new ProductRevisionConflictError(
+          "Product narrative changed after this revision was proposed.",
+        );
+      }
+    } else if (snapshot.kind === "editorial_copy") {
+      const localizationRows = await transaction
+        .select({ editorDocumentVersion: productLocalizations.editorDocumentVersion })
+        .from(productLocalizations)
+        .where(
+          and(
+            eq(productLocalizations.productId, revision.entityId),
+            eq(productLocalizations.locale, revision.locale),
+          ),
+        )
+        .limit(1);
+      const editorDocumentVersion = localizationRows[0]?.editorDocumentVersion;
+      if (!editorDocumentVersion) throw new ProductValidationError("Product localization was not found.");
       await transaction
         .update(productLocalizations)
         .set({
           name: snapshot.name,
           shortDescription: snapshot.shortDescription,
-          fullDescription: snapshot.fullDescription,
+          structuredBlocks: legacyTextToBlockDocument(snapshot.fullDescription),
+          blocksVersion: 1,
+          editorDocumentVersion: editorDocumentVersion + 1,
         })
         .where(
           and(
@@ -860,11 +1223,27 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
           ),
         );
     } else if (snapshot.kind === "facts") {
+      if (snapshot.productCode !== undefined) {
+        const currentCodeRows = await transaction
+          .select({ productCode: products.productCode })
+          .from(products)
+          .where(eq(products.id, revision.entityId))
+          .limit(1);
+        const currentCode = currentCodeRows[0]?.productCode ?? null;
+        if (currentCode && snapshot.productCode !== currentCode) {
+          throw new ProductValidationError(
+            "Assigned Product Codes require the dedicated Admin correction revision.",
+          );
+        }
+      }
       await transaction
         .update(products)
         .set({
           ...(snapshot.productCode !== undefined
-            ? { productCode: snapshot.productCode }
+            ? {
+                productCode: snapshot.productCode,
+                productCodeAssignedAt: snapshot.productCode ? new Date() : null,
+              }
             : {}),
           ...(snapshot.supplierType !== undefined
             ? { supplierType: snapshot.supplierType }
@@ -881,6 +1260,8 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
             ? { colorOptions: snapshot.colorOptions }
             : {}),
           ...(snapshot.moqNote !== undefined ? { moqNote: snapshot.moqNote } : {}),
+          ...(snapshot.moqValue !== undefined ? { moqValue: snapshot.moqValue } : {}),
+          ...(snapshot.moqUnit !== undefined ? { moqUnit: snapshot.moqUnit } : {}),
           ...(snapshot.customAvailable !== undefined
             ? { customAvailable: snapshot.customAvailable }
             : {}),
@@ -889,7 +1270,13 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
             : {}),
         })
         .where(eq(products.id, revision.entityId));
-      for (const fieldName of ["composition", "weightGsm", "widthCm"] as const) {
+      for (const fieldName of [
+        "composition",
+        "weightGsm",
+        "widthCm",
+        "moqValue",
+        "moqUnit",
+      ] as const) {
         if (snapshot[fieldName] !== undefined) {
           await transaction
             .insert(productFieldReviews)
@@ -908,10 +1295,33 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
             });
         }
       }
+    } else if (snapshot.kind === "product_code_correction") {
+      if (actor.role !== "admin") {
+        throw new ProductValidationError(
+          "Only an Admin may apply a Product Code correction revision.",
+        );
+      }
+      const updated = await transaction
+        .update(products)
+        .set({
+          productCode: snapshot.newProductCode,
+          productCodeAssignedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(products.id, revision.entityId),
+            eq(products.productCode, snapshot.previousProductCode),
+          ),
+        )
+        .returning({ id: products.id });
+      if (!updated[0]) {
+        throw new ProductRevisionConflictError("Product Code changed after correction proposal.");
+      }
     } else if (snapshot.kind === "structure") {
       await validateProductStructure(transaction, snapshot);
       await applyProductStructure(transaction, revision.entityId, snapshot);
-    } else {
+    } else if (snapshot.kind === "seo") {
       const routeRows = await transaction
         .select({ id: routes.id })
         .from(routes)
@@ -937,6 +1347,8 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
           updatedAt: new Date(),
         })
         .where(eq(seoMetadata.routeId, snapshot.routeId));
+    } else {
+      snapshot satisfies never;
     }
     await transaction
       .update(products)
@@ -1033,6 +1445,7 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
       .where(
         and(
           eq(productAssets.productId, productId),
+          eq(productAssets.isVisible, true),
           inArray(productAssets.role, [...publicImageRoles]),
           publicReadyImageSqlConditions(),
         ),
@@ -1115,7 +1528,7 @@ export async function reviewProductField<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   productId: string,
-  fieldName: "composition" | "weightGsm" | "widthCm",
+  fieldName: "composition" | "weightGsm" | "widthCm" | "moqValue" | "moqUnit",
   status: "verified" | "rejected",
   options: GovernedMutationOptions = {},
 ): Promise<void> {
@@ -1165,7 +1578,8 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
       confirmerActive: users.isActive,
       confirmerRole: users.role,
       shortDescription: productLocalizations.shortDescription,
-      fullDescription: productLocalizations.fullDescription,
+      structuredBlocks: productLocalizations.structuredBlocks,
+      blocksVersion: productLocalizations.blocksVersion,
       routeId: routes.id,
       title: seoMetadata.title,
       metaDescription: seoMetadata.metaDescription,
@@ -1193,6 +1607,15 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
     .limit(1);
   const product = rows[0];
   if (!product) throw new ProductValidationError("Product SEO record was not found.");
+  let narrativeText = "";
+  try {
+    if (product.blocksVersion !== 1) throw new Error("Unsupported Block version.");
+    narrativeText = blockDocumentPlainText(
+      parseBlockDocument(product.structuredBlocks, "product"),
+    );
+  } catch {
+    narrativeText = "";
+  }
   if (indexStatus === "index") {
     const [imageRows, applicationRows, intentRows] = await Promise.all([
       db
@@ -1202,10 +1625,13 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
         .where(
           and(
             eq(productAssets.productId, productId),
+            eq(productAssets.isVisible, true),
             inArray(productAssets.role, [...publicImageRoles]),
             publicReadyImageSqlConditions(),
-            isNotNull(assets.altText),
-            ne(assets.altText, ""),
+            or(
+              and(isNotNull(productAssets.altText), ne(productAssets.altText, "")),
+              and(isNotNull(assets.altText), ne(assets.altText, "")),
+            ),
           ),
         ),
       db
@@ -1231,7 +1657,7 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
       !product.confirmerActive ||
       (product.confirmerRole !== "admin" &&
         product.confirmerRole !== "reviewer_publisher") ||
-      !(product.shortDescription?.trim() || product.fullDescription?.trim()) ||
+      !(product.shortDescription?.trim() || narrativeText) ||
       !product.title?.trim() ||
       !product.metaDescription?.trim() ||
       Number(imageRows[0]?.count ?? 0) < 1 ||
