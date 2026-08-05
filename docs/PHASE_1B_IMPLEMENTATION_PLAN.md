@@ -4,6 +4,8 @@ Status: **Planning only; implementation and Migrations are not authorized**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Plan date: **2026-08-05**
 
+Stage 0 approval: [Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md), [Product Import Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [Email Template Contract](./EMAIL_TEMPLATE_CONTRACT.md), and accepted ADR-0013 through ADR-0017. Stage 1 remains unauthorized.
+
 ## 1. Recommendation
 
 Phase 1B should use **one pre-implementation decision gate (Stage 0) followed by eight consecutive delivery Stages (Stages 1–8)**, with explicit acceptance between them. A single undifferentiated implementation round would combine editorial-format migration, file ingestion, external AI, customer email, CRM attribution, and Production infrastructure in one rollback boundary. That would be difficult to review and unsafe on a 2 vCPU/4 GB single host.
@@ -227,13 +229,13 @@ Inputs:
 
 - approved Phase 1B V1.1 Final baseline;
 - this Discovery report, plan, and acceptance matrix;
-- owner answers in Section 11.
+- approved [Stage 0 Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md).
 
 Outputs:
 
 - approved scope sequence;
-- approved draft ADRs for local Production storage, Staging identity, structured Block compatibility, Product Import durable state, and AI Run durable state;
-- frozen Excel template, Product Code prefix mapping, email variable set, AI/provider privacy contract, and host directory contract.
+- accepted ADR-0013 through ADR-0017 for local Production storage, Staging identity, structured Block compatibility, Product Import durable state, and AI Run durable state;
+- frozen Product Code prefix rules, [Excel Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [email contract](./EMAIL_TEMPLATE_CONTRACT.md), AI/privacy boundary, and host directory contract.
 
 Files/modules: documentation and ADRs only.
 
@@ -247,9 +249,11 @@ Stop conditions:
 
 - unresolved Production storage provider/volume design;
 - unresolved Staging identity;
-- no approved Product Code prefix map or Excel template;
+- no approved Product Code prefix rules or Excel template;
 - no approved AI data-processing/provider boundary;
 - any proposal introduces a duplicate authority.
+
+Stage 0 document review closes these architecture/policy stop conditions. It deliberately defers the actual AI, Scanner, shared Rate Limiter, monitoring-account, Admin-identity, and Secret selections to the explicit gates in Section 11. Those deferred values do not authorize Stage 1 and do not reopen the approved architecture.
 
 Complexity: Medium design effort, no runtime change.
 
@@ -375,7 +379,7 @@ Rollback boundary: feature flag defaults off; applied Drafts/Assets remain ordin
 
 ### Stage 4 — Cloud AI Draft assistance
 
-Inputs: approved provider/model/privacy/cost policy, Stage 2 Blocks, reviewed `0020`.
+Inputs: Stage 2 Blocks, reviewed `0020`, and owner approval of the concrete cloud Provider/Model, processing region, retention/training terms, token/cost ceilings, and image-template set. This is a hard Stage 4 entry gate and does not block Stages 1–3.
 
 Outputs:
 
@@ -404,6 +408,8 @@ Security/release invariants:
 Tests: provider contract, malformed/prompt-injected output, lease/retry/dead, cost accounting, stale/locked Block, no-public-write, AI image provenance/cleanup, 2 vCPU/4 GB bounded pressure.
 
 Stop conditions: a provider response can modify truth fields or public state, private files enter context, cost/provenance is missing, or worker concurrency is unbounded.
+
+Provider gate: absence of an approved Provider/Model/budget stops Stage 4 before implementation. It remains a Production-readiness blocker but is not a reason to delay or weaken Stages 1–3.
 
 Complexity: Very High.
 
@@ -446,7 +452,7 @@ Rollback boundary: code-owned defaults and existing Outbox states remain compati
 
 ### Stage 6 — Single-host deployment and operations foundation
 
-Inputs: approved local-storage/Staging ADRs, host volume contract, provider selections.
+Inputs: accepted ADR-0013/ADR-0014, approved host-volume contract, and owner-approved concrete malware Scanner and shared Rate Limiter providers. Scanner/Rate Limiter selection is a hard Stage 6 entry gate and does not block Stages 1–5.
 
 Outputs:
 
@@ -479,13 +485,15 @@ Tests: image/Compose config, secret scan, cross-env denial, origin/firewall lab,
 
 Stop conditions: shared DB/user/media/secret, local root under web serving path, origin bypass, missing restore path, or alerts rely only on SMTP.
 
+External identity gate: actual monitoring accounts, named Production/Staging Admins, and real Secrets are not required to complete Stages 1–5. They must be approved and provisioned before any authorized Stage 6/7 external deployment or provider configuration, and remain Production-readiness blockers.
+
 Complexity: Very High operational work.
 
 Rollback boundary: retain one prior image; database schema remains forward-compatible; config/volume switch has checksum-verified rollback; never delete old media until restore/readiness passes.
 
 ### Stage 7 — Authorized Staging and external validation
 
-Inputs: Stage 6 topology, authorized Cloudflare/Zoho/COS/Sentry/scanner/rate-limit/AI credentials, synthetic data.
+Inputs: Stage 6 topology; owner-approved external monitoring accounts, Production/Staging Admin identities, Secret custody and real environment-specific credentials; authorized Cloudflare/Zoho/COS/Sentry/Scanner/Rate Limiter/AI credentials; Synthetic data only.
 
 Outputs:
 
@@ -538,74 +546,34 @@ Complexity: High business acceptance.
 
 Rollback boundary: import batches remain traceable; unpublished/noindex records can be corrected without public exposure. Production launch is a separate explicit action.
 
-## 10. Draft ADR set required before implementation
+## 10. Accepted Stage 0 ADR set
 
-### ADR-P1B-01 — Local Production origin storage
+| ADR | Status | Primary boundary |
+| --- | --- | --- |
+| [ADR-0013 — Local Production Origin Storage](./adr/ADR-0013-local-production-origin-storage.md) | Accepted 2026-08-05; not implemented | Exact isolated local roots; existing Asset ID and controlled media route; COS backup only initially. |
+| [ADR-0014 — Staging Identity and Preview Retirement](./adr/ADR-0014-staging-identity-and-preview-retirement.md) | Accepted 2026-08-05; not implemented | `staging` replaces `preview`; no permanent alias; protected/noindex/recipient-overridden isolation. |
+| [ADR-0015 — Versioned Structured Block Document](./adr/ADR-0015-versioned-structured-block-document.md) | Accepted 2026-08-05; not implemented | One Block writer, deterministic Paragraph backfill, existing Revision, bounded legacy-field exit. |
+| [ADR-0016 — Product Import Durable Authority](./adr/ADR-0016-product-import-durable-authority.md) | Accepted 2026-08-05; not implemented | Two import orchestration tables; existing Upload/Finalize/Product/Asset/Revision authorities. |
+| [ADR-0017 — AI Run Work and Provenance Authority](./adr/ADR-0017-ai-run-work-and-provenance-authority.md) | Accepted 2026-08-05; not implemented | One Run/work authority; cloud-only, Draft-only, no private Inquiry or public-state capability. |
 
-- Reason: approved Phase 1B replaces the older S3-required online-media assumption with isolated local host volumes and COS backup.
-- Scope: storage startup validation, volume topology, public/private/import roots, backup, later data-disk/object-storage migration.
-- Schema: none.
-- URL/SEO: `/api/public-assets/{id}/` remains stable; no raw path.
-- Compatibility: local and S3 adapters share contracts; Production local mode requires absolute safe roots.
-- Rollback: checksum-copy back to prior mount/provider before switch; never expose raw directories.
+Acceptance of an ADR approves architecture and planning only. Forward Migrations `0018`–`0021`, code, provider configuration, credentials, formal data, and deployment require later explicit Stage authorization.
 
-### ADR-P1B-02 — Staging identity and `preview` retirement
+## 11. Stage-gated owner selections
 
-- Reason: approved environment name/semantics are Staging.
-- Scope: env enum, cookies, noindex, analytics, email override, Compose profile.
-- Schema: optional forward enum addition; no historical edit.
-- URL/SEO: `staging.cwtextile.com`, global noindex.
-- Compatibility: bounded alias only if a real existing Preview installation requires upgrade.
-- Rollback: restore previous app config while retaining additive enum value.
+All 15 architecture/policy decisions are recorded in [Phase 1B Stage 0 Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md). No remaining provider/account value blocks Stages 1–3, and the Scanner/Rate Limiter/account/Secret values do not block Stages 1–5 as specified below.
 
-### ADR-P1B-03 — Versioned structured Block document
+| Gate | Must be approved before | Does not block | Required decision/evidence | Production Ready impact |
+| --- | --- | --- | --- | --- |
+| AI Provider gate | Stage 4 starts | Stages 1–3 | Cloud Provider/Model, region, retention/training terms, token/cost ceilings, endpoint policy, image templates | Mandatory blocker until approved and externally validated |
+| Scanner and shared Rate Limiter gate | Stage 6 starts | Stages 1–5 | Concrete providers, service/failure contracts, credentials plan, 2 vCPU/4 GB behavior | Mandatory blocker until approved and externally validated |
+| External account and Secret gate | Any authorized Stage 6/7 external deployment/configuration | Stages 1–5 | Monitoring accounts, Sentry project, uptime/independent alert route, Cloudflare/Zoho/COS identities, named Admins, environment-specific real Secrets and custody | Mandatory blocker until provisioned and validated |
+| Formal data gate | Stage 8 formal import/public acceptance | Stages 1–7 with Synthetic data | Verified Product/Company facts, managed Category prefixes used by formal Products, licensed media and rights evidence | Mandatory blocker until owner acceptance |
 
-- Reason: one Product/Content editor, AI Block Diff, autosave, and safe rendering require typed structure.
-- Scope: localization fields, Revision snapshots, renderer/editor, legacy text backfill.
-- Schema: additive JSONB/version/editor token.
-- URL/SEO: content and routes unchanged; render parity required.
-- Compatibility: deterministic Paragraph backfill; one authoritative writer after cutover.
-- Rollback: legacy columns retained read-only for bounded prior-release compatibility.
-
-### ADR-P1B-04 — Product Import durable authority
-
-- Reason: partial success, row errors, crash recovery, and idempotent retry cannot be represented by Asset Batch alone.
-- Scope: two import tables, parser/matcher/service/admin; reuse Upload/Product/Revision.
-- Schema: `0019` only.
-- URL/SEO: Draft/noindex; route collisions block.
-- Compatibility: no existing data backfill.
-- Rollback: disable feature, preserve applied ordinary records and batch evidence.
-
-### ADR-P1B-05 — AI Run as one work/provenance authority
-
-- Reason: external latency, retries, cost, provenance, and concurrency require durable state.
-- Scope: one table, worker, adapters, editor integration.
-- Schema: `0020` only.
-- URL/SEO: no public mutation capability.
-- Compatibility: feature defaults off; manual editor independent.
-- Rollback: disable Worker/UI; retain run records.
-
-## 11. Decisions requiring project-owner confirmation
-
-The frozen baseline supplies direction, but the following values or compatibility choices still require explicit owner confirmation before code:
-
-1. Approve the Local Production Origin Storage ADR and exact absolute host volume roots.
-2. Confirm that runtime `preview` is replaced by `staging`, or identify a real existing Preview deployment that needs a bounded compatibility alias.
-3. Approve the legacy text-to-Paragraph Block backfill and the bounded period during which old text columns remain for rollback only.
-4. Approve each Primary Category Product Code prefix (`TYPE`) and the dedicated audited correction policy for an established code.
-5. Approve the canonical MOQ unit allowlist and whether any legacy `moq_note` should be manually split or simply retained as note.
-6. Confirm that Composition remains a validated canonical string in Phase 1B rather than introducing structured fiber rows; structured filtering can remain Phase 2.
-7. Approve the exact Excel template version, required/optional columns, maximum rows/files/archive size, and update matching rule.
-8. Approve the safe email-template variable allowlist and final internal/customer English copy.
-9. Select the cloud AI provider/model(s), data-processing region, retention/training opt-out terms, per-run/monthly cost ceilings, and approved image templates.
-10. Select the Production malware scanner and shared rate-limit provider required by existing fail-closed Production rules.
-11. Approve the canonical public host (`cwtextile.com` or `www`) and redirect direction.
-12. Approve the Cloudflare origin-access method and SSH trusted-access method.
-13. Approve backup encryption/key custody, COS bucket/region/account, and offline SSD custody/cadence.
-14. Select external uptime and independent alert channels, Sentry organization/project, and escalation recipients.
-15. Approve Production/Staging administrator provisioning and secret custody procedure.
+Category prefix syntax/management is already approved. Individual Category prefix values are governed data rather than a new architectural decision: no prefix means no automatic Product Code, and formal values must be reviewed before formal import.
 
 ## 12. External configuration checklist
+
+These values follow the approved policy in [Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md) but are not configured in Stage 0. Their actual accounts, identities, and Secrets follow the gates in Section 11.
 
 - Tencent Lighthouse instance, Ubuntu hardening, 2 GB Swap, firewall/security group, time sync, disk monitoring.
 - Production/Staging PostgreSQL databases/users/grants and private network.
@@ -634,4 +602,4 @@ The frozen baseline supplies direction, but the following values or compatibilit
 
 ## 14. Final planning stop
 
-This plan stops before implementation. It authorizes no Schema edit, Migration generation/execution, dependency change, code change, external configuration, credential use, deployment, formal data import, Commit, or Push. Work resumes only after project-owner review and explicit Phase 1B development authorization.
+This plan stops before business implementation. Stage 0 authorization permits only its local documentation Checkpoint Commit. It authorizes no Schema edit, Migration generation/execution, dependency change, business code change, production configuration, external account mutation, credential use, deployment, formal data import, or Push. Stage 1 work begins only after project-owner review and explicit Phase 1B Stage 1 development authorization.
