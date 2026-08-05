@@ -152,12 +152,40 @@ describe("historical and direct Product publication boundary", () => {
       },
     }).where(eq(productLocalizations.productId, productId));
     const productWithDraftRelations = await queryProductByPath(connection.db, path);
-    expect(Object.keys(productWithDraftRelations?.relatedProducts ?? {})).toEqual([productId]);
-    expect(productWithDraftRelations?.relatedArticles).toEqual({});
+    expect(productWithDraftRelations).toBeNull();
     await connection.db.update(contents).set({ status: "published" }).where(eq(contents.id, draftContentId));
+    expect(await queryProductByPath(connection.db, path)).toBeNull();
+    await connection.db.update(products).set({
+      status: "published",
+      realProductBasis: "physical_sample",
+      realProductConfirmedByUserId: reviewerId,
+      realProductConfirmedAt: new Date(),
+    }).where(eq(products.id, draftProductId));
+    await connection.db.insert(productLocalizations).values({
+      productId: draftProductId,
+      locale: "en",
+      name: "TEST Related Product",
+    });
+    await connection.db.insert(routes).values({
+      entityType: "product",
+      entityId: draftProductId,
+      locale: "en",
+      path: "/products/test-related-product/",
+    });
+    await connection.db.insert(productAssets).values({
+      productId: draftProductId,
+      assetId,
+      role: "hero",
+    });
     expect(Object.keys((await queryProductByPath(connection.db, path))?.relatedArticles ?? {}))
       .toEqual([draftContentId]);
     await connection.db.update(contents).set({ status: "draft" }).where(eq(contents.id, draftContentId));
+    await connection.db.update(productLocalizations).set({
+      structuredBlocks: {
+        version: 1,
+        blocks: [{ id: "restored-narrative", type: "paragraph", text: "TEST restored public narrative." }],
+      },
+    }).where(eq(productLocalizations.productId, productId));
 
     await connection.db.update(products).set({ realProductBasis: null }).where(eq(products.id, productId));
     await expectVisible(false);

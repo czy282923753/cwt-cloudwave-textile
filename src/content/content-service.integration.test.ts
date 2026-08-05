@@ -155,7 +155,7 @@ describe("published content revisions", () => {
           productIds: ["10000000-0000-4000-8000-000000000099"],
         }],
       },
-    })).rejects.toThrow(/must reference existing records/);
+    })).rejects.toThrow(/must resolve to current public records/);
     await expect(updateContent(connection.db, actor, contentId, {
       ...baseInput,
       structuredDocument: {
@@ -166,7 +166,7 @@ describe("published content revisions", () => {
           mediaKey: "hero-image",
         }],
       },
-    })).rejects.toThrow(/require Content media placements/);
+    })).rejects.toThrow(/must resolve to a visible/);
     await connection.close();
   });
 });

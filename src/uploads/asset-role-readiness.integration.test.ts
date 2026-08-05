@@ -116,7 +116,11 @@ describe("Fabric and Content Asset role/MIME readiness", () => {
       contentId,
       locale: "en",
       title: "TEST Content PDF Role",
-      body: "TEST body",
+      body: "",
+      structuredBlocks: {
+        version: 1,
+        blocks: [{ id: "test-body", type: "paragraph", text: "TEST body" }],
+      },
     });
     const assetRows = await connection.db.insert(assets).values({
       originalFileName: "report.pdf",

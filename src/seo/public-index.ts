@@ -25,6 +25,8 @@ import {
   seoTopicMembers,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { parseBlockDocument } from "@/editorial/blocks";
+import { resolveBlockPublicProjection } from "@/editorial/block-references";
 import {
   hasPubliclyEligibleProductForFabricEntryConditions,
   publicProductEligibilityConditions,
@@ -54,7 +56,14 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
   const [productRows, applicationRows, fabricRows, contentRows, taxonomyRows] =
     await Promise.all([
       db
-        .selectDistinct({ path: routes.path, updatedAt: routes.updatedAt })
+        .selectDistinct({
+          entityId: products.id,
+          path: routes.path,
+          updatedAt: routes.updatedAt,
+          shortDescription: productLocalizations.shortDescription,
+          structuredBlocks: productLocalizations.structuredBlocks,
+          blocksVersion: productLocalizations.blocksVersion,
+        })
         .from(routes)
         .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
         .innerJoin(
@@ -96,10 +105,6 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
             eq(productAssets.isVisible, true),
             publicReadyImageSqlConditions(),
             eq(productLocalizations.blocksVersion, 1),
-            or(
-              sql`length(trim(coalesce(${productLocalizations.shortDescription}, ''))) > 0`,
-              sql`jsonb_array_length(coalesce(${productLocalizations.structuredBlocks}->'blocks', '[]'::jsonb)) > 0`,
-            ),
             sql`length(trim(coalesce(${seoMetadata.title}, ''))) > 0`,
             sql`length(trim(coalesce(${seoMetadata.metaDescription}, ''))) > 0`,
             sql`length(trim(coalesce(${productAssets.altText}, ${assets.altText}, ''))) > 0`,
@@ -196,7 +201,13 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
           ),
         ),
       db
-        .selectDistinct({ path: routes.path, updatedAt: routes.updatedAt })
+        .selectDistinct({
+          entityId: contents.id,
+          path: routes.path,
+          updatedAt: routes.updatedAt,
+          structuredBlocks: contentLocalizations.structuredBlocks,
+          blocksVersion: contentLocalizations.blocksVersion,
+        })
         .from(routes)
         .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
         .innerJoin(
@@ -228,7 +239,6 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
             eq(contents.status, "published"),
             eq(contentLocalizations.blocksVersion, 1),
             sql`length(trim(${contentLocalizations.title})) > 0`,
-            sql`jsonb_array_length(coalesce(${contentLocalizations.structuredBlocks}->'blocks', '[]'::jsonb)) > 0`,
             sql`length(trim(coalesce(${seoMetadata.title}, ''))) > 0`,
             sql`length(trim(coalesce(${seoMetadata.metaDescription}, ''))) > 0`,
           ),
@@ -273,7 +283,45 @@ export async function queryIndexableRoutes<TQueryResult extends PgQueryResultHKT
           ),
         ),
     ]);
-  return [...productRows, ...applicationRows, ...fabricRows, ...contentRows, ...taxonomyRows]
+  const [resolvedProductRows, resolvedContentRows] = await Promise.all([
+    Promise.all(productRows.map(async (row) => {
+      try {
+        if (row.blocksVersion !== 1) return null;
+        const projection = await resolveBlockPublicProjection(
+          db,
+          { type: "product", id: row.entityId },
+          parseBlockDocument(row.structuredBlocks, "product"),
+        );
+        return row.shortDescription?.trim() || projection.readableText
+          ? { path: row.path, updatedAt: row.updatedAt }
+          : null;
+      } catch {
+        return null;
+      }
+    })),
+    Promise.all(contentRows.map(async (row) => {
+      try {
+        if (row.blocksVersion !== 1) return null;
+        const projection = await resolveBlockPublicProjection(
+          db,
+          { type: "content", id: row.entityId },
+          parseBlockDocument(row.structuredBlocks, "content"),
+        );
+        return projection.readableText
+          ? { path: row.path, updatedAt: row.updatedAt }
+          : null;
+      } catch {
+        return null;
+      }
+    })),
+  ]);
+  return [
+    ...resolvedProductRows.filter((row): row is NonNullable<typeof row> => row !== null),
+    ...applicationRows,
+    ...fabricRows,
+    ...resolvedContentRows.filter((row): row is NonNullable<typeof row> => row !== null),
+    ...taxonomyRows,
+  ]
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 

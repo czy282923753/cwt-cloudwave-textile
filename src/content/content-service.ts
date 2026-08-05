@@ -24,14 +24,15 @@ import {
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import {
-  blockDocumentPlainText,
   blockDocumentSchema,
   legacyTextToBlockDocument,
   parseBlockDocument,
-  referencedMediaKeys,
   type BlockDocument,
 } from "@/editorial/blocks";
-import { assertEditorialBlockReferencesExist } from "@/editorial/block-references";
+import {
+  resolveBlockPublicProjection,
+  type ContentBlockMediaPlacement,
+} from "@/editorial/block-references";
 import { slugify } from "@/seo/path";
 import {
   publicReadyAssetSqlConditions,
@@ -116,15 +117,13 @@ function normalizeContentMedia(
 
 async function validateContentMedia<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  contentId: string,
   document: BlockDocument,
   media: readonly ContentMediaPlacement[] | undefined,
-): Promise<void> {
-  await assertEditorialBlockReferencesExist(db, document);
+): Promise<Awaited<ReturnType<typeof resolveBlockPublicProjection>>> {
+  const projectionMedia: readonly ContentBlockMediaPlacement[] | undefined = media;
   if (!media) {
-    if (referencedMediaKeys(document).length) {
-      throw new Error("Image and Gallery Blocks require Content media placements.");
-    }
-    return;
+    return resolveBlockPublicProjection(db, { type: "content", id: contentId }, document);
   }
   if (new Set(media.map((item) => item.assetId)).size !== media.length) {
     throw new Error("Content media Assets must be unique.");
@@ -136,20 +135,46 @@ async function validateContentMedia<TQueryResult extends PgQueryResultHKT>(
   if (new Set(blockKeys).size !== blockKeys.length) {
     throw new Error("Content media Block keys must be unique.");
   }
-  const availableBlockKeys = new Set(blockKeys);
-  const missingReferences = referencedMediaKeys(document).filter(
-    (key) => !availableBlockKeys.has(key),
-  );
-  if (missingReferences.length) {
-    throw new Error("Every Image or Gallery Block must reference a Content media placement.");
+  if (media.length) {
+    const assetRows = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(inArray(assets.id, media.map((item) => item.assetId)), publicReadyImageSqlConditions()));
+    if (assetRows.length !== media.length) {
+      throw new Error("Content Assets must be ready, scanned public Assets.");
+    }
   }
-  if (!media.length) return;
-  const assetRows = await db
-    .select({ id: assets.id })
-    .from(assets)
-    .where(and(inArray(assets.id, media.map((item) => item.assetId)), publicReadyImageSqlConditions()));
-  if (assetRows.length !== media.length) {
-    throw new Error("Content Assets must be ready, scanned public Assets.");
+  return resolveBlockPublicProjection(
+    db,
+    {
+      type: "content",
+      id: contentId,
+      ...(projectionMedia ? { media: projectionMedia } : {}),
+    },
+    document,
+  );
+}
+
+async function assertIndexedContentRemainsReadable<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  contentId: string,
+  readableText: string,
+): Promise<void> {
+  const rows = await db
+    .select({ indexStatus: seoMetadata.indexStatus })
+    .from(routes)
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(and(
+      eq(routes.entityType, "content"),
+      eq(routes.entityId, contentId),
+      eq(routes.locale, "en"),
+      eq(routes.isCurrent, true),
+    ))
+    .limit(1);
+  if (rows[0]?.indexStatus === "index" && !readableText) {
+    throw new Error("An indexed Content revision must retain readable public narrative content.");
   }
 }
 
@@ -343,7 +368,7 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
   if (snapshot.expectedEditorDocumentVersion !== current.editorDocumentVersion) {
     throw new Error("Content changed after this editor loaded; refresh before saving.");
   }
-  await validateContentMedia(db, snapshot.document, snapshot.media);
+  await validateContentMedia(db, contentId, snapshot.document, snapshot.media);
   if (status === "archived") throw new Error("Archived Content cannot be edited.");
   const seo = {
     routeId: current.routeId,
@@ -393,6 +418,13 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
       .set({ authorId: input.authorId, type: input.type, updatedAt: new Date() })
       .where(eq(contents.id, contentId));
     await applyContentMedia(transaction, contentId, snapshot.media);
+    const projection = await validateContentMedia(
+      transaction,
+      contentId,
+      snapshot.document,
+      undefined,
+    );
+    await assertIndexedContentRemainsReadable(transaction, contentId, projection.readableText);
     await transaction
       .update(seoMetadata)
       .set({
@@ -479,7 +511,7 @@ export async function proposePublishedContentRevision<
   if (snapshot.expectedEditorDocumentVersion !== editorDocumentVersion) {
     throw new Error("Content changed after this revision was prepared.");
   }
-  await validateContentMedia(db, snapshot.document, snapshot.media);
+  await validateContentMedia(db, contentId, snapshot.document, snapshot.media);
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
@@ -546,9 +578,10 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   revisionId: string,
+  options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "content.publish");
-  await db.transaction(async (transaction) => {
+  await runGovernedMutation(db, async ({ transaction, audit }) => {
     const rows = await transaction
       .select()
       .from(editorialRevisions)
@@ -593,7 +626,17 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
         .limit(1);
       if (!authorRows[0]) throw new Error("Content revision Author must still be active.");
     }
-    await validateContentMedia(transaction, document, media);
+    const projection = await validateContentMedia(
+      transaction,
+      revision.entityId,
+      document,
+      media,
+    );
+    await assertIndexedContentRemainsReadable(
+      transaction,
+      revision.entityId,
+      projection.readableText,
+    );
     const localizationRows = await transaction
       .select({ editorDocumentVersion: contentLocalizations.editorDocumentVersion })
       .from(contentLocalizations)
@@ -645,6 +688,12 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
       })
       .where(eq(contents.id, revision.entityId));
     await applyContentMedia(transaction, revision.entityId, media);
+    await validateContentMedia(
+      transaction,
+      revision.entityId,
+      document,
+      undefined,
+    );
     if (snapshot.seo) {
       const routeRows = await transaction
         .select({ id: routes.id })
@@ -670,14 +719,14 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
         })
         .where(eq(seoMetadata.routeId, snapshot.seo.routeId));
     }
-    await writeAuditLog(transaction, {
+    await audit({
       actorUserId: actor.userId,
       action: "content.revision.applied",
       entityType: "editorial_revision",
       entityId: revisionId,
       afterSummary: { contentId: revision.entityId },
     });
-  });
+  }, options);
 }
 
 export async function rejectContentReview<TQueryResult extends PgQueryResultHKT>(
@@ -792,7 +841,10 @@ export async function publishContent<TQueryResult extends PgQueryResultHKT>(
     const parsed = contentMediaPlacementSchema.safeParse(row);
     return parsed.success ? [parsed.data] : [];
   });
-  await validateContentMedia(db, document, placements);
+  const projection = await validateContentMedia(db, contentId, document, placements);
+  if (!projection.readableText) {
+    throw new Error("Published Content requires readable public narrative content.");
+  }
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(contents)
@@ -857,9 +909,11 @@ export async function setContentIndexStatus<TQueryResult extends PgQueryResultHK
   let narrativeText = "";
   try {
     if (content.blocksVersion !== 1) throw new Error("Unsupported Block version.");
-    narrativeText = blockDocumentPlainText(
+    narrativeText = (await resolveBlockPublicProjection(
+      db,
+      { type: "content", id: contentId },
       parseBlockDocument(content.structuredBlocks, "content"),
-    );
+    )).readableText;
   } catch {
     narrativeText = "";
   }

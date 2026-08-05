@@ -32,8 +32,7 @@ import { listVerifiedPublicCompanyFacts } from "@/content/company-facts-service"
 import type { AppDatabase } from "@/db/types";
 import { createObjectStorage } from "@/storage";
 import { parseBlockDocument } from "@/editorial/blocks";
-import { referencedEditorialEntities } from "@/editorial/block-references";
-import type { BlockRelatedLink } from "@/editorial/block-renderer";
+import { resolveBlockPublicProjection } from "@/editorial/block-references";
 
 import { resolveVisibleProductFields } from "./product-visibility";
 import { assertPublicAssetCandidate } from "./public-asset-policy";
@@ -50,79 +49,6 @@ export interface PublicAsset {
   caption: string | null;
   width: number | null;
   height: number | null;
-}
-
-async function queryPublishedEditorialLinks<TQueryResult extends PgQueryResultHKT>(
-  db: AppDatabase<TQueryResult>,
-  document: ReturnType<typeof parseBlockDocument>,
-): Promise<{
-  relatedProducts: Record<string, BlockRelatedLink>;
-  relatedArticles: Record<string, BlockRelatedLink>;
-}> {
-  const { productIds, contentIds } = referencedEditorialEntities(document);
-  const [productRows, contentRows] = await Promise.all([
-    productIds.length
-      ? db
-          .select({
-            id: products.id,
-            label: productLocalizations.name,
-            href: routes.path,
-          })
-          .from(products)
-          .innerJoin(
-            productLocalizations,
-            and(
-              eq(productLocalizations.productId, products.id),
-              eq(productLocalizations.locale, "en"),
-            ),
-          )
-          .innerJoin(
-            routes,
-            and(
-              eq(routes.entityType, "product"),
-              eq(routes.entityId, products.id),
-              eq(routes.locale, "en"),
-              eq(routes.isCurrent, true),
-            ),
-          )
-          .where(
-            and(
-              inArray(products.id, productIds),
-              publicProductEligibilityConditions(db),
-            ),
-          )
-      : Promise.resolve([]),
-    contentIds.length
-      ? db
-          .select({
-            id: contents.id,
-            label: contentLocalizations.title,
-            href: routes.path,
-          })
-          .from(contents)
-          .innerJoin(
-            contentLocalizations,
-            and(
-              eq(contentLocalizations.contentId, contents.id),
-              eq(contentLocalizations.locale, "en"),
-            ),
-          )
-          .innerJoin(
-            routes,
-            and(
-              eq(routes.entityType, "content"),
-              eq(routes.entityId, contents.id),
-              eq(routes.locale, "en"),
-              eq(routes.isCurrent, true),
-            ),
-          )
-          .where(and(inArray(contents.id, contentIds), eq(contents.status, "published")))
-      : Promise.resolve([]),
-  ]);
-  return {
-    relatedProducts: Object.fromEntries(productRows.map((row) => [row.id, row])),
-    relatedArticles: Object.fromEntries(contentRows.map((row) => [row.id, row])),
-  };
 }
 
 export async function getVerifiedPublicCompanyFacts() {
@@ -333,6 +259,16 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
   } catch {
     return null;
   }
+  let blockProjection;
+  try {
+    blockProjection = await resolveBlockPublicProjection(
+      db,
+      { type: "product", id: product.id },
+      narrativeBlocks,
+    );
+  } catch {
+    return null;
+  }
   const [
     imageRows,
     featureRows,
@@ -340,7 +276,6 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
     reviewRows,
     applicationRows,
     taxonomyRows,
-    relatedLinks,
   ] =
     await Promise.all([
       db
@@ -444,7 +379,6 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
           ),
         )
         .where(eq(productTaxonomyTerms.productId, product.id)),
-      queryPublishedEditorialLinks(db, narrativeBlocks),
     ]);
   const verified = new Set(reviewRows.map((row) => row.fieldName));
   const visibleFields = resolveVisibleProductFields(product, verified);
@@ -461,7 +395,8 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
     faqs: faqRows,
     applications: applicationRows,
     taxonomy: taxonomyRows,
-    ...relatedLinks,
+    relatedProducts: blockProjection.relatedProducts,
+    relatedArticles: blockProjection.relatedArticles,
   };
 }
 
@@ -736,14 +671,22 @@ async function queryContents<TQueryResult extends PgQueryResultHKT>(
     )
     .orderBy(desc(contents.publishedAt));
   const rows = await base;
-  return rows.flatMap((row) => {
+  const resolved = await Promise.all(rows.map(async (row) => {
     try {
       if (row.blocksVersion !== 1) return [];
-      return [{ ...row, document: parseBlockDocument(row.structuredBlocks, "content") }];
+      const document = parseBlockDocument(row.structuredBlocks, "content");
+      const blockProjection = await resolveBlockPublicProjection(
+        db,
+        { type: "content", id: row.id },
+        document,
+      );
+      if (!blockProjection.readableText) return [];
+      return [{ ...row, document, blockProjection }];
     } catch {
       return [];
     }
-  });
+  }));
+  return resolved.flat();
 }
 
 export async function listPublishedContents(channel?: typeof contents.$inferSelect.channel) {
@@ -769,10 +712,13 @@ export async function getPublishedContentByPath(path: string) {
     const image = images[index];
     if (row.blockKey && image) blockMedia[row.blockKey] = image;
   });
-  const relatedLinks = databaseConnection.kind === "pglite"
-    ? await queryPublishedEditorialLinks(databaseConnection.db, content.document)
-    : await queryPublishedEditorialLinks(databaseConnection.db, content.document);
-  return { ...content, images, blockMedia, ...relatedLinks };
+  return {
+    ...content,
+    images,
+    blockMedia,
+    relatedProducts: content.blockProjection.relatedProducts,
+    relatedArticles: content.blockProjection.relatedArticles,
+  };
 }
 
 export async function queryPublicContentImages<

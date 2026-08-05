@@ -32,12 +32,14 @@ import {
 import type { AppDatabase } from "@/db/types";
 import {
   blockDocumentSchema,
-  blockDocumentPlainText,
   legacyTextToBlockDocument,
   parseBlockDocument,
   type BlockDocument,
 } from "@/editorial/blocks";
-import { assertEditorialBlockReferencesExist } from "@/editorial/block-references";
+import {
+  resolveBlockPublicProjection,
+  type ProductBlockMediaPlacement,
+} from "@/editorial/block-references";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
 import {
@@ -286,6 +288,78 @@ type ProductStructureSnapshot = Extract<
   { kind: "structure" }
 >;
 
+function productStructureMedia(
+  snapshot: ProductStructureSnapshot,
+): ProductBlockMediaPlacement[] {
+  return snapshot.media ?? snapshot.assetIds.map((assetId, index) => ({
+    assetId,
+    role: assetId === snapshot.heroAssetId ? ("hero" as const) : ("gallery" as const),
+    sortOrder: assetId === snapshot.heroAssetId ? 0 : index + 1,
+    altText: null,
+    caption: null,
+    isVisible: true,
+  }));
+}
+
+async function loadProductBlockDocument<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  productId: string,
+): Promise<{ document: BlockDocument; shortDescription: string | null }> {
+  const rows = await db
+    .select({
+      structuredBlocks: productLocalizations.structuredBlocks,
+      blocksVersion: productLocalizations.blocksVersion,
+      shortDescription: productLocalizations.shortDescription,
+    })
+    .from(productLocalizations)
+    .where(and(
+      eq(productLocalizations.productId, productId),
+      eq(productLocalizations.locale, "en"),
+    ))
+    .limit(1);
+  const localization = rows[0];
+  if (!localization || localization.blocksVersion !== 1) {
+    throw new ProductValidationError("Product Block document version is unsupported.");
+  }
+  return {
+    document: parseBlockDocument(localization.structuredBlocks, "product"),
+    shortDescription: localization.shortDescription,
+  };
+}
+
+async function assertProductBlockProjection<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  productId: string,
+  document: BlockDocument,
+  shortDescription: string | null,
+  media?: readonly ProductBlockMediaPlacement[],
+): Promise<void> {
+  const projection = await resolveBlockPublicProjection(
+    db,
+    { type: "product", id: productId, ...(media ? { media } : {}) },
+    document,
+  );
+  const indexRows = await db
+    .select({ indexStatus: seoMetadata.indexStatus })
+    .from(routes)
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(and(
+      eq(routes.entityType, "product"),
+      eq(routes.entityId, productId),
+      eq(routes.locale, "en"),
+      eq(routes.isCurrent, true),
+    ))
+    .limit(1);
+  if (
+    indexRows[0]?.indexStatus === "index" &&
+    !(shortDescription?.trim() || projection.readableText)
+  ) {
+    throw new ProductValidationError(
+      "An indexed Product revision must retain readable public narrative content.",
+    );
+  }
+}
+
 async function validateProductStructure<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   snapshot: ProductStructureSnapshot,
@@ -312,14 +386,7 @@ async function validateProductStructure<TQueryResult extends PgQueryResultHKT>(
   if (applicationRows.length !== new Set(snapshot.applicationIds).size) {
     throw new ProductValidationError("Every Product Application must exist.");
   }
-  const media = snapshot.media ?? snapshot.assetIds.map((assetId, index) => ({
-    assetId,
-    role: assetId === snapshot.heroAssetId ? ("hero" as const) : ("gallery" as const),
-    sortOrder: assetId === snapshot.heroAssetId ? 0 : index + 1,
-    altText: null,
-    caption: null,
-    isVisible: true,
-  }));
+  const media = productStructureMedia(snapshot);
   if (!snapshot.assetIds.includes(snapshot.heroAssetId)) {
     throw new ProductValidationError("Hero Image must belong to the Product images.");
   }
@@ -346,14 +413,7 @@ async function applyProductStructure<TQueryResult extends PgQueryResultHKT>(
     snapshot.primaryTaxonomyTermId,
     ...snapshot.additionalTaxonomyTermIds,
   ].filter((id, index, all) => all.indexOf(id) === index);
-  const media = snapshot.media ?? snapshot.assetIds.map((assetId, index) => ({
-    assetId,
-    role: assetId === snapshot.heroAssetId ? ("hero" as const) : ("gallery" as const),
-    sortOrder: assetId === snapshot.heroAssetId ? 0 : index + 1,
-    altText: null,
-    caption: null,
-    isVisible: true,
-  }));
+  const media = productStructureMedia(snapshot);
   const applicationIds = [...new Set(snapshot.applicationIds)];
 
   await db.delete(productTaxonomyTerms).where(eq(productTaxonomyTerms.productId, productId));
@@ -611,7 +671,12 @@ export async function updateProductEditorialCopy<
       "Product narrative changed after this editor loaded; refresh before saving.",
     );
   }
-  await assertEditorialBlockReferencesExist(db, snapshot.document);
+  await assertProductBlockProjection(
+    db,
+    productId,
+    snapshot.document,
+    snapshot.shortDescription,
+  );
   if (product.status === "published") {
     return proposeProductRevision(db, actor, productId, snapshot);
   }
@@ -1026,11 +1091,25 @@ export async function updateProductStructure<TQueryResult extends PgQueryResultH
     throw new ProductValidationError("Invalid Product structure revision.");
   }
   await validateProductStructure(db, snapshot);
+  const currentNarrative = await loadProductBlockDocument(db, productId);
+  await assertProductBlockProjection(
+    db,
+    productId,
+    currentNarrative.document,
+    currentNarrative.shortDescription,
+    productStructureMedia(snapshot),
+  );
   if (status === "published") {
     return proposeProductRevision(db, actor, productId, snapshot, options);
   }
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     await applyProductStructure(transaction, productId, snapshot);
+    await assertProductBlockProjection(
+      transaction,
+      productId,
+      currentNarrative.document,
+      currentNarrative.shortDescription,
+    );
     await audit({
       actorUserId: actor.userId,
       action: "product.structure.updated",
@@ -1167,8 +1246,23 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
       );
     }
     const snapshot = productRevisionSnapshotSchema.parse(revision.snapshot);
+    const currentNarrative = await loadProductBlockDocument(transaction, revision.entityId);
+    const finalDocument = snapshot.kind === "editorial_blocks"
+      ? parseBlockDocument(snapshot.document, "product")
+      : snapshot.kind === "editorial_copy"
+        ? legacyTextToBlockDocument(snapshot.fullDescription)
+        : currentNarrative.document;
+    const finalShortDescription = snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy"
+      ? snapshot.shortDescription
+      : currentNarrative.shortDescription;
+    await assertProductBlockProjection(
+      transaction,
+      revision.entityId,
+      finalDocument,
+      finalShortDescription,
+      snapshot.kind === "structure" ? productStructureMedia(snapshot) : undefined,
+    );
     if (snapshot.kind === "editorial_blocks") {
-      await assertEditorialBlockReferencesExist(transaction, snapshot.document);
       const updated = await transaction
         .update(productLocalizations)
         .set({
@@ -1402,6 +1496,13 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
   options: GovernedMutationOptions = {},
 ): Promise<void> {
   requirePermission(actor.role, "products.publish");
+  const narrative = await loadProductBlockDocument(db, productId);
+  await assertProductBlockProjection(
+    db,
+    productId,
+    narrative.document,
+    narrative.shortDescription,
+  );
   const [productRows, currentRoutes, localizations, imageCount] = await Promise.all([
     db
       .select({
@@ -1610,9 +1711,11 @@ export async function setProductIndexStatus<TQueryResult extends PgQueryResultHK
   let narrativeText = "";
   try {
     if (product.blocksVersion !== 1) throw new Error("Unsupported Block version.");
-    narrativeText = blockDocumentPlainText(
+    narrativeText = (await resolveBlockPublicProjection(
+      db,
+      { type: "product", id: productId },
       parseBlockDocument(product.structuredBlocks, "product"),
-    );
+    )).readableText;
   } catch {
     narrativeText = "";
   }
