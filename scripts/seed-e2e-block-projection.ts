@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import sharp from "sharp";
 
 import {
+  applyProductRevision,
   confirmRealProductBasis,
   createProductDraft,
   publishReviewedProduct,
@@ -22,8 +23,16 @@ import {
 } from "../src/content/static-page-settings";
 import { databaseConnection } from "../src/db/client";
 import { seedCoreData } from "../src/db/seed";
-import { assets, authors, taxonomyTerms } from "../src/db/schema";
+import {
+  applications,
+  assets,
+  authors,
+  productAssets,
+  products,
+  taxonomyTerms,
+} from "../src/db/schema";
 import type { AppDatabase } from "../src/db/types";
+import type { BlockDocument } from "../src/editorial/blocks";
 import { createObjectStorage } from "../src/storage";
 import { createFileScanner } from "../src/uploads/scanner";
 import { uploadAsset } from "../src/uploads/service";
@@ -56,9 +65,68 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     createAsset("block-product-gallery-a", [122, 78, 45], "product"),
     createAsset("block-product-gallery-b", [48, 73, 126], "product"),
   ]);
+  const detailAssetId = await createAsset("block-product-detail", [91, 65, 118], "product");
   const categoryRows = await db.select({ id: taxonomyTerms.id }).from(taxonomyTerms).where(eq(taxonomyTerms.isActive, true)).limit(1);
   const categoryId = categoryRows[0]?.id;
   if (!categoryId) throw new Error("E2E Block fixture requires an active taxonomy category.");
+  type FixtureMedia = Array<{
+    assetId: string;
+    role: "hero" | "gallery" | "detail" | "application";
+    sortOrder: number;
+    altText: string;
+    caption: string | null;
+    isVisible: boolean;
+  }>;
+  const heroMedia: FixtureMedia = [{
+    assetId: productAssetIds[0]!,
+    role: "hero",
+    sortOrder: 0,
+    altText: "Synthetic Product hero",
+    caption: null,
+    isVisible: true,
+  }];
+  const publishFixtureProduct = async (input: {
+    slug: string;
+    label: string;
+    document: BlockDocument;
+    media?: FixtureMedia;
+    features?: string[];
+    applicationIds?: string[];
+  }) => {
+    const media = input.media ?? heroMedia;
+    const assetIds = media.map((item) => item.assetId);
+    const fixtureProductId = await createProductDraft(db, actor, {
+      name: `TEST E2E ${input.label}`,
+      requestedSlug: input.slug,
+      primaryTaxonomyTermId: categoryId,
+      assetIds,
+    });
+    await updateProductStructure(db, actor, fixtureProductId, {
+      primaryTaxonomyTermId: categoryId,
+      additionalTaxonomyTermIds: [],
+      applicationIds: input.applicationIds ?? [],
+      tagNames: [],
+      assetIds,
+      heroAssetId: productAssetIds[0]!,
+      media,
+      features: input.features ?? [],
+      faqs: [],
+      colorOptionsDisplay: "inherit",
+      customAvailableDisplay: "inherit",
+      sampleAvailableDisplay: "inherit",
+      moqNoteDisplay: "inherit",
+    });
+    await updateProductBlocks(db, actor, fixtureProductId, {
+      name: `TEST E2E ${input.label}`,
+      shortDescription: "Synthetic noindex Product used only for final Stage 1 remediation browser checks.",
+      document: input.document,
+      expectedEditorDocumentVersion: 1,
+    });
+    await confirmRealProductBasis(db, actor, fixtureProductId, "physical_sample", "Synthetic E2E-only evidence");
+    await submitProductForReview(db, actor, fixtureProductId);
+    await publishReviewedProduct(db, actor, fixtureProductId);
+    return fixtureProductId;
+  };
   const productId = await createProductDraft(db, actor, {
     name: "TEST E2E Block Media Product",
     requestedSlug: "test-e2e-block-media-product",
@@ -89,6 +157,111 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
   await confirmRealProductBasis(db, actor, productId, "physical_sample", "Synthetic E2E-only evidence");
   await submitProductForReview(db, actor, productId);
   await publishReviewedProduct(db, actor, productId);
+
+  const detailMedia: FixtureMedia = [
+    ...heroMedia,
+    { assetId: detailAssetId, role: "detail", sortOrder: 1, altText: "Synthetic Product detail", caption: null, isVisible: true },
+  ];
+  const galleryMedia: FixtureMedia = [
+    ...heroMedia,
+    { assetId: productAssetIds[1]!, role: "gallery", sortOrder: 1, altText: "Synthetic Product gallery A", caption: "Synthetic gallery A", isVisible: true },
+    { assetId: productAssetIds[2]!, role: "gallery", sortOrder: 2, altText: "Synthetic Product gallery B", caption: "Synthetic gallery B", isVisible: true },
+  ];
+  await publishFixtureProduct({
+    slug: "test-e2e-renderable-empty",
+    label: "Renderable Empty",
+    document: { version: 1, blocks: [] },
+  });
+  await publishFixtureProduct({
+    slug: "test-e2e-renderable-divider",
+    label: "Renderable Divider",
+    document: { version: 1, blocks: [{ id: "divider-only", type: "divider" }] },
+  });
+  const unresolvedImageId = await publishFixtureProduct({
+    slug: "test-e2e-renderable-unresolved-image",
+    label: "Renderable Unresolved Image",
+    document: { version: 1, blocks: [{ id: "detail-image", type: "image", mediaKey: detailAssetId }] },
+    media: detailMedia,
+  });
+  await db.delete(productAssets).where(and(
+    eq(productAssets.productId, unresolvedImageId),
+    eq(productAssets.assetId, detailAssetId),
+  ));
+  const hiddenImageId = await publishFixtureProduct({
+    slug: "test-e2e-renderable-hidden-image",
+    label: "Renderable Hidden Image",
+    document: { version: 1, blocks: [{ id: "detail-image", type: "image", mediaKey: detailAssetId }] },
+    media: detailMedia,
+  });
+  await db.update(productAssets).set({ isVisible: false }).where(and(
+    eq(productAssets.productId, hiddenImageId),
+    eq(productAssets.assetId, detailAssetId),
+  ));
+  const unresolvedGalleryId = await publishFixtureProduct({
+    slug: "test-e2e-renderable-unresolved-gallery",
+    label: "Renderable Unresolved Gallery",
+    document: { version: 1, blocks: [{ id: "gallery", type: "gallery", mediaKeys: [productAssetIds[1]!, productAssetIds[2]!] }] },
+    media: galleryMedia,
+  });
+  await db.delete(productAssets).where(and(
+    eq(productAssets.productId, unresolvedGalleryId),
+    eq(productAssets.role, "gallery"),
+  ));
+  const relatedTargetId = await publishFixtureProduct({
+    slug: "test-e2e-renderable-related-target",
+    label: "Renderable Related Target",
+    document: { version: 1, blocks: [{ id: "target-text", type: "paragraph", text: "Synthetic related target." }] },
+  });
+  await publishFixtureProduct({
+    slug: "test-e2e-renderable-filtered-related",
+    label: "Renderable Filtered Related",
+    document: { version: 1, blocks: [{ id: "related", type: "related_products", productIds: [relatedTargetId] }] },
+  });
+  await db.update(products).set({ status: "draft" }).where(eq(products.id, relatedTargetId));
+  await publishFixtureProduct({
+    slug: "test-e2e-renderable-paragraph",
+    label: "Renderable Paragraph",
+    document: { version: 1, blocks: [{ id: "paragraph", type: "paragraph", text: "Synthetic renderable Paragraph is visible." }] },
+  });
+  await publishFixtureProduct({
+    slug: "test-e2e-renderable-heading",
+    label: "Renderable Heading",
+    document: { version: 1, blocks: [{ id: "heading", type: "heading", level: 2, text: "Synthetic renderable Heading" }] },
+  });
+  const applicationRows = await db.select({ id: applications.id }).from(applications).where(eq(applications.status, "published")).limit(1);
+  const applicationId = applicationRows[0]?.id;
+  if (!applicationId) throw new Error("E2E Block fixture requires a published Application.");
+  await publishFixtureProduct({
+    slug: "test-e2e-renderable-independent-modules",
+    label: "Renderable Independent Modules",
+    document: { version: 1, blocks: [] },
+    features: ["Synthetic independent feature"],
+    applicationIds: [applicationId],
+  });
+  const pendingRevisionProductId = await publishFixtureProduct({
+    slug: "test-e2e-renderable-revision-before",
+    label: "Renderable Revision Before",
+    document: { version: 1, blocks: [{ id: "approved-text", type: "paragraph", text: "Approved narrative remains before Revision approval." }] },
+  });
+  await updateProductBlocks(db, actor, pendingRevisionProductId, {
+    name: "TEST E2E Renderable Revision Before",
+    shortDescription: "Synthetic noindex Product used only for final Stage 1 remediation browser checks.",
+    document: { version: 1, blocks: [{ id: "pending-divider", type: "divider" }] },
+    expectedEditorDocumentVersion: 2,
+  });
+  const appliedRevisionProductId = await publishFixtureProduct({
+    slug: "test-e2e-renderable-revision-after",
+    label: "Renderable Revision After",
+    document: { version: 1, blocks: [{ id: "approved-text", type: "paragraph", text: "Narrative before final approved Revision." }] },
+  });
+  const appliedRevisionId = await updateProductBlocks(db, actor, appliedRevisionProductId, {
+    name: "TEST E2E Renderable Revision After",
+    shortDescription: "Synthetic noindex Product used only for final Stage 1 remediation browser checks.",
+    document: { version: 1, blocks: [{ id: "approved-divider", type: "divider" }] },
+    expectedEditorDocumentVersion: 2,
+  });
+  if (!appliedRevisionId) throw new Error("E2E applied Product Revision was not created.");
+  await applyProductRevision(db, actor, appliedRevisionId);
 
   const contentAssetIds = await Promise.all([
     createAsset("block-content-inline", [85, 115, 50], "content"),
@@ -167,6 +340,20 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
   return {
     productPath: "/products/test-e2e-block-media-product/",
     contentPath: "/fabric-knowledge/test-e2e-block-media-content/",
+    renderableProductPaths: {
+      empty: "/products/test-e2e-renderable-empty/",
+      divider: "/products/test-e2e-renderable-divider/",
+      unresolvedImage: "/products/test-e2e-renderable-unresolved-image/",
+      hiddenImage: "/products/test-e2e-renderable-hidden-image/",
+      unresolvedGallery: "/products/test-e2e-renderable-unresolved-gallery/",
+      filteredRelated: "/products/test-e2e-renderable-filtered-related/",
+      paragraph: "/products/test-e2e-renderable-paragraph/",
+      heading: "/products/test-e2e-renderable-heading/",
+      validMedia: "/products/test-e2e-block-media-product/",
+      independentModules: "/products/test-e2e-renderable-independent-modules/",
+      revisionBefore: "/products/test-e2e-renderable-revision-before/",
+      revisionAfter: "/products/test-e2e-renderable-revision-after/",
+    },
     enabledStaticAssetId,
     disabledStaticAssetId,
   };

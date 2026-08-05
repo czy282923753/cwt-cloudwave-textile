@@ -6,6 +6,20 @@ const fixtureProductPath = "/products/test-fixture-fabric-01/";
 const blockProjectionFixtures = {
   productPath: "/products/test-e2e-block-media-product/",
   contentPath: "/fabric-knowledge/test-e2e-block-media-content/",
+  renderableProductPaths: {
+    empty: "/products/test-e2e-renderable-empty/",
+    divider: "/products/test-e2e-renderable-divider/",
+    unresolvedImage: "/products/test-e2e-renderable-unresolved-image/",
+    hiddenImage: "/products/test-e2e-renderable-hidden-image/",
+    unresolvedGallery: "/products/test-e2e-renderable-unresolved-gallery/",
+    filteredRelated: "/products/test-e2e-renderable-filtered-related/",
+    paragraph: "/products/test-e2e-renderable-paragraph/",
+    heading: "/products/test-e2e-renderable-heading/",
+    validMedia: "/products/test-e2e-block-media-product/",
+    independentModules: "/products/test-e2e-renderable-independent-modules/",
+    revisionBefore: "/products/test-e2e-renderable-revision-before/",
+    revisionAfter: "/products/test-e2e-renderable-revision-after/",
+  },
   enabledStaticAssetId: "91000000-0000-4000-8000-000000000001",
   disabledStaticAssetId: "91000000-0000-4000-8000-000000000002",
 } as const;
@@ -145,7 +159,7 @@ test("@mobile mobile viewport uses the compact header and fixed inquiry action",
   );
 });
 
-test("@desktop Static, Product, and Content public media use the authoritative Block projection", async ({ page }) => {
+test("@all Static, Product, and Content public media use the authoritative Block projection", async ({ page }) => {
   const fixture = blockProjectionFixtures;
   const enabledMedia = await page.request.get(`/api/public-assets/${fixture.enabledStaticAssetId}/`);
   const disabledMedia = await page.request.get(`/api/public-assets/${fixture.disabledStaticAssetId}/`);
@@ -167,9 +181,9 @@ test("@desktop Static, Product, and Content public media use the authoritative B
   await expect(page.getByText("Synthetic Content gallery B")).toBeVisible();
   await expect(page.locator('img[alt="Synthetic Content inline"]')).toHaveCount(2);
   await expect(page.locator('img[alt="Synthetic Content gallery A"]')).toHaveCount(1);
-  const contentAccessibility = await new AxeBuilder({ page })
-    .include(".site-container.max-w-4xl.py-16")
-    .analyze();
+  const authorByline = page.getByText("By TEST E2E Block Author", { exact: true });
+  await expect(authorByline).toHaveClass(/text-stone-600/);
+  const contentAccessibility = await new AxeBuilder({ page }).analyze();
   expect(contentAccessibility.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
 
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
@@ -179,11 +193,79 @@ test("@desktop Static, Product, and Content public media use the authoritative B
   expect(await sitemap.text()).not.toContain(fixture.contentPath);
 });
 
+async function expectNoProductNarrative(page: Page, path: string) {
+  const response = await page.goto(path);
+  expect(response?.status(), `${path} should remain a public Product page`).toBe(200);
+  await expect(page.getByText("Product context", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "About this fabric", exact: true })).toHaveCount(0);
+  await expect(page.locator("[data-product-narrative]")).toHaveCount(0);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+}
+
+test("@all non-renderable Product Blocks do not emit narrative headings or containers", async ({ page }) => {
+  const paths = blockProjectionFixtures.renderableProductPaths;
+  for (const path of [
+    paths.empty,
+    paths.divider,
+    paths.unresolvedImage,
+    paths.hiddenImage,
+    paths.unresolvedGallery,
+    paths.filteredRelated,
+  ]) {
+    await expectNoProductNarrative(page, path);
+  }
+  await page.goto(paths.divider);
+  await expect(page.locator("main hr")).toHaveCount(0);
+});
+
+test("@all Paragraph, Heading, Image, and Gallery use the renderable Product projection", async ({ page }) => {
+  const paths = blockProjectionFixtures.renderableProductPaths;
+  await page.goto(paths.paragraph);
+  await expect(page.locator("[data-product-narrative]")).toBeVisible();
+  await expect(page.getByText("Product context", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "About this fabric", exact: true })).toBeVisible();
+  await expect(page.getByText("Synthetic renderable Paragraph is visible.", { exact: true })).toBeVisible();
+
+  await page.goto(paths.heading);
+  await expect(page.locator("[data-product-narrative]")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Synthetic renderable Heading", exact: true })).toBeVisible();
+
+  await page.goto(paths.validMedia);
+  await expect(page.locator("[data-product-narrative]")).toBeVisible();
+  const narrativeImages = page.locator('[data-product-narrative] img');
+  await expect(narrativeImages).toHaveCount(3);
+  for (const image of await narrativeImages.all()) {
+    await expect(image).toHaveAttribute("src", /^\/api\/public-assets\//);
+  }
+});
+
+test("@desktop independent Product modules and Revision approval remain projection-driven", async ({ page }) => {
+  const paths = blockProjectionFixtures.renderableProductPaths;
+  await page.goto(paths.independentModules);
+  await expect(page.locator("[data-product-narrative]")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Features", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Applications", exact: true })).toBeVisible();
+
+  await page.goto(paths.revisionBefore);
+  await expect(page.getByText("Approved narrative remains before Revision approval.", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-product-narrative]")).toBeVisible();
+
+  await expectNoProductNarrative(page, paths.revisionAfter);
+  await expect(page.getByText("Narrative before final approved Revision.", { exact: true })).toHaveCount(0);
+});
+
 test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or horizontal overflow", async ({ page }) => {
   const fixture = blockProjectionFixtures;
   for (const width of [320, 375, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 800 ? 900 : 1000 });
-    for (const path of ["/", fixture.productPath, fixture.contentPath, "/get-quote/"]) {
+    for (const path of [
+      "/",
+      fixture.renderableProductPaths.empty,
+      fixture.renderableProductPaths.paragraph,
+      fixture.productPath,
+      fixture.contentPath,
+      "/get-quote/",
+    ]) {
       const response = await page.goto(path);
       expect(response?.status(), `${path} at ${width}px`).toBe(200);
       expect(await page.evaluate(() => document.documentElement.scrollWidth), `${path} overflow at ${width}px`)
@@ -199,15 +281,26 @@ test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or
 test("@desktop remediation public routes produce no Console, page, or Hydration errors", async ({ page }) => {
   const fixture = blockProjectionFixtures;
   const errors: string[] = [];
+  let currentPath = "before-navigation";
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+    if (["error", "warning"].includes(message.type())) {
+      errors.push(`${currentPath} ${message.type()}: ${message.text()} @ ${message.location().url}`);
+    }
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  for (const path of ["/", fixture.productPath, fixture.contentPath]) {
+  for (const path of [
+    "/",
+    fixture.renderableProductPaths.empty,
+    fixture.renderableProductPaths.divider,
+    fixture.renderableProductPaths.paragraph,
+    fixture.productPath,
+    fixture.contentPath,
+  ]) {
+    currentPath = path;
     await page.goto(path);
     await page.waitForLoadState("networkidle");
   }
-  expect(errors.filter((message) => /hydration|error|exception/i.test(message))).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test("@mobile unreviewed synthetic Product remains fail-closed on Pixel 7", async ({ page }) => {

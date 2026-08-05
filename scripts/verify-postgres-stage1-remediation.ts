@@ -46,6 +46,7 @@ import {
   users,
 } from "../src/db/schema";
 import { findPublicAssetForDelivery } from "../src/public-site/public-asset-access";
+import { queryProductByPath } from "../src/public-site/data";
 import { queryIndexableRoutes } from "../src/seo/public-index";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -168,6 +169,14 @@ async function main() {
     await confirmRealProductBasis(db, reviewer, productId, "physical_sample", "Synthetic PostgreSQL evidence");
     await submitProductForReview(db, productEditor, productId);
     await publishReviewedProduct(db, reviewer, productId);
+    const productRouteRows = await db.select({ path: routes.path }).from(routes).where(and(
+      eq(routes.entityType, "product"), eq(routes.entityId, productId), eq(routes.isCurrent, true),
+    ));
+    const productPath = productRouteRows[0]?.path;
+    assert(productPath, "Product public route was not found.");
+    const initialPublicProduct = await queryProductByPath(db, productPath);
+    assert(initialPublicProduct?.narrativeProjection.hasRenderableContent, "Approved Product Paragraph was not renderable before Revision approval.");
+    scenarios.push("Product approved Paragraph public projection before Revision approval");
     const productRevisionId = await updateProductBlocks(db, productEditor, productId, {
       name: "TEST PostgreSQL Block Product", shortDescription: null,
       document: { version: 1, blocks: [{ id: "pending", type: "image", mediaKey: detailAssetId }] },
@@ -199,7 +208,7 @@ async function main() {
 
     const productAuditRevisionId = await updateProductBlocks(db, productEditor, productId, {
       name: "TEST PostgreSQL Block Product", shortDescription: null,
-      document: { version: 1, blocks: [{ id: "audit", type: "paragraph", text: "Product Audit rollback narrative." }] },
+      document: { version: 1, blocks: [{ id: "audit-divider", type: "divider" }] },
       expectedEditorDocumentVersion: 3,
     });
     assert(productAuditRevisionId, "Product Audit revision was not created.");
@@ -211,7 +220,27 @@ async function main() {
     } catch { productAuditFailed = true; }
     assert(productAuditFailed, "Product required Audit failure was not surfaced.");
     assert((await db.select({ status: editorialRevisions.status }).from(editorialRevisions).where(eq(editorialRevisions.id, productAuditRevisionId)))[0]?.status === "in_review", "Product Audit failure did not roll back Revision.");
+    assert((await queryProductByPath(db, productPath))?.narrativeProjection.hasRenderableContent, "Failed Audit changed the approved Product public projection.");
     scenarios.push("Product required Audit rollback");
+
+    await applyProductRevision(db, reviewer, productAuditRevisionId);
+    const dividerPublicProduct = await queryProductByPath(db, productPath);
+    assert(dividerPublicProduct && !dividerPublicProduct.narrativeProjection.hasRenderableContent, "Divider-only Product remained a renderable narrative module after approval.");
+    assert(!(await queryIndexableRoutes(db)).some((row) => row.path === productPath), "Noindex Divider-only Product entered sitemap eligibility.");
+    scenarios.push("Product Divider-only approved Revision keeps page public without narrative projection");
+
+    const validMediaRevisionId = await updateProductBlocks(db, productEditor, productId, {
+      name: "TEST PostgreSQL Block Product", shortDescription: null,
+      document: { version: 1, blocks: [{ id: "valid-detail", type: "image", mediaKey: detailAssetId }] },
+      expectedEditorDocumentVersion: 4,
+    });
+    assert(validMediaRevisionId, "Valid Product media Revision was not created.");
+    await applyProductRevision(db, reviewer, validMediaRevisionId);
+    const mediaPublicProduct = await queryProductByPath(db, productPath);
+    assert(mediaPublicProduct?.narrativeProjection.hasRenderableContent, "Valid Product media did not restore the narrative projection.");
+    assert(mediaPublicProduct.narrativeProjection.document.blocks[0]?.type === "image", "Valid Product media projection did not retain the approved Image Block.");
+    assert(!(await queryIndexableRoutes(db)).some((row) => row.path === productPath), "Noindex media Product entered sitemap eligibility.");
+    scenarios.push("Product valid media approved Revision restores public renderable projection");
 
     const authorRows = await db.insert(authors).values({ internalKey: "stage1-remediation-author", displayName: "TEST PostgreSQL Author", isOrganization: true }).returning({ id: authors.id });
     const contentId = await createContentDraft(db, contentEditor, { channel: "fabric_knowledge", type: "guide", authorId: authorRows[0]!.id, title: "TEST PostgreSQL Block Content", body: "Approved PostgreSQL Content narrative." });
