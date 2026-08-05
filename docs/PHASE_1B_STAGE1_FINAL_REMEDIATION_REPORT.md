@@ -2,7 +2,7 @@
 
 Status: Implementation and local verification complete; awaiting `Phase 1B Stage 1 Final Targeted Review`
 
-Date: 2026-08-05  
+Date: 2026-08-05
 Production Ready: **No**
 
 This report records the narrowly authorized implementation and verification evidence for the remaining Medium finding and the associated non-blocking Low finding. It does not independently close either finding and does not begin Fresh Acceptance or Stage 2.
@@ -12,7 +12,7 @@ This report records the narrowly authorized implementation and verification evid
 - Branch: `phase/1b-stage1`
 - Start HEAD: `45bc6097a6a5eb127abc133a758839c6ebe46c07`
 - Final implementation/test checkpoint before this report: `8f2f9457e620e245f324cc1ed5f4ceeeec1e0812`
-- Final handoff HEAD: the local `docs: record final stage 1 remediation` Commit containing this report. Its exact full hash is recorded in the final handoff because a Git Commit cannot embed its own content-derived hash.
+- Final handoff HEAD: the final local documentation Commit containing this formatted report. Its exact full hash is recorded in the final handoff because a Git Commit cannot embed its own content-derived hash.
 - The worktree, index and ordinary untracked-file set were clean at the start. No review-thread code modification was present.
 
 ## 2. New local Commits
@@ -22,7 +22,8 @@ This report records the narrowly authorized implementation and verification evid
 | `8a2176fc1135544716aa4c650c6d2c62d37b5807` | `fix: use renderable product block projection` | Shared Product renderable projection, public query/template and integration coverage |
 | `87fcbdfe344e4f0a873721fead5bb005da38f944` | `fix: improve content author contrast` | Existing design-token correction for the public Content byline |
 | `8f2f9457e620e245f324cc1ed5f4ceeeec1e0812` | `test: verify final stage 1 remediation` | Synthetic DOM fixtures, PostgreSQL scenarios, responsive/Axe/Console coverage and isolated E2E Build alignment |
-| This report's Commit | `docs: record final stage 1 remediation` | Final narrow-remediation evidence only |
+| `d765d27ad396b7efe417264a3866d3b81722c0c0` | `docs: record final stage 1 remediation` | Final narrow-remediation evidence only |
+| This report's finalization Commit | `docs: normalize final remediation report formatting` | `diff --check` formatting correction only |
 
 No earlier Stage 1 history was amended or rewritten. No Commit was pushed and no Tag was created.
 
