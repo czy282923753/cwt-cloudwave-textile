@@ -3,6 +3,13 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const fixtureProductPath = "/products/test-fixture-fabric-01/";
 
+const blockProjectionFixtures = {
+  productPath: "/products/test-e2e-block-media-product/",
+  contentPath: "/fabric-knowledge/test-e2e-block-media-content/",
+  enabledStaticAssetId: "91000000-0000-4000-8000-000000000001",
+  disabledStaticAssetId: "91000000-0000-4000-8000-000000000002",
+} as const;
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     if (window.sessionStorage.getItem("cwt_e2e_verify_unset_consent") !== "true") {
@@ -136,6 +143,71 @@ test("@mobile mobile viewport uses the compact header and fixed inquiry action",
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     await page.evaluate(() => window.innerWidth),
   );
+});
+
+test("@desktop Static, Product, and Content public media use the authoritative Block projection", async ({ page }) => {
+  const fixture = blockProjectionFixtures;
+  const enabledMedia = await page.request.get(`/api/public-assets/${fixture.enabledStaticAssetId}/`);
+  const disabledMedia = await page.request.get(`/api/public-assets/${fixture.disabledStaticAssetId}/`);
+  expect(enabledMedia.status()).toBe(200);
+  expect(disabledMedia.status()).toBe(404);
+
+  await page.goto(fixture.productPath);
+  await expect(page.getByText("Synthetic Product Block projection is visible.")).toBeVisible();
+  await expect(page.getByText("Synthetic gallery A")).toBeVisible();
+  await expect(page.getByText("Synthetic gallery B")).toBeVisible();
+  await expect(page.locator('img[alt="Synthetic Product hero"]')).toHaveCount(2);
+  await expect(page.locator('img[alt="Synthetic Product gallery A"]')).toHaveCount(2);
+  const productAccessibility = await new AxeBuilder({ page }).analyze();
+  expect(productAccessibility.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
+
+  await page.goto(fixture.contentPath);
+  await expect(page.getByText("Synthetic Content Block projection is visible.")).toBeVisible();
+  await expect(page.getByText("Synthetic Content gallery A")).toBeVisible();
+  await expect(page.getByText("Synthetic Content gallery B")).toBeVisible();
+  await expect(page.locator('img[alt="Synthetic Content inline"]')).toHaveCount(2);
+  await expect(page.locator('img[alt="Synthetic Content gallery A"]')).toHaveCount(1);
+  const contentAccessibility = await new AxeBuilder({ page })
+    .include(".site-container.max-w-4xl.py-16")
+    .analyze();
+  expect(contentAccessibility.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
+
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(fixture.contentPath.replaceAll("/", "\\/")));
+  const sitemap = await page.request.get("/sitemap.xml");
+  expect(await sitemap.text()).not.toContain(fixture.productPath);
+  expect(await sitemap.text()).not.toContain(fixture.contentPath);
+});
+
+test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or horizontal overflow", async ({ page }) => {
+  const fixture = blockProjectionFixtures;
+  for (const width of [320, 375, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: width < 800 ? 900 : 1000 });
+    for (const path of ["/", fixture.productPath, fixture.contentPath, "/get-quote/"]) {
+      const response = await page.goto(path);
+      expect(response?.status(), `${path} at ${width}px`).toBe(200);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `${path} overflow at ${width}px`)
+        .toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+    }
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Find Your Fabric Solution", exact: true })).toBeVisible();
+    await page.goto("/");
+    if (width < 1024) await expect(page.locator("summary").filter({ hasText: "Menu" })).toBeVisible();
+  }
+});
+
+test("@desktop remediation public routes produce no Console, page, or Hydration errors", async ({ page }) => {
+  const fixture = blockProjectionFixtures;
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  for (const path of ["/", fixture.productPath, fixture.contentPath]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+  }
+  expect(errors.filter((message) => /hydration|error|exception/i.test(message))).toEqual([]);
 });
 
 test("@mobile unreviewed synthetic Product remains fail-closed on Pixel 7", async ({ page }) => {

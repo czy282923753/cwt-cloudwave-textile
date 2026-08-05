@@ -31,7 +31,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "pnpm db:migrate && pnpm db:seed && pnpm db:seed:fixtures && pnpm exec tsx scripts/seed-e2e-retryable-asset.ts && pnpm start --hostname 127.0.0.1 --port 3100",
+      "pnpm db:migrate && pnpm db:seed && pnpm db:seed:fixtures && pnpm exec tsx scripts/seed-e2e-retryable-asset.ts && pnpm exec tsx scripts/seed-e2e-block-projection.ts && pnpm start --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
