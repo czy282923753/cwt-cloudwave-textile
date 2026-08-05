@@ -320,9 +320,7 @@ test("@all Stage 2 fixed-page settings and shared Block Editor remain keyboard-o
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
     await page.evaluate(() => window.innerWidth),
   );
-  const accessibility = await new AxeBuilder({ page })
-    .include('[data-block-editor="product"]')
-    .analyze();
+  const accessibility = await new AxeBuilder({ page }).analyze();
   expect(
     accessibility.violations.filter((violation) =>
       ["critical", "serious"].includes(violation.impact ?? ""),

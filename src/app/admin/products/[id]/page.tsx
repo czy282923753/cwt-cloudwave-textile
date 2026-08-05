@@ -175,7 +175,7 @@ export default async function ProductEditorPage({
                 <input name="fieldName" type="hidden" value={fieldName} />
                 <strong>{fieldName}</strong>
                 <span className="text-sm text-slate-400">Current: {reviewStatus.get(fieldName) ?? "empty"}</span>
-                <select className={inputClass} name="verificationStatus"><option value="verified">Verified</option><option value="rejected">Rejected</option></select>
+                <select aria-label={`${fieldName} verification status`} className={inputClass} name="verificationStatus"><option value="verified">Verified</option><option value="rejected">Rejected</option></select>
                 <button className="rounded-lg border border-white/20 p-2" type="submit">Record review</button>
               </AdminActionForm>
             ))}
@@ -243,10 +243,10 @@ export default async function ProductEditorPage({
 
         <section className={`${panelClass} sm:grid-cols-2`}>
           <AdminActionForm action={changeProductSlugAction} className="grid gap-3" successMessage="Product URL changed and 301 Redirect created.">
-            <h2 className="text-lg font-semibold">Change slug with 301</h2><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="slug" required /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Change URL transactionally</button>
+            <h2 className="text-lg font-semibold">Change slug with 301</h2><input name="productId" type="hidden" value={product.id} /><label className="grid gap-2">New URL slug<input className={inputClass} name="slug" required /></label><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Change URL transactionally</button>
           </AdminActionForm>
           <AdminActionForm action={setProductIndexAction} className="grid gap-3" successMessage="Product Index status updated.">
-            <h2 className="text-lg font-semibold">Index decision</h2><input name="productId" type="hidden" value={product.id} /><select className={inputClass} defaultValue={product.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Apply index status</button>
+            <h2 className="text-lg font-semibold">Index decision</h2><input name="productId" type="hidden" value={product.id} /><label className="grid gap-2">Index status<select className={inputClass} defaultValue={product.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select></label><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Apply index status</button>
           </AdminActionForm>
           <AdminActionForm action={archiveProductAction} className="grid gap-3 sm:col-span-2" successMessage="Product archived and forced to Noindex."><h2 className="text-lg font-semibold">Archive Product</h2><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Archive and force Noindex</button></AdminActionForm>
         </section>
