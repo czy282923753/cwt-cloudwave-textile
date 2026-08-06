@@ -42,4 +42,31 @@ describe("deterministic Product image matching", () => {
     expect(result.matched.map((item) => item.sourceKey)).toEqual(["right"]);
     expect(result.unmatched.map((item) => item.sourceKey)).toEqual(["wrong"]);
   });
+
+  it("uses explicit relative filenames before the Product Code prefix tier", () => {
+    const result = matchImportMedia("CWT-MESH-001", ["selected/primary.webp"], [
+      candidate("explicit", "selected/primary.webp"),
+      candidate("prefix", "CWT-MESH-001-02.webp"),
+    ]);
+    expect(result.matched.map((item) => [item.sourceKey, item.matchTier])).toEqual([["explicit", "explicit_file"]]);
+    expect(result.unmatched.map((item) => item.sourceKey)).toEqual(["prefix"]);
+  });
+
+  it("assigns Gallery, Detail, and Application roles deterministically and remains stable on retry", () => {
+    const media = [
+      candidate("gallery", "CWT-MESH-001-02.webp"),
+      candidate("detail", "CWT-MESH-001-detail-03.webp"),
+      candidate("application", "CWT-MESH-001-application-02.webp"),
+      candidate("primary", "CWT-MESH-001-main.webp"),
+    ];
+    const first = matchImportMedia("CWT-MESH-001", [], media);
+    const retry = matchImportMedia("CWT-MESH-001", [], media);
+    expect(first).toEqual(retry);
+    expect(first.matched.map((item) => [item.sourceKey, item.role, item.sortOrder])).toEqual([
+      ["primary", "hero", 0],
+      ["gallery", "gallery", 1],
+      ["application", "application", 0],
+      ["detail", "detail", 0],
+    ]);
+  });
 });
