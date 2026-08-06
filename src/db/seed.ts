@@ -62,6 +62,7 @@ export async function seedCoreData<TQueryResult extends PgQueryResultHKT>(
     ["source_declaration", env.FEATURE_SOURCE_DECLARATION],
     ["ai", false],
     ["seo_assistant", false],
+    ["product_import", env.FEATURE_PRODUCT_IMPORT],
   ] as const;
   for (const [key, enabled] of flags) {
     await db

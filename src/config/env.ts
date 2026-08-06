@@ -83,6 +83,7 @@ const environmentSchema = z.object({
   FEATURE_SOURCE_DECLARATION: booleanString,
   FEATURE_AI: booleanString,
   FEATURE_SEO_ASSISTANT: booleanString,
+  FEATURE_PRODUCT_IMPORT: booleanString,
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;

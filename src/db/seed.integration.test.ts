@@ -23,7 +23,7 @@ describe("core seed repeatability", () => {
     ]);
     expect(Number(userRows[0]?.value)).toBe(1);
     expect(Number(authorRows[0]?.value)).toBe(1);
-    expect(Number(flagRows[0]?.value)).toBe(4);
+    expect(Number(flagRows[0]?.value)).toBe(5);
     const preserved = await connection.db
       .select({ enabled: featureFlags.enabled })
       .from(featureFlags)

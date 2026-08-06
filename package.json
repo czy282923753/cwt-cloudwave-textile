@@ -41,14 +41,17 @@
     "@refinedev/core": "5.0.12",
     "@refinedev/nextjs-router": "7.0.5",
     "@tanstack/react-query": "5.101.4",
+    "@zip.js/zip.js": "2.8.34",
     "drizzle-orm": "0.45.2",
     "next": "16.2.12",
     "nodemailer": "9.0.3",
     "postgres": "3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "read-excel-file": "9.3.4",
     "server-only": "0.0.1",
     "sharp": "0.35.3",
+    "write-excel-file": "4.1.1",
     "zod": "4.4.3"
   },
   "devDependencies": {

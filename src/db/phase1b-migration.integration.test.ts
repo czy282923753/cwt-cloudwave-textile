@@ -73,7 +73,10 @@ describe("Phase 1B Migration 0018", () => {
         `drizzle/${migration0018.tag}.sql`,
         join(temporaryRoot, `${migration0018.tag}.sql`),
       );
-      await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify(journal));
+      await writeFile(join(metaDirectory, "_journal.json"), JSON.stringify({
+        ...journal,
+        entries: journal.entries.filter((entry) => entry.idx <= 18),
+      }));
       await migrateDatabase(connection, temporaryRoot);
       await migrateDatabase(connection, temporaryRoot);
 
