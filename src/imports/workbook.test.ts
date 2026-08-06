@@ -9,6 +9,11 @@ import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract
 import { createProductImportTemplateV1 } from "./template";
 import { parseProductImportWorkbook } from "./workbook";
 
+const transitionalWorksheetRelationshipType =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
+const strictWorksheetRelationshipType =
+  "http://purl.oclc.org/ooxml/officeDocument/relationships/worksheet";
+
 async function workbook(header: string[] = [...PRODUCT_IMPORT_HEADERS], row?: Row, options: { version?: number; extraSheet?: boolean } = {}): Promise<Uint8Array> {
   const sheets = [
     { sheet: "Products", data: [header, ...(row ? [row] : [])] },
@@ -63,6 +68,13 @@ function relationshipResolvedProducts(bytes: Uint8Array, mutateWorksheet: (xml: 
     if (name === "[Content_Types].xml") return { data: decoder.decode(data).replace("/xl/worksheets/sheet1.xml", "/xl/worksheets/products.xml") };
     return {};
   });
+}
+
+function worksheetOverride(xml: string, partName: string): string {
+  const escaped = partName.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = xml.match(new RegExp(`<Override\\b(?=[^>]*\\bPartName=["']${escaped}["'])[^>]*\\/>`));
+  if (!match) throw new Error(`Synthetic fixture could not find ${partName}.`);
+  return match[0];
 }
 
 describe("Product Import Template V1 workbook", () => {
@@ -145,6 +157,87 @@ describe("Product Import Template V1 workbook", () => {
     await expect(parseProductImportWorkbook(external)).rejects.toThrow(/external/i);
   });
 
+  it("accepts only the explicitly supported transitional worksheet relationship type", async () => {
+    const decoder = new TextDecoder();
+    const unsupportedSuffix = await rewritePackage(await workbook(), (name, data) => name === "xl/_rels/workbook.xml.rels"
+      ? { data: decoder.decode(data).replace(transitionalWorksheetRelationshipType, "https://synthetic.invalid/relationships/worksheet") }
+      : { data });
+    await expect(parseProductImportWorkbook(unsupportedSuffix)).rejects.toThrow(/relationship type is unsupported/i);
+
+    const unsupportedStrict = await rewritePackage(await workbook(), (name, data) => name === "xl/_rels/workbook.xml.rels"
+      ? { data: decoder.decode(data).replaceAll(transitionalWorksheetRelationshipType, strictWorksheetRelationshipType) }
+      : { data });
+    await expect(parseProductImportWorkbook(unsupportedStrict)).rejects.toThrow(/relationship type is unsupported/i);
+    expect((await parseProductImportWorkbook(await workbook())).templateVersion).toBe(1);
+  });
+
+  it("requires one exact worksheet content type declaration for every governed sheet", async () => {
+    const decoder = new TextDecoder();
+    const base = await workbook();
+    const missing = await rewritePackage(base, (name, data) => {
+      if (name !== "[Content_Types].xml") return { data };
+      const xml = decoder.decode(data);
+      return { data: xml.replace(worksheetOverride(xml, "/xl/worksheets/sheet1.xml"), "") };
+    });
+    await expect(parseProductImportWorkbook(missing)).rejects.toThrow(/content type is missing or invalid/i);
+
+    const wrong = await rewritePackage(base, (name, data) => {
+      if (name !== "[Content_Types].xml") return { data };
+      const xml = decoder.decode(data);
+      const override = worksheetOverride(xml, "/xl/worksheets/sheet2.xml");
+      return { data: xml.replace(override, override.replace(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+        "application/vnd.synthetic.invalid+xml",
+      )) };
+    });
+    await expect(parseProductImportWorkbook(wrong)).rejects.toThrow(/content type is missing or invalid/i);
+
+    const duplicate = await rewritePackage(base, (name, data) => {
+      if (name !== "[Content_Types].xml") return { data };
+      const xml = decoder.decode(data);
+      const override = worksheetOverride(xml, "/xl/worksheets/sheet1.xml");
+      return { data: xml.replace("</Types>", `${override}</Types>`) };
+    });
+    await expect(parseProductImportWorkbook(duplicate)).rejects.toThrow(/content type declaration is duplicated/i);
+
+    const noAuthority = await rewritePackage(base, (name, data) => name === "[Content_Types].xml" ? null : { data });
+    await expect(parseProductImportWorkbook(noAuthority)).rejects.toThrow(/package topology is incomplete/i);
+  });
+
+  it("rejects duplicate and unreferenced worksheet relationship topology", async () => {
+    const decoder = new TextDecoder();
+    const base = await workbook();
+    const duplicateId = await rewritePackage(base, (name, data) => name === "xl/_rels/workbook.xml.rels"
+      ? { data: decoder.decode(data).replace('Id="rId2"', 'Id="rId1"') }
+      : { data });
+    await expect(parseProductImportWorkbook(duplicateId)).rejects.toThrow(/relationship ID is duplicated/i);
+
+    const duplicateTarget = await rewritePackage(base, (name, data) => name === "xl/_rels/workbook.xml.rels"
+      ? { data: decoder.decode(data).replace('Target="worksheets/sheet2.xml"', 'Target="worksheets/sheet1.xml"') }
+      : { data });
+    await expect(parseProductImportWorkbook(duplicateTarget)).rejects.toThrow(/relationship target is duplicated/i);
+
+    const withOrphanPart = await addPackageEntry(base, "xl/worksheets/orphan.xml", '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>');
+    const orphanRelationship = await rewritePackage(withOrphanPart, (name, data) => {
+      const xml = decoder.decode(data);
+      if (name === "xl/_rels/workbook.xml.rels") {
+        return { data: xml.replace("</Relationships>", `<Relationship Id="rId999" Type="${transitionalWorksheetRelationshipType}" Target="worksheets/orphan.xml"/></Relationships>`) };
+      }
+      if (name === "[Content_Types].xml") {
+        return { data: xml.replace("</Types>", '<Override PartName="/xl/worksheets/orphan.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>') };
+      }
+      return { data };
+    });
+    await expect(parseProductImportWorkbook(orphanRelationship)).rejects.toThrow(/unreferenced worksheet relationship/i);
+
+    const missingRelationship = await rewritePackage(base, (name, data) => {
+      if (name !== "xl/_rels/workbook.xml.rels") return { data };
+      const xml = decoder.decode(data);
+      return { data: xml.replace(/<Relationship\b(?=[^>]*\bId=["']rId1["'])[^>]*\/>/, "") };
+    });
+    await expect(parseProductImportWorkbook(missingRelationship)).rejects.toThrow(/relationship is missing or invalid/i);
+  });
+
   it("rejects the 101st Product row", async () => {
     const rows = Array.from({ length: 101 }, (_, index) => {
       const row = Array(PRODUCT_IMPORT_HEADERS.length).fill(null);
@@ -176,6 +269,6 @@ describe("Product Import Template V1 workbook", () => {
     const valid = await workbook();
     await expect(parseProductImportWorkbook(valid.slice(0, 80))).rejects.toThrow();
     await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/vbaProject.bin", "synthetic macro"))).rejects.toThrow(/macros/i);
-    await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/worksheets/sheet99.xml", '<worksheet><dimension ref="A1:S102"/></worksheet>'))).rejects.toThrow(/dimensions/i);
+    await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/worksheets/sheet99.xml", '<worksheet><dimension ref="A1:S102"/></worksheet>'))).rejects.toThrow(/unreferenced worksheet part/i);
   });
 });

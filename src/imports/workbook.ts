@@ -12,6 +12,10 @@ import {
 } from "./contract";
 
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
+const transitionalWorksheetRelationshipType =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
+const worksheetContentType =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 
 function columnNumber(letters: string): number {
   return [...letters].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0);
@@ -130,7 +134,10 @@ async function inspectWorkbookContainer(bytes: Uint8Array): Promise<Map<number, 
     }
     const workbookXml = packageXmlParts.get("xl/workbook.xml");
     const relationshipsXml = packageXmlParts.get("xl/_rels/workbook.xml.rels");
-    if (!workbookXml || !relationshipsXml) throw new Error("Workbook relationship authority is incomplete.");
+    const contentTypesXml = packageXmlParts.get("[Content_Types].xml");
+    if (!workbookXml || !relationshipsXml || !contentTypesXml) {
+      throw new Error("Workbook package topology is incomplete.");
+    }
 
     const decodeAttribute = (value: string): string => {
       const entity = /&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi;
@@ -166,15 +173,65 @@ async function inspectWorkbookContainer(bytes: Uint8Array): Promise<Map<number, 
       }
       return result;
     };
-    const relationshipById = new Map<string, { type: string; target: string }>();
-    for (const match of relationshipsXml.matchAll(/<Relationship\b[^>]*\/?>/g)) {
+    const assertXmlEnvelope = (xml: string, root: string): void => {
+      if (/<!DOCTYPE\b|<!ENTITY\b|<!\[CDATA\[|<!--|<\?(?!xml\b)/i.test(xml)) {
+        throw new Error("Workbook package XML contains unsupported markup.");
+      }
+      const document = xml.replace(/^\uFEFF?\s*<\?xml\b[^?]*\?>/i, "").trim();
+      const rootPattern = new RegExp(`^<${root}\\b[^>]*>[\\s\\S]*<\\/${root}>$`);
+      const openingRoots = [...document.matchAll(new RegExp(`<${root}\\b`, "g"))];
+      const closingRoots = [...document.matchAll(new RegExp(`<\\/${root}>`, "g"))];
+      if (!rootPattern.test(document) || openingRoots.length !== 1 || closingRoots.length !== 1) {
+        throw new Error("Workbook package XML topology is malformed.");
+      }
+    };
+    assertXmlEnvelope(workbookXml, "workbook");
+    assertXmlEnvelope(relationshipsXml, "Relationships");
+    assertXmlEnvelope(contentTypesXml, "Types");
+
+    const normalizeContentTypePart = (partName: string): string => {
+      if (!partName.startsWith("/") || partName.includes("\\") || partName.includes("?") || partName.includes("#") || partName.includes("%") || /[\u0000-\u001f]/.test(partName)) {
+        throw new Error("Workbook content type part name is unsafe.");
+      }
+      const segments = partName.slice(1).split("/");
+      if (!segments.length || segments.some((segment) => !segment || segment === "." || segment === ".." || segment.includes(":"))) {
+        throw new Error("Workbook content type part name is unsafe.");
+      }
+      return segments.join("/");
+    };
+    const overrideTags = [...contentTypesXml.matchAll(/<Override\b[^>]*\/>/g)];
+    if ([...contentTypesXml.matchAll(/<Override\b/g)].length !== overrideTags.length) {
+      throw new Error("Workbook content type declarations are malformed.");
+    }
+    const contentTypeByPart = new Map<string, string>();
+    for (const match of overrideTags) {
+      const value = attributes(match[0]);
+      const partName = value.get("PartName");
+      const contentType = value.get("ContentType");
+      if (!partName || !contentType || value.size !== 2) {
+        throw new Error("Workbook content type declaration is invalid.");
+      }
+      const part = normalizeContentTypePart(partName);
+      if (contentTypeByPart.has(part)) throw new Error("Workbook content type declaration is duplicated.");
+      contentTypeByPart.set(part, contentType);
+    }
+
+    const relationshipById = new Map<string, { type: string; target: string; targetMode: string | null }>();
+    const relationshipTags = [...relationshipsXml.matchAll(/<Relationship\b[^>]*\/>/g)];
+    if ([...relationshipsXml.matchAll(/<Relationship\b/g)].length !== relationshipTags.length) {
+      throw new Error("Workbook relationships are malformed.");
+    }
+    for (const match of relationshipTags) {
       const value = attributes(match[0]);
       const id = value.get("Id");
       const type = value.get("Type");
       const target = value.get("Target");
-      if (!id || !type || !target || value.get("TargetMode")) throw new Error("Workbook relationship is invalid or external.");
+      const targetMode = value.get("TargetMode") ?? null;
+      if (!id || !type || !target || (targetMode !== null && targetMode !== "Internal")) {
+        throw new Error("Workbook relationship is invalid or external.");
+      }
       if (relationshipById.has(id)) throw new Error("Workbook relationship ID is duplicated.");
-      relationshipById.set(id, { type, target });
+      relationshipById.set(id, { type, target, targetMode });
     }
     if (!relationshipById.size) throw new Error("Workbook relationships are missing.");
     const resolveWorksheetTarget = (target: string): string => {
@@ -200,23 +257,56 @@ async function inspectWorkbookContainer(bytes: Uint8Array): Promise<Map<number, 
       }
       return part;
     };
+    const worksheetRelationshipParts = new Map<string, string>();
+    const worksheetRelationshipIdsByPart = new Map<string, string>();
+    for (const [id, relationship] of relationshipById) {
+      if (relationship.type !== transitionalWorksheetRelationshipType) continue;
+      const part = resolveWorksheetTarget(relationship.target);
+      if (worksheetRelationshipIdsByPart.has(part)) {
+        throw new Error("Workbook worksheet relationship target is duplicated.");
+      }
+      worksheetRelationshipIdsByPart.set(part, id);
+      worksheetRelationshipParts.set(id, part);
+    }
     const sheetNames = new Set<string>();
     const sheetParts = new Set<string>();
+    const usedWorksheetRelationshipIds = new Set<string>();
     const workbookSheets: Array<{ name: string; part: string }> = [];
-    for (const match of workbookXml.matchAll(/<sheet\b[^>]*\/?>/g)) {
+    const sheetTags = [...workbookXml.matchAll(/<sheet\b[^>]*\/>/g)];
+    if ([...workbookXml.matchAll(/<sheet\b/g)].length !== sheetTags.length) {
+      throw new Error("Workbook sheet topology is malformed.");
+    }
+    for (const match of sheetTags) {
       const value = attributes(match[0]);
       const name = value.get("name");
       const relationshipId = value.get("r:id");
       if (!name || !relationshipId || sheetNames.has(name)) throw new Error("Workbook sheet identity is missing or duplicated.");
       const relationship = relationshipById.get(relationshipId);
-      if (!relationship || !relationship.type.endsWith("/worksheet")) throw new Error("Workbook worksheet relationship is missing or invalid.");
-      const part = resolveWorksheetTarget(relationship.target);
+      if (!relationship) throw new Error("Workbook worksheet relationship is missing or invalid.");
+      if (relationship.type !== transitionalWorksheetRelationshipType) {
+        throw new Error("Workbook worksheet relationship type is unsupported.");
+      }
+      const part = worksheetRelationshipParts.get(relationshipId);
+      if (!part) throw new Error("Workbook worksheet relationship is missing or invalid.");
       if (!packagePartNames.has(part) || !packageXmlParts.has(part) || sheetParts.has(part)) throw new Error("Workbook worksheet part is missing or duplicated.");
+      if (contentTypeByPart.get(part) !== worksheetContentType) {
+        throw new Error("Workbook worksheet content type is missing or invalid.");
+      }
       sheetNames.add(name);
       sheetParts.add(part);
+      usedWorksheetRelationshipIds.add(relationshipId);
       workbookSheets.push({ name, part });
     }
-    if (!workbookSheets.length) throw new Error("Workbook sheets could not be resolved.");
+    if (
+      workbookSheets.length !== 2 ||
+      !sheetNames.has("Products") ||
+      !sheetNames.has("_CWT_META")
+    ) {
+      throw new Error("Workbook must contain only the generated Template V1 Products and metadata sheets.");
+    }
+    if ([...worksheetRelationshipParts.keys()].some((id) => !usedWorksheetRelationshipIds.has(id))) {
+      throw new Error("Workbook contains an unreferenced worksheet relationship.");
+    }
     for (const sheet of workbookSheets) {
       const xml = packageXmlParts.get(sheet.part)!;
       if (!/<worksheet\b/.test(xml)) throw new Error("Workbook worksheet part is malformed.");
