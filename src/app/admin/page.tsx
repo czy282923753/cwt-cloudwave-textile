@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
-import { requireCurrentUser } from "@/auth/current-user";
+import { resolveCurrentUser } from "@/auth/current-user";
 import { hasPermission, type Permission } from "@/auth/permissions";
 import {
   canAccessEditorialResource,
@@ -26,7 +27,8 @@ const areas: ReadonlyArray<readonly [string, string, Permission, EditorialResour
 ];
 
 export default async function AdminHomePage() {
-  const user = await requireCurrentUser("admin.access");
+  const user = await resolveCurrentUser();
+  if (!user) redirect("/operations-login");
   const visibleAreas = areas.filter(([, , permission, resource]) =>
     hasPermission(user.role, permission) &&
     (!resource || canAccessEditorialResource(user.role, resource, "manage")),
