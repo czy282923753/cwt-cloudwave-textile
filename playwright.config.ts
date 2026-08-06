@@ -44,6 +44,7 @@ export default defineConfig({
       PRIVATE_STORAGE_ROOT: join(e2eRoot, "storage", "private"),
       IMPORT_STORAGE_ROOT: join(e2eRoot, "storage", "imports"),
       AUTH_COOKIE_NAME: "cwt_e2e_session",
+      FEATURE_PRODUCT_IMPORT: "true",
     },
   },
 });
