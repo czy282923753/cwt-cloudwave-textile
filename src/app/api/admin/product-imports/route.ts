@@ -5,22 +5,30 @@ import { adminActionHttpFailure } from "@/admin/action-result";
 import { requireCurrentUser } from "@/auth/current-user";
 import { assertSameOrigin } from "@/auth/request-security";
 import { databaseConnection } from "@/db/client";
-import { createValidatedProductImport } from "@/imports/service";
-import { createObjectStorage } from "@/storage";
+import { prepareProductImportBatch } from "@/imports/service";
 import { assertRequestLength } from "@/uploads/request-guard";
 
 const schema = z.object({
   mode: z.enum(["create", "update"]),
   workbookAssetId: z.uuid(),
-  mediaPackageAssetId: z.uuid().nullable().optional(),
-  media: z.array(z.object({
-    assetId: z.uuid(),
-    uploadBatchId: z.uuid(),
-    relativePath: z.string().min(1).max(240),
-    // The trusted SHA-256 comes from the finalized Asset record, not the
-    // browser. This optional legacy field is ignored if an older client sends it.
-    sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
-  }).strict()).max(500),
+  preparation: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("none") }).strict(),
+    z.object({
+      kind: z.literal("archive"),
+      fileName: z.string().min(1).max(200),
+      declaredMimeType: z.literal("application/zip"),
+      declaredByteSize: z.number().int().positive().max(500 * 1024 * 1024),
+    }).strict(),
+    z.object({
+      kind: z.literal("folder"),
+      files: z.array(z.object({
+        relativePath: z.string().min(1).max(240),
+        fileName: z.string().min(1).max(200),
+        declaredMimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/avif"]),
+        declaredByteSize: z.number().int().positive().max(20 * 1024 * 1024),
+      }).strict()).min(1).max(500),
+    }).strict(),
+  ]),
 }).strict();
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -29,16 +37,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     assertRequestLength(request, 512 * 1024);
     const user = await requireCurrentUser("products.import");
     const input = schema.parse(await request.json());
-    const command = {
-      mode: input.mode,
-      workbookAssetId: input.workbookAssetId,
-      media: input.media,
-      ...(input.mediaPackageAssetId !== undefined ? { mediaPackageAssetId: input.mediaPackageAssetId } : {}),
-    };
     const actor = { userId: user.id, role: user.role, authSessionId: user.sessionId } as const;
     const batchId = databaseConnection.kind === "pglite"
-      ? await createValidatedProductImport(databaseConnection.db, createObjectStorage(), actor, command)
-      : await createValidatedProductImport(databaseConnection.db, createObjectStorage(), actor, command);
+      ? await prepareProductImportBatch(databaseConnection.db, actor, input)
+      : await prepareProductImportBatch(databaseConnection.db, actor, input);
     return NextResponse.json({ ok: true, batchId }, { status: 201 });
   } catch (error) {
     const failure = adminActionHttpFailure(error);

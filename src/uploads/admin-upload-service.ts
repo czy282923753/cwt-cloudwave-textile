@@ -1,8 +1,8 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, count, desc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -21,6 +21,8 @@ import {
   finalizeObjectManifestItems,
   objectCleanupJobs,
   productAssets,
+  productImportBatches,
+  productImportItems,
   products,
   uploadIntents,
   uploadRecoveryJobs,
@@ -121,19 +123,35 @@ interface AdminUploadOptions {
   clock?: () => Date;
   faultInjector?: (point: AdminUploadFaultPoint) => void | Promise<void>;
   importBinding?: ImportMediaUploadBinding;
+  importPackageBinding?: ImportPackageUploadBinding;
   issuedTokens?: readonly string[];
 }
 
 const importMediaUploadBindingSchema = z.object({
-  packageAssetId: z.uuid(),
+  productImportBatchId: z.uuid(),
+  packageAssetId: z.uuid().optional(),
   sourceKey: z.string().min(1).max(240),
-  sourceOrder: z.number().int().min(0).max(499),
+  sourceOrder: z.number().int().min(0).max(499).optional(),
   relativePath: z.string().min(1).max(240),
   displayName: z.string().min(1).max(200),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
-}).strict();
+  sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  declaredByteSize: z.number().int().positive().max(20 * 1024 * 1024).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.packageAssetId && (value.sourceOrder === undefined || !value.sha256)) {
+    context.addIssue({ code: "custom", message: "Archive child binding requires package order and SHA-256." });
+  }
+});
 
 type ImportMediaUploadBinding = z.infer<typeof importMediaUploadBindingSchema>;
+
+const importPackageUploadBindingSchema = z.object({
+  productImportBatchId: z.uuid(),
+  sourceKey: z.literal("archive:package"),
+  displayName: z.string().min(1).max(200),
+  declaredByteSize: z.number().int().positive().max(500 * 1024 * 1024),
+}).strict();
+
+type ImportPackageUploadBinding = z.infer<typeof importPackageUploadBindingSchema>;
 
 export type AdminUploadFaultPoint =
   | "before_recovery_job_insert"
@@ -290,6 +308,10 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
   const importBinding = options.importBinding
     ? importMediaUploadBindingSchema.parse(options.importBinding)
     : null;
+  const importPackageBinding = options.importPackageBinding
+    ? importPackageUploadBindingSchema.parse(options.importPackageBinding)
+    : null;
+  if (importBinding && importPackageBinding) throw new Error("Import Upload Batch cannot have two bindings.");
   if (importBinding && (
     normalized.files.length !== 1 ||
     normalized.category !== "product" ||
@@ -299,6 +321,22 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
     normalized.sourceDeclarationEnabled
   )) {
     throw new Error("Import media binding requires one isolated Product media upload.");
+  }
+  if (importPackageBinding && (
+    normalized.files.length !== 1 ||
+    normalized.files[0]?.declaredMimeType !== IMPORT_ARCHIVE_MIME ||
+    normalized.files[0]?.declaredByteSize !== importPackageBinding.declaredByteSize ||
+    normalized.files[0]?.fileName !== importPackageBinding.displayName ||
+    normalized.category !== "other" ||
+    normalized.role !== "document" ||
+    normalized.associationType ||
+    normalized.associationEntityId ||
+    normalized.sourceDeclarationEnabled
+  )) {
+    throw new Error("Import package binding requires one isolated Archive upload.");
+  }
+  if (normalized.files.some((file) => file.declaredMimeType === IMPORT_ARCHIVE_MIME) && !importPackageBinding) {
+    throw new Error("Import Archive must be bound to a durable Product Import Batch before upload.");
   }
   const issued = normalized.files.map((file, index) => ({
     file,
@@ -314,6 +352,8 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
       sourceDeclarationEnabled: normalized.sourceDeclarationEnabled,
       declarationInput: importBinding
         ? { importMediaBinding: importBinding }
+        : importPackageBinding
+          ? { importPackageBinding }
         : normalized.sourceDeclarationEnabled
           ? normalized.sourceDeclaration ?? {}
           : null,
@@ -349,7 +389,7 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
       afterSummary: {
         fileCount: issued.length,
         sourceDeclarationEnabled: normalized.sourceDeclarationEnabled,
-        importBound: Boolean(importBinding),
+        importBound: Boolean(importBinding || importPackageBinding),
       },
     });
     return {
@@ -358,6 +398,453 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
       intents: issued.map(({ token }) => ({ token, uploadUrl: `/api/admin/upload-intents/${encodeURIComponent(token)}/` })),
     };
   });
+}
+
+function productImportUploadToken(batchId: string, sourceKey: string): string {
+  return createHmac("sha256", env.AUTH_SESSION_SECRET)
+    .update("cwt-product-import-upload-v1\0")
+    .update(batchId)
+    .update("\0")
+    .update(sourceKey)
+    .digest("base64url");
+}
+
+export async function createProductImportUploadBatch<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: AdminUploadActor,
+  input: {
+    productImportBatchId: string;
+    kind: "folder_media" | "archive_package";
+    relativePath?: string;
+    fileName: string;
+    declaredMimeType: string;
+    declaredByteSize: number;
+  },
+  options: Pick<AdminUploadOptions, "rateLimiter" | "now"> = {},
+): Promise<{ batchId: string; expiresAt: Date; intents: { token: string; uploadUrl: string }[] }> {
+  const now = options.now ?? new Date();
+  requirePermission(actor.role, "products.import");
+  await assertActiveSession(db, actor, now);
+  const importBatch = (await db.select().from(productImportBatches).where(and(
+    eq(productImportBatches.id, z.uuid().parse(input.productImportBatchId)),
+    eq(productImportBatches.createdByUserId, actor.userId),
+    eq(productImportBatches.authSessionId, actor.authSessionId),
+    eq(productImportBatches.status, "draft"),
+  )).limit(1))[0];
+  if (!importBatch) throw new Error("Draft Product Import Batch was not found for upload continuation.");
+  const sourceKey = input.kind === "archive_package" ? "archive:package" : null;
+  const plannedItem = input.kind === "archive_package"
+    ? (await db.select().from(productImportItems).where(and(
+        eq(productImportItems.batchId, importBatch.id),
+        eq(productImportItems.kind, "media"),
+        eq(productImportItems.sourceKey, "archive:package"),
+      )).limit(1))[0]
+    : (await db.select().from(productImportItems).where(and(
+        eq(productImportItems.batchId, importBatch.id),
+        eq(productImportItems.kind, "media"),
+        sql`${productImportItems.rawData} ->> 'relativePath' = ${input.relativePath ?? ""}`,
+      )).limit(1))[0];
+  if (!plannedItem) throw new Error("Selected Import file is not part of the durable preparation plan.");
+  const plan = plannedItem.rawData as { relativePath?: unknown; displayName?: unknown; declaredMimeType?: unknown; declaredByteSize?: unknown; preparationKind?: unknown };
+  if (
+    plan.displayName !== input.fileName ||
+    plan.declaredMimeType !== input.declaredMimeType ||
+    plan.declaredByteSize !== input.declaredByteSize ||
+    (input.kind === "folder_media" && plan.relativePath !== input.relativePath) ||
+    (input.kind === "archive_package" && plan.preparationKind !== "archive")
+  ) {
+    throw new Error("Selected Import file does not match the durable preparation plan.");
+  }
+  const durableSourceKey = sourceKey ?? plannedItem.sourceKey;
+  const token = productImportUploadToken(importBatch.id, durableSourceKey);
+  const expectedBinding = input.kind === "archive_package"
+    ? importPackageUploadBindingSchema.parse({
+        productImportBatchId: importBatch.id,
+        sourceKey: "archive:package",
+        displayName: input.fileName,
+        declaredByteSize: input.declaredByteSize,
+      })
+    : importMediaUploadBindingSchema.parse({
+        productImportBatchId: importBatch.id,
+        sourceKey: durableSourceKey,
+        relativePath: input.relativePath,
+        displayName: input.fileName,
+        declaredByteSize: input.declaredByteSize,
+      });
+  return db.transaction(async (transaction) => {
+    await transaction.execute(sql`select id from product_import_batches where id = ${importBatch.id} for update`);
+    const current = (await transaction.select({ status: productImportBatches.status }).from(productImportBatches).where(and(
+      eq(productImportBatches.id, importBatch.id),
+      eq(productImportBatches.createdByUserId, actor.userId),
+      eq(productImportBatches.authSessionId, actor.authSessionId),
+    )).limit(1))[0];
+    if (current?.status !== "draft") throw new Error("Product Import preparation changed before Upload issuance.");
+    const existing = (await transaction.select().from(assetUploadBatches).where(and(
+      eq(assetUploadBatches.createdByUserId, actor.userId),
+      eq(assetUploadBatches.authSessionId, actor.authSessionId),
+      input.kind === "archive_package"
+        ? sql`${assetUploadBatches.declarationInput} -> 'importPackageBinding' ->> 'productImportBatchId' = ${importBatch.id}`
+        : and(
+            sql`${assetUploadBatches.declarationInput} -> 'importMediaBinding' ->> 'productImportBatchId' = ${importBatch.id}`,
+            sql`${assetUploadBatches.declarationInput} -> 'importMediaBinding' ->> 'sourceKey' = ${durableSourceKey}`,
+          ),
+    )).limit(1))[0];
+    if (existing) {
+      const stored = existing.declarationInput as { importMediaBinding?: unknown; importPackageBinding?: unknown } | null;
+      const parsed = input.kind === "archive_package"
+        ? importPackageUploadBindingSchema.safeParse(stored?.importPackageBinding)
+        : importMediaUploadBindingSchema.safeParse(stored?.importMediaBinding);
+      if (!parsed.success || JSON.stringify(parsed.data) !== JSON.stringify(expectedBinding) || !existing.expiresAt || existing.expiresAt <= now) {
+        throw new Error("Existing Import upload binding is inconsistent or expired; cancel this preparation safely.");
+      }
+      const intents = await transaction.select().from(uploadIntents).where(eq(uploadIntents.uploadBatchId, existing.id));
+      if (
+        intents.length !== 1 ||
+        intents[0]?.tokenHash !== hashToken(token) ||
+        intents[0]?.declaredFileName !== input.fileName ||
+        intents[0]?.declaredMimeType !== input.declaredMimeType ||
+        intents[0]?.declaredByteSize !== input.declaredByteSize
+      ) throw new Error("Existing Import Upload Intent identity is inconsistent.");
+      return { batchId: existing.id, expiresAt: existing.expiresAt, intents: [{ token, uploadUrl: `/api/admin/upload-intents/${encodeURIComponent(token)}/` }] };
+    }
+    return createAdminUploadBatch(transaction, actor, {
+      files: [{ fileName: input.fileName, declaredMimeType: input.declaredMimeType, declaredByteSize: input.declaredByteSize }],
+      category: input.kind === "archive_package" ? "other" : "product",
+      role: input.kind === "archive_package" ? "document" : "gallery",
+      sortOrder: 0,
+      associationType: null,
+      associationEntityId: null,
+      sourceDeclarationEnabled: false,
+      sourceDeclaration: null,
+    }, {
+      ...options,
+      ...(input.kind === "archive_package" ? { importPackageBinding: expectedBinding as ImportPackageUploadBinding } : { importBinding: expectedBinding as ImportMediaUploadBinding }),
+      issuedTokens: [token],
+    });
+  });
+}
+
+/** Release only Import-bound media that has reached Product-Asset authority. */
+export async function releaseRelatedProductImportMedia<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  assetIds: readonly string[],
+): Promise<number> {
+  const uniqueIds = [...new Set(assetIds)];
+  if (!uniqueIds.length) return 0;
+  const bound = await db.select({
+    assetId: assets.id,
+    uploadBatchId: assetUploadBatches.id,
+  }).from(assets)
+    .innerJoin(assetUploadBatches, eq(assetUploadBatches.id, assets.uploadBatchId))
+    .innerJoin(productAssets, eq(productAssets.assetId, assets.id))
+    .where(and(
+      inArray(assets.id, uniqueIds),
+      isNull(assets.deletedAt),
+      sql`${assetUploadBatches.declarationInput} -> 'importMediaBinding' ->> 'productImportBatchId' is not null`,
+    ));
+  if (!bound.length) return 0;
+  const now = new Date();
+  const releasedIds = [...new Set(bound.map((entry) => entry.assetId))];
+  await db.update(assets).set({ retentionExpiresAt: null, updatedAt: now }).where(inArray(assets.id, releasedIds));
+  await db.update(objectCleanupJobs).set({
+    status: "cancelled",
+    lockedBy: null,
+    lockedAt: null,
+    leaseExpiresAt: null,
+    updatedAt: now,
+  }).where(and(
+    inArray(objectCleanupJobs.uploadBatchId, [...new Set(bound.map((entry) => entry.uploadBatchId))]),
+    eq(objectCleanupJobs.storagePartition, "public"),
+    eq(objectCleanupJobs.status, "standby"),
+    isNull(objectCleanupJobs.armedAt),
+  ));
+  return releasedIds.length;
+}
+
+async function settleProductImportMediaCleanup<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  uploadBatchIds: readonly string[],
+  now = new Date(),
+): Promise<void> {
+  for (const uploadBatchId of [...new Set(uploadBatchIds)]) {
+    const unfinished = await db.select({ id: objectCleanupJobs.id }).from(objectCleanupJobs).where(and(
+      eq(objectCleanupJobs.uploadBatchId, uploadBatchId),
+      eq(objectCleanupJobs.storagePartition, "public"),
+      inArray(objectCleanupJobs.status, ["standby", "pending", "processing", "dead"]),
+    )).limit(1);
+    if (unfinished.length) continue;
+    await db.update(uploadRecoveryJobs).set({
+      status: "completed",
+      stage: "failed",
+      completedAt: now,
+      nextAttemptAt: now,
+      lockedBy: null,
+      lockedAt: null,
+      leaseExpiresAt: null,
+      lastError: "product_import_media_cleanup_completed",
+      updatedAt: now,
+    }).where(and(
+      eq(uploadRecoveryJobs.uploadBatchId, uploadBatchId),
+      eq(uploadRecoveryJobs.kind, "finalize"),
+      inArray(uploadRecoveryJobs.status, ["retryable", "cleanup_required"]),
+    ));
+  }
+}
+
+/**
+ * Arm the existing Finalize compensation manifest when retained Import media
+ * expires without reaching a Product-Asset relation. The existing object
+ * cleanup operator command invokes this; no second worker or authority exists.
+ */
+export async function expireRetainedProductImportMedia<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  options: { now?: Date; limit?: number; auditWriter?: typeof writeAuditLog } = {},
+): Promise<{ expired: number; failedBatches: number; cleanup: { attempted: number; completed: number; dead: number } }> {
+  const now = options.now ?? new Date();
+  const auditWriter = options.auditWriter ?? writeAuditLog;
+  const candidates = await db.select({
+    assetId: assets.id,
+    uploadBatchId: assetUploadBatches.id,
+    importBatchId: productImportBatches.id,
+    itemId: productImportItems.id,
+    warningCodes: productImportItems.warningCodes,
+  }).from(assets)
+    .innerJoin(assetUploadBatches, eq(assetUploadBatches.id, assets.uploadBatchId))
+    .innerJoin(productImportItems, eq(productImportItems.targetAssetId, assets.id))
+    .innerJoin(productImportBatches, eq(productImportBatches.id, productImportItems.batchId))
+    .leftJoin(productAssets, eq(productAssets.assetId, assets.id))
+    .where(and(
+      eq(assets.storagePartition, "public"),
+      eq(assets.status, "ready"),
+      isNull(assets.deletedAt),
+      lte(assets.retentionExpiresAt, now),
+      isNull(productAssets.assetId),
+      inArray(productImportBatches.status, ["draft", "validated", "completed", "failed"]),
+      sql`${assetUploadBatches.declarationInput} -> 'importMediaBinding' ->> 'productImportBatchId' = ${productImportBatches.id}::text`,
+    )).limit(options.limit ?? 100);
+  const expiredUploadBatchIds: string[] = [];
+  const failedImportBatchIds = new Set<string>();
+  for (const candidate of candidates) {
+    const result = await db.transaction(async (transaction) => {
+      await transaction.execute(sql`select id from product_import_batches where id = ${candidate.importBatchId} for update`);
+      await transaction.execute(sql`select id from asset_upload_batches where id = ${candidate.uploadBatchId} for update`);
+      await transaction.execute(sql`select id from assets where id = ${candidate.assetId} for update`);
+      const relation = await transaction.select({ assetId: productAssets.assetId }).from(productAssets)
+        .where(eq(productAssets.assetId, candidate.assetId)).limit(1);
+      const currentImportBatch = (await transaction.select({ status: productImportBatches.status })
+        .from(productImportBatches).where(eq(productImportBatches.id, candidate.importBatchId)).limit(1))[0];
+      const currentAsset = (await transaction.select({
+        status: assets.status,
+        deletedAt: assets.deletedAt,
+        retentionExpiresAt: assets.retentionExpiresAt,
+      }).from(assets).where(eq(assets.id, candidate.assetId)).limit(1))[0];
+      if (relation.length || !currentImportBatch || !["draft", "validated", "completed", "failed"].includes(currentImportBatch.status) ||
+        !currentAsset || currentAsset.status !== "ready" || currentAsset.deletedAt ||
+        !currentAsset.retentionExpiresAt || currentAsset.retentionExpiresAt > now) return { expired: false, failedBatch: false };
+      await transaction.update(assets).set({
+        status: "deleted",
+        deletedAt: now,
+        retentionExpiresAt: now,
+        updatedAt: now,
+      }).where(eq(assets.id, candidate.assetId));
+      await transaction.update(productImportItems).set({
+        status: "skipped",
+        warningCodes: [...new Set([...(Array.isArray(candidate.warningCodes) ? candidate.warningCodes : []), "retention_expired_unrelated_media"])],
+        updatedAt: now,
+      }).where(eq(productImportItems.id, candidate.itemId));
+      let failedBatch = false;
+      if (currentImportBatch.status === "draft" || currentImportBatch.status === "validated") {
+        const failed = await transaction.update(productImportBatches).set({
+          status: "failed",
+          failureCode: "preparation_expired",
+          failureDetail: "Retained Import media expired before the Batch reached a Product relationship.",
+          completedAt: now,
+          updatedAt: now,
+        }).where(and(
+          eq(productImportBatches.id, candidate.importBatchId),
+          inArray(productImportBatches.status, ["draft", "validated"]),
+        )).returning({ id: productImportBatches.id });
+        failedBatch = failed.length === 1;
+      }
+      await transaction.update(assetUploadBatches).set({
+        status: "failed",
+        failureReason: "product_import_media_retention_expired",
+      }).where(and(
+        eq(assetUploadBatches.id, candidate.uploadBatchId),
+        eq(assetUploadBatches.status, "completed"),
+      ));
+      await transaction.update(uploadRecoveryJobs).set({
+        status: "cleanup_required",
+        stage: "cleanup_required",
+        completedAt: null,
+        nextAttemptAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastError: "product_import_media_retention_expired",
+        updatedAt: now,
+      }).where(and(
+        eq(uploadRecoveryJobs.uploadBatchId, candidate.uploadBatchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+        eq(uploadRecoveryJobs.status, "completed"),
+      ));
+      await transaction.update(objectCleanupJobs).set({
+        status: "pending",
+        armedAt: now,
+        armedReason: "product_import_media_retention_expired",
+        nextAttemptAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        completedAt: null,
+        updatedAt: now,
+      }).where(and(
+        eq(objectCleanupJobs.uploadBatchId, candidate.uploadBatchId),
+        eq(objectCleanupJobs.storagePartition, "public"),
+        eq(objectCleanupJobs.status, "standby"),
+        isNull(objectCleanupJobs.armedAt),
+      ));
+      await auditWriter(transaction, {
+        action: "product_import.media_retention_expired",
+        entityType: "product_import_batch",
+        entityId: candidate.importBatchId,
+        afterSummary: { assetId: candidate.assetId, uploadBatchId: candidate.uploadBatchId },
+      });
+      return { expired: true, failedBatch };
+    });
+    if (result.expired) expiredUploadBatchIds.push(candidate.uploadBatchId);
+    if (result.failedBatch) failedImportBatchIds.add(candidate.importBatchId);
+  }
+  const cleanup = await processPendingObjectCleanupJobs(db, storage, {
+    limit: Math.max(1, expiredUploadBatchIds.length * 8),
+    workerId: "product-import-retention-expiry",
+    now,
+    auditWriter,
+  });
+  await settleProductImportMediaCleanup(db, expiredUploadBatchIds, now);
+  return { expired: expiredUploadBatchIds.length, failedBatches: failedImportBatchIds.size, cleanup };
+}
+
+export async function abandonProductImportUploads<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
+  actor: AdminUploadActor,
+  productImportBatchId: string,
+  options: Pick<AdminUploadOptions, "now" | "auditWriter"> = {},
+): Promise<void> {
+  const now = options.now ?? new Date();
+  requirePermission(actor.role, "products.import");
+  await assertActiveSession(db, actor, now);
+  const importBatch = (await db.select().from(productImportBatches).where(and(
+    eq(productImportBatches.id, z.uuid().parse(productImportBatchId)),
+    eq(productImportBatches.createdByUserId, actor.userId),
+    eq(productImportBatches.authSessionId, actor.authSessionId),
+    eq(productImportBatches.status, "failed"),
+    eq(productImportBatches.failureCode, "operator_cancelled"),
+  )).limit(1))[0];
+  if (!importBatch) throw new Error("Cancelled Product Import Batch was not found for cleanup.");
+  const mediaItems = await db.select({ assetId: productImportItems.targetAssetId, uploadBatchId: productImportItems.uploadBatchId })
+    .from(productImportItems).where(and(
+      eq(productImportItems.batchId, importBatch.id),
+      eq(productImportItems.kind, "media"),
+      isNotNull(productImportItems.targetAssetId),
+      isNotNull(productImportItems.uploadBatchId),
+    ));
+  const mediaAssetIds = mediaItems.map((item) => item.assetId!);
+  if (mediaAssetIds.length) {
+    const relations = await db.select({ assetId: productAssets.assetId }).from(productAssets).where(inArray(productAssets.assetId, mediaAssetIds));
+    if (relations.length) throw new Error("Related Product media cannot be abandoned by pre-Apply cleanup.");
+  }
+  const mediaUploadBatchIds = [...new Set(mediaItems.map((item) => item.uploadBatchId!))];
+  const boundPackageAssets = await db.select({ assetId: assets.id, uploadBatchId: assetUploadBatches.id })
+    .from(assets).innerJoin(assetUploadBatches, eq(assetUploadBatches.id, assets.uploadBatchId)).where(and(
+      eq(assets.storagePartition, "imports"),
+      sql`${assetUploadBatches.declarationInput} -> 'importPackageBinding' ->> 'productImportBatchId' = ${importBatch.id}`,
+    ));
+  const packageAssetIds = [...new Set([
+    importBatch.workbookAssetId,
+    importBatch.mediaPackageAssetId,
+    ...boundPackageAssets.map((entry) => entry.assetId),
+  ].filter((value): value is string => Boolean(value)))];
+  const packageUploadBatchIds = [...new Set(boundPackageAssets.map((entry) => entry.uploadBatchId))];
+  await db.transaction(async (transaction) => {
+    if (mediaAssetIds.length) await transaction.update(assets).set({
+      status: "deleted",
+      deletedAt: now,
+      retentionExpiresAt: now,
+      updatedAt: now,
+    }).where(and(inArray(assets.id, mediaAssetIds), isNull(assets.deletedAt)));
+    if (mediaUploadBatchIds.length) {
+      await transaction.update(assetUploadBatches).set({ status: "failed", failureReason: "product_import_abandoned" })
+        .where(and(inArray(assetUploadBatches.id, mediaUploadBatchIds), eq(assetUploadBatches.status, "completed")));
+      await transaction.update(uploadRecoveryJobs).set({
+        status: "cleanup_required",
+        stage: "cleanup_required",
+        nextAttemptAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastError: "product_import_abandoned",
+        updatedAt: now,
+      }).where(and(
+        inArray(uploadRecoveryJobs.uploadBatchId, mediaUploadBatchIds),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+        eq(uploadRecoveryJobs.status, "completed"),
+      ));
+      await transaction.update(objectCleanupJobs).set({
+        status: "pending",
+        armedAt: now,
+        armedReason: "product_import_abandoned",
+        nextAttemptAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        completedAt: null,
+        updatedAt: now,
+      }).where(and(
+        inArray(objectCleanupJobs.uploadBatchId, mediaUploadBatchIds),
+        eq(objectCleanupJobs.storagePartition, "public"),
+        eq(objectCleanupJobs.status, "standby"),
+        isNull(objectCleanupJobs.armedAt),
+      ));
+    }
+    if (packageUploadBatchIds.length) await transaction.update(assetUploadBatches).set({
+      status: "failed",
+      failureReason: "product_import_abandoned",
+    }).where(and(
+      inArray(assetUploadBatches.id, packageUploadBatchIds),
+      inArray(assetUploadBatches.status, ["created", "uploading", "ready_to_finalize", "finalizing", "completed", "failed"]),
+    ));
+    if (packageAssetIds.length) await transaction.update(objectCleanupJobs).set({
+      status: "pending",
+      armedAt: now,
+      armedReason: "product_import_abandoned",
+      nextAttemptAt: now,
+      lockedBy: null,
+      lockedAt: null,
+      leaseExpiresAt: null,
+      completedAt: null,
+      recoveryVersion: sql`(
+        select version from upload_recovery_jobs
+        where upload_recovery_jobs.upload_intent_id = object_cleanup_jobs.upload_intent_id
+          and upload_recovery_jobs.kind = 'staging'
+        limit 1
+      )`,
+      updatedAt: now,
+    }).where(and(
+      inArray(objectCleanupJobs.assetId, packageAssetIds),
+      eq(objectCleanupJobs.storagePartition, "imports"),
+      inArray(objectCleanupJobs.status, ["pending", "completed"]),
+    ));
+  });
+  await processPendingObjectCleanupJobs(db, storage, {
+    limit: Math.max(1, mediaAssetIds.length * 8 + 2),
+    workerId: `product-import-abandon-${importBatch.id}`,
+    now,
+    auditWriter: options.auditWriter ?? writeAuditLog,
+  });
+  await settleProductImportMediaCleanup(db, mediaUploadBatchIds, now);
 }
 
 export async function inspectAdminUploadIntent<TQueryResult extends PgQueryResultHKT>(
@@ -942,6 +1429,23 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
     if (!intent?.uploadBatchId || !intent.adminAssetCategory || !intent.adminAssetRole) {
       throw new Error("Import Archive Intent is invalid, expired, or already used.");
     }
+    const parentUploadBatch = (await transaction.select().from(assetUploadBatches).where(and(
+      eq(assetUploadBatches.id, intent.uploadBatchId),
+      eq(assetUploadBatches.createdByUserId, actor.userId),
+      eq(assetUploadBatches.authSessionId, actor.authSessionId),
+    )).limit(1))[0];
+    const parentInput = parentUploadBatch?.declarationInput as { importPackageBinding?: unknown } | null;
+    const packageBinding = importPackageUploadBindingSchema.safeParse(parentInput?.importPackageBinding);
+    if (!parentUploadBatch || !packageBinding.success || packageBinding.data.declaredByteSize !== intent.declaredByteSize || packageBinding.data.displayName !== intent.declaredFileName) {
+      throw new Error("Import Archive is not bound to a durable Product Import Batch.");
+    }
+    const productImport = (await transaction.select({ id: productImportBatches.id }).from(productImportBatches).where(and(
+      eq(productImportBatches.id, packageBinding.data.productImportBatchId),
+      eq(productImportBatches.createdByUserId, actor.userId),
+      eq(productImportBatches.authSessionId, actor.authSessionId),
+      eq(productImportBatches.status, "draft"),
+    )).limit(1))[0];
+    if (!productImport) throw new Error("Product Import preparation is no longer resumable.");
     if (intent.status === "passed" || intent.status === "consumed") {
       const completedAsset = intent.assetId
         ? (await transaction.select().from(assets).where(eq(assets.id, intent.assetId)).limit(1))[0]
@@ -957,7 +1461,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
       ) {
         throw new Error("Completed Import Archive replay has inconsistent durable evidence.");
       }
-      return { completed: true, intent, asset: completedAsset } as const;
+      return { completed: true, intent, asset: completedAsset, packageBinding: packageBinding.data } as const;
     }
     if (intent.status === "uploading") {
       const existingAsset = intent.assetId
@@ -1051,6 +1555,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         intent,
         asset: existingAsset,
         recovery,
+        packageBinding: packageBinding.data,
       } as const;
     }
     const assetId = randomUUID();
@@ -1122,6 +1627,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
       intent,
       asset: { id: assetId, objectKey, sha256: "0".repeat(64) },
       recovery: { id: row.id, version: row.version, attemptCount: 1 },
+      packageBinding: packageBinding.data,
     } as const;
   });
   if (claim.completed) {
@@ -1133,7 +1639,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
     const media = [...bindings.values()].map((entry) => {
       if (!entry.completed) throw new Error("Completed Import Archive has incomplete media evidence.");
       return { order: entry.binding.sourceOrder, media: entry.completed };
-    }).sort((left, right) => left.order - right.order).map((entry) => entry.media);
+    }).sort((left, right) => left.order! - right.order!).map((entry) => entry.media);
     return { packageAssetId: claim.asset.id, media };
   }
   const intent = claim.intent;
@@ -1212,6 +1718,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
       });
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const binding = importMediaUploadBindingSchema.parse({
+        productImportBatchId: claim.packageBinding.productImportBatchId,
         packageAssetId: assetId,
         sourceKey: file.sourceKey,
         sourceOrder,
@@ -1250,7 +1757,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
           sourceKey: binding.sourceKey,
           relativePath: binding.relativePath,
           displayName: binding.displayName,
-          sha256: binding.sha256,
+          sha256: binding.sha256!,
           assetId: stagedAssetId,
           uploadBatchId: issued.batchId,
         });
@@ -1309,6 +1816,17 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         updatedAt: completedAt,
       })
         .where(and(eq(objectCleanupJobs.assetId, assetId), eq(objectCleanupJobs.storagePartition, "imports")));
+      const importUpdated = await transaction.update(productImportBatches).set({
+        mediaPackageAssetId: assetId,
+        packageUploadBatchId: uploadBatchId,
+        updatedAt: completedAt,
+      }).where(and(
+        eq(productImportBatches.id, claim.packageBinding.productImportBatchId),
+        eq(productImportBatches.createdByUserId, actor.userId),
+        eq(productImportBatches.authSessionId, actor.authSessionId),
+        eq(productImportBatches.status, "draft"),
+      )).returning({ id: productImportBatches.id });
+      if (!importUpdated[0]) throw new Error("Product Import preparation changed before Archive completion.");
       await auditWriter(transaction, {
         actorUserId: actor.userId,
         action: "asset.import_archive.staged",
@@ -1608,6 +2126,12 @@ async function readCompletedFinalizeResult<TQueryResult extends PgQueryResultHKT
     eq(assetUploadBatches.status, "completed"),
   )).limit(1))[0];
   if (!batch) return null;
+  const bindingInput = batch.declarationInput as { importMediaBinding?: unknown } | null;
+  const parsedImportBinding = bindingInput?.importMediaBinding === undefined
+    ? null
+    : importMediaUploadBindingSchema.safeParse(bindingInput.importMediaBinding);
+  if (parsedImportBinding && !parsedImportBinding.success) throw new Error("Completed Import media binding is invalid.");
+  const importBinding = parsedImportBinding?.success ? parsedImportBinding.data : null;
   const recovery = (await db.select().from(uploadRecoveryJobs).where(and(
     eq(uploadRecoveryJobs.uploadBatchId, batch.id),
     eq(uploadRecoveryJobs.kind, "finalize"),
@@ -1634,6 +2158,10 @@ async function readCompletedFinalizeResult<TQueryResult extends PgQueryResultHKT
   ) {
     throw new Error("Completed Finalize failed authoritative identity validation.");
   }
+  const relatedImportAssets = importBinding && assetIds.length
+    ? await db.select({ assetId: productAssets.assetId }).from(productAssets).where(inArray(productAssets.assetId, assetIds))
+    : [];
+  const importReleased = Boolean(importBinding) && relatedImportAssets.length === assetIds.length;
   const releasedAssets = await db.select().from(assets).where(
     eq(assets.uploadBatchId, batch.id),
   );
@@ -1658,7 +2186,10 @@ async function readCompletedFinalizeResult<TQueryResult extends PgQueryResultHKT
       asset.access !== "public" ||
       asset.status !== "ready" ||
       asset.scanStatus !== "passed" ||
-      asset.deletedAt !== null
+      asset.deletedAt !== null ||
+      (importBinding
+        ? importReleased ? asset.retentionExpiresAt !== null : asset.retentionExpiresAt === null
+        : asset.retentionExpiresAt !== null)
     ) ||
     manifestOriginalAssetIds.size !== assetIds.length ||
     assetIds.some((assetId) => !manifestOriginalAssetIds.has(assetId)) ||
@@ -1675,7 +2206,8 @@ async function readCompletedFinalizeResult<TQueryResult extends PgQueryResultHKT
       const item = job.finalizeManifestItemId ? manifestById.get(job.finalizeManifestItemId) : undefined;
       return !item ||
         job.cleanupKind !== "finalize_public" ||
-        job.status !== "cancelled" ||
+        job.status !== (importBinding && !importReleased ? "standby" : "cancelled") ||
+        job.armedAt !== null ||
         job.finalizeRecoveryId !== recovery.id ||
         job.finalizeAttempt !== recovery.attemptCount ||
         job.recoveryVersion !== recovery.version ||
@@ -1687,6 +2219,16 @@ async function readCompletedFinalizeResult<TQueryResult extends PgQueryResultHKT
     });
   if (identityInvalid) {
     throw new Error("Completed Finalize failed authoritative object integrity validation.");
+  }
+  if (importBinding) {
+    const item = (await db.select({ targetAssetId: productImportItems.targetAssetId, uploadBatchId: productImportItems.uploadBatchId }).from(productImportItems).where(and(
+      eq(productImportItems.batchId, importBinding.productImportBatchId),
+      eq(productImportItems.kind, "media"),
+      eq(productImportItems.sourceKey, importBinding.sourceKey),
+    )).limit(1))[0];
+    if (!item || item.targetAssetId !== assetIds[0] || item.uploadBatchId !== batch.id) {
+      throw new Error("Completed Import Finalize is not bound to its durable media Item.");
+    }
   }
   for (const item of manifest) await assertStoredManifestObject(storage, item);
   const privateCleanup = await db.select({ status: objectCleanupJobs.status })
@@ -2047,6 +2589,24 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
     const source = batch.sourceDeclarationEnabled
       ? (batch.declarationInput as AdminSourceDeclarationInput | null) ?? {}
       : null;
+    const bindingInput = batch.declarationInput as { importMediaBinding?: unknown } | null;
+    const parsedImportBinding = bindingInput?.importMediaBinding === undefined
+      ? null
+      : importMediaUploadBindingSchema.safeParse(bindingInput.importMediaBinding);
+    if (parsedImportBinding && !parsedImportBinding.success) throw new Error("Import media Upload binding is invalid.");
+    const importBinding = parsedImportBinding?.success ? parsedImportBinding.data : null;
+    if (importBinding) {
+      if (staged.length !== 1 || intents.length !== 1 || staged[0]?.sha256 !== (importBinding.sha256 ?? staged[0]?.sha256) || (importBinding.declaredByteSize !== undefined && staged[0]?.byteSize !== importBinding.declaredByteSize)) {
+        throw new Error("Import media Upload binding does not match staged Asset evidence.");
+      }
+      const durableImport = (await db.select({ id: productImportBatches.id }).from(productImportBatches).where(and(
+        eq(productImportBatches.id, importBinding.productImportBatchId),
+        eq(productImportBatches.createdByUserId, actor.userId),
+        eq(productImportBatches.authSessionId, actor.authSessionId),
+        eq(productImportBatches.status, "draft"),
+      )).limit(1))[0];
+      if (!durableImport) throw new Error("Import media has no active durable Product Import authority.");
+    }
     if (source?.subjectRelationship) sourceSubjectSchema.parse(source.subjectRelationship);
     if (source?.publicUsePermission) permissionSchema.parse(source.publicUsePermission);
     if (source?.editingPermission) permissionSchema.parse(source.editingPermission);
@@ -2341,8 +2901,61 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         if (!stagingRecovery) throw new Error("Staging Recovery identity changed before Finalize commit.");
         await assertAssociationTarget(transaction, actor, intent.associationType ? associationTypeSchema.parse(intent.associationType) : null, intent.associationEntityId);
         if (!isRoleMimeCompatible(intent.adminAssetRole!, asset.detectedMimeType)) throw new Error("Asset role is incompatible with detected MIME type.");
+        if (importBinding) {
+          await transaction.execute(sql`select id from product_import_batches where id = ${importBinding.productImportBatchId} for update`);
+          const durableImport = (await transaction.select({ id: productImportBatches.id }).from(productImportBatches).where(and(
+            eq(productImportBatches.id, importBinding.productImportBatchId),
+            eq(productImportBatches.createdByUserId, actor.userId),
+            eq(productImportBatches.authSessionId, actor.authSessionId),
+            eq(productImportBatches.status, "draft"),
+          )).limit(1))[0];
+          if (!durableImport) throw new Error("Product Import authority changed before media activation.");
+          const currentItem = (await transaction.select().from(productImportItems).where(and(
+            eq(productImportItems.batchId, importBinding.productImportBatchId),
+            eq(productImportItems.kind, "media"),
+            eq(productImportItems.sourceKey, importBinding.sourceKey),
+          )).limit(1).for("update"))[0];
+          if (currentItem?.targetAssetId && currentItem.targetAssetId !== asset.id) {
+            throw new Error("Product Import media identity is already owned by another Asset.");
+          }
+          const rawData = {
+            ...((currentItem?.rawData as Record<string, unknown> | null) ?? {}),
+            relativePath: importBinding.relativePath,
+            displayName: importBinding.displayName,
+            ...(importBinding.packageAssetId ? { packageAssetId: importBinding.packageAssetId, sourceOrder: importBinding.sourceOrder } : {}),
+          };
+          if (currentItem) {
+            const itemUpdated = await transaction.update(productImportItems).set({
+              status: "valid",
+              rawData,
+              normalizedData: { sha256: asset.sha256 },
+              targetAssetId: asset.id,
+              uploadBatchId: batch.id,
+              errorCode: null,
+              errorDetail: null,
+              updatedAt: commitTime,
+            }).where(and(
+              eq(productImportItems.id, currentItem.id),
+              currentItem.targetAssetId ? eq(productImportItems.targetAssetId, asset.id) : isNull(productImportItems.targetAssetId),
+            )).returning({ id: productImportItems.id });
+            if (!itemUpdated[0]) throw new Error("Product Import media Item changed before activation.");
+          } else {
+            await transaction.insert(productImportItems).values({
+              batchId: importBinding.productImportBatchId,
+              kind: "media",
+              sourceKey: importBinding.sourceKey,
+              status: "valid",
+              rawData,
+              normalizedData: { sha256: asset.sha256 },
+              targetAssetId: asset.id,
+              uploadBatchId: batch.id,
+            });
+          }
+        }
         const releasedAsset = await transaction.update(assets).set({
-          storagePartition: "public", access: "public", retentionExpiresAt: null,
+          storagePartition: "public",
+          access: "public",
+          retentionExpiresAt: importBinding ? new Date(commitTime.getTime() + 30 * 24 * 60 * 60 * 1_000) : null,
           sourceDeclarationEnabled: batch.sourceDeclarationEnabled,
           ...(batch.sourceDeclarationEnabled ? {
             sourceType: cleanOptional(source?.sourceType), sourceProvider: cleanOptional(source?.sourceProvider),
@@ -2414,22 +3027,31 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
           },
         });
       }
-      const cancelledCleanup = await transaction.update(objectCleanupJobs).set({
-        status: "cancelled",
-        lockedBy: null,
-        lockedAt: null,
-        leaseExpiresAt: null,
-        updatedAt: commitTime,
-      }).where(and(
-        eq(objectCleanupJobs.uploadBatchId, batch.id),
-        eq(objectCleanupJobs.storagePartition, "public"),
-        eq(objectCleanupJobs.finalizeRecoveryId, recoveryLease.id),
-        eq(objectCleanupJobs.finalizeAttempt, recoveryLease.attemptCount),
-        eq(objectCleanupJobs.status, "standby"),
-        isNull(objectCleanupJobs.armedAt),
-      )).returning({ id: objectCleanupJobs.id });
-      if (cancelledCleanup.length !== manifest.length) {
-        throw new Error("Finalize Compensation Manifest could not be cancelled atomically.");
+      const settledCleanup = importBinding
+        ? await transaction.select({ id: objectCleanupJobs.id }).from(objectCleanupJobs).where(and(
+            eq(objectCleanupJobs.uploadBatchId, batch.id),
+            eq(objectCleanupJobs.storagePartition, "public"),
+            eq(objectCleanupJobs.finalizeRecoveryId, recoveryLease.id),
+            eq(objectCleanupJobs.finalizeAttempt, recoveryLease.attemptCount),
+            eq(objectCleanupJobs.status, "standby"),
+            isNull(objectCleanupJobs.armedAt),
+          ))
+        : await transaction.update(objectCleanupJobs).set({
+            status: "cancelled",
+            lockedBy: null,
+            lockedAt: null,
+            leaseExpiresAt: null,
+            updatedAt: commitTime,
+          }).where(and(
+            eq(objectCleanupJobs.uploadBatchId, batch.id),
+            eq(objectCleanupJobs.storagePartition, "public"),
+            eq(objectCleanupJobs.finalizeRecoveryId, recoveryLease.id),
+            eq(objectCleanupJobs.finalizeAttempt, recoveryLease.attemptCount),
+            eq(objectCleanupJobs.status, "standby"),
+            isNull(objectCleanupJobs.armedAt),
+          )).returning({ id: objectCleanupJobs.id });
+      if (settledCleanup.length !== manifest.length) {
+        throw new Error(importBinding ? "Import retention Compensation Manifest is incomplete." : "Finalize Compensation Manifest could not be cancelled atomically.");
       }
       const completedRecovery = await transaction.update(uploadRecoveryJobs).set({
         status: "completed",
@@ -2454,7 +3076,7 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         updatedAt: commitTime,
       }).where(inArray(
         objectCleanupJobs.id,
-        cancelledCleanup.map((job) => job.id),
+        settledCleanup.map((job) => job.id),
       ));
       const completedBatch = await transaction.update(assetUploadBatches).set({ status: "completed", completedAt: commitTime, failureReason: null }).where(and(
         eq(assetUploadBatches.id, batch.id),

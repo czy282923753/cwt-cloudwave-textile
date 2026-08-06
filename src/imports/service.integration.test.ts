@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import sharp from "sharp";
 import writeExcelFile from "write-excel-file/node";
@@ -9,11 +8,11 @@ vi.mock("server-only", () => ({}));
 import { assets, authSessions, editorialRevisions, featureFlags, productImportBatches, productImportItems, productLocalizations, products, seoMetadata, taxonomyTermLocalizations, taxonomyTerms, users } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
-import { completeAdminUploadIntent, createAdminUploadBatch, finalizeAdminUploadBatch, IMPORT_WORKBOOK_MIME, type AdminUploadActor } from "@/uploads/admin-upload-service";
+import { completeAdminUploadIntent, createAdminUploadBatch, createProductImportUploadBatch, finalizeAdminUploadBatch, IMPORT_WORKBOOK_MIME, type AdminUploadActor } from "@/uploads/admin-upload-service";
 import { DevelopmentFileScanner } from "@/uploads/scanner";
 
 import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
-import { applyProductImportBatch, createValidatedProductImport } from "./service";
+import { applyProductImportBatch, prepareProductImportBatch, validatePreparedProductImport } from "./service";
 
 const allowLimiter = { consume: async () => true };
 
@@ -38,14 +37,6 @@ describe("Product Import orchestration", () => {
       const actor: AdminUploadActor = { userId: user!.id, role: user!.role, authSessionId: session!.id };
       const image = new Uint8Array(await sharp({ create: { width: 24, height: 24, channels: 3, background: "teal" } }).jpeg().toBuffer());
       const secondImage = new Uint8Array(await sharp({ create: { width: 24, height: 24, channels: 3, background: "navy" } }).jpeg().toBuffer());
-      const imageUpload = await createAdminUploadBatch(connection.db, actor, { files: [
-        { fileName: "CWT-MESH-001-01.jpg", declaredMimeType: "image/jpeg", declaredByteSize: image.byteLength },
-        { fileName: "CWT-MESH-002-01.jpg", declaredMimeType: "image/jpeg", declaredByteSize: secondImage.byteLength },
-      ], category: "product", role: "gallery", sortOrder: 0, associationType: null, associationEntityId: null, sourceDeclarationEnabled: false }, { rateLimiter: allowLimiter });
-      const imageAssetId = await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: imageUpload.intents[0]!.token, bytes: image }, { rateLimiter: allowLimiter });
-      const secondImageAssetId = await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: imageUpload.intents[1]!.token, bytes: secondImage }, { rateLimiter: allowLimiter });
-      await finalizeAdminUploadBatch(connection.db, storage, actor, imageUpload.batchId);
-
       const good = Array(PRODUCT_IMPORT_HEADERS.length).fill("");
       good[0] = "Synthetic Stage 3 Mesh Fabric";
       good[1] = "CWT-MESH-001";
@@ -64,10 +55,19 @@ describe("Product Import orchestration", () => {
       const workbookAssetId = await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: packageUpload.intents[0]!.token, bytes: workbookBytes }, { rateLimiter: allowLimiter });
       await finalizeAdminUploadBatch(connection.db, storage, actor, packageUpload.batchId);
 
-      const batchId = await createValidatedProductImport(connection.db, storage, actor, { mode: "create", workbookAssetId, media: [
-        { assetId: imageAssetId, uploadBatchId: imageUpload.batchId, relativePath: "CWT-MESH-001-01.jpg", sha256: createHash("sha256").update(image).digest("hex") },
-        { assetId: secondImageAssetId, uploadBatchId: imageUpload.batchId, relativePath: "CWT-MESH-002-01.jpg", sha256: createHash("sha256").update(secondImage).digest("hex") },
-      ] });
+      const batchId = await prepareProductImportBatch(connection.db, actor, { mode: "create", workbookAssetId, preparation: { kind: "folder", files: [
+        { relativePath: "CWT-MESH-001-01.jpg", fileName: "CWT-MESH-001-01.jpg", declaredMimeType: "image/jpeg", declaredByteSize: image.byteLength },
+        { relativePath: "CWT-MESH-002-01.jpg", fileName: "CWT-MESH-002-01.jpg", declaredMimeType: "image/jpeg", declaredByteSize: secondImage.byteLength },
+      ] } });
+      for (const [fileName, bytes] of [["CWT-MESH-001-01.jpg", image], ["CWT-MESH-002-01.jpg", secondImage]] as const) {
+        const imageUpload = await createProductImportUploadBatch(connection.db, actor, {
+          productImportBatchId: batchId, kind: "folder_media", relativePath: fileName,
+          fileName, declaredMimeType: "image/jpeg", declaredByteSize: bytes.byteLength,
+        }, { rateLimiter: allowLimiter });
+        await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: imageUpload.intents[0]!.token, bytes }, { rateLimiter: allowLimiter });
+        await finalizeAdminUploadBatch(connection.db, storage, actor, imageUpload.batchId);
+      }
+      await validatePreparedProductImport(connection.db, storage, actor, batchId);
       const before = await connection.db.select().from(productImportItems).where(eq(productImportItems.batchId, batchId));
       expect(before.filter((item) => item.kind === "row").sort((a, b) => a.rowNumber! - b.rowNumber!).map((item) => ({ row: item.rowNumber, status: item.status, error: item.errorDetail }))).toEqual([
         { row: 2, status: "valid", error: null },
@@ -106,7 +106,8 @@ describe("Product Import orchestration", () => {
       const updatePackage = await createAdminUploadBatch(connection.db, actor, { files: [{ fileName: "CWT-Product-Import-Template-V1.xlsx", declaredMimeType: IMPORT_WORKBOOK_MIME, declaredByteSize: updateWorkbookBytes.byteLength }], category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null, sourceDeclarationEnabled: false }, { rateLimiter: allowLimiter });
       const updateWorkbookAssetId = await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: updatePackage.intents[0]!.token, bytes: updateWorkbookBytes }, { rateLimiter: allowLimiter });
       await finalizeAdminUploadBatch(connection.db, storage, actor, updatePackage.batchId);
-      const updateBatchId = await createValidatedProductImport(connection.db, storage, actor, { mode: "update", workbookAssetId: updateWorkbookAssetId, media: [] });
+      const updateBatchId = await prepareProductImportBatch(connection.db, actor, { mode: "update", workbookAssetId: updateWorkbookAssetId, preparation: { kind: "none" } });
+      await validatePreparedProductImport(connection.db, storage, actor, updateBatchId);
       await applyProductImportBatch(connection.db, actor, updateBatchId);
       const publicAfter = (await connection.db.select().from(productLocalizations).where(eq(productLocalizations.productId, productRows[0]!.id)).limit(1))[0]!;
       expect(publicAfter.shortDescription).toBe(publicBefore.shortDescription);

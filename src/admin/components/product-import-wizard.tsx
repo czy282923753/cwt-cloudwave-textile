@@ -3,8 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type UploadedMedia = { assetId: string; uploadBatchId: string; relativePath: string };
-
 const workbookMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function declaredMime(file: File): string {
@@ -25,20 +23,35 @@ async function json<T>(response: Response): Promise<T> {
   return body;
 }
 
-async function issueUpload(files: File[], isolatedPackage: boolean) {
+async function issueWorkbookUpload(file: File) {
   return json<{ batchId: string; intents: { token: string; uploadUrl: string }[] }>(await fetch("/api/admin/upload-intents/", {
     method: "POST",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      files: files.map((file) => ({ fileName: file.name, declaredMimeType: declaredMime(file), declaredByteSize: file.size })),
-      category: isolatedPackage ? "other" : "product",
-      role: isolatedPackage ? "document" : "gallery",
+      files: [{ fileName: file.name, declaredMimeType: declaredMime(file), declaredByteSize: file.size }],
+      category: "other",
+      role: "document",
       sortOrder: 0,
       associationType: null,
       associationEntityId: null,
       sourceDeclarationEnabled: false,
       sourceDeclaration: null,
+    }),
+  }));
+}
+
+async function issueImportUpload(batchId: string, file: File, kind: "folder_media" | "archive_package", relativePath?: string) {
+  return json<{ batchId: string; intents: { token: string; uploadUrl: string }[] }>(await fetch(`/api/admin/product-imports/${batchId}/uploads/`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind,
+      ...(relativePath ? { relativePath } : {}),
+      fileName: file.name,
+      declaredMimeType: declaredMime(file),
+      declaredByteSize: file.size,
     }),
   }));
 }
@@ -70,6 +83,7 @@ export function ProductImportWizard({ enabled }: { enabled: boolean }) {
   return <form className="space-y-6 rounded-2xl border border-white/10 bg-slate-900 p-6" onSubmit={async (event) => {
     event.preventDefault();
     setBusy(true); setError(""); setStatus("Preparing isolated uploads…");
+    let durableBatchId: string | null = null;
     try {
       const data = new FormData(event.currentTarget);
       const mode = String(data.get("mode"));
@@ -82,57 +96,59 @@ export function ProductImportWizard({ enabled }: { enabled: boolean }) {
       if (archive instanceof File && archive.size > 500 * 1024 * 1024) throw new Error("The ZIP exceeds 500 MB.");
       if (folder.length > 500) throw new Error("A folder import is limited to 500 images.");
       if (folder.some((file) => file.size > 20 * 1024 * 1024)) throw new Error("Each image must be 20 MB or smaller.");
-      const packageFiles = [workbook, ...(archive instanceof File && archive.size ? [archive] : [])];
-      const packageUpload = await issueUpload(packageFiles, true);
-      let workbookAssetId = "";
-      let mediaPackageAssetId: string | null = null;
-      const media: UploadedMedia[] = [];
-      for (const [index, file] of packageFiles.entries()) {
-        setStatus(`Uploading isolated package ${index + 1} of ${packageFiles.length}…`);
-        const intent = packageUpload.intents[index]!;
-        const response = await uploadWithSameIntent<{ assetId: string; media?: UploadedMedia[] }>(intent.uploadUrl, file);
-        if (file === workbook) workbookAssetId = response.assetId;
-        else {
-          mediaPackageAssetId = response.assetId;
-          media.push(...(response.media ?? []).map((item) => ({
-            assetId: item.assetId,
-            uploadBatchId: item.uploadBatchId,
-            relativePath: item.relativePath,
-          })));
-        }
-      }
-      await json(await fetch(`/api/admin/upload-batches/${packageUpload.batchId}/finalize/`, {
+      const workbookUpload = await issueWorkbookUpload(workbook);
+      setStatus("Uploading the isolated Template V1 workbook…");
+      const workbookAssetId = (await uploadWithSameIntent<{ assetId: string }>(workbookUpload.intents[0]!.uploadUrl, workbook)).assetId;
+      await json(await fetch(`/api/admin/upload-batches/${workbookUpload.batchId}/finalize/`, {
         method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}",
       }));
-      for (let start = 0; start < folder.length; start += 8) {
-        const files = folder.slice(start, start + 8);
-        const upload = await issueUpload(files, false);
-        const uploaded: Array<{ assetId: string; file: File }> = [];
-        for (const [index, file] of files.entries()) {
-          setStatus(`Uploading folder image ${start + index + 1} of ${folder.length}…`);
-          const response = await uploadWithSameIntent<{ assetId: string }>(upload.intents[index]!.uploadUrl, file);
-          uploaded.push({ assetId: response.assetId, file });
-        }
+      const preparation = archive instanceof File && archive.size
+        ? { kind: "archive" as const, fileName: archive.name, declaredMimeType: "application/zip" as const, declaredByteSize: archive.size }
+        : folder.length
+          ? { kind: "folder" as const, files: folder.map((file) => ({
+              relativePath: file.webkitRelativePath || file.name,
+              fileName: file.name,
+              declaredMimeType: declaredMime(file),
+              declaredByteSize: file.size,
+            })) }
+          : { kind: "none" as const };
+      setStatus("Creating durable Import history before any media activation…");
+      const created = await json<{ batchId: string }>(await fetch("/api/admin/product-imports/", {
+        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode, workbookAssetId, preparation }),
+      }));
+      durableBatchId = created.batchId;
+      if (archive instanceof File && archive.size) {
+        setStatus("Uploading and validating the bound image ZIP…");
+        const upload = await issueImportUpload(created.batchId, archive, "archive_package");
+        await uploadWithSameIntent<{ assetId: string }>(upload.intents[0]!.uploadUrl, archive);
         await json(await fetch(`/api/admin/upload-batches/${upload.batchId}/finalize/`, {
           method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}",
         }));
-        for (const item of uploaded) media.push({
-          assetId: item.assetId,
-          uploadBatchId: upload.batchId,
-          relativePath: item.file.webkitRelativePath || item.file.name,
-        });
+      }
+      for (const [index, file] of folder.entries()) {
+        const relativePath = file.webkitRelativePath || file.name;
+        setStatus(`Uploading bound folder image ${index + 1} of ${folder.length}…`);
+        const upload = await issueImportUpload(created.batchId, file, "folder_media", relativePath);
+        await uploadWithSameIntent<{ assetId: string }>(upload.intents[0]!.uploadUrl, file);
+        await json(await fetch(`/api/admin/upload-batches/${upload.batchId}/finalize/`, {
+          method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}",
+        }));
       }
       setStatus("Validating Template V1 rows and deterministic image matches…");
-      const created = await json<{ batchId: string }>(await fetch("/api/admin/product-imports/", {
-        method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode, workbookAssetId, mediaPackageAssetId, media }),
+      await json<{ batchId: string }>(await fetch(`/api/admin/product-imports/${created.batchId}/validate/`, {
+        method: "POST", credentials: "same-origin",
       }));
       setStatus("Validation preview is ready.");
       router.push(`/admin/product-imports/${created.batchId}/`);
       router.refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Import preparation failed safely.");
+      const detail = caught instanceof Error ? caught.message : "Import preparation failed safely.";
+      setError(durableBatchId
+        ? `${detail} The durable Import remains in history; open it to resume the same files or cancel.`
+        : detail);
       setStatus("");
+      if (durableBatchId) router.refresh();
     } finally { setBusy(false); }
   }}>
     <fieldset className="grid gap-3 sm:grid-cols-2"><legend className="mb-2 font-semibold">Immutable batch mode</legend>

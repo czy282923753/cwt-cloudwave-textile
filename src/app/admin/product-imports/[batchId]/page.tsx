@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { AdminPageHeader, AdminTable } from "@/admin/components/admin-table";
 import { ProductImportApply } from "@/admin/components/product-import-apply";
 import { ProductImportRowCorrection } from "@/admin/components/product-import-row-correction";
+import { ProductImportResume } from "@/admin/components/product-import-resume";
 import { resolveCurrentUser } from "@/auth/current-user";
 import { hasPermission } from "@/auth/permissions";
 import { databaseConnection } from "@/db/client";
@@ -19,13 +20,23 @@ export default async function ProductImportDetailPage({ params }: { params: Prom
     : await getProductImportBatch(databaseConnection.db, actor, batchId);
   const rows = result.items.filter((item) => item.kind === "row");
   const errors = rows.filter((item) => item.status === "error").length;
+  const preparationKind = result.items.some((item) => (item.rawData as { preparationKind?: unknown }).preparationKind === "archive")
+    ? "archive" as const
+    : result.items.some((item) => (item.rawData as { preparationKind?: unknown }).preparationKind === "folder")
+      ? "folder" as const
+      : "none" as const;
   return <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
-    <AdminPageHeader action={<div className="flex flex-wrap gap-3">{result.batch.status === "validated" ? <><ProductImportApply batchId={batchId} /><ProductImportApply batchId={batchId} cancel /></> : null}{result.batch.status === "applying" ? <ProductImportApply batchId={batchId} resume /> : null}{result.batch.status === "completed" && errors ? <ProductImportApply batchId={batchId} retry /> : null}{errors ? <a className="rounded-xl border border-white/20 px-4 py-3" href={`/api/admin/product-imports/${batchId}/errors/`}>Export Row Errors</a> : null}</div>} description={`Mode ${result.batch.mode} · ${rows.length} Product rows · ${errors} Row Errors. Successful items are immutable and are never replayed.`} title={`Import ${batchId.slice(0, 8)}`} />
+    <AdminPageHeader action={<div className="flex flex-wrap gap-3">{result.batch.status === "draft" ? <ProductImportApply batchId={batchId} cancel /> : null}{result.batch.status === "validated" ? <><ProductImportApply batchId={batchId} /><ProductImportApply batchId={batchId} cancel /></> : null}{result.batch.status === "applying" ? <ProductImportApply batchId={batchId} resume /> : null}{result.batch.status === "completed" && errors ? <ProductImportApply batchId={batchId} retry /> : null}{errors ? <a className="rounded-xl border border-white/20 px-4 py-3" href={`/api/admin/product-imports/${batchId}/errors/`}>Export Row Errors</a> : null}</div>} description={`Mode ${result.batch.mode} · ${rows.length} Product rows · ${errors} Row Errors. Successful items are immutable and are never replayed.`} title={`Import ${batchId.slice(0, 8)}`} />
+    {result.batch.status === "draft" ? <ProductImportResume batchId={batchId} preparationKind={preparationKind} /> : null}
     {result.batch.status === "applying" ? <p className="mb-6 rounded-xl border border-amber-300/30 bg-amber-950/30 p-4 text-amber-100" role="status">This Import was still applying when the page loaded. Refresh for its durable result, or resume the existing Apply safely. Completed rows will not run again.</p> : null}
     <div aria-live="polite" className="mb-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-6" role="status">{[...(["valid", "applied", "error", "skipped", "pending"] as const).map((status) => ({ label: status, value: result.counts[status] ?? 0 })), { label: "unmatched images", value: result.unmatchedImages }].map((summary) => <div className="rounded-xl border border-white/10 bg-slate-900 p-4" key={summary.label}><div className="text-xs uppercase text-slate-400">{summary.label}</div><div className="text-2xl font-semibold">{summary.value}</div></div>)}</div>
     <AdminTable headers={["Row", "Product Code", "Status", "Warnings", "Safe result"]} rows={rows.map((item) => {
       const raw = item.rawData as { productCode?: unknown; name?: unknown };
-      return [item.rowNumber ?? "—", typeof raw.productCode === "string" ? raw.productCode : typeof raw.name === "string" ? raw.name : "—", item.status, Array.isArray(item.warningCodes) ? item.warningCodes.join(", ") || "—" : "—", <div key={item.id}>{item.errorDetail ?? (item.targetProductId ? `Product ${item.targetProductId.slice(0, 8)}` : "Ready for explicit Apply")}{item.status === "error" && item.errorCode !== "row_apply_failed" ? <ProductImportRowCorrection batchId={batchId} itemId={item.id} raw={raw} /> : null}</div>];
+      const normalized = item.normalizedData as { media?: Array<{ assetId?: unknown; role?: unknown; sortOrder?: unknown }> };
+      const mediaPreview = Array.isArray(normalized.media) && normalized.media.length
+        ? `Additive media: ${normalized.media.map((entry) => `${String(entry.role)} #${String(entry.sortOrder)} Asset ${String(entry.assetId).slice(0, 8)}`).join(", ")}. Existing media, roles, and visibility remain unchanged.`
+        : null;
+      return [item.rowNumber ?? "—", typeof raw.productCode === "string" ? raw.productCode : typeof raw.name === "string" ? raw.name : "—", item.status, Array.isArray(item.warningCodes) ? item.warningCodes.join(", ") || "—" : "—", <div key={item.id}>{item.errorDetail ?? (item.targetProductId ? `Product ${item.targetProductId.slice(0, 8)}` : "Ready for explicit Apply")}{!item.targetProductId && mediaPreview ? <p className="mt-2 text-xs text-slate-300">{mediaPreview}</p> : null}{item.status === "error" && item.errorCode !== "row_apply_failed" ? <ProductImportRowCorrection batchId={batchId} itemId={item.id} raw={raw} /> : null}</div>];
     })} />
   </main>;
 }

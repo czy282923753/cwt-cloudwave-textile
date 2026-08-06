@@ -240,6 +240,116 @@ test("@desktop Product Import retries a lost workbook-upload response with the s
   await expect(countCard(page, "error")).toContainText("0");
 });
 
+test("@desktop Product Import resumes an actual folder after both immediate media responses are lost", async ({ page }) => {
+  test.setTimeout(180_000);
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-stage3-folder-resume-e2e-"));
+  const productFolder = join(temporaryRoot, "CWT-E2ERES-001");
+  try {
+    await mkdir(productFolder);
+    const image = await sharp({ create: { width: 52, height: 38, channels: 3, background: "green" } }).webp().toBuffer();
+    await writeFile(join(productFolder, "CWT-E2ERES-001-01.webp"), image);
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill("");
+    row[0] = "TEST E2E Durable Folder Resume Fabric";
+    row[1] = "CWT-E2ERES-001";
+    row[2] = "TEST FIXTURE Polyester";
+    const workbookBytes = await workbook([row]);
+    const uploadPaths: string[] = [];
+    let putCount = 0;
+    await page.route("**/api/admin/upload-intents/**", async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      putCount += 1;
+      if (putCount === 1 || putCount > 3) return route.continue();
+      uploadPaths.push(new URL(route.request().url()).pathname);
+      const serverResponse = await route.fetch();
+      expect([200, 201]).toContain(serverResponse.status());
+      await route.abort("connectionaborted");
+    });
+
+    await login(page);
+    await page.goto("/admin/product-imports/");
+    await page.locator('input[name="workbook"]').setInputFiles({
+      name: "CWT-Product-Import-Template-V1.xlsx",
+      mimeType: workbookMime,
+      buffer: workbookBytes,
+    });
+    await page.locator('input[name="folder"]').setInputFiles(temporaryRoot);
+    await page.getByRole("button", { name: "Upload and validate" }).click();
+    await expect(page.locator("p[role=alert]")).toContainText("durable Import remains in history", { timeout: 90_000 });
+    expect(uploadPaths).toHaveLength(2);
+    expect(uploadPaths[1]).toBe(uploadPaths[0]);
+    await page.waitForTimeout(1_000);
+    const durableLink = page.locator('section[aria-labelledby="import-history"] tbody tr').filter({ hasText: "draft" }).first().locator("a");
+    await expect(durableLink).toBeVisible();
+    await durableLink.click();
+    await expect(page).toHaveURL(/\/admin\/product-imports\/[0-9a-f-]+\/$/);
+    const detailUrl = page.url();
+    await page.reload();
+    expect(page.url()).toBe(detailUrl);
+    await expect(page.getByText(/This preparation is durable/)).toBeVisible();
+    await page.locator('input[name="resumeFiles"]').setInputFiles(temporaryRoot);
+    await page.getByRole("button", { name: "Resume with the same files" }).click();
+    await expect(page.getByRole("button", { name: "Apply valid rows" })).toBeVisible({ timeout: 90_000 });
+    await expect(countCard(page, "valid")).toContainText("1");
+    expect(putCount).toBe(4);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("@desktop Product Import keeps archive children under durable authority after response loss and cancels them explicitly", async ({ page }) => {
+  test.setTimeout(180_000);
+  const row = Array(PRODUCT_IMPORT_HEADERS.length).fill("");
+  row[0] = "TEST E2E Durable Archive Cancellation";
+  row[1] = "CWT-E2EABN-001";
+  row[2] = "TEST FIXTURE Polyester";
+  const workbookBytes = await workbook([row]);
+  const childA = new Uint8Array(await sharp({ create: { width: 44, height: 36, channels: 3, background: "orange" } }).webp().toBuffer());
+  const childB = new Uint8Array(await sharp({ create: { width: 36, height: 44, channels: 3, background: "purple" } }).webp().toBuffer());
+  const archiveBytes = await archive([
+    { name: "CWT-E2EABN-001-01.webp", bytes: childA },
+    { name: "CWT-E2EABN-001-detail-01.webp", bytes: childB },
+  ]);
+  const archiveUploadPaths: string[] = [];
+  let putCount = 0;
+  await page.route("**/api/admin/upload-intents/**", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    putCount += 1;
+    if (putCount === 1) return route.continue();
+    archiveUploadPaths.push(new URL(route.request().url()).pathname);
+    const serverResponse = await route.fetch();
+    expect([200, 201]).toContain(serverResponse.status());
+    await route.abort("connectionaborted");
+  });
+
+  await login(page);
+  await page.goto("/admin/product-imports/");
+  await page.locator('input[name="workbook"]').setInputFiles({
+    name: "CWT-Product-Import-Template-V1.xlsx",
+    mimeType: workbookMime,
+    buffer: workbookBytes,
+  });
+  await page.locator('input[name="archive"]').setInputFiles({
+    name: "CWT-E2E-Durable-Archive.zip",
+    mimeType: "application/zip",
+    buffer: archiveBytes,
+  });
+  await page.getByRole("button", { name: "Upload and validate" }).click();
+  await expect(page.locator("p[role=alert]")).toContainText("durable Import remains in history", { timeout: 120_000 });
+  expect(archiveUploadPaths).toHaveLength(2);
+  expect(archiveUploadPaths[1]).toBe(archiveUploadPaths[0]);
+  const durableLink = page.locator('section[aria-labelledby="import-history"] tbody tr').filter({ hasText: "draft" }).first().locator("a");
+  const batchHref = await durableLink.getAttribute("href");
+  expect(batchHref).toMatch(/\/admin\/product-imports\/[0-9a-f-]+\/$/);
+  await durableLink.click();
+  await expect(page).toHaveURL(/\/admin\/product-imports\/[0-9a-f-]+\/$/);
+  await expect(page.getByText(/This preparation is durable/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel before Apply" }).click();
+  await expect(page.getByRole("button", { name: "Cancel before Apply" })).toHaveCount(0, { timeout: 90_000 });
+  await page.goto("/admin/product-imports/");
+  const cancelledRow = page.locator(`a[href="${batchHref}"]`).locator("xpath=ancestor::tr");
+  await expect(cancelledRow).toContainText("failed", { timeout: 90_000 });
+});
+
 test("@mobile Product Import is usable in the Pixel 7 project without horizontal blocking", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (message) => {

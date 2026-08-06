@@ -39,7 +39,8 @@ describe("ProductImportWizard upload replay", () => {
       .mockRejectedValueOnce(new TypeError("synthetic response loss"))
       .mockResolvedValueOnce(jsonResponse({ ok: true, assetId: "synthetic-workbook-asset" }, 201))
       .mockResolvedValueOnce(jsonResponse({ ok: true, assetIds: ["synthetic-workbook-asset"] }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, batchId: "synthetic-import-batch" }, 201));
+      .mockResolvedValueOnce(jsonResponse({ ok: true, batchId: "synthetic-import-batch" }, 201))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, batchId: "synthetic-import-batch" }));
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();

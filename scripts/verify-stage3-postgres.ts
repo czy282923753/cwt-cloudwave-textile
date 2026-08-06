@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +20,7 @@ import {
   featureFlags,
   objectCleanupJobs,
   productAssets,
+  productImportBatches,
   productImportItems,
   products,
   taxonomyTermLocalizations,
@@ -30,14 +31,17 @@ import {
 import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_TEMPLATE_NAME } from "../src/imports/contract";
 import {
   applyProductImportBatch,
-  createValidatedProductImport,
+  prepareProductImportBatch,
   retryProductImportErrors,
+  validatePreparedProductImport,
 } from "../src/imports/service";
 import { InMemoryObjectStorage } from "../src/test/in-memory-storage";
 import {
   completeAdminUploadIntent,
   completeAdminImportArchiveIntent,
   createAdminUploadBatch,
+  createProductImportUploadBatch,
+  expireRetainedProductImportMedia,
   finalizeAdminUploadBatch,
   IMPORT_ARCHIVE_MIME,
   IMPORT_WORKBOOK_MIME,
@@ -193,22 +197,7 @@ async function main(): Promise<void> {
     const imageBytes = new Uint8Array(await sharp({
       create: { width: 48, height: 36, channels: 3, background: "teal" },
     }).jpeg().toBuffer());
-    const imageUpload = await createAdminUploadBatch(db, actor, {
-      files: [{ fileName: "synthetic-stage3-image.jpg", declaredMimeType: "image/jpeg", declaredByteSize: imageBytes.byteLength }],
-      category: "product", role: "gallery", sortOrder: 0, associationType: null, associationEntityId: null,
-      sourceDeclarationEnabled: false,
-    }, { rateLimiter: allowLimiter });
-    const imageAssetId = await completeAdminUploadIntent(
-      db,
-      storage,
-      new DevelopmentFileScanner(),
-      actor,
-      { token: imageUpload.intents[0]!.token, bytes: imageBytes },
-      { rateLimiter: allowLimiter },
-    );
-    await finalizeAdminUploadBatch(db, storage, actor, imageUpload.batchId, { rateLimiter: allowLimiter });
-
-    const prepareBatch = async (code: string, summary: string) => {
+    const uploadWorkbook = async (code: string, summary: string) => {
       const bytes = await workbook(code, summary);
       const upload = await createAdminUploadBatch(db, actor, {
         files: [{ fileName: "CWT-Product-Import-Template-V1.xlsx", declaredMimeType: IMPORT_WORKBOOK_MIME, declaredByteSize: bytes.byteLength }],
@@ -224,21 +213,40 @@ async function main(): Promise<void> {
         { rateLimiter: allowLimiter },
       );
       await finalizeAdminUploadBatch(db, storage, actor, upload.batchId, { rateLimiter: allowLimiter });
-      const command = {
-        mode: "create" as const,
-        workbookAssetId,
-        media: [{
-          assetId: imageAssetId,
-          uploadBatchId: imageUpload.batchId,
-          relativePath: `${code}-01.jpg`,
-          sha256: createHash("sha256").update(imageBytes).digest("hex"),
-        }],
-      };
-      return command;
+      return workbookAssetId;
     };
     const createBatch = async (code: string, summary: string) => {
-      const command = await prepareBatch(code, summary);
-      return { command, batchId: await createValidatedProductImport(db, storage, actor, command) };
+      const workbookAssetId = await uploadWorkbook(code, summary);
+      const relativePath = `${code}-01.jpg`;
+      const batchId = await prepareProductImportBatch(db, actor, {
+        mode: "create",
+        workbookAssetId,
+        preparation: { kind: "folder", files: [{
+          relativePath,
+          fileName: `${code}-01.jpg`,
+          declaredMimeType: "image/jpeg",
+          declaredByteSize: imageBytes.byteLength,
+        }] },
+      });
+      const imageUpload = await createProductImportUploadBatch(db, actor, {
+        productImportBatchId: batchId,
+        kind: "folder_media",
+        relativePath,
+        fileName: `${code}-01.jpg`,
+        declaredMimeType: "image/jpeg",
+        declaredByteSize: imageBytes.byteLength,
+      }, { rateLimiter: allowLimiter });
+      const imageAssetId = await completeAdminUploadIntent(
+        db,
+        storage,
+        new DevelopmentFileScanner(),
+        actor,
+        { token: imageUpload.intents[0]!.token, bytes: imageBytes },
+        { rateLimiter: allowLimiter },
+      );
+      await finalizeAdminUploadBatch(db, storage, actor, imageUpload.batchId, { rateLimiter: allowLimiter });
+      await validatePreparedProductImport(db, storage, actor, batchId);
+      return { batchId, imageAssetId, imageUploadBatchId: imageUpload.batchId };
     };
 
     const atomic = await createBatch("CWT-TEST-001", "Synthetic required Audit rollback row.");
@@ -267,13 +275,40 @@ async function main(): Promise<void> {
     await applyProductImportBatch(db, actor, atomic.batchId);
     assert.equal(Number((await db.select({ value: count() }).from(products).where(eq(products.productCode, "CWT-TEST-001")))[0]?.value), 1);
 
-    const fingerprintCommand = await prepareBatch("CWT-TEST-002", "Synthetic concurrent fingerprint row.");
+    const fingerprintWorkbookId = await uploadWorkbook("CWT-TEST-002", "Synthetic concurrent fingerprint row.");
+    const fingerprintPreparation = {
+      mode: "create" as const,
+      workbookAssetId: fingerprintWorkbookId,
+      preparation: { kind: "folder" as const, files: [{
+        relativePath: "CWT-TEST-002-01.jpg",
+        fileName: "CWT-TEST-002-01.jpg",
+        declaredMimeType: "image/jpeg" as const,
+        declaredByteSize: imageBytes.byteLength,
+      }] },
+    };
     const sameFingerprint = await Promise.all([
-      createValidatedProductImport(db, storage, actor, fingerprintCommand),
-      createValidatedProductImport(db, storage, actor, fingerprintCommand),
+      prepareProductImportBatch(db, actor, fingerprintPreparation),
+      prepareProductImportBatch(db, actor, fingerprintPreparation),
     ]);
     const fingerprintBatchId = sameFingerprint[0]!;
     assert.deepEqual([...new Set(sameFingerprint)], [fingerprintBatchId]);
+    const fingerprintUpload = await createProductImportUploadBatch(db, actor, {
+      productImportBatchId: fingerprintBatchId,
+      kind: "folder_media",
+      relativePath: "CWT-TEST-002-01.jpg",
+      fileName: "CWT-TEST-002-01.jpg",
+      declaredMimeType: "image/jpeg",
+      declaredByteSize: imageBytes.byteLength,
+    }, { rateLimiter: allowLimiter });
+    await completeAdminUploadIntent(db, storage, new DevelopmentFileScanner(), actor, {
+      token: fingerprintUpload.intents[0]!.token,
+      bytes: imageBytes,
+    }, { rateLimiter: allowLimiter });
+    await finalizeAdminUploadBatch(db, storage, actor, fingerprintUpload.batchId, { rateLimiter: allowLimiter });
+    await Promise.all([
+      validatePreparedProductImport(db, storage, actor, fingerprintBatchId),
+      validatePreparedProductImport(db, storage, actor, fingerprintBatchId),
+    ]);
     await Promise.all([
       applyProductImportBatch(db, actor, fingerprintBatchId),
       applyProductImportBatch(db, actor, fingerprintBatchId),
@@ -297,21 +332,48 @@ async function main(): Promise<void> {
     ));
     assert.deepEqual(contentionItems.map((item) => item.status).sort(), ["applied", "error"]);
 
+    const retainedExpiryBatch = await createBatch("CWT-TEST-004", "Synthetic retained Import media expiry.");
+    const [retainedExpiryAsset] = await db.select().from(assets).where(eq(assets.id, retainedExpiryBatch.imageAssetId));
+    assert.ok(retainedExpiryAsset);
+    await db.update(assets).set({ retentionExpiresAt: new Date("2026-01-01T00:00:00Z") }).where(eq(assets.id, retainedExpiryAsset.id));
+    const retainedExpiry = await expireRetainedProductImportMedia(db, storage, { now: new Date("2026-02-01T00:00:00Z") });
+    assert.ok(
+      retainedExpiry.expired === 1 && retainedExpiry.failedBatches === 1 && retainedExpiry.cleanup.dead === 0 &&
+      retainedExpiry.cleanup.attempted > 0 && retainedExpiry.cleanup.completed === retainedExpiry.cleanup.attempted,
+      "Retained Import media expiry did not converge all compensation objects exactly once.",
+    );
+    const [expiredImportBatch] = await db.select().from(productImportBatches).where(eq(productImportBatches.id, retainedExpiryBatch.batchId));
+    const [expiredImportAsset] = await db.select().from(assets).where(eq(assets.id, retainedExpiryAsset.id));
+    assert.ok(expiredImportBatch?.status === "failed" && expiredImportBatch.failureCode === "preparation_expired", "Retained Import media expiry did not fail the resumable Batch explicitly.");
+    assert.ok(expiredImportAsset?.status === "deleted" && !await storage.exists("public", retainedExpiryAsset.objectKey), "Retained unrelated Public media did not converge through compensation cleanup.");
+
     const archiveImageA = new Uint8Array(await sharp({
       create: { width: 32, height: 24, channels: 3, background: "teal" },
     }).webp().toBuffer());
     const archiveImageB = new Uint8Array(await sharp({
       create: { width: 24, height: 32, channels: 3, background: "navy" },
     }).avif().toBuffer());
+    const issueArchive = async (code: string, fileName: string, bytes: Uint8Array) => {
+      const workbookAssetId = await uploadWorkbook(code, `Synthetic durable ${code} archive authority.`);
+      const batchId = await prepareProductImportBatch(db, actor, {
+        mode: "create",
+        workbookAssetId,
+        preparation: { kind: "archive", fileName, declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: bytes.byteLength },
+      });
+      const upload = await createProductImportUploadBatch(db, actor, {
+        productImportBatchId: batchId,
+        kind: "archive_package",
+        fileName,
+        declaredMimeType: IMPORT_ARCHIVE_MIME,
+        declaredByteSize: bytes.byteLength,
+      }, { rateLimiter: allowLimiter });
+      return { batchId, upload };
+    };
     const archiveBytes = await archive([
       { name: "CWT-ARCH-001/CWT-ARCH-001-01.webp", bytes: archiveImageA },
       { name: "CWT-ARCH-001/CWT-ARCH-001-detail-01.avif", bytes: archiveImageB },
     ]);
-    const archiveUpload = await createAdminUploadBatch(db, actor, {
-      files: [{ fileName: "synthetic-stage3-images.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: archiveBytes.byteLength }],
-      category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
-      sourceDeclarationEnabled: false,
-    }, { rateLimiter: allowLimiter });
+    const { batchId: archiveImportBatchId, upload: archiveUpload } = await issueArchive("CWT-ARCH-001", "synthetic-stage3-images.zip", archiveBytes);
     const archiveCompleted = await completeAdminImportArchiveIntent(
       db, storage, new DevelopmentFileScanner(), actor,
       { token: archiveUpload.intents[0]!.token, stream: stream(archiveBytes) },
@@ -333,12 +395,14 @@ async function main(): Promise<void> {
     ));
     assert.equal(Number(archiveVariantsAfterReplay?.value), Number(archiveVariantsBeforeReplay?.value), "Same-token replay duplicated Variant records.");
     await finalizeAdminUploadBatch(db, storage, actor, archiveUpload.batchId, { rateLimiter: allowLimiter });
+    await validatePreparedProductImport(db, storage, actor, archiveImportBatchId);
     const [bindingEvidence] = await raw<{ count: number; declarations: number }[]>`
       select
         count(*)::int as count,
         count(*) filter (where source_declaration_enabled = false)::int as declarations
       from asset_upload_batches
       where declaration_input->'importMediaBinding'->>'packageAssetId' = ${archiveCompleted.packageAssetId}
+        and declaration_input->'importMediaBinding'->>'productImportBatchId' = ${archiveImportBatchId}
     `;
     assert.ok(bindingEvidence?.count === 2 && bindingEvidence.declarations === 2, "Exact JSONB Import-media binding lookup did not preserve two declaration-off bindings.");
     const [archivePackage] = await db.select().from(assets).where(eq(assets.id, archiveCompleted.packageAssetId));
@@ -359,11 +423,7 @@ async function main(): Promise<void> {
       { name: "CWT-CRASH-001/CWT-CRASH-001-01.webp", bytes: crashImageA },
       { name: "CWT-CRASH-001/CWT-CRASH-001-02.webp", bytes: crashImageB },
     ]);
-    const crashUpload = await createAdminUploadBatch(db, actor, {
-      files: [{ fileName: "synthetic-stage3-crash.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: crashBytes.byteLength }],
-      category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
-      sourceDeclarationEnabled: false,
-    }, { rateLimiter: allowLimiter });
+    const { upload: crashUpload } = await issueArchive("CWT-CRASH-001", "synthetic-stage3-crash.zip", crashBytes);
     const crashStartedAt = new Date();
     let crashInjected = false;
     await assert.rejects(() => completeAdminImportArchiveIntent(
@@ -404,11 +464,7 @@ async function main(): Promise<void> {
     assert.ok(Number(publicAfterResume[0]?.value) === Number(publicBeforeResume[0]?.value) + 1, "Archive recovery duplicated a previously finalized child Asset.");
 
     const expiryBytes = await archive([{ name: "CWT-EXPIRE-001/CWT-EXPIRE-001-01.webp", bytes: crashImageA }]);
-    const expiryUpload = await createAdminUploadBatch(db, actor, {
-      files: [{ fileName: "synthetic-stage3-expiry.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: expiryBytes.byteLength }],
-      category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
-      sourceDeclarationEnabled: false,
-    }, { rateLimiter: allowLimiter });
+    const { upload: expiryUpload } = await issueArchive("CWT-EXPIRE-001", "synthetic-stage3-expiry.zip", expiryBytes);
     await assert.rejects(() => completeAdminImportArchiveIntent(
       db, storage, { scan: async () => ({ clean: false, provider: "synthetic", reference: "stage3-storage-interruption" }) }, actor,
       { token: expiryUpload.intents[0]!.token, stream: stream(expiryBytes) }, { rateLimiter: allowLimiter },
@@ -463,6 +519,7 @@ async function main(): Promise<void> {
         noDuplicateChildAssets: true,
         noDuplicateVariants: Number(archiveVariantsAfterReplay?.value),
         cleanupExpiry: expired,
+        retainedMediaExpiry: retainedExpiry,
       },
       locks: { ...activity, advisory: advisory?.count ?? null },
     }, null, 2)}\n`);

@@ -46,6 +46,7 @@ import {
 } from "@/editorial/block-references";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
+import { releaseRelatedProductImportMedia } from "@/uploads/admin-upload-service";
 import {
   allowedImageMimeTypes,
   publicImageRoles,
@@ -1856,6 +1857,7 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
     } else if (snapshot.kind === "structure") {
       await validateProductStructure(transaction, snapshot);
       await applyProductStructure(transaction, revision.entityId, snapshot);
+      await releaseRelatedProductImportMedia(transaction, snapshot.assetIds);
     } else if (snapshot.kind === "seo") {
       const routeRows = await transaction
         .select({ id: routes.id })

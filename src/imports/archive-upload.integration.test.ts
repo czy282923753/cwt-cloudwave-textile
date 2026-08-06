@@ -1,14 +1,19 @@
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { and, count, eq } from "drizzle-orm";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import {
   assetUploadBatches,
   assets,
   assetVariants,
   authSessions,
+  featureFlags,
   objectCleanupJobs,
+  productImportBatches,
+  productImportItems,
   uploadRecoveryJobs,
   users,
 } from "@/db/schema";
@@ -16,13 +21,14 @@ import { createTestDatabase } from "@/test/database";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import {
   completeAdminImportArchiveIntent,
-  createAdminUploadBatch,
+  createProductImportUploadBatch,
   finalizeAdminUploadBatch,
   IMPORT_ARCHIVE_MIME,
   type AdminUploadActor,
 } from "@/uploads/admin-upload-service";
 import { DevelopmentFileScanner, type FileScanner } from "@/uploads/scanner";
 import { processPendingUploadRecoveryJobs } from "@/uploads/upload-recovery-service";
+import { cancelProductImportBatch } from "./service";
 
 const allowLimiter = { consume: async () => true };
 
@@ -54,11 +60,37 @@ async function fixture() {
     tokenHash: crypto.randomUUID(),
     expiresAt: new Date(Date.now() + 60_000),
   }).returning({ id: authSessions.id });
+  await connection.db.insert(featureFlags).values({ key: "product_import", enabled: true, updatedByUserId: user!.id })
+    .onConflictDoUpdate({ target: featureFlags.key, set: { enabled: true, updatedByUserId: user!.id } });
   return {
     connection,
     actor: { userId: user!.id, role: user!.role, authSessionId: session!.id } satisfies AdminUploadActor,
     storage: new InMemoryObjectStorage(),
   };
+}
+
+async function issueArchive(test: Awaited<ReturnType<typeof fixture>>, bytes: Uint8Array, fileName: string) {
+  const [batch] = await test.connection.db.insert(productImportBatches).values({
+    createdByUserId: test.actor.userId,
+    authSessionId: test.actor.authSessionId,
+    mode: "create",
+    sourceFingerprint: crypto.randomUUID().replaceAll("-", "").padEnd(64, "0"),
+    status: "draft",
+  }).returning({ id: productImportBatches.id });
+  await test.connection.db.insert(productImportItems).values({
+    batchId: batch!.id,
+    kind: "media",
+    sourceKey: "archive:package",
+    status: "pending",
+    rawData: { preparationKind: "archive", displayName: fileName, declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: bytes.byteLength },
+  });
+  return { importBatchId: batch!.id, ...await createProductImportUploadBatch(test.connection.db, test.actor, {
+    productImportBatchId: batch!.id,
+    kind: "archive_package",
+    fileName,
+    declaredMimeType: IMPORT_ARCHIVE_MIME,
+    declaredByteSize: bytes.byteLength,
+  }, { rateLimiter: allowLimiter }) };
 }
 
 describe("Import Archive convergence with the governed Upload Saga", () => {
@@ -71,11 +103,7 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         { name: "CWT-MESH-001/CWT-MESH-001-01.webp", bytes: first },
         { name: "CWT-MESH-001/CWT-MESH-001-detail-01.avif", bytes: second },
       ]);
-      const issued = await createAdminUploadBatch(test.connection.db, test.actor, {
-        files: [{ fileName: "synthetic-images.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: bytes.byteLength }],
-        category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
-        sourceDeclarationEnabled: false,
-      }, { rateLimiter: allowLimiter });
+      const issued = await issueArchive(test, bytes, "synthetic-images.zip");
       const completed = await completeAdminImportArchiveIntent(
         test.connection.db,
         test.storage,
@@ -139,11 +167,7 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         { name: "CWT-MESH-001/CWT-MESH-001-01.webp", bytes: first },
         { name: "CWT-MESH-001/CWT-MESH-001-02.webp", bytes: second },
       ]);
-      const issued = await createAdminUploadBatch(test.connection.db, test.actor, {
-        files: [{ fileName: "synthetic-retry-images.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: bytes.byteLength }],
-        category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
-        sourceDeclarationEnabled: false,
-      }, { rateLimiter: allowLimiter });
+      const issued = await issueArchive(test, bytes, "synthetic-retry-images.zip");
       const startedAt = new Date();
       let injected = false;
       await expect(completeAdminImportArchiveIntent(
@@ -237,11 +261,7 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         { name: "CWT-MESH-001-01.png", bytes: first },
         { name: "CWT-MESH-001-02.png", bytes: second },
       ]);
-      const issued = await createAdminUploadBatch(test.connection.db, test.actor, {
-        files: [{ fileName: "synthetic-rejected-images.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: bytes.byteLength }],
-        category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
-        sourceDeclarationEnabled: false,
-      }, { rateLimiter: allowLimiter });
+      const issued = await issueArchive(test, bytes, "synthetic-rejected-images.zip");
       let scans = 0;
       const scanner: FileScanner = {
         async scan() {
@@ -276,6 +296,57 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         .toMatchObject({ status: "deleted" });
       expect((await test.connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.id, cleanup[0]!.id)))[0])
         .toMatchObject({ status: "completed" });
+    } finally {
+      await test.connection.close();
+    }
+  });
+
+  it("abandons an interrupted archive package and its finalized child through existing Recovery and Cleanup", async () => {
+    const test = await fixture();
+    try {
+      const first = new Uint8Array(await sharp({ create: { width: 22, height: 22, channels: 3, background: "orange" } }).webp().toBuffer());
+      const second = new Uint8Array(await sharp({ create: { width: 22, height: 22, channels: 3, background: "purple" } }).webp().toBuffer());
+      const bytes = await zip([
+        { name: "CWT-ABANDON-001/CWT-ABANDON-001-01.webp", bytes: first },
+        { name: "CWT-ABANDON-001/CWT-ABANDON-001-02.webp", bytes: second },
+      ]);
+      const issued = await issueArchive(test, bytes, "synthetic-abandoned-images.zip");
+      const startedAt = new Date();
+      await expect(completeAdminImportArchiveIntent(
+        test.connection.db,
+        test.storage,
+        new DevelopmentFileScanner(),
+        test.actor,
+        { token: issued.intents[0]!.token, stream: stream(bytes) },
+        {
+          rateLimiter: allowLimiter,
+          now: startedAt,
+          leaseMilliseconds: 10_000,
+          faultInjector(point) {
+            if (point === "after_import_archive_first_media") throw new Error("synthetic archive abandon interruption");
+          },
+        },
+      )).rejects.toThrow(/abandon interruption/);
+      const childBeforeCancel = (await test.connection.db.select().from(assets).where(eq(assets.storagePartition, "public")))[0]!;
+      const packageBeforeCancel = (await test.connection.db.select().from(assets).where(eq(assets.uploadBatchId, issued.batchId)))[0]!;
+      expect(childBeforeCancel.status).toBe("ready");
+      await processPendingUploadRecoveryJobs(test.connection.db, test.storage, {
+        now: new Date(startedAt.getTime() + 30_000),
+        workerId: "synthetic-abandoned-archive-recovery",
+        auditWriter: async () => crypto.randomUUID(),
+      });
+      await cancelProductImportBatch(test.connection.db, test.storage, test.actor, issued.importBatchId);
+      expect((await test.connection.db.select().from(productImportBatches).where(eq(productImportBatches.id, issued.importBatchId)))[0]).toMatchObject({ status: "failed", failureCode: "operator_cancelled" });
+      expect((await test.connection.db.select().from(assets).where(eq(assets.id, childBeforeCancel.id)))[0]).toMatchObject({ status: "deleted" });
+      expect((await test.connection.db.select().from(assets).where(eq(assets.id, packageBeforeCancel.id)))[0]).toMatchObject({ status: "deleted" });
+      await expect(test.storage.exists("public", childBeforeCancel.objectKey)).resolves.toBe(false);
+      await expect(test.storage.exists("imports", packageBeforeCancel.objectKey)).resolves.toBe(false);
+      const publicCleanup = await test.connection.db.select().from(objectCleanupJobs).where(and(
+        eq(objectCleanupJobs.uploadBatchId, childBeforeCancel.uploadBatchId!),
+        eq(objectCleanupJobs.storagePartition, "public"),
+      ));
+      expect(publicCleanup.length).toBeGreaterThan(0);
+      expect(publicCleanup.every((job) => job.status === "completed")).toBe(true);
     } finally {
       await test.connection.close();
     }

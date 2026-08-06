@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, count, desc, eq, gt, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
@@ -9,11 +9,14 @@ import { requirePermission } from "@/auth/permissions";
 import {
   applications,
   applicationLocalizations,
+  assetUploadBatches,
   assets,
   authSessions,
   featureFlags,
   productApplications,
   productAssets,
+  productFaqs,
+  productFeatures,
   productImportBatches,
   productImportItems,
   productLocalizations,
@@ -45,22 +48,13 @@ import {
 } from "@/catalog/product-data";
 import { slugify } from "@/seo/path";
 import type { ObjectStorage } from "@/storage";
-
 import type { AdminUploadActor } from "@/uploads/admin-upload-service";
-import { IMPORT_ARCHIVE_MIME, IMPORT_WORKBOOK_MIME } from "@/uploads/admin-upload-service";
+import { abandonProductImportUploads, IMPORT_ARCHIVE_MIME, IMPORT_WORKBOOK_MIME, releaseRelatedProductImportMedia } from "@/uploads/admin-upload-service";
 import { validateFolderMediaPath } from "./archive";
 import type { ImportMediaCandidate, MatchedImportMedia } from "./matching";
 import { matchImportMedia } from "./matching";
 import { parseProductImportWorkbook } from "./workbook";
 import type { ProductImportMode, ProductImportRowInput } from "./contract";
-
-export interface ProductImportMediaInput {
-  assetId: string;
-  uploadBatchId: string;
-  relativePath: string;
-  /** Legacy browser evidence; trusted identity always comes from the Asset record. */
-  sha256?: string | undefined;
-}
 
 type NormalizedImportRow = {
   name?: string;
@@ -115,6 +109,122 @@ export async function isProductImportEnabled<TQueryResult extends PgQueryResultH
 ): Promise<boolean> {
   return (await db.select({ enabled: featureFlags.enabled }).from(featureFlags)
     .where(eq(featureFlags.key, "product_import")).limit(1))[0]?.enabled ?? false;
+}
+
+export type ProductImportPreparation =
+  | { kind: "none" }
+  | { kind: "archive"; fileName: string; declaredMimeType: typeof IMPORT_ARCHIVE_MIME; declaredByteSize: number }
+  | { kind: "folder"; files: Array<{ relativePath: string; fileName: string; declaredMimeType: "image/jpeg" | "image/png" | "image/webp" | "image/avif"; declaredByteSize: number }> };
+
+function folderMediaSourceKey(relativePath: string): string {
+  return `m_${createHash("sha256").update(`folder-v1\0${relativePath}`).digest("hex").slice(0, 32)}`;
+}
+
+export async function prepareProductImportBatch<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: AdminUploadActor,
+  input: { mode: ProductImportMode; workbookAssetId: string; preparation: ProductImportPreparation },
+): Promise<string> {
+  await assertImportAccess(db, actor);
+  const workbook = (await db.select().from(assets).where(and(
+    eq(assets.id, input.workbookAssetId),
+    eq(assets.uploadedByUserId, actor.userId),
+    eq(assets.storagePartition, "imports"),
+    eq(assets.access, "internal"),
+    eq(assets.status, "ready"),
+    eq(assets.scanStatus, "passed"),
+    eq(assets.detectedMimeType, IMPORT_WORKBOOK_MIME),
+    isNull(assets.deletedAt),
+  )).limit(1))[0];
+  if (!workbook?.uploadBatchId) throw new Error("Workbook Asset is not an eligible finalized Import package.");
+  const preparation = input.preparation.kind === "folder"
+    ? {
+        kind: "folder" as const,
+        files: input.preparation.files.map((file) => ({
+          relativePath: validateFolderMediaPath(file.relativePath),
+          fileName: file.fileName.trim(),
+          declaredMimeType: file.declaredMimeType,
+          declaredByteSize: file.declaredByteSize,
+        })).sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en")),
+      }
+    : input.preparation;
+  if (preparation.kind === "folder") {
+    if (!preparation.files.length || preparation.files.length > 500) throw new Error("Folder preparation requires 1 to 500 images.");
+    const pathIdentities = preparation.files.map((file) => file.relativePath.normalize("NFC").toLocaleLowerCase("en-US"));
+    if (new Set(pathIdentities).size !== pathIdentities.length) throw new Error("Folder preparation paths contain a case or Unicode collision.");
+    for (const file of preparation.files) {
+      if (!file.fileName || file.fileName.length > 200 || file.declaredByteSize < 1 || file.declaredByteSize > 20 * 1024 * 1024) {
+        throw new Error("Folder preparation contains an invalid file declaration.");
+      }
+    }
+  }
+  if (preparation.kind === "archive" && (
+    !preparation.fileName.trim() || preparation.fileName.length > 200 || preparation.declaredMimeType !== IMPORT_ARCHIVE_MIME ||
+    preparation.declaredByteSize < 1 || preparation.declaredByteSize > 500 * 1024 * 1024
+  )) throw new Error("Archive preparation declaration is invalid.");
+  const fingerprint = createHash("sha256").update(JSON.stringify({
+    version: 1,
+    mode: input.mode,
+    workbook: workbook.sha256,
+    preparation,
+  })).digest("hex");
+  const existing = (await db.select({ id: productImportBatches.id, authSessionId: productImportBatches.authSessionId }).from(productImportBatches).where(and(
+    eq(productImportBatches.createdByUserId, actor.userId),
+    eq(productImportBatches.mode, input.mode),
+    eq(productImportBatches.sourceFingerprint, fingerprint),
+  )).limit(1))[0];
+  if (existing) {
+    if (existing.authSessionId !== actor.authSessionId) throw new Error("Duplicate Import preparation belongs to another active session.");
+    return existing.id;
+  }
+  return db.transaction(async (transaction) => {
+    await assertImportAccess(transaction, actor);
+    const batch = (await transaction.insert(productImportBatches).values({
+      createdByUserId: actor.userId,
+      authSessionId: actor.authSessionId,
+      mode: input.mode,
+      templateVersion: 1,
+      sourceFingerprint: fingerprint,
+      workbookAssetId: workbook.id,
+      packageUploadBatchId: workbook.uploadBatchId,
+      status: "draft",
+    }).onConflictDoNothing({
+      target: [productImportBatches.createdByUserId, productImportBatches.mode, productImportBatches.sourceFingerprint],
+    }).returning({ id: productImportBatches.id }))[0];
+    if (!batch) {
+      const concurrent = (await transaction.select({ id: productImportBatches.id, authSessionId: productImportBatches.authSessionId }).from(productImportBatches).where(and(
+        eq(productImportBatches.createdByUserId, actor.userId),
+        eq(productImportBatches.mode, input.mode),
+        eq(productImportBatches.sourceFingerprint, fingerprint),
+      )).limit(1))[0];
+      if (!concurrent || concurrent.authSessionId !== actor.authSessionId) throw new Error("Concurrent Import preparation identity could not be recovered safely.");
+      return concurrent.id;
+    }
+    if (preparation.kind === "folder") await transaction.insert(productImportItems).values(preparation.files.map((file) => ({
+      batchId: batch.id,
+      kind: "media",
+      sourceKey: folderMediaSourceKey(file.relativePath),
+      status: "pending",
+      rawData: { preparationKind: "folder", relativePath: file.relativePath, displayName: file.fileName, declaredMimeType: file.declaredMimeType, declaredByteSize: file.declaredByteSize },
+      normalizedData: {},
+    })));
+    if (preparation.kind === "archive") await transaction.insert(productImportItems).values({
+      batchId: batch.id,
+      kind: "media",
+      sourceKey: "archive:package",
+      status: "pending",
+      rawData: { preparationKind: "archive", displayName: preparation.fileName, declaredMimeType: preparation.declaredMimeType, declaredByteSize: preparation.declaredByteSize },
+      normalizedData: {},
+    });
+    await writeAuditLog(transaction, {
+      actorUserId: actor.userId,
+      action: "product_import.prepared",
+      entityType: "product_import_batch",
+      entityId: batch.id,
+      afterSummary: { mode: input.mode, preparation: preparation.kind, plannedMedia: preparation.kind === "folder" ? preparation.files.length : 0 },
+    });
+    return batch.id;
+  });
 }
 
 async function resolveTaxonomy<TQueryResult extends PgQueryResultHKT>(
@@ -208,6 +318,9 @@ async function normalizeRow<TQueryResult extends PgQueryResultHKT>(
     altText: item.role === "hero" ? input.primaryImageAlt ?? null : null,
     caption: item.role === "hero" ? input.primaryImageCaption ?? null : null,
   }));
+  const additiveMedia = targetProductId && normalizedMedia.length
+    ? planAdditiveMedia((await existingStructure(db, targetProductId)).media, normalizedMedia)
+    : normalizedMedia;
   const moq = input.moqValue || input.moqUnit ? normalizeMoq(input.moqValue, input.moqUnit) : null;
   return {
     ...(input.name ? { name: normalizeProductName(input.name) } : {}),
@@ -224,34 +337,87 @@ async function normalizeRow<TQueryResult extends PgQueryResultHKT>(
     ...(input.slug ? { slug: slugify(input.slug) } : {}),
     ...(input.summary ? { summary: input.summary.trim().slice(0, 1000) } : {}),
     ...(input.description ? { document: legacyTextToBlockDocument(input.description) } : {}),
-    ...(normalizedMedia.length ? { media: normalizedMedia } : {}),
+    ...(additiveMedia.length ? { media: additiveMedia } : {}),
     ...(targetProductId ? { targetProductId } : {}),
   };
 }
 
-export async function createValidatedProductImport<TQueryResult extends PgQueryResultHKT>(
+export async function validatePreparedProductImport<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   storage: ObjectStorage,
   actor: AdminUploadActor,
-  input: { mode: ProductImportMode; workbookAssetId: string; media: ProductImportMediaInput[]; mediaPackageAssetId?: string | null },
+  batchId: string,
 ): Promise<string> {
   await assertImportAccess(db, actor);
+  const batch = (await db.select().from(productImportBatches).where(and(
+    eq(productImportBatches.id, batchId),
+    eq(productImportBatches.createdByUserId, actor.userId),
+    eq(productImportBatches.authSessionId, actor.authSessionId),
+  )).limit(1))[0];
+  if (!batch) throw new Error("Product Import preparation was not found.");
+  if (batch.status === "validated" || batch.status === "applying" || batch.status === "completed") return batch.id;
+  if (batch.status !== "draft" || !batch.workbookAssetId) throw new Error("Product Import preparation is not resumable.");
   const workbook = (await db.select().from(assets).where(and(
-    eq(assets.id, input.workbookAssetId),
+    eq(assets.id, batch.workbookAssetId),
     eq(assets.uploadedByUserId, actor.userId),
     eq(assets.storagePartition, "imports"),
     eq(assets.access, "internal"),
     eq(assets.status, "ready"),
     eq(assets.scanStatus, "passed"),
     eq(assets.detectedMimeType, IMPORT_WORKBOOK_MIME),
+    isNull(assets.deletedAt),
   )).limit(1))[0];
-  if (!workbook) throw new Error("Workbook Asset is not an eligible finalized Import package.");
-  const workbookBytes = await storage.get("imports", workbook.objectKey);
-  const parsed = await parseProductImportWorkbook(workbookBytes);
+  if (!workbook) throw new Error("Workbook Asset is no longer eligible for validation.");
+  const parsed = await parseProductImportWorkbook(await storage.get("imports", workbook.objectKey));
   if (parsed.errors.length) throw new Error(parsed.errors[0]!.detail);
-  if (input.mediaPackageAssetId) {
+  const mediaItems = await db.select().from(productImportItems).where(and(
+    eq(productImportItems.batchId, batch.id),
+    eq(productImportItems.kind, "media"),
+  ));
+  const archivePlan = mediaItems.find((item) => item.sourceKey === "archive:package");
+  if (archivePlan && !batch.mediaPackageAssetId) throw new Error("Archive upload is incomplete. Re-select the same ZIP to resume this preparation.");
+  const plannedFolderItems = mediaItems.filter((item) => (item.rawData as { preparationKind?: unknown }).preparationKind === "folder");
+  if (plannedFolderItems.some((item) => !item.targetAssetId || !item.uploadBatchId || item.status !== "valid")) {
+    throw new Error("Folder upload is incomplete. Re-select the same folder to resume this preparation.");
+  }
+  const durableMediaItems = mediaItems.filter((item) => item.sourceKey !== "archive:package" && item.targetAssetId && item.uploadBatchId);
+  const mediaIds = durableMediaItems.map((item) => item.targetAssetId!);
+  const eligibleMedia = mediaIds.length ? await db.select({
+    id: assets.id,
+    sha256: assets.sha256,
+    uploadBatchId: assets.uploadBatchId,
+    declarationInput: assetUploadBatches.declarationInput,
+  }).from(assets).innerJoin(assetUploadBatches, eq(assetUploadBatches.id, assets.uploadBatchId)).where(and(
+    inArray(assets.id, mediaIds),
+    eq(assets.uploadedByUserId, actor.userId),
+    eq(assets.storagePartition, "public"),
+    eq(assets.access, "public"),
+    eq(assets.status, "ready"),
+    eq(assets.scanStatus, "passed"),
+    isNotNull(assets.retentionExpiresAt),
+    isNull(assets.deletedAt),
+  )) : [];
+  if (eligibleMedia.length !== mediaIds.length) throw new Error("Prepared Import media is incomplete or no longer retained safely.");
+  const eligibleById = new Map(eligibleMedia.map((item) => [item.id, item]));
+  const media: Array<ImportMediaCandidate & { assetId: string }> = durableMediaItems.map((item) => {
+    const eligible = eligibleById.get(item.targetAssetId!)!;
+    const binding = (eligible.declarationInput as { importMediaBinding?: { productImportBatchId?: unknown; sourceKey?: unknown } } | null)?.importMediaBinding;
+    if (
+      eligible.uploadBatchId !== item.uploadBatchId ||
+      binding?.productImportBatchId !== batch.id ||
+      binding.sourceKey !== item.sourceKey ||
+      (item.normalizedData as { sha256?: unknown }).sha256 !== eligible.sha256
+    ) throw new Error("Prepared Import media binding does not match its durable Asset identity.");
+    return {
+      sourceKey: item.sourceKey,
+      relativePath: String((item.rawData as { relativePath?: unknown }).relativePath ?? ""),
+      sha256: eligible.sha256,
+      assetId: eligible.id,
+    };
+  });
+  if (batch.mediaPackageAssetId) {
     const mediaPackage = (await db.select({ id: assets.id }).from(assets).where(and(
-      eq(assets.id, input.mediaPackageAssetId),
+      eq(assets.id, batch.mediaPackageAssetId),
       eq(assets.uploadedByUserId, actor.userId),
       eq(assets.storagePartition, "imports"),
       eq(assets.access, "internal"),
@@ -260,56 +426,7 @@ export async function createValidatedProductImport<TQueryResult extends PgQueryR
       eq(assets.detectedMimeType, IMPORT_ARCHIVE_MIME),
       isNull(assets.deletedAt),
     )).limit(1))[0];
-    if (!mediaPackage) throw new Error("Media package Asset is not an eligible finalized Import package.");
-  }
-  const mediaIds = [...new Set(input.media.map((item) => item.assetId))];
-  const eligibleMedia = mediaIds.length ? await db.select({
-    id: assets.id,
-    sha256: assets.sha256,
-    uploadBatchId: assets.uploadBatchId,
-  }).from(assets).where(and(
-    inArray(assets.id, mediaIds),
-    eq(assets.uploadedByUserId, actor.userId),
-    eq(assets.storagePartition, "public"),
-    eq(assets.access, "public"),
-    eq(assets.status, "ready"),
-    eq(assets.scanStatus, "passed"),
-    isNull(assets.deletedAt),
-  )) : [];
-  if (eligibleMedia.length !== mediaIds.length) throw new Error("Import media contains an ineligible or private Asset.");
-  const eligibleById = new Map(eligibleMedia.map((item) => [item.id, item]));
-  const media = input.media.map((item) => {
-    const relativePath = validateFolderMediaPath(item.relativePath);
-    const eligible = eligibleById.get(item.assetId)!;
-    if (!eligible.uploadBatchId || eligible.uploadBatchId !== item.uploadBatchId) {
-      throw new Error("Import media Upload evidence does not match its finalized Asset.");
-    }
-    return {
-      sourceKey: `m_${createHash("sha256").update(`${relativePath}\0${item.assetId}`).digest("hex").slice(0, 32)}`,
-      relativePath,
-      sha256: eligible.sha256,
-      assetId: item.assetId,
-      uploadBatchId: item.uploadBatchId,
-    };
-  });
-  if (new Set(media.map((item) => item.relativePath.toLocaleLowerCase("en-US"))).size !== media.length) {
-    throw new Error("Import media paths contain a case or Unicode collision.");
-  }
-  const fingerprint = createHash("sha256").update(JSON.stringify({
-    version: 1,
-    mode: input.mode,
-    workbook: workbook.sha256,
-    media: media.map((item) => [item.relativePath, item.sha256]).sort(),
-  })).digest("hex");
-  const existing = (await db.select({ id: productImportBatches.id, authSessionId: productImportBatches.authSessionId })
-    .from(productImportBatches).where(and(
-      eq(productImportBatches.createdByUserId, actor.userId),
-      eq(productImportBatches.mode, input.mode),
-      eq(productImportBatches.sourceFingerprint, fingerprint),
-    )).limit(1))[0];
-  if (existing) {
-    if (existing.authSessionId !== actor.authSessionId) throw new Error("Duplicate Import package belongs to another active session.");
-    return existing.id;
+    if (!mediaPackage) throw new Error("Archive package is no longer eligible for validation.");
   }
   const reservedCodes = new Set<string>();
   const normalizedRows = [] as Array<{ rowNumber: number; input: ProductImportRowInput; normalized: NormalizedImportRow | null; error: { code: string; detail: string } | null }>;
@@ -319,7 +436,7 @@ export async function createValidatedProductImport<TQueryResult extends PgQueryR
       continue;
     }
     try {
-      normalizedRows.push({ rowNumber: row.rowNumber, input: row.input, normalized: await normalizeRow(db, input.mode, row.input, media, reservedCodes), error: null });
+      normalizedRows.push({ rowNumber: row.rowNumber, input: row.input, normalized: await normalizeRow(db, batch.mode as ProductImportMode, row.input, media, reservedCodes), error: null });
     } catch (error) {
       normalizedRows.push({ rowNumber: row.rowNumber, input: row.input, normalized: null, error: safeError(error) });
     }
@@ -335,44 +452,10 @@ export async function createValidatedProductImport<TQueryResult extends PgQueryR
   const matchedMediaKeys = new Set(normalizedRows.flatMap((row) => row.normalized?.media?.map((item) => item.sourceKey) ?? []));
   return db.transaction(async (transaction) => {
     await assertImportAccess(transaction, actor);
-    const batch = (await transaction.insert(productImportBatches).values({
-      createdByUserId: actor.userId,
-      authSessionId: actor.authSessionId,
-      mode: input.mode,
-      templateVersion: 1,
-      sourceFingerprint: fingerprint,
-      workbookAssetId: workbook.id,
-      mediaPackageAssetId: input.mediaPackageAssetId ?? null,
-      packageUploadBatchId: workbook.uploadBatchId,
-      status: "validated",
-      validatedAt: new Date(),
-    }).onConflictDoNothing({
-      target: [productImportBatches.createdByUserId, productImportBatches.mode, productImportBatches.sourceFingerprint],
-    }).returning({ id: productImportBatches.id }))[0];
-    if (!batch) {
-      const concurrent = (await transaction.select({ id: productImportBatches.id, authSessionId: productImportBatches.authSessionId })
-        .from(productImportBatches).where(and(
-          eq(productImportBatches.createdByUserId, actor.userId),
-          eq(productImportBatches.mode, input.mode),
-          eq(productImportBatches.sourceFingerprint, fingerprint),
-        )).limit(1))[0];
-      if (!concurrent || concurrent.authSessionId !== actor.authSessionId) {
-        throw new Error("Concurrent Import package identity could not be recovered safely.");
-      }
-      return concurrent.id;
-    }
-    if (media.length) await transaction.insert(productImportItems).values(media.map((item) => ({
-      batchId: batch.id,
-      kind: "media",
-      sourceKey: item.sourceKey,
-      status: matchedMediaKeys.has(item.sourceKey) ? "applied" : "skipped",
-      rawData: { relativePath: item.relativePath.slice(0, 240) },
-      normalizedData: { sha256: item.sha256 },
-      warningCodes: matchedMediaKeys.has(item.sourceKey) ? [] : ["unmatched_image"],
-      targetAssetId: item.assetId,
-      uploadBatchId: item.uploadBatchId,
-      appliedAt: matchedMediaKeys.has(item.sourceKey) ? new Date() : null,
-    })));
+    await transaction.execute(sql`select id from product_import_batches where id = ${batch.id} for update`);
+    const current = (await transaction.select({ status: productImportBatches.status }).from(productImportBatches).where(eq(productImportBatches.id, batch.id)).limit(1))[0];
+    if (current?.status === "validated") return batch.id;
+    if (current?.status !== "draft") throw new Error("Product Import preparation changed before validation.");
     if (normalizedRows.length) await transaction.insert(productImportItems).values(normalizedRows.map((row) => ({
       batchId: batch.id,
       kind: "row",
@@ -384,28 +467,83 @@ export async function createValidatedProductImport<TQueryResult extends PgQueryR
       errorCode: row.error?.code ?? null,
       errorDetail: row.error?.detail ?? null,
     })));
+    for (const item of durableMediaItems) await transaction.update(productImportItems).set({
+      status: matchedMediaKeys.has(item.sourceKey) ? "applied" : "skipped",
+      warningCodes: matchedMediaKeys.has(item.sourceKey) ? [] : ["unmatched_image"],
+      appliedAt: matchedMediaKeys.has(item.sourceKey) ? new Date() : null,
+      updatedAt: new Date(),
+    }).where(and(eq(productImportItems.id, item.id), eq(productImportItems.status, "valid")));
+    if (archivePlan) await transaction.update(productImportItems).set({
+      status: "skipped",
+      warningCodes: ["archive_package_plan"],
+      updatedAt: new Date(),
+    }).where(and(eq(productImportItems.id, archivePlan.id), eq(productImportItems.status, "pending")));
+    const validated = await transaction.update(productImportBatches).set({
+      status: "validated",
+      validatedAt: new Date(),
+      failureCode: null,
+      failureDetail: null,
+      updatedAt: new Date(),
+    }).where(and(eq(productImportBatches.id, batch.id), eq(productImportBatches.status, "draft"))).returning({ id: productImportBatches.id });
+    if (!validated[0]) throw new Error("Product Import preparation changed before validation commit.");
     await writeAuditLog(transaction, {
       actorUserId: actor.userId,
       action: "product_import.validated",
       entityType: "product_import_batch",
       entityId: batch.id,
-      afterSummary: { mode: input.mode, rows: normalizedRows.length, valid: normalizedRows.filter((row) => !row.error).length },
+      afterSummary: { mode: batch.mode, rows: normalizedRows.length, valid: normalizedRows.filter((row) => !row.error).length },
     });
     return batch.id;
   });
 }
 
 async function existingStructure<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQueryResult>, productId: string) {
-  const [primary, additional, appRows, tagRows, mediaRows, localization] = await Promise.all([
+  const [primary, additional, appRows, tagRows, mediaRows, featureRows, faqRows, localization, product] = await Promise.all([
     db.select({ id: productTaxonomyTerms.taxonomyTermId }).from(productTaxonomyTerms).where(and(eq(productTaxonomyTerms.productId, productId), eq(productTaxonomyTerms.isPrimary, true))).limit(1),
     db.select({ id: productTaxonomyTerms.taxonomyTermId }).from(productTaxonomyTerms).where(and(eq(productTaxonomyTerms.productId, productId), eq(productTaxonomyTerms.isPrimary, false))),
     db.select({ id: productApplications.applicationId }).from(productApplications).where(eq(productApplications.productId, productId)),
     db.select({ name: productTags.name }).from(productTagAssignments).innerJoin(productTags, eq(productTags.id, productTagAssignments.tagId)).where(eq(productTagAssignments.productId, productId)),
-    db.select().from(productAssets).where(eq(productAssets.productId, productId)),
+    db.select().from(productAssets).where(eq(productAssets.productId, productId)).orderBy(productAssets.role, productAssets.sortOrder, productAssets.assetId),
+    db.select({ label: productFeatures.label }).from(productFeatures).where(and(eq(productFeatures.productId, productId), eq(productFeatures.locale, "en"))).orderBy(productFeatures.sortOrder),
+    db.select({ question: productFaqs.question, answer: productFaqs.answer }).from(productFaqs).where(and(eq(productFaqs.productId, productId), eq(productFaqs.locale, "en"))).orderBy(productFaqs.sortOrder),
     db.select().from(productLocalizations).where(and(eq(productLocalizations.productId, productId), eq(productLocalizations.locale, "en"))).limit(1),
+    db.select({
+      colorOptionsDisplay: products.colorOptionsDisplay,
+      customAvailableDisplay: products.customAvailableDisplay,
+      sampleAvailableDisplay: products.sampleAvailableDisplay,
+      moqNoteDisplay: products.moqNoteDisplay,
+    }).from(products).where(eq(products.id, productId)).limit(1),
   ]);
-  if (!primary[0] || !localization[0] || !mediaRows.length) throw new Error("Existing Product structure is incomplete.");
-  return { primary: primary[0].id, additional: additional.map((row) => row.id), applications: appRows.map((row) => row.id), tags: tagRows.map((row) => row.name), media: mediaRows, localization: localization[0] };
+  if (!primary[0] || !localization[0] || !product[0] || !mediaRows.length) throw new Error("Existing Product structure is incomplete.");
+  return {
+    primary: primary[0].id,
+    additional: additional.map((row) => row.id),
+    applications: appRows.map((row) => row.id),
+    tags: tagRows.map((row) => row.name),
+    media: mediaRows,
+    features: featureRows.map((row) => row.label),
+    faqs: faqRows,
+    localization: localization[0],
+    ...product[0],
+  };
+}
+
+function planAdditiveMedia(
+  existing: Array<{ assetId: string; role: string; sortOrder: number; altText: string | null; caption: string | null; isVisible: boolean }>,
+  additions: NonNullable<NormalizedImportRow["media"]>,
+): NonNullable<NormalizedImportRow["media"]> {
+  const existingIds = new Set(existing.map((entry) => entry.assetId));
+  const nextOrder = new Map<string, number>();
+  for (const role of ["hero", "gallery", "detail", "application"] as const) {
+    nextOrder.set(role, Math.max(-1, ...existing.filter((entry) => entry.role === role).map((entry) => entry.sortOrder)) + 1);
+  }
+  const hasHero = existing.some((entry) => entry.role === "hero");
+  return additions.filter((entry) => !existingIds.has(entry.assetId)).map((entry) => {
+    const role = entry.role === "hero" && hasHero ? "gallery" : entry.role;
+    const sortOrder = nextOrder.get(role) ?? 0;
+    nextOrder.set(role, sortOrder + 1);
+    return { ...entry, role, sortOrder };
+  });
 }
 
 async function applyRow<TQueryResult extends PgQueryResultHKT>(
@@ -447,6 +585,7 @@ async function applyRow<TQueryResult extends PgQueryResultHKT>(
       media: media.map((entry) => ({ assetId: entry.assetId, role: entry.role, sortOrder: entry.sortOrder, altText: entry.altText, caption: entry.caption, isVisible: true })),
       features: [], faqs: [], colorOptionsDisplay: "inherit", customAvailableDisplay: "inherit", sampleAvailableDisplay: "inherit", moqNoteDisplay: "hide",
     });
+    await releaseRelatedProductImportMedia(db, media.map((entry) => entry.assetId));
     return { productId, revisionId: null };
   }
   const productId = normalized.targetProductId!;
@@ -464,17 +603,18 @@ async function applyRow<TQueryResult extends PgQueryResultHKT>(
     }) ?? revisionId;
   }
   if (normalized.primaryTaxonomyTermId || normalized.additionalTaxonomyTermIds || normalized.applicationIds || normalized.tags || normalized.media) {
-    const media = normalized.media ?? current.media.map((entry) => ({
+    const existingMedia = current.media.map((entry) => ({
       sourceKey: `existing_${entry.assetId.replaceAll("-", "")}`,
-      relativePath: "existing",
-      sha256: "0".repeat(64),
-      matchTier: "explicit_file" as const,
       assetId: entry.assetId,
       role: entry.role as "hero" | "gallery" | "detail" | "application",
       sortOrder: entry.sortOrder,
       altText: entry.altText,
       caption: entry.caption,
+      isVisible: entry.isVisible,
     }));
+    const media = normalized.media
+      ? [...existingMedia, ...planAdditiveMedia(current.media, normalized.media)]
+      : existingMedia;
     revisionId = await updateProductStructure(db, productActor, productId, {
       primaryTaxonomyTermId: normalized.primaryTaxonomyTermId ?? current.primary,
       additionalTaxonomyTermIds: normalized.additionalTaxonomyTermIds ?? current.additional,
@@ -482,9 +622,22 @@ async function applyRow<TQueryResult extends PgQueryResultHKT>(
       tagNames: normalized.tags ?? current.tags,
       assetIds: media.map((entry) => entry.assetId),
       heroAssetId: media.find((entry) => entry.role === "hero")!.assetId,
-      media: media.map((entry) => ({ assetId: entry.assetId, role: entry.role, sortOrder: entry.sortOrder, altText: entry.altText, caption: entry.caption, isVisible: true })),
-      features: [], faqs: [], colorOptionsDisplay: "inherit", customAvailableDisplay: "inherit", sampleAvailableDisplay: "inherit", moqNoteDisplay: "hide",
+      media: media.map((entry) => ({
+        assetId: entry.assetId,
+        role: entry.role,
+        sortOrder: entry.sortOrder,
+        altText: entry.altText,
+        caption: entry.caption,
+        isVisible: "isVisible" in entry && typeof entry.isVisible === "boolean" ? entry.isVisible : true,
+      })),
+      features: current.features,
+      faqs: current.faqs,
+      colorOptionsDisplay: current.colorOptionsDisplay,
+      customAvailableDisplay: current.customAvailableDisplay,
+      sampleAvailableDisplay: current.sampleAvailableDisplay,
+      moqNoteDisplay: current.moqNoteDisplay,
     }) ?? revisionId;
+    await releaseRelatedProductImportMedia(db, media.map((entry) => entry.assetId));
   }
   const status = (await db.select({ status: products.status }).from(products).where(eq(products.id, productId)).limit(1))[0]?.status;
   if (normalized.slug && status !== "published") await changeProductSlug(db, productActor, productId, normalized.slug);
@@ -573,6 +726,7 @@ export async function retryProductImportErrors<TQueryResult extends PgQueryResul
 
 export async function cancelProductImportBatch<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  storage: ObjectStorage,
   actor: AdminUploadActor,
   batchId: string,
 ): Promise<void> {
@@ -590,13 +744,18 @@ export async function cancelProductImportBatch<TQueryResult extends PgQueryResul
       eq(productImportBatches.id, batchId),
       eq(productImportBatches.createdByUserId, actor.userId),
       eq(productImportBatches.authSessionId, actor.authSessionId),
-      eq(productImportBatches.status, "validated"),
+      inArray(productImportBatches.status, ["draft", "validated"]),
     )).returning({ id: productImportBatches.id });
-    if (!cancelled[0]) throw new Error("Only a validated Import Batch can be cancelled.");
+    if (!cancelled[0]) throw new Error("Only a Draft or validated Import Batch can be cancelled.");
     await transaction.update(productImportItems).set({ status: "skipped", updatedAt: new Date() }).where(and(
       eq(productImportItems.batchId, batchId),
       eq(productImportItems.kind, "row"),
       eq(productImportItems.status, "valid"),
+    ));
+    await transaction.update(productImportItems).set({ status: "skipped", updatedAt: new Date() }).where(and(
+      eq(productImportItems.batchId, batchId),
+      eq(productImportItems.kind, "media"),
+      inArray(productImportItems.status, ["pending", "valid", "applied"]),
     ));
     await writeAuditLog(transaction, {
       actorUserId: actor.userId,
@@ -605,6 +764,7 @@ export async function cancelProductImportBatch<TQueryResult extends PgQueryResul
       entityId: batchId,
     });
   });
+  await abandonProductImportUploads(db, storage, actor, batchId);
 }
 
 export async function correctProductImportRow<TQueryResult extends PgQueryResultHKT>(
@@ -686,6 +846,6 @@ export async function getProductImportBatch<TQueryResult extends PgQueryResultHK
     batch,
     items,
     counts: Object.fromEntries(counts.map((row) => [row.status, Number(row.value)])),
-    unmatchedImages: items.filter((item) => item.kind === "media" && item.status === "skipped").length,
+    unmatchedImages: items.filter((item) => item.kind === "media" && item.status === "skipped" && item.targetAssetId).length,
   };
 }
