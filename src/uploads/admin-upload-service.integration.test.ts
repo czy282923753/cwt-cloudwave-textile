@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { env } from "@/config/env";
 import { writeAuditLog } from "@/audit/service";
-import { assetUploadBatches, assets, assetVariants, auditLogs, authSessions, objectCleanupJobs, productAssets, products, productTaxonomyTerms, taxonomyTerms, uploadIntents, uploadRecoveryJobs, users } from "@/db/schema";
+import { assetUploadBatches, assets, assetVariants, auditLogs, authSessions, finalizeObjectManifestItems, objectCleanupJobs, productAssets, products, productTaxonomyTerms, taxonomyTerms, uploadIntents, uploadRecoveryJobs, users } from "@/db/schema";
 import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { createTestDatabase } from "@/test/database";
 import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
@@ -611,6 +611,34 @@ describe("Admin Asset Upload Intents", () => {
       expect(released.publicUsePermission).toBeNull();
       expect(released.declarationReviewerUserId).toBeNull();
       expect(await connection.db.select().from(productAssets).where(eq(productAssets.assetId, released.id))).toHaveLength(1);
+      const persistedVariants = await connection.db.select().from(assetVariants)
+        .where(eq(assetVariants.sourceAssetId, released.id));
+      expect(persistedVariants).toHaveLength(6);
+      for (const variant of persistedVariants) {
+        expect(variant.variantKey).toMatch(/^(480|960|1600)w-(webp|avif)$/);
+        expect(variant.variantKey).not.toContain(".");
+        expect(variant.objectKey).toBe(
+          `${released.objectKey}.variants/${variant.variantKey}.${variant.format}`,
+        );
+        await expect(storage.exists("public", variant.objectKey)).resolves.toBe(true);
+      }
+      const finalizeRecovery = (await connection.db.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadBatchId, batch.batchId),
+        eq(uploadRecoveryJobs.kind, "finalize"),
+      )))[0]!;
+      expect(finalizeRecovery).toMatchObject({ status: "completed", stage: "completed" });
+      const manifest = await connection.db.select().from(finalizeObjectManifestItems)
+        .where(eq(finalizeObjectManifestItems.recoveryJobId, finalizeRecovery.id));
+      expect(manifest).toHaveLength(7);
+      expect(manifest.every((item) =>
+        item.evidenceStatus === "verified" &&
+        item.evidenceSource === "current_finalize_storage_verified" &&
+        item.evidenceVerifiedAt !== null
+      )).toBe(true);
+      expect(await connection.db.select().from(auditLogs).where(and(
+        eq(auditLogs.action, "asset.finalize.storage_evidence_verified"),
+        eq(auditLogs.entityId, batch.batchId),
+      ))).toHaveLength(1);
       expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, batch.batchId)))[0]?.status).toBe("completed");
       await expect(finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId)).resolves.toMatchObject({
         success: true,

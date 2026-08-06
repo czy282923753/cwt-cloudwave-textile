@@ -28,15 +28,25 @@ import {
   applications,
   assets,
   authors,
+  authSessions,
   companyFacts,
   productAssets,
+  productLocalizations,
+  productTaxonomyTerms,
   products,
+  routes,
+  seoMetadata,
   taxonomyTerms,
 } from "../src/db/schema";
 import type { AppDatabase } from "../src/db/types";
 import type { BlockDocument } from "../src/editorial/blocks";
 import { createObjectStorage } from "../src/storage";
 import { createFileScanner } from "../src/uploads/scanner";
+import {
+  completeAdminUploadIntent,
+  createAdminUploadBatch,
+  finalizeAdminUploadBatch,
+} from "../src/uploads/admin-upload-service";
 import { uploadAsset } from "../src/uploads/service";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
@@ -71,6 +81,87 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
   const categoryRows = await db.select({ id: taxonomyTerms.id }).from(taxonomyTerms).where(eq(taxonomyTerms.isActive, true)).limit(1);
   const categoryId = categoryRows[0]?.id;
   if (!categoryId) throw new Error("E2E Block fixture requires an active taxonomy category.");
+
+  const [variantSession] = await db.insert(authSessions).values({
+    userId: adminUserId,
+    tokenHash: "e2e-admin-finalized-responsive-session",
+    expiresAt: new Date(Date.now() + 60 * 60_000),
+  }).returning({ id: authSessions.id });
+  if (!variantSession) {
+    throw new Error("E2E Admin Finalize Variant fixture could not be initialized.");
+  }
+  const variantProduct = await db.transaction(async (transaction) => {
+    const [created] = await transaction.insert(products).values({
+      status: "draft",
+      createdByUserId: adminUserId,
+    }).returning({ id: products.id });
+    if (!created) throw new Error("E2E Admin Finalize Variant Product is missing.");
+    await transaction.insert(productTaxonomyTerms).values({
+      productId: created.id,
+      taxonomyTermId: categoryId,
+      isPrimary: true,
+    });
+    return created;
+  });
+  await db.insert(productLocalizations).values({
+    productId: variantProduct.id,
+    locale: "en",
+    name: "TEST E2E Admin Finalized Responsive Product",
+    shortDescription: "Synthetic noindex Product proving the real Admin responsive-media contract.",
+  });
+  const [variantRoute] = await db.insert(routes).values({
+    entityType: "product",
+    entityId: variantProduct.id,
+    locale: "en",
+    path: "/products/test-e2e-admin-finalized-responsive/",
+  }).returning({ id: routes.id });
+  if (!variantRoute) throw new Error("E2E Admin Finalize Variant Route is missing.");
+  await db.insert(seoMetadata).values({ routeId: variantRoute.id, indexStatus: "noindex" });
+  const variantSourceBytes = new Uint8Array(await sharp({
+    create: {
+      width: 1200,
+      height: 800,
+      channels: 3,
+      background: { r: 20, g: 103, b: 87 },
+    },
+  }).jpeg({ quality: 86 }).toBuffer());
+  const variantActor = {
+    userId: adminUserId,
+    role: "admin" as const,
+    authSessionId: variantSession.id,
+  };
+  const variantBatch = await createAdminUploadBatch(db, variantActor, {
+    files: [{
+      fileName: "TEST-e2e-admin-finalized-responsive.jpg",
+      declaredMimeType: "image/jpeg",
+      declaredByteSize: variantSourceBytes.byteLength,
+    }],
+    category: "product",
+    role: "hero",
+    sortOrder: 0,
+    associationType: "product",
+    associationEntityId: variantProduct.id,
+    sourceDeclarationEnabled: false,
+  }, { rateLimiter: { consume: async () => true } });
+  const variantAssetId = await completeAdminUploadIntent(
+    db,
+    storage,
+    createFileScanner(),
+    variantActor,
+    { token: variantBatch.intents[0]!.token, bytes: variantSourceBytes },
+  );
+  await finalizeAdminUploadBatch(db, storage, variantActor, variantBatch.batchId);
+  await db.update(productAssets).set({
+    altText: "Synthetic Admin-finalized responsive fabric",
+  }).where(eq(productAssets.assetId, variantAssetId));
+  await db.update(products).set({
+    status: "published",
+    realProductBasis: "physical_sample",
+    realProductEvidenceNote: "Synthetic E2E-only evidence",
+    realProductConfirmedByUserId: adminUserId,
+    realProductConfirmedAt: new Date(),
+    publishedAt: new Date(),
+  }).where(eq(products.id, variantProduct.id));
   type FixtureMedia = Array<{
     assetId: string;
     role: "hero" | "gallery" | "detail" | "application";

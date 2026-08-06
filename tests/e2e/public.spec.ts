@@ -2,6 +2,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const fixtureProductPath = "/products/test-fixture-fabric-01/";
+const adminFinalizedResponsiveProductPath =
+  "/products/test-e2e-admin-finalized-responsive/";
 
 const blockProjectionFixtures = {
   productPath: "/products/test-e2e-block-media-product/",
@@ -186,6 +188,67 @@ test("@all controlled SEO metadata, structured data, and responsive media stay a
     .find((value) => value["@type"] === "BreadcrumbList");
   expect(taxonomyBreadcrumb?.itemListElement).toHaveLength(2);
   expect(taxonomyBreadcrumb?.itemListElement?.some((item) => item.name === "Fabric Types")).toBe(false);
+  expect(browserErrors).toEqual([]);
+});
+
+test("@all real Admin Finalize Variant is selected, fetched, and decoded", async ({ page }) => {
+  const selectedVariantResponses: Array<{
+    url: string;
+    status: number;
+    contentType: string | undefined;
+    cacheControl: string | undefined;
+  }> = [];
+  const browserErrors: string[] = [];
+  page.on("response", (response) => {
+    if (response.url().includes("/api/public-assets/") && response.url().includes("variant=")) {
+      selectedVariantResponses.push({
+        url: response.url(),
+        status: response.status(),
+        contentType: response.headers()["content-type"],
+        cacheControl: response.headers()["cache-control"],
+      });
+    }
+  });
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  const pageResponse = await page.goto(adminFinalizedResponsiveProductPath);
+  expect(pageResponse?.status()).toBe(200);
+  const hero = page.locator("main picture img").first();
+  await expect(hero).toHaveAttribute("loading", "eager");
+  await expect(hero).toHaveAttribute("fetchpriority", "high");
+  await expect.poll(async () => hero.evaluate((image: HTMLImageElement) => ({
+    complete: image.complete,
+    naturalWidth: image.naturalWidth,
+    currentSrc: image.currentSrc,
+  }))).toMatchObject({
+    complete: true,
+    naturalWidth: expect.any(Number),
+    currentSrc: expect.stringContaining("/api/public-assets/"),
+  });
+  const naturalWidth = await hero.evaluate((image: HTMLImageElement) => image.naturalWidth);
+  expect(naturalWidth).toBeGreaterThan(0);
+  const currentSrc = await hero.evaluate((image: HTMLImageElement) => image.currentSrc);
+  const selectedUrl = new URL(currentSrc);
+  expect(selectedUrl.searchParams.get("variant")).toMatch(
+    /^(480|960|1600)w-(avif|webp)$/,
+  );
+  await expect.poll(() =>
+    selectedVariantResponses.find((response) => response.url === currentSrc),
+  ).toMatchObject({
+    status: 200,
+    contentType: expect.stringMatching(/^image\/(avif|webp)$/),
+    cacheControl: "private, no-store, max-age=0, must-revalidate",
+  });
+  const directResponse = await page.request.get(currentSrc);
+  expect(directResponse.status()).toBe(200);
+  expect(directResponse.headers()["content-type"]).toMatch(/^image\/(avif|webp)$/);
+  expect(directResponse.headers()["cache-control"]).toBe(
+    "private, no-store, max-age=0, must-revalidate",
+  );
+  expect(await page.locator('main img[loading="eager"][fetchpriority="high"]').count()).toBe(1);
   expect(browserErrors).toEqual([]);
 });
 

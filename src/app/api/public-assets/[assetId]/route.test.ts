@@ -5,24 +5,27 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
 }));
 
-vi.mock("@/db/client", () => ({
-  databaseConnection: { kind: "pglite", db: { kind: "TEST_DB" } },
-}));
 vi.mock("@/public-site/public-asset-access", () => ({
   findPublicAssetForDelivery: mocks.find,
 }));
-vi.mock("@/storage", () => ({
-  createObjectStorage: () => ({ get: mocks.get }),
-}));
 
-import { GET } from "./route";
+import {
+  GOVERNED_PUBLIC_ASSET_CACHE_CONTROL,
+  serveGovernedPublicAsset,
+} from "@/public-site/public-asset-response";
 
 const assetId = "10000000-0000-4000-8000-000000000001";
 
-function request(query = "") {
-  return GET(
-    new Request(`http://localhost/api/public-assets/${assetId}/${query}`),
-    { params: Promise.resolve({ assetId }) },
+const storage = { get: mocks.get } as never;
+const db = { kind: "TEST_DB" } as never;
+
+function request(variantKey?: string, requestedAssetId = assetId) {
+  return serveGovernedPublicAsset(db, storage, requestedAssetId, variantKey);
+}
+
+function expectGovernedCache(response: Response) {
+  expect(response.headers.get("cache-control")).toBe(
+    GOVERNED_PUBLIC_ASSET_CACHE_CONTROL,
   );
 }
 
@@ -33,37 +36,46 @@ describe("Public Asset HTTP boundary", () => {
   });
 
   it("returns 404 for malformed IDs and ineligible Assets without querying storage", async () => {
-    const malformed = await GET(
-      new Request("http://localhost/api/public-assets/not-an-id/"),
-      { params: Promise.resolve({ assetId: "not-an-id" }) },
-    );
+    const malformed = await request(undefined, "not-an-id");
     expect(malformed.status).toBe(404);
+    expectGovernedCache(malformed);
     expect(mocks.find).not.toHaveBeenCalled();
 
     mocks.find.mockResolvedValueOnce(null);
     const ineligible = await request();
     expect(ineligible.status).toBe(404);
+    expectGovernedCache(ineligible);
     expect(mocks.get).not.toHaveBeenCalled();
+
+    const unsafeVariant = await request("960w-webp.webp");
+    expect(unsafeVariant.status).toBe(404);
+    expectGovernedCache(unsafeVariant);
+    expect(mocks.find).toHaveBeenCalledTimes(1);
   });
 
-  it("serves an eligible responsive variant through the controlled route", async () => {
-    mocks.find.mockResolvedValueOnce({
-      id: assetId,
-      partition: "public",
-      objectKey: "synthetic/variant.webp",
-      detectedMimeType: "image/webp",
-    });
-    mocks.get.mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
-    const response = await request("?variant=960w-webp");
-    expect(response.status).toBe(200);
-    expect(mocks.find).toHaveBeenCalledWith(
-      expect.anything(),
-      assetId,
-      "960w-webp",
-    );
-    expect(response.headers.get("content-type")).toBe("image/webp");
-    expect(response.headers.get("cache-control")).toContain("private, no-store");
-    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3]);
+  it("serves original and responsive Variant responses with the exact governed cache contract", async () => {
+    for (const candidate of [
+      { variantKey: undefined, objectKey: "synthetic/original.jpg", mime: "image/jpeg" },
+      { variantKey: "960w-webp", objectKey: "synthetic/variant.webp", mime: "image/webp" },
+    ]) {
+      mocks.find.mockResolvedValueOnce({
+        id: assetId,
+        partition: "public",
+        objectKey: candidate.objectKey,
+        detectedMimeType: candidate.mime,
+      });
+      mocks.get.mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+      const response = await request(candidate.variantKey);
+      expect(response.status).toBe(200);
+      expect(mocks.find).toHaveBeenLastCalledWith(
+        expect.anything(),
+        assetId,
+        candidate.variantKey,
+      );
+      expect(response.headers.get("content-type")).toBe(candidate.mime);
+      expectGovernedCache(response);
+      expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3]);
+    }
   });
 
   it("returns a sanitized temporary 503 for database or storage failures", async () => {
@@ -71,6 +83,7 @@ describe("Public Asset HTTP boundary", () => {
     mocks.find.mockRejectedValueOnce(new Error("TEST internal database address"));
     const databaseFailure = await request();
     expect(databaseFailure.status).toBe(503);
+    expectGovernedCache(databaseFailure);
     expect(await databaseFailure.text()).toBe("Temporarily unavailable");
     expect(mocks.get).not.toHaveBeenCalled();
 
@@ -83,6 +96,7 @@ describe("Public Asset HTTP boundary", () => {
     mocks.get.mockRejectedValueOnce(new Error("TEST bucket secret"));
     const storageFailure = await request();
     expect(storageFailure.status).toBe(503);
+    expectGovernedCache(storageFailure);
     expect(await storageFailure.text()).not.toContain("bucket secret");
     expect(log).toHaveBeenCalledTimes(2);
     log.mockRestore();
