@@ -26,6 +26,7 @@ import type { AppDatabase } from "@/db/types";
 import type { ObjectStorage } from "@/storage";
 
 import { isRoleMimeCompatible } from "./asset-eligibility";
+import { createAssetVariantObjectKey, type AssetVariantFormat } from "./asset-variant";
 import {
   acceptedPublicMimeTypes,
   detectMimeType,
@@ -1226,8 +1227,9 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       originalBytes: Uint8Array;
       originalMimeType: string;
       variants: {
-        key: string;
-        format: string;
+        logicalKey: string;
+        objectKey: string;
+        format: AssetVariantFormat;
         bytes: Uint8Array;
         width: number;
         height: number;
@@ -1259,7 +1261,12 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       );
       const variants = asset.detectedMimeType?.startsWith("image/")
         ? (await runWithFinalizeHeartbeat(() => createImageDerivatives(bytes))).map((variant) => ({
-            key: `${asset.objectKey}.variants/${variant.key}.${variant.format}`,
+            logicalKey: variant.key,
+            objectKey: createAssetVariantObjectKey(
+              asset.objectKey,
+              variant.key,
+              variant.format,
+            ),
             format: variant.format,
             bytes: variant.bytes,
             width: variant.width,
@@ -1290,7 +1297,7 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
       },
       ...copy.variants.map((variant) => ({
         assetId: copy.assetId,
-        objectKey: variant.key,
+        objectKey: variant.objectKey,
         role: "variant" as const,
         mimeType: `image/${variant.format}`,
         byteSize: variant.bytes.byteLength,
@@ -1326,14 +1333,14 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         recoveryLease = await heartbeatFinalizeLease(db, recoveryLease, clock(), leaseMilliseconds);
         await runWithFinalizeHeartbeat(() => storage.put(
           "public",
-          variant.key,
+          variant.objectKey,
           variant.bytes,
           `image/${variant.format}`,
         ));
         recoveryLease = await markFinalizeObjectWritten(
           db,
           recoveryLease,
-          variant.key,
+          variant.objectKey,
           "variants_processing",
           clock(),
           leaseMilliseconds,
@@ -1527,8 +1534,8 @@ export async function finalizeAdminUploadBatch<TQueryResult extends PgQueryResul
         )).returning({ id: assets.id });
         if (!releasedAsset[0]) throw new Error("Staged Asset changed before Public release.");
         if (copy.variants.length) await transaction.insert(assetVariants).values(copy.variants.map((variant) => ({
-          sourceAssetId: asset.id, format: variant.format, variantKey: variant.key.split("/").at(-1)!,
-          objectKey: variant.key, byteSize: variant.bytes.byteLength, width: variant.width, height: variant.height,
+          sourceAssetId: asset.id, format: variant.format, variantKey: variant.logicalKey,
+          objectKey: variant.objectKey, byteSize: variant.bytes.byteLength, width: variant.width, height: variant.height,
         })));
         if (intent.associationType && intent.associationEntityId) await insertRelation(transaction, {
           assetId: asset.id,

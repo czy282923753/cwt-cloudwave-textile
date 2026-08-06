@@ -57,6 +57,7 @@ import {
   publicImageRoles,
   publicReadyImageSqlConditions,
 } from "@/uploads/asset-eligibility";
+import { isCanonicalAssetVariantKey } from "@/uploads/asset-variant";
 
 export interface PublicAsset {
   id: string;
@@ -310,7 +311,8 @@ async function toPublicAsset<TQueryResult extends PgQueryResultHKT>(
     .orderBy(asc(assetVariants.width), asc(assetVariants.variantKey));
   const variants: PublicAssetVariant[] = variantRows.flatMap((variant) => (
     (variant.format === "avif" || variant.format === "webp") &&
-      variant.width !== null && variant.width > 0
+      variant.width !== null && variant.width > 0 &&
+      isCanonicalAssetVariantKey(variant.variantKey)
       ? [{
           format: variant.format as "avif" | "webp",
           url: `${baseUrl}?variant=${encodeURIComponent(variant.variantKey)}`,

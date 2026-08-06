@@ -1,8 +1,13 @@
 import sharp from "sharp";
 
+import {
+  createAssetVariantLogicalKey,
+  type AssetVariantFormat,
+} from "./asset-variant";
+
 export interface ImageDerivative {
   key: string;
-  format: "webp" | "avif";
+  format: AssetVariantFormat;
   bytes: Uint8Array;
   width: number;
   height: number;
@@ -25,7 +30,7 @@ export async function createImageDerivatives(
         [format]({ quality: format === "webp" ? 82 : 58 })
         .toBuffer({ resolveWithObject: true });
       derivatives.push({
-        key: `${width}w-${format}`,
+        key: createAssetVariantLogicalKey(width, format),
         format,
         bytes: result.data,
         width: result.info.width,
