@@ -4,14 +4,14 @@ import { Refine } from "@refinedev/core";
 import routerProvider from "@refinedev/nextjs-router";
 
 const resources = [
-  { name: "products", list: "/admin/products" },
+  { name: "products", list: "/admin/products", editorialResource: "product" },
   { name: "taxonomy", list: "/admin/taxonomy" },
   { name: "applications", list: "/admin/applications" },
   { name: "assets", list: "/admin/assets" },
   { name: "fabric-library", list: "/admin/fabric-library" },
-  { name: "contents", list: "/admin/contents" },
-  { name: "home-page", list: "/admin/site/home" },
-  { name: "about-cwt", list: "/admin/site/about" },
+  { name: "contents", list: "/admin/contents", editorialResource: "content" },
+  { name: "home-page", list: "/admin/site/home", editorialResource: "static_page" },
+  { name: "about-cwt", list: "/admin/site/about", editorialResource: "static_page" },
   { name: "authors", list: "/admin/authors" },
   { name: "company-facts", list: "/admin/company-facts" },
   { name: "seo", list: "/admin/seo" },
@@ -21,11 +21,18 @@ const resources = [
 
 export function RefineAdminProvider({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+  editorialResources,
+}: Readonly<{
+  children: React.ReactNode;
+  editorialResources: readonly ("product" | "content" | "static_page")[];
+}>) {
+  const allowed = new Set(editorialResources);
   return (
     <Refine
       routerProvider={routerProvider}
-      resources={resources.map((resource) => ({ ...resource }))}
+      resources={resources.filter((resource) => (
+        !("editorialResource" in resource) || allowed.has(resource.editorialResource)
+      )).map((resource) => ({ name: resource.name, list: resource.list }))}
       options={{
         disableTelemetry: true,
         syncWithLocation: true,

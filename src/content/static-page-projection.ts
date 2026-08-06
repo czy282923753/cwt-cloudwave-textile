@@ -21,6 +21,20 @@ const aboutPlacementKeys = [
 export const HOME_MODULE_ORDER = [...homePlacementKeys] as const;
 export const ABOUT_MODULE_ORDER = [...aboutPlacementKeys] as const;
 
+export const STATIC_PAGE_FACT_SENSITIVE_LABELS = {
+  manufacturing_strength: "CWT Manufacturing & Service Strength",
+  owned_manufacturing: "Own Manufacturing",
+  service_strength: "CWT Manufacturing & Service Strength",
+} as const;
+
+export type StaticPageFactSensitivePlacementKey = keyof typeof STATIC_PAGE_FACT_SENSITIVE_LABELS;
+
+export function isStaticPageFactSensitivePlacement(
+  placementKey: string,
+): placementKey is StaticPageFactSensitivePlacementKey {
+  return placementKey in STATIC_PAGE_FACT_SENSITIVE_LABELS;
+}
+
 const internalPathSchema = z.string().trim().min(1).max(500).regex(/^\/(?!\/)[^\s]*$/);
 const ctaCopySchema = z.object({
   label: z.string().trim().min(1).max(100),
@@ -35,6 +49,8 @@ const factKeyListSchema = z.array(z.string().trim().min(1).max(120)).max(20)
   .refine((keys) => new Set(keys).size === keys.length, {
     message: "Company Fact selections must be unique.",
   });
+const factSensitiveCopySchema = z.object({ factKeys: factKeyListSchema });
+const fixedStructureCopySchema = z.object({});
 const homeCopySchema = z.object({
   hero: moduleCopySchema.extend({
     primaryCta: ctaCopySchema,
@@ -44,18 +60,14 @@ const homeCopySchema = z.object({
   applications: moduleCopySchema,
   fabricLibrary: moduleCopySchema,
   fabricSourcing: moduleCopySchema,
-  manufacturingStrength: moduleCopySchema.extend({
-    factKeys: factKeyListSchema,
-  }).strict(),
+  manufacturingStrength: factSensitiveCopySchema,
   inquiryCta: moduleCopySchema.extend({ cta: ctaCopySchema }).strict(),
 }).strict();
 const aboutCopySchema = z.object({
   hero: moduleCopySchema,
   introduction: moduleCopySchema,
-  ownedManufacturing: moduleCopySchema.extend({
-    factKeys: factKeyListSchema,
-  }).strict(),
-  serviceStrength: moduleCopySchema,
+  ownedManufacturing: factSensitiveCopySchema,
+  serviceStrength: fixedStructureCopySchema,
   inquiryCta: moduleCopySchema.extend({ cta: ctaCopySchema }).strict(),
 }).strict();
 
@@ -97,7 +109,7 @@ const aboutConfigSchema = z.object({
   }).strict()).max(50),
 }).strict();
 
-export const staticPageConfigSchema = z.discriminatedUnion("pageKey", [
+const staticPageConfigInputSchema = z.discriminatedUnion("pageKey", [
   homeConfigSchema,
   aboutConfigSchema,
 ]).superRefine((config, context) => {
@@ -114,6 +126,17 @@ export const staticPageConfigSchema = z.discriminatedUnion("pageKey", [
     keys.add(key);
   }
 });
+
+export const staticPageConfigSchema = staticPageConfigInputSchema.transform((config) => ({
+  ...config,
+  placements: config.placements.map((placement) => isStaticPageFactSensitivePlacement(placement.placementKey)
+    ? {
+        ...placement,
+        altText: STATIC_PAGE_FACT_SENSITIVE_LABELS[placement.placementKey],
+        caption: null,
+      }
+    : placement),
+}));
 
 export type StaticPageConfig = z.infer<typeof staticPageConfigSchema>;
 export type StaticPageLivePlacement = StaticPageConfig["placements"][number];
@@ -148,7 +171,7 @@ export const DEFAULT_STATIC_PAGE_CONFIGS: Readonly<{
       applications: { eyebrow: "Applications", title: "Start from what the fabric needs to do.", summary: "Application pages connect end use with relevant Product records." },
       fabricLibrary: { eyebrow: "Fabric Library", title: "A visual path into the range", summary: "" },
       fabricSourcing: { eyebrow: "Fabric & Sourcing", title: "Useful answers before the first sourcing conversation.", summary: "Explore material knowledge, China textile context, and practical sourcing guidance." },
-      manufacturingStrength: { eyebrow: "CWT service strength", title: "Manufacturing and sourcing support around the requirement.", summary: "Public facility facts appear only after evidence-backed verification.", factKeys: [] },
+      manufacturingStrength: { factKeys: [] },
       inquiryCta: { eyebrow: "Send less. Start faster.", title: "Find Your Fabric Solution", summary: "Share a short description, an image, or both.", cta: { label: "Start an Inquiry", href: "/get-quote/" } },
     },
     placements: [],
@@ -166,8 +189,8 @@ export const DEFAULT_STATIC_PAGE_CONFIGS: Readonly<{
     copy: {
       hero: { eyebrow: "About CloudWave Textile", title: "A professional fabric supplier and textile sourcing partner in China.", summary: "" },
       introduction: { eyebrow: "Who CWT is", title: "Supplier and sourcing partner—not a single-product factory story.", summary: "CWT helps overseas buyers describe and narrow fabric requirements from specifications, applications, photos, or sample references." },
-      ownedManufacturing: { eyebrow: "Own Manufacturing", title: "CWT-owned manufacturing evidence", summary: "Only verified CWT-owned facility facts and governed media can appear here.", factKeys: [] },
-      serviceStrength: { eyebrow: "Service capability", title: "Support from matching through delivery coordination.", summary: "Fabric Development & Matching, Sampling & Customization, Quality Check, and Packing & Delivery Support." },
+      ownedManufacturing: { factKeys: [] },
+      serviceStrength: {},
       inquiryCta: { eyebrow: "Start with the requirement", title: "Let CWT help find the next fabric option.", summary: "", cta: { label: "Find Your Fabric Solution", href: "/get-quote/" } },
     },
     placements: [],
@@ -206,6 +229,58 @@ export function deriveStaticPageLivePlacements(
     placement.isVisible &&
     (config.modules as Readonly<Record<string, boolean>>)[placement.placementKey] === true
   ));
+}
+
+export function staticPageFactKeys(
+  config: StaticPageConfig,
+  placementKey: StaticPageFactSensitivePlacementKey,
+): readonly string[] {
+  if (config.pageKey === "home") {
+    return placementKey === "manufacturing_strength"
+      ? config.copy?.manufacturingStrength.factKeys ?? []
+      : [];
+  }
+  return placementKey === "owned_manufacturing" || placementKey === "service_strength"
+    ? config.copy?.ownedManufacturing.factKeys ?? []
+    : [];
+}
+
+export function hasStaticPageEvidenceGate(
+  config: StaticPageConfig,
+  placementKey: StaticPageFactSensitivePlacementKey,
+  currentFactKeys: ReadonlySet<string>,
+  currentOwnedMediaPlacementKeys: ReadonlySet<string>,
+): boolean {
+  return (config.modules as Readonly<Record<string, boolean>>)[placementKey] === true &&
+    staticPageFactKeys(config, placementKey).some((key) => currentFactKeys.has(key)) &&
+    currentOwnedMediaPlacementKeys.has(placementKey);
+}
+
+export function projectStaticPageEvidenceGates(
+  config: StaticPageConfig,
+  currentFactKeys: ReadonlySet<string>,
+  currentOwnedMediaPlacementKeys: ReadonlySet<string>,
+): Readonly<Record<StaticPageFactSensitivePlacementKey, boolean>> {
+  return {
+    manufacturing_strength: hasStaticPageEvidenceGate(
+      config,
+      "manufacturing_strength",
+      currentFactKeys,
+      currentOwnedMediaPlacementKeys,
+    ),
+    owned_manufacturing: hasStaticPageEvidenceGate(
+      config,
+      "owned_manufacturing",
+      currentFactKeys,
+      currentOwnedMediaPlacementKeys,
+    ),
+    service_strength: hasStaticPageEvidenceGate(
+      config,
+      "service_strength",
+      currentFactKeys,
+      currentOwnedMediaPlacementKeys,
+    ),
+  };
 }
 
 export interface PersistedStaticPagePlacement {

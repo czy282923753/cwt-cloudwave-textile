@@ -3,6 +3,8 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { databaseConnection } from "@/db/client";
 import type { Actor } from "@/catalog/product-service";
+import type { UserRole } from "@/auth/permissions";
+import { requireEditorialResourceAccess } from "@/admin/preview-policy";
 import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
 import { requireInquiryRecordAccess } from "@/crm/authorization";
 import {
@@ -47,6 +49,7 @@ import {
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { currentPublicCompanyFactConditions } from "@/content/company-facts-service";
+import { SYSTEM_PUBLIC_ROUTES } from "@/seo/system-public-routes";
 import {
   resolveStaticPageLiveAuthority,
   staticPageConfigSchema,
@@ -105,7 +108,8 @@ async function queryProducts<TQueryResult extends PgQueryResultHKT>(
     .orderBy(desc(products.updatedAt));
 }
 
-export async function listAdminProducts() {
+export async function listAdminProducts(role: UserRole) {
+  requireEditorialResourceAccess(role, "product", "manage");
   return databaseConnection.kind === "pglite"
     ? queryProducts(databaseConnection.db)
     : queryProducts(databaseConnection.db);
@@ -286,7 +290,8 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
   };
 }
 
-export async function getAdminProduct(productId: string) {
+export async function getAdminProduct(productId: string, role: UserRole) {
+  requireEditorialResourceAccess(role, "product", "manage");
   return databaseConnection.kind === "pglite"
     ? queryProductDetail(databaseConnection.db, productId)
     : queryProductDetail(databaseConnection.db, productId);
@@ -370,7 +375,7 @@ export async function listAdminAssets() {
 async function queryEditorialPickerOptions<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
 ) {
-  const [productRows, contentRows, applicationRows] = await Promise.all([
+  const [productRows, contentRows, applicationRows, systemRouteRows] = await Promise.all([
     db
       .select({ id: products.id, label: productLocalizations.name, value: routes.path })
       .from(products)
@@ -413,16 +418,22 @@ async function queryEditorialPickerOptions<TQueryResult extends PgQueryResultHKT
         eq(routes.isCurrent, true),
       ))
       .where(eq(applications.status, "published")),
+    db
+      .select({ id: routes.id, path: routes.path, entityType: routes.entityType, entityId: routes.entityId })
+      .from(routes)
+      .where(and(
+        inArray(routes.path, SYSTEM_PUBLIC_ROUTES.map((route) => route.path)),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      )),
   ]);
-  const fixed = [
-    { id: "fixed-home", label: "Home", value: "/" },
-    { id: "fixed-products", label: "Products", value: "/products/" },
-    { id: "fixed-applications", label: "Applications", value: "/applications/" },
-    { id: "fixed-library", label: "Fabric Library", value: "/fabric-library/" },
-    { id: "fixed-resources", label: "Fabric & Sourcing", value: "/resources/" },
-    { id: "fixed-about", label: "About CWT", value: "/about/" },
-    { id: "fixed-quote", label: "Get a Quote", value: "/get-quote/" },
-  ];
+  const systemRowsByPath = new Map(systemRouteRows.map((route) => [route.path, route]));
+  const fixed = SYSTEM_PUBLIC_ROUTES.flatMap((definition) => {
+    const route = systemRowsByPath.get(definition.path);
+    return route && route.entityType === definition.entityType && route.entityId === null
+      ? [{ id: route.id, label: definition.label, value: definition.path }]
+      : [];
+  });
   return {
     products: productRows.map((row) => ({ id: row.id, label: row.label, value: row.id })),
     contents: contentRows.map((row) => ({ id: row.id, label: row.label, value: row.id })),
@@ -533,7 +544,8 @@ async function queryAdminStaticPage<TQueryResult extends PgQueryResultHKT>(
   };
 }
 
-export async function getAdminStaticPage(pageKey: "home" | "about") {
+export async function getAdminStaticPage(pageKey: "home" | "about", role: UserRole) {
+  requireEditorialResourceAccess(role, "static_page", "manage");
   return databaseConnection.kind === "pglite"
     ? queryAdminStaticPage(databaseConnection.db, pageKey)
     : queryAdminStaticPage(databaseConnection.db, pageKey);
@@ -670,7 +682,8 @@ async function queryContents<TQueryResult extends PgQueryResultHKT>(
     .orderBy(desc(contents.updatedAt));
 }
 
-export async function listAdminContents() {
+export async function listAdminContents(role: UserRole) {
+  requireEditorialResourceAccess(role, "content", "manage");
   return databaseConnection.kind === "pglite"
     ? queryContents(databaseConnection.db)
     : queryContents(databaseConnection.db);
@@ -767,7 +780,8 @@ async function queryContentDetail<TQueryResult extends PgQueryResultHKT>(
   };
 }
 
-export async function getAdminContent(contentId: string) {
+export async function getAdminContent(contentId: string, role: UserRole) {
+  requireEditorialResourceAccess(role, "content", "manage");
   return databaseConnection.kind === "pglite"
     ? queryContentDetail(databaseConnection.db, contentId)
     : queryContentDetail(databaseConnection.db, contentId);

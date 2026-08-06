@@ -21,7 +21,41 @@ describe("fixed Home/About page settings", () => {
     };
     expect(resolveStaticPageLiveAuthority("home", approved, true)).toEqual({
       state: "live",
-      config: approved,
+      config: staticPageConfigSchema.parse(approved),
+    });
+  });
+
+  it("compatibly reads but removes legacy free factual copy and media text", () => {
+    const normalized = staticPageConfigSchema.parse({
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      copy: {
+        ...DEFAULT_STATIC_PAGE_CONFIGS.home.copy!,
+        manufacturingStrength: {
+          factKeys: ["test-fact"],
+          eyebrow: "TEST false eyebrow",
+          title: "TEST false title",
+          summary: "TEST false summary",
+        },
+      },
+      placements: [{
+        assetId: "10000000-0000-4000-8000-000000000001",
+        placementKey: "manufacturing_strength",
+        viewport: "desktop",
+        role: "hero",
+        sortOrder: 0,
+        altText: "TEST false alt",
+        caption: "TEST false caption",
+        focalX: 50,
+        focalY: 50,
+        overlayOpacity: 0,
+        isVisible: true,
+      }],
+    });
+    if (normalized.pageKey !== "home") throw new Error("Expected normalized Home config.");
+    expect(normalized.copy?.manufacturingStrength).toEqual({ factKeys: ["test-fact"] });
+    expect(normalized.placements[0]).toMatchObject({
+      altText: "CWT Manufacturing & Service Strength",
+      caption: null,
     });
   });
 

@@ -15,6 +15,7 @@ import { AdminActionForm } from "@/admin/components/admin-action-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
 import { getAdminApplication, listAdminProducts } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 
 const inputClass = "min-w-0 w-full rounded-lg border border-white/10 bg-slate-950 p-3";
 const panelClass = "grid min-w-0 gap-4 rounded-2xl border border-white/10 bg-slate-900 p-4 sm:p-6";
@@ -22,11 +23,12 @@ const panelClass = "grid min-w-0 gap-4 rounded-2xl border border-white/10 bg-sla
 export default async function ApplicationEditorPage({
   params,
 }: Readonly<{ params: Promise<{ id: string }> }>) {
-  await requireCurrentUser("products.read");
+  const user = await requireCurrentUser("products.read");
+  if (!canAccessEditorialResource(user.role, "product", "manage")) notFound();
   const { id } = await params;
   const [application, products] = await Promise.all([
     getAdminApplication(id),
-    listAdminProducts(),
+    listAdminProducts(user.role),
   ]);
   if (!application) notFound();
   const selectedProducts = new Set(application.productIds);

@@ -46,7 +46,7 @@ export default async function ProductEditorPage({
   if (!currentUser || !canAccessEditorialResource(currentUser.role, "product", "manage")) notFound();
   const { id } = await params;
   const [product, taxonomy, applications, allAssets, pickerOptions] = await Promise.all([
-    getAdminProduct(id),
+    getAdminProduct(id, currentUser.role),
     listAdminTaxonomy(),
     listAdminApplications(),
     listAdminAssets(),

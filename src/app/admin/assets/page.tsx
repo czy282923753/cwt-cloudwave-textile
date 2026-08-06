@@ -9,6 +9,7 @@ import {
 } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
 import { hasPermission } from "@/auth/permissions";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 import { databaseConnection } from "@/db/client";
 import { createObjectStorage } from "@/storage";
 import { listRetryableAdminUploadBatches } from "@/uploads/admin-upload-service";
@@ -33,8 +34,12 @@ export default async function AdminAssetsPage() {
   const [retryableBatches, assets, products, contents, fabricEntries] = await Promise.all([
     retryableBatchesPromise,
     listAdminAssets(),
-    listAdminProducts(),
-    listAdminContents(),
+    canAccessEditorialResource(user.role, "product", "manage")
+      ? listAdminProducts(user.role)
+      : Promise.resolve([]),
+    canAccessEditorialResource(user.role, "content", "manage")
+      ? listAdminContents(user.role)
+      : Promise.resolve([]),
     listAdminFabricEntries(),
   ]);
   const associations = [

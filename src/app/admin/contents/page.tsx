@@ -3,12 +3,15 @@ import { AdminActionForm } from "@/admin/components/admin-action-form";
 import Link from "next/link";
 import { AdminPageHeader, AdminTable } from "@/admin/components/admin-table";
 import { listAdminAuthors, listAdminContents } from "@/admin/data";
-import { requireCurrentUser } from "@/auth/current-user";
+import { notFound } from "next/navigation";
+import { resolveCurrentUser } from "@/auth/current-user";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 
 export default async function AdminContentsPage() {
-  await requireCurrentUser("content.read");
+  const user = await resolveCurrentUser();
+  if (!user || !canAccessEditorialResource(user.role, "content", "manage")) notFound();
   const [contents, authors] = await Promise.all([
-    listAdminContents(),
+    listAdminContents(user.role),
     listAdminAuthors(),
   ]);
   return (
@@ -27,7 +30,7 @@ export default async function AdminContentsPage() {
             content.updatedAt.toLocaleString("en-GB"),
           ])}
         />
-        <AdminActionForm action={createContentAction} className="grid content-start gap-4 rounded-2xl border border-white/10 bg-slate-900 p-5" successMessage="Content Draft created.">
+        {canAccessEditorialResource(user.role, "content", "write") ? <AdminActionForm action={createContentAction} className="grid content-start gap-4 rounded-2xl border border-white/10 bg-slate-900 p-5" successMessage="Content Draft created.">
           <h2 className="text-xl font-semibold">New Content Draft</h2>
           <select className="rounded-lg bg-slate-950 p-3" name="channel" required>
             <option value="fabric_knowledge">Fabric Knowledge</option>
@@ -44,7 +47,7 @@ export default async function AdminContentsPage() {
           <textarea className="rounded-lg bg-slate-950 p-3" name="excerpt" placeholder="Optional excerpt" rows={3} />
           <textarea className="rounded-lg bg-slate-950 p-3" name="initialParagraph" placeholder="Initial Paragraph Block" required rows={10} />
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">Create Draft</button>
-        </AdminActionForm>
+        </AdminActionForm> : null}
       </div>
     </main>
   );

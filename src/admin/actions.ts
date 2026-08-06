@@ -97,6 +97,10 @@ import {
   submitStaticPageConfigDraftForReview,
   type StaticPageConfig,
 } from "@/content/static-page-settings";
+import {
+  isStaticPageFactSensitivePlacement,
+  STATIC_PAGE_FACT_SENSITIVE_LABELS,
+} from "@/content/static-page-projection";
 import { databaseConnection } from "@/db/client";
 import { contents } from "@/db/schema";
 import { blockDocumentSchema } from "@/editorial/blocks";
@@ -382,8 +386,12 @@ function parseStaticPageConfigForm(form: FormData): StaticPageConfig {
       viewport,
       role: "hero" as const,
       sortOrder: 0,
-      altText: requiredString(form, `alt:${placementKey}:${viewport}`),
-      caption: optionalString(form, `caption:${placementKey}:${viewport}`) ?? null,
+      altText: isStaticPageFactSensitivePlacement(placementKey)
+        ? STATIC_PAGE_FACT_SENSITIVE_LABELS[placementKey]
+        : requiredString(form, `alt:${placementKey}:${viewport}`),
+      caption: isStaticPageFactSensitivePlacement(placementKey)
+        ? null
+        : optionalString(form, `caption:${placementKey}:${viewport}`) ?? null,
       focalX: Number(fieldValue(form, `focalX:${placementKey}:${viewport}`) || 50),
       focalY: Number(fieldValue(form, `focalY:${placementKey}:${viewport}`) || 50),
       overlayOpacity: Number(fieldValue(form, `overlay:${placementKey}:${viewport}`) || 0),
@@ -404,13 +412,13 @@ function parseStaticPageConfigForm(form: FormData): StaticPageConfig {
     applications: { eyebrow: fieldValue(form, "copy:applications:eyebrow"), title: requiredString(form, "copy:applications:title"), summary: fieldValue(form, "copy:applications:summary") },
     fabricLibrary: { eyebrow: fieldValue(form, "copy:fabricLibrary:eyebrow"), title: requiredString(form, "copy:fabricLibrary:title"), summary: fieldValue(form, "copy:fabricLibrary:summary") },
     fabricSourcing: { eyebrow: fieldValue(form, "copy:fabricSourcing:eyebrow"), title: requiredString(form, "copy:fabricSourcing:title"), summary: fieldValue(form, "copy:fabricSourcing:summary") },
-    manufacturingStrength: { eyebrow: fieldValue(form, "copy:manufacturingStrength:eyebrow"), title: requiredString(form, "copy:manufacturingStrength:title"), summary: fieldValue(form, "copy:manufacturingStrength:summary"), factKeys: form.getAll("factKeys").filter((value): value is string => typeof value === "string") },
+    manufacturingStrength: { factKeys: form.getAll("factKeys").filter((value): value is string => typeof value === "string") },
     inquiryCta: { eyebrow: fieldValue(form, "copy:inquiryCta:eyebrow"), title: requiredString(form, "copy:inquiryCta:title"), summary: fieldValue(form, "copy:inquiryCta:summary"), cta: { label: requiredString(form, "copy:inquiryCta:label"), href: requiredString(form, "copy:inquiryCta:href") } },
   } : {
     hero: { eyebrow: fieldValue(form, "copy:hero:eyebrow"), title: requiredString(form, "copy:hero:title"), summary: fieldValue(form, "copy:hero:summary") },
     introduction: { eyebrow: fieldValue(form, "copy:introduction:eyebrow"), title: requiredString(form, "copy:introduction:title"), summary: fieldValue(form, "copy:introduction:summary") },
-    ownedManufacturing: { eyebrow: fieldValue(form, "copy:ownedManufacturing:eyebrow"), title: requiredString(form, "copy:ownedManufacturing:title"), summary: fieldValue(form, "copy:ownedManufacturing:summary"), factKeys: form.getAll("factKeys").filter((value): value is string => typeof value === "string") },
-    serviceStrength: { eyebrow: fieldValue(form, "copy:serviceStrength:eyebrow"), title: requiredString(form, "copy:serviceStrength:title"), summary: fieldValue(form, "copy:serviceStrength:summary") },
+    ownedManufacturing: { factKeys: form.getAll("factKeys").filter((value): value is string => typeof value === "string") },
+    serviceStrength: {},
     inquiryCta: { eyebrow: fieldValue(form, "copy:inquiryCta:eyebrow"), title: requiredString(form, "copy:inquiryCta:title"), summary: fieldValue(form, "copy:inquiryCta:summary"), cta: { label: requiredString(form, "copy:inquiryCta:label"), href: requiredString(form, "copy:inquiryCta:href") } },
   };
   return staticPageConfigSchema.parse({ version: 1, pageKey, modules, copy, placements });

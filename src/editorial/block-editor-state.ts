@@ -34,6 +34,24 @@ function normalizeIndex(index: number, length: number): number {
   return Math.max(0, Math.min(index, length));
 }
 
+export function canMoveBlock(
+  document: BlockDocument,
+  blockId: string,
+  toIndex: number,
+): boolean {
+  const fromIndex = document.blocks.findIndex((block) => block.id === blockId);
+  if (fromIndex < 0 || document.blocks[fromIndex]?.locked) return false;
+  const blocks = [...document.blocks];
+  const [current] = blocks.splice(fromIndex, 1);
+  if (!current) return false;
+  const targetIndex = normalizeIndex(toIndex, blocks.length);
+  if (targetIndex === fromIndex) return false;
+  blocks.splice(targetIndex, 0, current);
+  return document.blocks.every((block, index) => (
+    !block.locked || blocks[index]?.id === block.id
+  ));
+}
+
 export function applyBlockCommand(
   document: BlockDocument,
   command: BlockEditorCommand,
@@ -63,6 +81,9 @@ export function applyBlockCommand(
       blocks.splice(index + 1, 0, { ...current, id: command.newBlockId, locked: false });
     } else if (command.type === "move") {
       if (current.locked) throw new Error("Unlock this Block before moving it.");
+      if (!canMoveBlock(document, command.blockId, command.toIndex)) {
+        throw new Error("Locked Blocks are sorting anchors and cannot be crossed.");
+      }
       blocks.splice(index, 1);
       blocks.splice(normalizeIndex(command.toIndex, blocks.length), 0, current);
     } else {

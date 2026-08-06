@@ -19,6 +19,7 @@ import {
 } from "@/admin/actions";
 import {
   blockHistoryReducer,
+  canMoveBlock,
   createBlockHistoryState,
   type BlockEditorCommand,
 } from "@/editorial/block-editor-state";
@@ -164,13 +165,13 @@ export function BlockEditor(props: Readonly<BlockEditorProps>) {
   const [insertType, setInsertType] = useState<BlockType>("paragraph");
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
   const editorVersionRef = useRef(props.editorDocumentVersion);
   const revisionIdRef = useRef(props.draftRevisionId ?? null);
   const revisionVersionRef = useRef(props.draftRevisionVersion ?? null);
   const savingRef = useRef(false);
   const queuedRef = useRef(false);
   const baselineRef = useRef(JSON.stringify({ title, summary, document: history.present }));
-  const draggedIdRef = useRef<string | null>(null);
   const allowedTypes = useMemo(() => (Object.keys(blockLabels) as BlockType[]).filter((type) => (
     props.entityType === "content" || type !== "specification_table"
   )), [props.entityType]);
@@ -277,8 +278,8 @@ export function BlockEditor(props: Readonly<BlockEditorProps>) {
       {feedback ? <p aria-live={saveState === "failed" || saveState === "conflict" ? "assertive" : "polite"} className="rounded-lg border border-white/10 p-3 text-sm" role={saveState === "failed" || saveState === "conflict" ? "alert" : "status"}>{feedback}</p> : null}
       <div className="grid gap-4">
         {history.present.blocks.map((block, index) => (
-          <article className="grid min-w-0 gap-4 rounded-xl border border-white/10 bg-slate-950/40 p-4" draggable={!block.locked} onDragEnd={() => { draggedIdRef.current = null; }} onDragOver={(event: DragEvent<HTMLElement>) => { if (!block.locked) event.preventDefault(); }} onDragStart={() => { if (!block.locked) draggedIdRef.current = block.id; }} onDrop={(event) => { event.preventDefault(); const draggedId = draggedIdRef.current; if (!block.locked && draggedId && draggedId !== block.id) move(draggedId, index); draggedIdRef.current = null; }} key={block.id}>
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3"><div className="min-w-0"><strong>{index + 1}. {blockLabels[block.type]}</strong><span className="ml-3 break-all text-xs text-slate-300">{block.id}</span></div><div className="flex flex-wrap gap-2"><button className={secondaryButton} disabled={block.locked || index === 0} onClick={() => move(block.id, index - 1)} type="button">Move up</button><button className={secondaryButton} disabled={block.locked || index === history.present.blocks.length - 1} onClick={() => move(block.id, index + 1)} type="button">Move down</button><button className={secondaryButton} disabled={block.locked} onClick={() => command({ type: "duplicate", blockId: block.id, newBlockId: newBlockId() })} type="button">Copy</button><button aria-pressed={Boolean(block.locked)} className={secondaryButton} onClick={() => command({ type: "toggle_lock", blockId: block.id })} type="button">{block.locked ? "Unlock" : "Lock"}</button><button className={secondaryButton} disabled={block.locked} onClick={() => command({ type: "remove", blockId: block.id })} type="button">Delete</button></div></div>
+          <article className="grid min-w-0 gap-4 rounded-xl border border-white/10 bg-slate-950/40 p-4" data-drop-disabled={draggedBlockId && draggedBlockId !== block.id ? !canMoveBlock(history.present, draggedBlockId, index) : undefined} draggable={!block.locked} onDragEnd={() => { setDraggedBlockId(null); }} onDragOver={(event: DragEvent<HTMLElement>) => { if (draggedBlockId && draggedBlockId !== block.id && canMoveBlock(history.present, draggedBlockId, index)) event.preventDefault(); }} onDragStart={() => { if (!block.locked) setDraggedBlockId(block.id); }} onDrop={(event) => { event.preventDefault(); if (draggedBlockId && draggedBlockId !== block.id && canMoveBlock(history.present, draggedBlockId, index)) { move(draggedBlockId, index); } else if (draggedBlockId && draggedBlockId !== block.id) { setFeedback("Locked Blocks are sorting anchors. Unlock the anchor before moving a Block across it."); } setDraggedBlockId(null); }} key={block.id} title={draggedBlockId && draggedBlockId !== block.id && !canMoveBlock(history.present, draggedBlockId, index) ? "Unavailable: a Locked Block is a sorting anchor." : undefined}>
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3"><div className="min-w-0"><strong>{index + 1}. {blockLabels[block.type]}</strong><span className="ml-3 break-all text-xs text-slate-300">{block.id}</span></div><div className="flex flex-wrap gap-2"><button className={secondaryButton} disabled={!canMoveBlock(history.present, block.id, index - 1)} onClick={() => move(block.id, index - 1)} title={!block.locked && index > 0 && !canMoveBlock(history.present, block.id, index - 1) ? "Unavailable: a Locked Block is a sorting anchor." : undefined} type="button">Move up</button><button className={secondaryButton} disabled={!canMoveBlock(history.present, block.id, index + 1)} onClick={() => move(block.id, index + 1)} title={!block.locked && index < history.present.blocks.length - 1 && !canMoveBlock(history.present, block.id, index + 1) ? "Unavailable: a Locked Block is a sorting anchor." : undefined} type="button">Move down</button><button className={secondaryButton} disabled={block.locked} onClick={() => command({ type: "duplicate", blockId: block.id, newBlockId: newBlockId() })} type="button">Copy</button><button aria-pressed={Boolean(block.locked)} className={secondaryButton} onClick={() => command({ type: "toggle_lock", blockId: block.id })} type="button">{block.locked ? "Unlock" : "Lock"}</button><button className={secondaryButton} disabled={block.locked} onClick={() => command({ type: "remove", blockId: block.id })} type="button">Delete</button></div></div>
             <fieldset className="contents" disabled={block.locked}><BlockFields block={block} contentOptions={props.contentOptions} context={props.entityType} internalLinkOptions={props.internalLinkOptions} mediaOptions={props.mediaOptions} onChange={(nextBlock) => command({ type: "update", blockId: block.id, block: nextBlock })} productOptions={props.productOptions} /></fieldset>
           </article>
         ))}

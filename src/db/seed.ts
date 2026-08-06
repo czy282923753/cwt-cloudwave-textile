@@ -3,6 +3,7 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { hashPassword } from "@/auth/password";
 import { env } from "@/config/env";
+import { registerSystemPublicRoutes } from "@/seo/system-public-routes";
 
 import { authors, featureFlags, users } from "./schema";
 import type { AppDatabase } from "./types";
@@ -10,6 +11,7 @@ import type { AppDatabase } from "./types";
 export async function seedCoreData<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
 ): Promise<{ adminUserId: string }> {
+  await registerSystemPublicRoutes(db);
   const passwordHash = await hashPassword(env.DEV_ADMIN_PASSWORD);
   const existingUsers = await db
     .select({ id: users.id })

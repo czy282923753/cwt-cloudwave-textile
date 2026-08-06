@@ -6,6 +6,7 @@ import { resolveCurrentUser } from "@/auth/current-user";
 import { canAccessEditorialResource } from "@/admin/preview-policy";
 import {
   assets,
+  companyFacts,
   contentAssets,
   editorialRevisions,
   productAssets,
@@ -16,8 +17,13 @@ import { databaseConnection } from "@/db/client";
 import type { AppDatabase } from "@/db/types";
 import {
   deriveStaticPageLivePlacements,
+  hasStaticPageEvidenceGate,
+  isStaticPageFactSensitivePlacement,
+  staticPageFactKeys,
   staticPageConfigSchema,
+  type StaticPageConfig,
 } from "@/content/static-page-projection";
+import { currentPublicCompanyFactConditions } from "@/content/company-facts-service";
 import { createObjectStorage } from "@/storage";
 import { publicReadyImageSqlConditions } from "@/uploads/asset-eligibility";
 import { snapshotContainsPreviewAsset } from "@/admin/preview-policy";
@@ -28,6 +34,28 @@ function snapshotConfig(snapshot: unknown) {
   if (typeof snapshot !== "object" || snapshot === null || !("config" in snapshot)) return null;
   const wrapped = staticPageConfigSchema.safeParse(snapshot.config);
   return wrapped.success ? wrapped.data : null;
+}
+
+async function hasCurrentFactSensitiveEvidence<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  config: StaticPageConfig,
+  placementKey: string,
+): Promise<boolean> {
+  if (!isStaticPageFactSensitivePlacement(placementKey)) return true;
+  const factKeys = staticPageFactKeys(config, placementKey);
+  const factRows = factKeys.length ? await db
+    .select({ key: companyFacts.factKey })
+    .from(companyFacts)
+    .where(and(
+      inArray(companyFacts.factKey, factKeys),
+      currentPublicCompanyFactConditions(),
+    )) : [];
+  return hasStaticPageEvidenceGate(
+    config,
+    placementKey,
+    new Set(factRows.map((fact) => fact.key)),
+    new Set([placementKey]),
+  );
 }
 
 async function hasPreviewRelation<TQueryResult extends PgQueryResultHKT>(
@@ -91,9 +119,10 @@ async function hasPreviewRelation<TQueryResult extends PgQueryResultHKT>(
     const placement = deriveStaticPageLivePlacements(pendingConfig)
       .find((item) => item.assetId === assetId);
     if (!placement) return false;
-    if (placement.placementKey !== "manufacturing_strength" && placement.placementKey !== "owned_manufacturing") return true;
+    if (!isStaticPageFactSensitivePlacement(placement.placementKey)) return true;
     const ownedRows = await db.select({ relationship: assets.subjectRelationship, owned: assets.isCwtOwnedFacility }).from(assets).where(eq(assets.id, assetId)).limit(1);
-    return ownedRows[0]?.relationship === "cwt" && ownedRows[0].owned === true;
+    return ownedRows[0]?.relationship === "cwt" && ownedRows[0].owned === true &&
+      await hasCurrentFactSensitiveEvidence(db, pendingConfig, placement.placementKey);
   }
   const liveRows = await db
     .select({
@@ -126,14 +155,19 @@ async function hasPreviewRelation<TQueryResult extends PgQueryResultHKT>(
       eq(sitePageAssets.assetId, assetId),
       eq(sitePageAssets.isVisible, true),
     ));
-  return liveRows.some((row) => {
+  for (const row of liveRows) {
     const config = staticPageConfigSchema.safeParse(row.value);
     if (!config.success || !deriveStaticPageLivePlacements(config.data).some((placement) => (
       placement.assetId === assetId && placement.placementKey === row.placementKey && placement.viewport === row.viewport
-    ))) return false;
-    return (row.placementKey !== "manufacturing_strength" && row.placementKey !== "owned_manufacturing") ||
-      (row.relationship === "cwt" && row.owned === true);
-  });
+    ))) continue;
+    if (!isStaticPageFactSensitivePlacement(row.placementKey)) return true;
+    if (
+      row.relationship === "cwt" &&
+      row.owned === true &&
+      await hasCurrentFactSensitiveEvidence(db, config.data, row.placementKey)
+    ) return true;
+  }
+  return false;
 }
 
 async function findPreviewAsset<TQueryResult extends PgQueryResultHKT>(

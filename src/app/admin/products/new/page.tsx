@@ -2,11 +2,14 @@ import { createProductAction } from "@/admin/actions";
 import { AdminActionForm } from "@/admin/components/admin-action-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
 import { listAdminAssets, listAdminTaxonomy } from "@/admin/data";
-import { requireCurrentUser } from "@/auth/current-user";
 import { isEligiblePublicImagePickerAsset } from "@/admin/asset-picker";
+import { notFound } from "next/navigation";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
+import { resolveCurrentUser } from "@/auth/current-user";
 
 export default async function NewProductPage() {
-  await requireCurrentUser("products.write");
+  const user = await resolveCurrentUser();
+  if (!user || !canAccessEditorialResource(user.role, "product", "write")) notFound();
   const [taxonomy, allAssets] = await Promise.all([
     listAdminTaxonomy(),
     listAdminAssets(),

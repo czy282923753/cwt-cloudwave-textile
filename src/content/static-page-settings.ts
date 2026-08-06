@@ -20,6 +20,8 @@ import {
   DEFAULT_STATIC_PAGE_CONFIGS,
   deriveStaticPageLivePlacements,
   expectedStaticPagePlacementRows,
+  isStaticPageFactSensitivePlacement,
+  projectStaticPageEvidenceGates,
   staticPageConfigSchema,
   staticPagePlacementProjectionMatches,
   type StaticPageConfig,
@@ -54,8 +56,6 @@ export interface StaticPageDraftSaveResult {
   revisionVersion: number;
 }
 
-const ownedManufacturingKeys = new Set(["manufacturing_strength", "owned_manufacturing"]);
-
 async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   config: StaticPageConfig,
@@ -64,34 +64,35 @@ async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
   const factKeys = config.pageKey === "home"
     ? config.copy?.manufacturingStrength.factKeys ?? []
     : config.copy?.ownedManufacturing.factKeys ?? [];
-  if (factKeys.length) {
-    const factRows = await db
+  const factRows = factKeys.length
+    ? await db
       .select({ key: companyFacts.factKey })
       .from(companyFacts)
       .where(and(
         inArray(companyFacts.factKey, factKeys),
         currentPublicCompanyFactConditions(),
-      ));
+      ))
+    : [];
+  if (factKeys.length) {
     if (new Set(factRows.map((row) => row.key)).size !== factKeys.length) {
       throw new Error("Static-page Company Facts must be verified and approved for public use.");
     }
   }
   const assetIds = [...new Set(livePlacements.map((placement) => placement.assetId))];
-  if (!assetIds.length) return;
-  const rows = await db
+  const rows = assetIds.length ? await db
     .select({
       id: assets.id,
       subjectRelationship: assets.subjectRelationship,
       isCwtOwnedFacility: assets.isCwtOwnedFacility,
     })
     .from(assets)
-    .where(and(inArray(assets.id, assetIds), publicReadyImageSqlConditions()));
+    .where(and(inArray(assets.id, assetIds), publicReadyImageSqlConditions())) : [];
   if (rows.length !== assetIds.length) {
     throw new Error("Static-page media must use ready, scanned, rights-eligible public Assets.");
   }
   const byId = new Map(rows.map((row) => [row.id, row]));
   for (const placement of livePlacements) {
-    if (!ownedManufacturingKeys.has(placement.placementKey)) continue;
+    if (!isStaticPageFactSensitivePlacement(placement.placementKey)) continue;
     const asset = byId.get(placement.assetId);
     if (
       asset?.subjectRelationship !== "cwt" ||
@@ -100,6 +101,17 @@ async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
       throw new Error("Manufacturing placements require verified CWT-owned facility media.");
     }
   }
+  projectStaticPageEvidenceGates(
+    config,
+    new Set(factRows.map((row) => row.key)),
+    new Set(livePlacements.flatMap((placement) => {
+      if (!isStaticPageFactSensitivePlacement(placement.placementKey)) return [];
+      const asset = byId.get(placement.assetId);
+      return asset?.subjectRelationship === "cwt" && asset.isCwtOwnedFacility === true
+        ? [placement.placementKey]
+        : [];
+    })),
+  );
 }
 
 export async function proposeStaticPageConfigRevision<

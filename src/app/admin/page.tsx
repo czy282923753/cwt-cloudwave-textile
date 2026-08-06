@@ -2,16 +2,20 @@ import Link from "next/link";
 
 import { requireCurrentUser } from "@/auth/current-user";
 import { hasPermission, type Permission } from "@/auth/permissions";
+import {
+  canAccessEditorialResource,
+  type EditorialResourceKind,
+} from "@/admin/preview-policy";
 
-const areas: ReadonlyArray<readonly [string, string, Permission]> = [
-  ["Products", "/admin/products/", "products.read"],
+const areas: ReadonlyArray<readonly [string, string, Permission, EditorialResourceKind?]> = [
+  ["Products", "/admin/products/", "products.read", "product"],
   ["Taxonomy", "/admin/taxonomy/", "products.read"],
   ["Applications", "/admin/applications/", "products.read"],
   ["Assets", "/admin/assets/", "assets.read"],
   ["Fabric Library", "/admin/fabric-library/", "products.read"],
-  ["Contents", "/admin/contents/", "content.read"],
-  ["Home Page Settings", "/admin/site/home/", "content.read"],
-  ["About CWT Settings", "/admin/site/about/", "content.read"],
+  ["Contents", "/admin/contents/", "content.read", "content"],
+  ["Home Page Settings", "/admin/site/home/", "content.read", "static_page"],
+  ["About CWT Settings", "/admin/site/about/", "content.read", "static_page"],
   ["Authors", "/admin/authors/", "content.read"],
   ["Company Facts", "/admin/company-facts/", "company_facts.manage"],
   ["SEO Routes", "/admin/seo/", "seo.manage"],
@@ -23,8 +27,9 @@ const areas: ReadonlyArray<readonly [string, string, Permission]> = [
 
 export default async function AdminHomePage() {
   const user = await requireCurrentUser("admin.access");
-  const visibleAreas = areas.filter(([, , permission]) =>
-    hasPermission(user.role, permission),
+  const visibleAreas = areas.filter(([, , permission, resource]) =>
+    hasPermission(user.role, permission) &&
+    (!resource || canAccessEditorialResource(user.role, resource, "manage")),
   );
   return (
     <main className="mx-auto max-w-6xl px-6 py-12">

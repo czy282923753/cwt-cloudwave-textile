@@ -70,6 +70,23 @@ describe("Stage 2 editor authority boundaries", () => {
     expect(assetRoute).not.toContain("storagePartition, asset.objectKey");
   });
 
+  it("uses the resource policy for index, create, navigation, and list-query boundaries", () => {
+    const products = source("../app/admin/products/page.tsx");
+    const productCreate = source("../app/admin/products/new/page.tsx");
+    const contents = source("../app/admin/contents/page.tsx");
+    const dashboard = source("../app/admin/page.tsx");
+    const data = source("./data.ts");
+    for (const entry of [products, productCreate, contents, dashboard]) {
+      expect(entry).toContain("canAccessEditorialResource");
+    }
+    expect(products).toContain("notFound()");
+    expect(productCreate).toContain("notFound()");
+    expect(contents).toContain("notFound()");
+    expect(data).toContain('requireEditorialResourceAccess(role, "product", "manage")');
+    expect(data).toContain('requireEditorialResourceAccess(role, "content", "manage")');
+    expect(data).toContain('requireEditorialResourceAccess(role, "static_page", "manage")');
+  });
+
   it("replaces the former Home/About templates with the shared fixed-schema renderer", () => {
     const home = source("../app/page.tsx");
     const about = source("../app/about/page.tsx");
@@ -77,5 +94,26 @@ describe("Stage 2 editor authority boundaries", () => {
     expect(about).toContain("StaticAboutRenderer");
     expect(home).toContain("getPublicStaticPage");
     expect(about).toContain("getPublicStaticPage");
+  });
+
+  it("removes free factual-copy writers from Home/About settings and Server Actions", () => {
+    const page = source("../app/admin/site/[pageKey]/page.tsx");
+    const actions = source("./actions.ts");
+    for (const field of [
+      "copy:manufacturingStrength:title",
+      "copy:manufacturingStrength:eyebrow",
+      "copy:manufacturingStrength:summary",
+      "copy:ownedManufacturing:title",
+      "copy:ownedManufacturing:eyebrow",
+      "copy:ownedManufacturing:summary",
+      "copy:serviceStrength:title",
+      "copy:serviceStrength:eyebrow",
+      "copy:serviceStrength:summary",
+    ]) {
+      expect(page).not.toContain(field);
+      expect(actions).not.toContain(field);
+    }
+    expect(page).toContain("STATIC_PAGE_FACT_SENSITIVE_LABELS");
+    expect(actions).toContain("STATIC_PAGE_FACT_SENSITIVE_LABELS");
   });
 });

@@ -338,6 +338,25 @@ test("@all Stage 2 fixed-page settings and shared Block Editor remain keyboard-o
   ).toEqual([]);
 });
 
+test("@desktop Locked Blocks remain sorting anchors in Product and Content editors", async ({ page }) => {
+  await loginAsLocalAdmin(page);
+  for (const fixture of [
+    { index: "/admin/products/", name: /TEST E2E Block Media Product/, type: "product" },
+    { index: "/admin/contents/", name: /TEST E2E Block Media Content/, type: "content" },
+  ] as const) {
+    await page.goto(fixture.index);
+    await openLinkedRecord(page, page.getByRole("link", { name: fixture.name }));
+    const editor = page.locator(`[data-block-editor="${fixture.type}"]`);
+    const blocks = editor.locator("article");
+    await expect(blocks.nth(1).getByRole("button", { name: "Unlock", exact: true })).toBeVisible();
+    await expect(blocks.first().getByRole("button", { name: "Move down", exact: true })).toBeDisabled();
+    await expect(blocks.nth(2).getByRole("button", { name: "Move up", exact: true })).toBeDisabled();
+    await blocks.nth(1).getByRole("button", { name: "Unlock", exact: true }).click();
+    await expect(blocks.first().getByRole("button", { name: "Move down", exact: true })).toBeEnabled();
+    await expect(blocks.nth(2).getByRole("button", { name: "Move up", exact: true })).toBeEnabled();
+  }
+});
+
 test("@desktop Stage 2 editor, Preview, and Preview Asset role matrix fails closed", async ({ page }) => {
   test.setTimeout(120_000);
   await loginAsLocalAdmin(page);
@@ -386,6 +405,37 @@ test("@desktop Stage 2 editor, Preview, and Preview Asset role matrix fails clos
     } else {
       await loginAsEditorialRole(page, email);
     }
+    const productIndex = await page.goto("/admin/products/");
+    expect(productIndex?.status(), `${email} Product index`).toBe(allowed.has("product") ? 200 : 404);
+    if (allowed.has("product")) {
+      await expect(page.getByText(/TEST E2E Block Media Product/)).toBeVisible();
+      await expect(page.getByRole("link", { name: "New Product Draft" }))
+        .toHaveCount(email === "admin@example.test" || email === "product-editor@example.test" ? 1 : 0);
+    } else {
+      await expect(page.getByText(/TEST E2E Block Media Product/)).toHaveCount(0);
+    }
+    const productCreate = await page.goto("/admin/products/new/");
+    expect(productCreate?.status(), `${email} Product create`).toBe(
+      email === "admin@example.test" || email === "product-editor@example.test" ? 200 : 404,
+    );
+    const contentIndex = await page.goto("/admin/contents/");
+    expect(contentIndex?.status(), `${email} Content index`).toBe(allowed.has("content") ? 200 : 404);
+    if (allowed.has("content")) {
+      await expect(page.getByText(/TEST E2E Block Media Content/)).toBeVisible();
+      await expect(page.getByRole("heading", { name: "New Content Draft" }))
+        .toHaveCount(email === "admin@example.test" || email === "content-editor@example.test" ? 1 : 0);
+    } else {
+      await expect(page.getByText(/TEST E2E Block Media Content/)).toHaveCount(0);
+    }
+    await page.goto("/admin/");
+    await expect(page.getByRole("link", { name: "Products", exact: true }))
+      .toHaveCount(allowed.has("product") ? 1 : 0);
+    await expect(page.getByRole("link", { name: "Contents", exact: true }))
+      .toHaveCount(allowed.has("content") ? 1 : 0);
+    await expect(page.getByRole("link", { name: "Home Page Settings", exact: true }))
+      .toHaveCount(allowed.has("home") ? 1 : 0);
+    await expect(page.getByRole("link", { name: "About CWT Settings", exact: true }))
+      .toHaveCount(allowed.has("about") ? 1 : 0);
     for (const key of ["product", "content", "home", "about"] as const) {
       const editorResponse = await page.goto(editorPaths[key]);
       expect(editorResponse?.status(), `${email} editor ${key}`).toBe(allowed.has(key) ? 200 : 404);
@@ -396,6 +446,12 @@ test("@desktop Stage 2 editor, Preview, and Preview Asset role matrix fails clos
     }
   }
   await page.context().clearCookies();
+  await page.goto("/admin/products/");
+  await expect(page).toHaveURL(/\/operations-login\/?$/);
+  await expect(page.getByText(/TEST E2E Block Media Product/)).toHaveCount(0);
+  await page.goto("/admin/contents/");
+  await expect(page).toHaveURL(/\/operations-login\/?$/);
+  await expect(page.getByText(/TEST E2E Block Media Content/)).toHaveCount(0);
   for (const key of ["product", "content", "home", "about"] as const) {
     expect((await page.goto(previewPaths[key]))?.status(), `anonymous preview ${key}`).toBe(404);
     expect((await page.request.get(assetPaths[key])).status(), `anonymous Preview Asset ${key}`).toBe(403);
@@ -468,6 +524,12 @@ test("@desktop remediation public routes produce no Console, page, or Hydration 
     await page.waitForLoadState("networkidle");
   }
   expect(errors).toEqual([]);
+});
+
+test("@desktop fixed CTA renders the href governed by its registered Route ID", async ({ page }) => {
+  await page.goto(blockProjectionFixtures.contentPath);
+  await expect(page.getByRole("link", { name: "TEST governed Get a Quote" }))
+    .toHaveAttribute("href", "/get-quote/");
 });
 
 test("@mobile unreviewed synthetic Product remains fail-closed on Pixel 7", async ({ page }) => {

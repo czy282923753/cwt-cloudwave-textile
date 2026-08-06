@@ -74,6 +74,51 @@ describe("U-11 shared Block Editor command history", () => {
       .toHaveLength(1);
   });
 
+  it("keeps Locked Blocks as sorting anchors while allowing movement inside each interval", () => {
+    const anchored: BlockDocument = {
+      version: 1,
+      blocks: [
+        { id: "left-one", type: "paragraph", text: "Left one" },
+        { id: "left-two", type: "paragraph", text: "Left two" },
+        { id: "anchor", type: "heading", level: 2, text: "Anchor", locked: true },
+        { id: "right-one", type: "paragraph", text: "Right one" },
+        { id: "right-two", type: "paragraph", text: "Right two" },
+      ],
+    };
+    expect(applyBlockCommand(anchored, { type: "move", blockId: "left-two", toIndex: 0 }).blocks.map((block) => block.id))
+      .toEqual(["left-two", "left-one", "anchor", "right-one", "right-two"]);
+    expect(applyBlockCommand(anchored, { type: "move", blockId: "right-two", toIndex: 3 }).blocks.map((block) => block.id))
+      .toEqual(["left-one", "left-two", "anchor", "right-two", "right-one"]);
+    expect(() => applyBlockCommand(anchored, { type: "move", blockId: "left-two", toIndex: 3 }))
+      .toThrow(/sorting anchors/);
+    expect(() => applyBlockCommand(anchored, { type: "move", blockId: "right-one", toIndex: 1 }))
+      .toThrow(/sorting anchors/);
+  });
+
+  it("protects Locked anchors at either edge and allows crossing after explicit Unlock", () => {
+    const firstLocked: BlockDocument = {
+      version: 1,
+      blocks: [
+        { id: "first-anchor", type: "divider", locked: true },
+        { id: "second", type: "paragraph", text: "Second" },
+      ],
+    };
+    const lastLocked: BlockDocument = {
+      version: 1,
+      blocks: [
+        { id: "first", type: "paragraph", text: "First" },
+        { id: "last-anchor", type: "divider", locked: true },
+      ],
+    };
+    expect(() => applyBlockCommand(firstLocked, { type: "move", blockId: "second", toIndex: 0 }))
+      .toThrow(/sorting anchors/);
+    expect(() => applyBlockCommand(lastLocked, { type: "move", blockId: "first", toIndex: 1 }))
+      .toThrow(/sorting anchors/);
+    const unlocked = applyBlockCommand(firstLocked, { type: "toggle_lock", blockId: "first-anchor" });
+    expect(applyBlockCommand(unlocked, { type: "move", blockId: "second", toIndex: 0 }).blocks[0]?.id)
+      .toBe("second");
+  });
+
   it("supports bounded Undo/Redo and clears Redo after a new command", () => {
     let state = createBlockHistoryState(initial);
     state = blockHistoryReducer(state, {

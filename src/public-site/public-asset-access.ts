@@ -3,6 +3,7 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
   assets,
+  companyFacts,
   contentAssets,
   contents,
   editorialRevisions,
@@ -16,9 +17,13 @@ import {
 import type { AppDatabase } from "@/db/types";
 import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
 import {
+  hasStaticPageEvidenceGate,
   isPersistedStaticPagePlacementLive,
+  isStaticPageFactSensitivePlacement,
+  staticPageFactKeys,
   staticPageConfigSchema,
 } from "@/content/static-page-projection";
+import { currentPublicCompanyFactConditions } from "@/content/company-facts-service";
 import {
   isAllowedImageMimeType,
   publicAttachmentRoles,
@@ -118,16 +123,39 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
         ),
       ),
   ]);
-  const hasLiveStaticPageRelation = sitePageRows.some((row) => {
+  const liveStaticPageRows = sitePageRows.flatMap((row) => {
     const config = staticPageConfigSchema.safeParse(row.settingValue);
     return config.success &&
       row.settingKey === `site_page.${config.data.pageKey}` &&
-      isPersistedStaticPagePlacementLive(config.data, row) &&
-      (
-        (row.placementKey !== "manufacturing_strength" && row.placementKey !== "owned_manufacturing") ||
-        (row.subjectRelationship === "cwt" && row.isCwtOwnedFacility === true)
-      );
+      isPersistedStaticPagePlacementLive(config.data, row)
+      ? [{ row, config: config.data }]
+      : [];
   });
+  const selectedFactKeys = [...new Set(liveStaticPageRows.flatMap(({ row, config }) => (
+    isStaticPageFactSensitivePlacement(row.placementKey)
+      ? staticPageFactKeys(config, row.placementKey)
+      : []
+  )))];
+  const factRows = selectedFactKeys.length ? await db
+    .select({ key: companyFacts.factKey })
+    .from(companyFacts)
+    .where(and(
+      inArray(companyFacts.factKey, selectedFactKeys),
+      currentPublicCompanyFactConditions(),
+    )) : [];
+  const currentFactKeys = new Set(factRows.map((fact) => fact.key));
+  const hasLiveStaticPageRelation = liveStaticPageRows.some(({ row, config }) => (
+    !isStaticPageFactSensitivePlacement(row.placementKey) || (
+      row.subjectRelationship === "cwt" &&
+      row.isCwtOwnedFacility === true &&
+      hasStaticPageEvidenceGate(
+        config,
+        row.placementKey,
+        currentFactKeys,
+        new Set([row.placementKey]),
+      )
+    )
+  ));
   return Boolean(
     productRows[0] || fabricRows[0] || contentRows[0] || hasLiveStaticPageRelation,
   );

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { RefineAdminProvider } from "@/admin/refine/refine-admin-provider";
 import { resolveCurrentUser } from "@/auth/current-user";
 import { requirePermission } from "@/auth/permissions";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 
 export const metadata: Metadata = {
   title: "CWT Operations",
@@ -16,6 +17,9 @@ export default async function AdminLayout({
   const user = await resolveCurrentUser();
   if (!user) redirect("/operations-login");
   requirePermission(user.role, "admin.access");
+  const editorialResources = (["product", "content", "static_page"] as const).filter(
+    (resource) => canAccessEditorialResource(user.role, resource, "manage"),
+  );
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-sm sm:px-6">
@@ -26,7 +30,7 @@ export default async function AdminLayout({
           </button>
         </form>
       </header>
-      <RefineAdminProvider>{children}</RefineAdminProvider>
+      <RefineAdminProvider editorialResources={editorialResources}>{children}</RefineAdminProvider>
     </div>
   );
 }

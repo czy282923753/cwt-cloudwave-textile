@@ -38,6 +38,7 @@ import { parseBlockDocument } from "@/editorial/blocks";
 import { resolveBlockPublicProjection } from "@/editorial/block-references";
 import {
   isPersistedStaticPagePlacementLive,
+  isStaticPageFactSensitivePlacement,
   resolveStaticPageLiveAuthority,
   type StaticPageConfig,
 } from "@/content/static-page-projection";
@@ -82,7 +83,7 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
   authorityState: "bootstrap" | "live" | "invalid";
   config: StaticPageConfig | null;
   placements: PublicStaticPagePlacement[];
-  facts: string[];
+  facts: Array<{ key: string; statement: string }>;
 }> {
   const settingRows = await db
     .select({ id: systemSettings.id, value: systemSettings.value })
@@ -147,7 +148,7 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
     if (!config) continue;
     if (!isPersistedStaticPagePlacementLive(config, row)) continue;
     if (
-      (row.placementKey === "manufacturing_strength" || row.placementKey === "owned_manufacturing") &&
+      isStaticPageFactSensitivePlacement(row.placementKey) &&
       (row.subjectRelationship !== "cwt" || row.isCwtOwnedFacility !== true)
     ) continue;
     const configured = config.placements.find((placement) => (
@@ -193,7 +194,9 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
     authorityState: authority.state,
     config,
     placements: placements.sort((left, right) => left.sortOrder - right.sortOrder),
-    facts: factKeys.flatMap((key) => verifiedFacts.get(key) ? [verifiedFacts.get(key)!] : []),
+    facts: factKeys.flatMap((key) => verifiedFacts.get(key)
+      ? [{ key, statement: verifiedFacts.get(key)! }]
+      : []),
   };
 }
 

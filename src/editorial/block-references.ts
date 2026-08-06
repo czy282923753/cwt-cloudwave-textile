@@ -16,6 +16,10 @@ import {
   routes,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import {
+  systemPublicRouteDefinition,
+  systemPublicRoutePathFromHref,
+} from "@/seo/system-public-routes";
 import { publicReadyImageSqlConditions } from "@/uploads/asset-eligibility";
 
 import {
@@ -266,20 +270,6 @@ async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
   };
 }
 
-const fixedInternalPaths = new Set([
-  "/",
-  "/products/",
-  "/applications/",
-  "/fabric-library/",
-  "/resources/",
-  "/fabric-knowledge/",
-  "/china-textile-guide/",
-  "/china-sourcing-guide/",
-  "/about/",
-  "/get-quote/",
-  "/get-quote/#upload",
-]);
-
 async function resolveInternalCtaHrefs<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   document: BlockDocument,
@@ -289,16 +279,23 @@ async function resolveInternalCtaHrefs<TQueryResult extends PgQueryResultHKT>(
   normalizedHrefs: Map<string, string>;
 }> {
   const hrefs = [...new Set(document.blocks.flatMap((block) => block.type === "cta" ? [block.href] : []))];
-  const resolved = new Set(hrefs.filter((href) => fixedInternalPaths.has(href)));
+  const resolved = new Set<string>();
   const routeIds = new Map<string, string>();
-  const normalizedHrefs = new Map(hrefs.filter((href) => fixedInternalPaths.has(href)).map((href) => [href, href]));
+  const normalizedHrefs = new Map<string, string>();
   if (!hrefs.length) return { validHrefs: resolved, routeIds, normalizedHrefs };
+  const lookupPathByHref = new Map(hrefs.map((href) => [
+    href,
+    systemPublicRoutePathFromHref(href) ?? href,
+  ]));
+  const lookupPaths = [...new Set(lookupPathByHref.values())];
   const directRouteRows = await db
     .select({ id: routes.id, path: routes.path, entityType: routes.entityType, entityId: routes.entityId })
     .from(routes)
-    .where(and(inArray(routes.path, hrefs), eq(routes.locale, "en"), eq(routes.isCurrent, true)));
+    .where(and(inArray(routes.path, lookupPaths), eq(routes.locale, "en"), eq(routes.isCurrent, true)));
   const directPaths = new Set(directRouteRows.map((route) => route.path));
-  const unresolvedHrefs = hrefs.filter((href) => !directPaths.has(href));
+  const unresolvedHrefs = hrefs.filter((href) => (
+    !systemPublicRoutePathFromHref(href) && !directPaths.has(href)
+  ));
   const redirectRows = unresolvedHrefs.length ? await db
     .select({ sourcePath: redirects.sourcePath, destinationPath: redirects.destinationPath })
     .from(redirects)
@@ -324,24 +321,27 @@ async function resolveInternalCtaHrefs<TQueryResult extends PgQueryResultHKT>(
     applicationIds.length ? db.select({ id: applications.id }).from(applications).where(and(inArray(applications.id, applicationIds), eq(applications.status, "published"))) : Promise.resolve([]),
   ]);
   const eligibleIds = new Set([...eligibleProducts, ...eligibleContents, ...eligibleApplications].map((row) => row.id));
-  const isEligibleRoute = (route: (typeof routeRows)[number]): boolean =>
-    fixedInternalPaths.has(route.path) || (
+  const isEligibleRoute = (route: (typeof routeRows)[number]): boolean => {
+    const systemRoute = systemPublicRouteDefinition(route.path);
+    return Boolean(systemRoute
+      ? route.entityType === systemRoute.entityType && route.entityId === null
+      : (
       (route.entityType === "product" || route.entityType === "content" || route.entityType === "application") &&
       route.entityId !== null &&
       eligibleIds.has(route.entityId)
-    );
-  for (const route of directRouteRows) {
-    if (fixedInternalPaths.has(route.path)) {
-      resolved.add(route.path);
-      routeIds.set(route.path, route.id);
-      normalizedHrefs.set(route.path, route.path);
-      continue;
-    }
-    if (isEligibleRoute(route)) {
-      resolved.add(route.path);
-      routeIds.set(route.path, route.id);
-      normalizedHrefs.set(route.path, route.path);
-    }
+    ));
+  };
+  const directRoutesByPath = new Map(directRouteRows.map((route) => [route.path, route]));
+  for (const href of hrefs) {
+    const lookupPath = lookupPathByHref.get(href)!;
+    const route = directRoutesByPath.get(lookupPath);
+    if (!route || !isEligibleRoute(route)) continue;
+    const fragment = href.startsWith(`${lookupPath}#`) ? href.slice(lookupPath.length) : "";
+    const normalizedHref = `${route.path}${fragment}`;
+    resolved.add(href);
+    routeIds.set(href, route.id);
+    routeIds.set(normalizedHref, route.id);
+    normalizedHrefs.set(href, normalizedHref);
   }
   const destinationRoutesByPath = new Map(destinationRouteRows.map((route) => [route.path, route]));
   for (const destination of destinationRouteRows) {

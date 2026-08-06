@@ -30,7 +30,7 @@ export default async function ContentEditorPage({ params }: Readonly<{ params: P
   const currentUser = await resolveCurrentUser();
   if (!currentUser || !canAccessEditorialResource(currentUser.role, "content", "manage")) notFound();
   const { id } = await params;
-  const [content, authors, assets, pickerOptions] = await Promise.all([getAdminContent(id), listAdminAuthors(), listAdminAssets(), getEditorialPickerOptions()]);
+  const [content, authors, assets, pickerOptions] = await Promise.all([getAdminContent(id, currentUser.role), listAdminAuthors(), listAdminAssets(), getEditorialPickerOptions()]);
   if (!content) notFound();
   const document = parseBlockDocument(content.structuredBlocks, "content");
   const draftRevision = content.revisions.find((revision) => revision.status === "draft");

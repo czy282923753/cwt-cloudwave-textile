@@ -276,7 +276,46 @@ describe("static-page authoritative live projection", () => {
       ownedDraft.revisionId,
     );
     await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    const factRows = await test.connection.db.insert(companyFacts).values({
+      factKey: "test-owned-delivery",
+      subject: "TEST owned delivery",
+      statement: "Synthetic verified owned facility statement.",
+      relationshipToCwt: "owned",
+      evidenceReference: "TEST owned delivery evidence",
+      publicUseAllowed: true,
+      verificationStatus: "verified",
+      verifiedByUserId: test.reviewer.userId,
+      verifiedAt: new Date(),
+    }).returning({ id: companyFacts.id });
+    const evidencedDraft = await saveStaticPageConfigDraft(test.connection.db, test.editor, {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      copy: {
+        ...DEFAULT_STATIC_PAGE_CONFIGS.home.copy!,
+        manufacturingStrength: { factKeys: ["test-owned-delivery"] },
+      },
+      placements: [placement],
+    });
+    await submitStaticPageConfigDraftForReview(
+      test.connection.db,
+      test.editor,
+      evidencedDraft.revisionId,
+    );
+    await applyStaticPageConfigRevision(
+      test.connection.db,
+      test.reviewer,
+      evidencedDraft.revisionId,
+    );
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
       .resolves.toMatchObject({ id: test.assetIds[0] });
+    await test.connection.db.update(companyFacts).set({ publicUseAllowed: false }).where(
+      eq(companyFacts.id, factRows[0]!.id),
+    );
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(companyFacts).set({ publicUseAllowed: true }).where(
+      eq(companyFacts.id, factRows[0]!.id),
+    );
     await test.connection.db.update(assets).set({
       subjectRelationship: "partner_factory",
     }).where(eq(assets.id, test.assetIds[0]!));
@@ -286,6 +325,49 @@ describe("static-page authoritative live projection", () => {
       subjectRelationship: "cwt",
       isCwtOwnedFacility: false,
     }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(assets).set({
+      isCwtOwnedFacility: true,
+      effectiveRightsDecision: "revoked",
+    }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(assets).set({
+      effectiveRightsDecision: null,
+      scanStatus: "failed",
+    }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(assets).set({
+      scanStatus: "passed",
+      deletedAt: new Date(),
+    }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(assets).set({ deletedAt: null }).where(
+      eq(assets.id, test.assetIds[0]!),
+    );
+    await test.connection.db.update(sitePageAssets).set({ isVisible: false }).where(
+      eq(sitePageAssets.assetId, test.assetIds[0]!),
+    );
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(sitePageAssets).set({ isVisible: true }).where(
+      eq(sitePageAssets.assetId, test.assetIds[0]!),
+    );
+    await test.connection.db.update(companyFacts).set({
+      reviewAfter: new Date(Date.now() - 1_000),
+    }).where(eq(companyFacts.id, factRows[0]!.id));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(companyFacts).set({
+      reviewAfter: null,
+      verificationStatus: "rejected",
+    }).where(eq(companyFacts.id, factRows[0]!.id));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.delete(companyFacts).where(eq(companyFacts.id, factRows[0]!.id));
     await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
       .resolves.toBeNull();
     await test.connection.close();

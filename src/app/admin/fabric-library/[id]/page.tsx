@@ -21,15 +21,17 @@ import {
   listAdminProducts,
 } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 
 const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
 const panelClass = "grid gap-4 rounded-2xl border border-white/10 bg-slate-900 p-6";
 
 export default async function FabricEntryEditorPage({ params }: Readonly<{ params: Promise<{ id: string }> }>) {
-  await requireCurrentUser("products.read");
+  const user = await requireCurrentUser("products.read");
+  if (!canAccessEditorialResource(user.role, "product", "manage")) notFound();
   const { id } = await params;
   const [entry, assets, products, applications] = await Promise.all([
-    getAdminFabricEntry(id), listAdminAssets(), listAdminProducts(), listAdminApplications(),
+    getAdminFabricEntry(id), listAdminAssets(), listAdminProducts(user.role), listAdminApplications(),
   ]);
   if (!entry) notFound();
   const selectedAssets = new Set(entry.assets.map((row) => row.assetId));

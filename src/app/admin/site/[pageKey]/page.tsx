@@ -12,11 +12,12 @@ import { AdminPageHeader } from "@/admin/components/admin-table";
 import { PreviewViewportPanel } from "@/admin/components/preview-viewport-panel";
 import { getAdminStaticPage, listAdminAssets } from "@/admin/data";
 import { resolveCurrentUser } from "@/auth/current-user";
-import { hasPermission } from "@/auth/permissions";
 import {
   ABOUT_MODULE_ORDER,
   DEFAULT_STATIC_PAGE_CONFIGS,
   HOME_MODULE_ORDER,
+  isStaticPageFactSensitivePlacement,
+  STATIC_PAGE_FACT_SENSITIVE_LABELS,
   type StaticPageConfig,
 } from "@/content/static-page-projection";
 import { canAccessEditorialResource } from "@/admin/preview-policy";
@@ -104,7 +105,6 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
       ["applications", "Applications", copy.applications],
       ["fabricLibrary", "Fabric Library", copy.fabricLibrary],
       ["fabricSourcing", "Fabric & Sourcing", copy.fabricSourcing],
-      ["manufacturingStrength", "Manufacturing & Service Strength", copy.manufacturingStrength],
       ["inquiryCta", "Inquiry CTA", copy.inquiryCta],
     ];
     return (
@@ -145,6 +145,10 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
         {modules.map(([fieldKey, label, value]) => (
           <ModuleCopyFields fieldKey={fieldKey} key={fieldKey} label={label} value={value} />
         ))}
+        <p className="rounded-xl border border-white/10 p-4 text-sm text-slate-300">
+          CWT Manufacturing &amp; Service Strength uses fixed approved structure labels. Its
+          title, supporting labels, media Alt text, and Caption are not free-copy fields.
+        </p>
       </div>
     );
   }
@@ -152,8 +156,6 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
   const modules: ReadonlyArray<readonly [string, string, ModuleCopyValue]> = [
     ["hero", "Hero", copy.hero],
     ["introduction", "Introduction", copy.introduction],
-    ["ownedManufacturing", "Owned Manufacturing", copy.ownedManufacturing],
-    ["serviceStrength", "Service Strength", copy.serviceStrength],
     ["inquiryCta", "Inquiry CTA", copy.inquiryCta],
   ];
   return (
@@ -161,6 +163,11 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
       {modules.map(([fieldKey, label, value]) => (
         <ModuleCopyFields fieldKey={fieldKey} key={fieldKey} label={label} value={value} />
       ))}
+      <p className="rounded-xl border border-white/10 p-4 text-sm text-slate-300">
+        Own Manufacturing and CWT Manufacturing &amp; Service Strength use fixed approved
+        structure labels. Their titles, supporting labels, media Alt text, and Captions are
+        not free-copy fields.
+      </p>
     </div>
   );
 }
@@ -174,7 +181,7 @@ export default async function StaticPageEditor({
   if (rawPageKey !== "home" && rawPageKey !== "about") notFound();
   const pageKey = rawPageKey;
   const [page, allAssets] = await Promise.all([
-    getAdminStaticPage(pageKey),
+    getAdminStaticPage(pageKey, user.role),
     listAdminAssets(),
   ]);
   const config = page.pendingRevision?.config ?? page.liveConfig ?? DEFAULT_STATIC_PAGE_CONFIGS[pageKey];
@@ -187,8 +194,8 @@ export default async function StaticPageEditor({
       ? config.copy?.manufacturingStrength.factKeys ?? []
       : config.copy?.ownedManufacturing.factKeys ?? [],
   );
-  const canWrite = hasPermission(user.role, "content.write");
-  const canApply = hasPermission(user.role, "content.publish");
+  const canWrite = canAccessEditorialResource(user.role, "static_page", "write");
+  const canApply = canAccessEditorialResource(user.role, "static_page", "apply");
   const draftEditable = !page.pendingRevision || page.pendingRevision.status === "draft";
   const stateDescription = page.pendingRevision
     ? `Pending v${page.pendingRevision.versionNumber} ${page.pendingRevision.status} by ${page.pendingRevision.createdByName ?? "unknown"} at ${page.pendingRevision.createdAt.toLocaleString("en-GB")}`
@@ -291,7 +298,7 @@ export default async function StaticPageEditor({
             <fieldset className="grid min-w-0 gap-5">
               <legend className="text-xl font-semibold">Desktop and mobile media placements</legend>
               {moduleKeys.map((placementKey) => {
-                const selectableAssets = placementKey === "manufacturing_strength" || placementKey === "owned_manufacturing"
+                const selectableAssets = isStaticPageFactSensitivePlacement(placementKey)
                   ? readyAssets.filter((asset) => asset.subjectRelationship === "cwt" && asset.isCwtOwnedFacility === true)
                   : readyAssets;
                 return (
@@ -312,14 +319,20 @@ export default async function StaticPageEditor({
                               ))}
                             </select>
                           </label>
-                          <label className="grid min-w-0 gap-2">
-                            Placement Alt Text
-                            <input className={inputClass} defaultValue={placement?.altText ?? ""} name={`alt:${placementKey}:${viewport}`} />
-                          </label>
-                          <label className="grid min-w-0 gap-2">
-                            Caption
-                            <input className={inputClass} defaultValue={placement?.caption ?? ""} name={`caption:${placementKey}:${viewport}`} />
-                          </label>
+                          {isStaticPageFactSensitivePlacement(placementKey) ? (
+                            <p className="rounded-lg border border-white/10 p-3 text-sm text-slate-300 sm:col-span-2">
+                              Governed media text: {STATIC_PAGE_FACT_SENSITIVE_LABELS[placementKey]}. Caption is disabled.
+                            </p>
+                          ) : <>
+                            <label className="grid min-w-0 gap-2">
+                              Placement Alt Text
+                              <input className={inputClass} defaultValue={placement?.altText ?? ""} name={`alt:${placementKey}:${viewport}`} />
+                            </label>
+                            <label className="grid min-w-0 gap-2">
+                              Caption
+                              <input className={inputClass} defaultValue={placement?.caption ?? ""} name={`caption:${placementKey}:${viewport}`} />
+                            </label>
+                          </>}
                           <label className="grid min-w-0 gap-2">
                             Focal X
                             <input className={inputClass} defaultValue={placement?.focalX ?? 50} max="100" min="0" name={`focalX:${placementKey}:${viewport}`} type="number" />

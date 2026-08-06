@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -54,5 +54,64 @@ describe("BlockEditor locked Block controls", () => {
     expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
     expect(article).toHaveAttribute("draggable", "true");
+  });
+
+  it("disables keyboard moves that would cross a Locked sorting anchor", () => {
+    render(<BlockEditor
+      contentOptions={[]}
+      editorDocumentVersion={1}
+      entityId="00000000-0000-4000-8000-000000000001"
+      entityType="content"
+      initialDocument={{
+        version: 1,
+        blocks: [
+          { id: "left", type: "paragraph", text: "Left" },
+          { id: "anchor", type: "divider", locked: true },
+          { id: "right", type: "paragraph", text: "Right" },
+        ],
+      }}
+      initialSummary={null}
+      initialTitle="TEST Content"
+      internalLinkOptions={[]}
+      mediaOptions={[]}
+      previewHref="/admin/preview/content/00000000-0000-4000-8000-000000000001/"
+      productOptions={[]}
+    />);
+
+    const moveDown = screen.getAllByRole("button", { name: "Move down" });
+    const moveUp = screen.getAllByRole("button", { name: "Move up" });
+    expect(moveDown[0]).toBeDisabled();
+    expect(moveUp[2]).toBeDisabled();
+  });
+
+  it("rejects pointer drag targets across a Locked sorting anchor", () => {
+    render(<BlockEditor
+      contentOptions={[]}
+      editorDocumentVersion={1}
+      entityId="00000000-0000-4000-8000-000000000001"
+      entityType="product"
+      initialDocument={{
+        version: 1,
+        blocks: [
+          { id: "left", type: "paragraph", text: "Left" },
+          { id: "anchor", type: "divider", locked: true },
+          { id: "right", type: "paragraph", text: "Right" },
+        ],
+      }}
+      initialSummary={null}
+      initialTitle="TEST Product"
+      internalLinkOptions={[]}
+      mediaOptions={[]}
+      previewHref="/admin/preview/product/00000000-0000-4000-8000-000000000001/"
+      productOptions={[]}
+    />);
+
+    const articles = screen.getAllByRole("article");
+    fireEvent.dragStart(articles[0]!);
+    fireEvent.dragOver(articles[2]!);
+    fireEvent.drop(articles[2]!);
+    expect(screen.getByText(/Locked Blocks are sorting anchors/)).toBeVisible();
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent("left");
+    expect(screen.getAllByRole("article")[1]).toHaveTextContent("anchor");
   });
 });

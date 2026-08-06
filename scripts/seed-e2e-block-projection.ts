@@ -28,6 +28,7 @@ import {
   applications,
   assets,
   authors,
+  companyFacts,
   productAssets,
   products,
   taxonomyTerms,
@@ -150,7 +151,7 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     shortDescription: "Synthetic noindex Product used only for Stage 1 remediation browser checks.",
     document: { version: 1, blocks: [
       { id: "product-paragraph", type: "paragraph", text: "Synthetic Product Block projection is visible." },
-      { id: "product-image", type: "image", mediaKey: productAssetIds[0]! },
+      { id: "product-image", type: "image", mediaKey: productAssetIds[0]!, locked: true },
       { id: "product-gallery", type: "gallery", mediaKeys: [productAssetIds[1]!, productAssetIds[2]!] },
     ] },
     expectedEditorDocumentVersion: 1,
@@ -284,8 +285,9 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     seoTitle: "TEST E2E Block Media Content", metaDescription: "Synthetic noindex Content used only for Stage 1 remediation browser checks.",
     structuredDocument: { version: 1, blocks: [
       { id: "content-paragraph", type: "paragraph", text: "Synthetic Content Block projection is visible." },
-      { id: "content-image", type: "image", mediaKey: "inline-image" },
+      { id: "content-image", type: "image", mediaKey: "inline-image", locked: true },
       { id: "content-gallery", type: "gallery", mediaKeys: ["gallery-a", "gallery-b"] },
+      { id: "content-fixed-cta", type: "cta", label: "TEST governed Get a Quote", href: "/get-quote/" },
     ] },
     media: [
       { assetId: contentAssetIds[0]!, role: "inline", sortOrder: 0, altText: "Synthetic Content inline", caption: null, isVisible: true, blockKey: "inline-image" },
@@ -322,8 +324,22 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
       detectedMimeType: "image/jpeg",
       byteSize: bytes.byteLength,
       sha256: `stage1-e2e-static-${item.label}`,
+      ...(item.id === aboutStaticAssetId
+        ? { subjectRelationship: "cwt" as const, isCwtOwnedFacility: true }
+        : {}),
     });
   }
+  await db.insert(companyFacts).values({
+    factKey: "test-e2e-owned-facility",
+    subject: "TEST E2E CWT-owned facility",
+    statement: "Synthetic verified facility statement for isolated E2E checks.",
+    relationshipToCwt: "owned",
+    evidenceReference: "TEST E2E evidence only",
+    publicUseAllowed: true,
+    verificationStatus: "verified",
+    verifiedByUserId: adminUserId,
+    verifiedAt: new Date(),
+  });
   const placement = (assetId: string) => ({
     assetId, placementKey: "hero" as const, viewport: "desktop" as const, role: "hero" as const,
     sortOrder: 0, altText: "Synthetic Static Page hero", caption: null,
@@ -342,6 +358,10 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
   await applyStaticPageConfigRevision(db, actor, disabledRevision);
   const aboutRevision = await proposeStaticPageConfigRevision(db, actor, {
     ...DEFAULT_STATIC_PAGE_CONFIGS.about,
+    copy: {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.about.copy!,
+      ownedManufacturing: { factKeys: ["test-e2e-owned-facility"] },
+    },
     placements: [{
       ...placement(aboutStaticAssetId),
       placementKey: "service_strength" as const,

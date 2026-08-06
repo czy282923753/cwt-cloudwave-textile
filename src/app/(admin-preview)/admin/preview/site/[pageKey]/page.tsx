@@ -6,6 +6,7 @@ import { isEligiblePublicImagePickerAsset } from "@/admin/asset-picker";
 import { resolveCurrentUser } from "@/auth/current-user";
 import {
   deriveStaticPageLivePlacements,
+  isStaticPageFactSensitivePlacement,
   type StaticPageConfig,
 } from "@/content/static-page-projection";
 import {
@@ -29,7 +30,7 @@ function previewPlacements(
   return deriveStaticPageLivePlacements(config).filter((placement) => {
     const asset = eligibleAssets.get(placement.assetId);
     if (!asset) return false;
-    return (placement.placementKey !== "manufacturing_strength" && placement.placementKey !== "owned_manufacturing") ||
+    return !isStaticPageFactSensitivePlacement(placement.placementKey) ||
       (asset.subjectRelationship === "cwt" && asset.isCwtOwnedFacility === true);
   }).map((placement) => ({
     placementKey: placement.placementKey,
@@ -55,7 +56,7 @@ export default async function StaticPagePreview({ params }: Readonly<{ params: P
   const { pageKey: rawPageKey } = await params;
   if (rawPageKey !== "home" && rawPageKey !== "about") notFound();
   const [page, assets] = await Promise.all([
-    getAdminStaticPage(rawPageKey),
+    getAdminStaticPage(rawPageKey, currentUser.role),
     listAdminAssets(),
   ]);
   const config = page.pendingRevision?.config ?? page.liveConfig;
@@ -69,11 +70,11 @@ export default async function StaticPagePreview({ params }: Readonly<{ params: P
   const banner = <div className="bg-amber-300 px-4 py-3 text-center text-sm font-semibold text-slate-950">Authenticated Draft Preview · noindex · no live state changed</div>;
   if (config.pageKey === "about") {
     const selected = new Set(config.copy?.ownedManufacturing.factKeys ?? []);
-    const facts = page.facts.filter((fact) => selected.has(fact.key)).map((fact) => fact.statement);
+    const facts = page.facts.filter((fact) => selected.has(fact.key));
     return <><div>{banner}</div><PublicShell><StaticAboutRenderer config={config} facts={facts} placements={placements} /></PublicShell></>;
   }
   const [products, applications, libraryEntries, contents] = await Promise.all([listPublishedProducts(6), listPublishedApplications(), listPublishedFabricEntries(), listPublishedContents()]);
   const selected = new Set(config.copy?.manufacturingStrength.factKeys ?? []);
-  const facts = page.facts.filter((fact) => selected.has(fact.key)).map((fact) => fact.statement);
+  const facts = page.facts.filter((fact) => selected.has(fact.key));
   return <><div>{banner}</div><PublicShell><StaticHomeRenderer applications={applications} config={config} contents={contents} facts={facts} libraryEntries={libraryEntries} placements={placements} products={products} /></PublicShell></>;
 }

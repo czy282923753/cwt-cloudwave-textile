@@ -47,10 +47,13 @@ import { BlockRenderer } from "@/editorial/block-renderer";
 import { legacyTextToBlockDocument, parseBlockDocument } from "@/editorial/blocks";
 import { createTestDatabase } from "@/test/database";
 import { queryIndexableRoutes } from "@/seo/public-index";
+import { registerSystemPublicRoutes } from "@/seo/system-public-routes";
+import { runGovernedMutation } from "@/audit/governed-mutation";
 
 import {
   BlockReferenceResolutionError,
   resolveBlockPublicProjection,
+  synchronizeBlockInternalLinks,
 } from "./block-references";
 
 type TestConnection = Awaited<ReturnType<typeof createTestDatabase>>;
@@ -367,6 +370,92 @@ describe("normalized readable Block projection", () => {
 });
 
 describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
+  it("applies fixed CTA Route IDs through both Product and Content Revision services", async () => {
+    const productFixture = await productResolverFixture();
+    const productRoutes = await registerSystemPublicRoutes(productFixture.connection.db);
+    const productReviewer = await productFixture.connection.db.insert(users).values({
+      email: `fixed-product-reviewer-${crypto.randomUUID()}@example.test`,
+      displayName: "TEST Fixed Product Reviewer",
+      role: "reviewer_publisher",
+      passwordHash: "test",
+    }).returning({ id: users.id });
+    const productSource = await productFixture.connection.db.insert(routes).values({
+      entityType: "product",
+      entityId: productFixture.productA,
+      locale: "en",
+      path: `/products/fixed-source-${crypto.randomUUID()}/`,
+    }).returning({ id: routes.id });
+    const productRevision = await productFixture.connection.db.insert(editorialRevisions).values({
+      entityType: "product",
+      entityId: productFixture.productA,
+      locale: "en",
+      versionNumber: 1,
+      status: "in_review",
+      snapshot: {
+        kind: "editorial_blocks",
+        name: "TEST Product A",
+        shortDescription: null,
+        document: { version: 1, blocks: [{ id: "fixed-product", type: "cta", label: "Get a Quote", href: "/get-quote/" }] },
+        expectedEditorDocumentVersion: 1,
+      },
+      changeSummary: "TEST Product fixed CTA",
+    }).returning({ id: editorialRevisions.id });
+    await applyProductRevision(productFixture.connection.db, {
+      userId: productReviewer[0]!.id,
+      role: "reviewer_publisher",
+    }, productRevision[0]!.id);
+    expect(await productFixture.connection.db.select().from(internalLinkRelations).where(eq(
+      internalLinkRelations.sourceRouteId,
+      productSource[0]!.id,
+    ))).toEqual([expect.objectContaining({
+      destinationRouteId: productRoutes.get("/get-quote/"),
+      anchorText: "Get a Quote",
+    })]);
+    await productFixture.connection.close();
+
+    const contentFixture = await contentResolverFixture();
+    const contentRoutes = await registerSystemPublicRoutes(contentFixture.connection.db);
+    const contentReviewer = await contentFixture.connection.db.insert(users).values({
+      email: `fixed-content-reviewer-${crypto.randomUUID()}@example.test`,
+      displayName: "TEST Fixed Content Reviewer",
+      role: "reviewer_publisher",
+      passwordHash: "test",
+    }).returning({ id: users.id });
+    const contentSource = await contentFixture.connection.db.insert(routes).values({
+      entityType: "content",
+      entityId: contentFixture.contentA,
+      locale: "en",
+      path: `/fabric-knowledge/fixed-source-${crypto.randomUUID()}/`,
+    }).returning({ id: routes.id });
+    const contentRevision = await contentFixture.connection.db.insert(editorialRevisions).values({
+      entityType: "content",
+      entityId: contentFixture.contentA,
+      locale: "en",
+      versionNumber: 1,
+      status: "in_review",
+      snapshot: {
+        kind: "content_blocks_v1",
+        title: "TEST Content A",
+        excerpt: null,
+        document: { version: 1, blocks: [{ id: "fixed-content", type: "cta", label: "Get a Quote", href: "/get-quote/" }] },
+        expectedEditorDocumentVersion: 1,
+      },
+      changeSummary: "TEST Content fixed CTA",
+    }).returning({ id: editorialRevisions.id });
+    await applyContentRevision(contentFixture.connection.db, {
+      userId: contentReviewer[0]!.id,
+      role: "reviewer_publisher",
+    }, contentRevision[0]!.id);
+    expect(await contentFixture.connection.db.select().from(internalLinkRelations).where(eq(
+      internalLinkRelations.sourceRouteId,
+      contentSource[0]!.id,
+    ))).toEqual([expect.objectContaining({
+      destinationRouteId: contentRoutes.get("/get-quote/"),
+      anchorText: "Get a Quote",
+    })]);
+    await contentFixture.connection.close();
+  });
+
   it("synchronizes Product and Content Block links into the existing current-Route authority", async () => {
     const productFixture = await productResolverFixture();
     const reviewerRows = await productFixture.connection.db.insert(users).values({
@@ -605,7 +694,7 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
     await connection.close();
   });
 
-  it("accepts governed fixed CTA paths and rejects nonexistent current Routes", async () => {
+  it("requires registered Route IDs for governed fixed CTA paths", async () => {
     const connection = await createTestDatabase();
     const fixed = parseBlockDocument({
       version: 1,
@@ -615,7 +704,18 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
       connection.db,
       { type: "content", id: crypto.randomUUID() },
       fixed,
-    )).resolves.toMatchObject({ referencesValid: true, hasRenderableContent: true });
+    )).rejects.toThrow(/current public records and eligible routes/);
+    const routeIds = await registerSystemPublicRoutes(connection.db);
+    const fixedProjection = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: crypto.randomUUID() },
+      fixed,
+    );
+    expect(fixedProjection).toMatchObject({ referencesValid: true, hasRenderableContent: true });
+    expect(fixedProjection.internalLinks).toEqual([{
+      destinationRouteId: routeIds.get("/get-quote/"),
+      anchorText: "Get a Quote",
+    }]);
     const missing = parseBlockDocument({
       version: 1,
       blocks: [{ id: "missing-cta", type: "cta", label: "Missing", href: "/missing-stage2-route/" }],
@@ -633,6 +733,70 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
     );
     expect(filtered.renderableDocument.blocks).toEqual([]);
     expect(filtered.hasRenderableContent).toBe(false);
+    await connection.close();
+  });
+
+  it("synchronizes fixed CTA Route IDs, removes stale relations, deduplicates, and rolls back with Required Audit", async () => {
+    const connection = await createTestDatabase();
+    const systemRoutes = await registerSystemPublicRoutes(connection.db);
+    const ownerId = crypto.randomUUID();
+    const sourceRows = await connection.db.insert(routes).values({
+      path: `/test-fixed-link-source-${crypto.randomUUID()}/`,
+      entityType: "content",
+      entityId: ownerId,
+    }).returning({ id: routes.id });
+    const quoteDocument = parseBlockDocument({
+      version: 1,
+      blocks: [
+        { id: "quote-one", type: "cta", label: "Quote one", href: "/get-quote/" },
+        { id: "quote-two", type: "cta", label: "Quote two", href: "/get-quote/" },
+      ],
+    }, "content");
+    const quoteProjection = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: ownerId },
+      quoteDocument,
+    );
+    await synchronizeBlockInternalLinks(connection.db, { type: "content", id: ownerId }, quoteProjection);
+    expect(await connection.db.select().from(internalLinkRelations)).toMatchObject([{
+      sourceRouteId: sourceRows[0]!.id,
+      destinationRouteId: systemRoutes.get("/get-quote/"),
+      anchorText: "Quote one",
+      status: "published",
+    }]);
+
+    const aboutDocument = parseBlockDocument({
+      version: 1,
+      blocks: [{ id: "about", type: "cta", label: "About", href: "/about/" }],
+    }, "content");
+    const aboutProjection = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: ownerId },
+      aboutDocument,
+    );
+    await synchronizeBlockInternalLinks(connection.db, { type: "content", id: ownerId }, aboutProjection);
+    expect(await connection.db.select().from(internalLinkRelations)).toMatchObject([{
+      destinationRouteId: systemRoutes.get("/about/"),
+      anchorText: "About",
+    }]);
+
+    await expect(runGovernedMutation(connection.db, async ({ transaction, audit }) => {
+      await synchronizeBlockInternalLinks(transaction, { type: "content", id: ownerId }, quoteProjection);
+      await audit({ action: "test.fixed_link.rollback", entityType: "content", entityId: ownerId });
+    }, {
+      auditWriter: async () => { throw new Error("TEST fixed link required Audit failure"); },
+    })).rejects.toThrow(/required Audit failure/);
+    expect(await connection.db.select().from(internalLinkRelations)).toMatchObject([{
+      destinationRouteId: systemRoutes.get("/about/"),
+    }]);
+
+    const emptyProjection = await resolveBlockPublicProjection(
+      connection.db,
+      { type: "content", id: ownerId },
+      { version: 1, blocks: [] },
+    );
+    await synchronizeBlockInternalLinks(connection.db, { type: "content", id: ownerId }, emptyProjection);
+    expect(await connection.db.select().from(internalLinkRelations)).toEqual([]);
     await connection.close();
   });
 });
