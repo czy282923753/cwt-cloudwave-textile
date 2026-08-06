@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { assets, authors, contentAssets, contents, users } from "@/db/schema";
+import { assetVariants, assets, authors, contentAssets, contents, users } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
 
 import { findPublicAssetForDelivery } from "./public-asset-access";
@@ -156,6 +156,33 @@ describe("public Asset delivery boundary", () => {
       objectKey: "boundary/eligible.jpg",
       partition: "public",
     });
+    await connection.db.insert(assetVariants).values({
+      sourceAssetId: idByKey.get("boundary/eligible.jpg")!,
+      format: "webp",
+      variantKey: "960w-webp",
+      objectKey: "boundary/eligible/960w.webp",
+      byteSize: 8,
+      width: 960,
+      height: 640,
+    });
+    await expect(
+      findPublicAssetForDelivery(
+        connection.db,
+        idByKey.get("boundary/eligible.jpg")!,
+        "960w-webp",
+      ),
+    ).resolves.toMatchObject({
+      objectKey: "boundary/eligible/960w.webp",
+      detectedMimeType: "image/webp",
+      partition: "public",
+    });
+    await expect(
+      findPublicAssetForDelivery(
+        connection.db,
+        idByKey.get("boundary/eligible.jpg")!,
+        "missing-webp",
+      ),
+    ).resolves.toBeNull();
     await connection.db
       .update(assets)
       .set({

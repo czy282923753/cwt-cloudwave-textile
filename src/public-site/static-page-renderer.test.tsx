@@ -67,6 +67,7 @@ describe("fixed Home/About public renderer", () => {
           caption: "Desktop caption",
           width: 1200,
           height: 900,
+          variants: [{ format: "webp", url: "/api/public-assets/10000000-0000-4000-8000-000000000001/?variant=960w-webp", width: 960, height: 720 }],
         },
       },
       {
@@ -83,14 +84,20 @@ describe("fixed Home/About public renderer", () => {
           caption: "Mobile caption",
           width: 600,
           height: 900,
+          variants: [{ format: "webp", url: "/api/public-assets/10000000-0000-4000-8000-000000000002/?variant=480w-webp", width: 480, height: 720 }],
         },
       },
     ];
     const html = renderHome(DEFAULT_STATIC_PAGE_CONFIGS.home, placements);
     expect(html).toContain("Synthetic desktop hero");
-    expect(html).toContain("Synthetic mobile hero");
-    expect(html).toContain("object-position:20% 30%");
-    expect(html).toContain("object-position:70% 60%");
+    expect(html).toContain("media=\"(min-width: 640px)\"");
+    expect(html).toContain("media=\"(max-width: 639px)\"");
+    expect(html).toContain("variant=960w-webp 960w");
+    expect(html).toContain("variant=480w-webp 480w");
+    expect(html).toContain("--desktop-object-position:20% 30%");
+    expect(html).toContain("--mobile-object-position:70% 60%");
+    expect((html.match(/<img/g) ?? [])).toHaveLength(1);
+    expect(html).toContain('fetchPriority="high"');
     expect(html).toContain("opacity:0.4");
     expect(html).toContain("opacity:0.2");
     expect(html).toContain("Desktop caption");

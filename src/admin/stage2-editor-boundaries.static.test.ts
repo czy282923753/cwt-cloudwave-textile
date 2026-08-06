@@ -92,8 +92,8 @@ describe("Stage 2 editor authority boundaries", () => {
     const about = source("../app/about/page.tsx");
     expect(home).toContain("StaticHomeRenderer");
     expect(about).toContain("StaticAboutRenderer");
-    expect(home).toContain("getPublicStaticPage");
-    expect(about).toContain("getPublicStaticPage");
+    expect(home).toContain("requirePublicStaticPage");
+    expect(about).toContain("requirePublicStaticPage");
   });
 
   it("removes free factual-copy writers from Home/About settings and Server Actions", () => {

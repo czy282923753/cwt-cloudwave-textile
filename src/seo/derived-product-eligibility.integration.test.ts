@@ -13,6 +13,12 @@ import {
 } from "@/db/schema";
 import { verifyDatabaseReadiness } from "@/db/readiness";
 import { createTestDatabase } from "@/test/database";
+import {
+  queryApplications,
+  queryFabricEntries,
+  queryProductByPath,
+  queryPublishedTaxonomyTerms,
+} from "@/public-site/data";
 
 import { assignPrimaryKeywordOwner } from "./keyword-mapping-service";
 import { queryIndexableRoutes } from "./public-index";
@@ -80,6 +86,9 @@ describe("derived SEO uses authoritative real Product eligibility", () => {
       await setFabricEntryIndexStatus(connection.db, actor, fabric.id, "index");
       const derivedPaths = routeInputs.filter((input) => input.entityType !== "product").map((input) => input.path);
       expect((await queryIndexableRoutes(connection.db)).map((row) => row.path)).toEqual(expect.arrayContaining(derivedPaths));
+      expect((await queryApplications(connection.db, { requireEligibleProduct: true })).map((row) => row.id)).toContain(application.id);
+      expect((await queryFabricEntries(connection.db, { requireEligibleProduct: true })).map((row) => row.id)).toContain(fabric.id);
+      expect((await queryPublishedTaxonomyTerms(connection.db, { requireEligibleProduct: true })).map((row) => row.id)).toContain(taxonomy.id);
       await assignPrimaryKeywordOwner(connection.db, actor, { keyword: "valid derived owner", intent: "commercial_investigation", routeId: taxonomyRoute.id });
 
       await connection.db.update(products).set({ realProductBasis: null }).where(eq(products.id, product.id));
@@ -89,6 +98,22 @@ describe("derived SEO uses authoritative real Product eligibility", () => {
       expect(readiness.indexableTaxonomyWithoutEligibleProduct).toBe(1);
       expect(readiness.indexableApplicationWithoutEligibleProduct).toBe(1);
       expect(readiness.indexableFabricWithoutEligibleProduct).toBe(1);
+      expect((await queryApplications(connection.db, { requireEligibleProduct: true })).map((row) => row.id)).not.toContain(application.id);
+      expect((await queryFabricEntries(connection.db, { requireEligibleProduct: true })).map((row) => row.id)).not.toContain(fabric.id);
+      expect((await queryPublishedTaxonomyTerms(connection.db, { requireEligibleProduct: true })).map((row) => row.id)).not.toContain(taxonomy.id);
+      expect((await queryApplications(connection.db, { path: routeInputs[2]!.path }))[0]).toMatchObject({ id: application.id, hasEligibleProducts: false });
+      expect((await queryFabricEntries(connection.db, { path: routeInputs[3]!.path }))[0]).toMatchObject({ id: fabric.id, hasEligibleProducts: false });
+      expect((await queryPublishedTaxonomyTerms(connection.db, { path: routeInputs[1]!.path }))[0]).toMatchObject({ id: taxonomy.id, hasEligibleProducts: false });
+
+      await connection.db.update(products).set({ realProductBasis: "physical_sample" }).where(eq(products.id, product.id));
+      expect((await queryProductByPath(connection.db, routeInputs[0]!.path))?.taxonomy.map((term) => term.name)).toContain("TEST Derived Fabric");
+      await connection.db.update(applications).set({ status: "archived" }).where(eq(applications.id, application.id));
+      await connection.db.update(fabricLibraryEntries).set({ status: "archived" }).where(eq(fabricLibraryEntries.id, fabric.id));
+      await connection.db.update(taxonomyTerms).set({ isActive: false }).where(eq(taxonomyTerms.id, taxonomy.id));
+      expect(await queryApplications(connection.db, { path: routeInputs[2]!.path })).toEqual([]);
+      expect(await queryFabricEntries(connection.db, { path: routeInputs[3]!.path })).toEqual([]);
+      expect(await queryPublishedTaxonomyTerms(connection.db, { path: routeInputs[1]!.path })).toEqual([]);
+      expect((await queryProductByPath(connection.db, routeInputs[0]!.path))?.taxonomy).toEqual([]);
     } finally { await connection.close(); }
   }, 20_000);
 });

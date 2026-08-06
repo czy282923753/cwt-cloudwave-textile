@@ -140,6 +140,55 @@ test("@desktop dynamic Application, taxonomy, and Fabric Library pages expose OG
   }
 });
 
+test("@all controlled SEO metadata, structured data, and responsive media stay aligned", async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.goto("/");
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    "http://127.0.0.1:3100/",
+  );
+
+  await page.goto("/products/");
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    "href",
+    "http://127.0.0.1:3100/products/",
+  );
+  expect((await page.request.get("/products/?page=0")).status()).toBe(404);
+
+  await page.goto(blockProjectionFixtures.productPath);
+  const productSchemas = await page.locator('script[type="application/ld+json"]').allTextContents();
+  const productNodes = productSchemas.flatMap((value) => {
+    const parsed = JSON.parse(value) as { "@graph"?: Array<Record<string, unknown>> };
+    return parsed["@graph"] ?? [];
+  });
+  const productNode = productNodes.find((node) => node["@type"] === "Product");
+  expect(productNode).toBeDefined();
+  expect(productNode).not.toHaveProperty("brand");
+  const responsiveSources = page.locator("main picture source");
+  expect(await responsiveSources.count()).toBeGreaterThan(0);
+  for (const source of await responsiveSources.all()) {
+    await expect(source).toHaveAttribute("srcset", /\/api\/public-assets\//);
+  }
+  const firstImage = page.locator("main img").first();
+  await expect(firstImage).toHaveAttribute("loading", "eager");
+  await expect(firstImage).toHaveAttribute("fetchpriority", "high");
+  expect(await page.locator('main img[loading="lazy"]').count()).toBeGreaterThan(0);
+
+  await page.goto("/fabric-types/fixture-polyester/");
+  const taxonomySchemas = await page.locator('script[type="application/ld+json"]').allTextContents();
+  const taxonomyBreadcrumb = taxonomySchemas
+    .map((value) => JSON.parse(value) as { "@type"?: string; itemListElement?: Array<{ name?: string; item?: string }> })
+    .find((value) => value["@type"] === "BreadcrumbList");
+  expect(taxonomyBreadcrumb?.itemListElement).toHaveLength(2);
+  expect(taxonomyBreadcrumb?.itemListElement?.some((item) => item.name === "Fabric Types")).toBe(false);
+  expect(browserErrors).toEqual([]);
+});
+
 test("@desktop analytics consent defaults off and can be granted then withdrawn", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
