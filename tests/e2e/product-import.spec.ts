@@ -1,6 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { expect, test, type Page } from "@playwright/test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import sharp from "sharp";
 import writeExcelFile from "write-excel-file/node";
 
@@ -164,6 +167,40 @@ test("@desktop Product Import authorization remains resource-scoped and stable",
   await page.context().clearCookies();
   await page.goto("/admin/product-imports/");
   await expect(page).toHaveURL(/\/operations-login\/?$/);
+});
+
+test("@desktop Product Import accepts an actual browser folder selection through the governed image path", async ({ page }) => {
+  test.setTimeout(120_000);
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-stage3-folder-e2e-"));
+  const productFolder = join(temporaryRoot, "CWT-E2EFOL-001");
+  try {
+    await mkdir(productFolder);
+    const image = await sharp({ create: { width: 48, height: 36, channels: 3, background: "purple" } }).webp().toBuffer();
+    await writeFile(join(productFolder, "CWT-E2EFOL-001-01.webp"), image);
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill("");
+    row[0] = "TEST E2E Stage 3 Folder Fabric";
+    row[1] = "CWT-E2EFOL-001";
+    row[2] = "TEST FIXTURE Polyester";
+    const workbookBytes = await workbook([row]);
+
+    await login(page);
+    await page.goto("/admin/product-imports/");
+    await page.locator('input[name="workbook"]').setInputFiles({
+      name: "CWT-Product-Import-Template-V1.xlsx",
+      mimeType: workbookMime,
+      buffer: workbookBytes,
+    });
+    await page.locator('input[name="folder"]').setInputFiles(temporaryRoot);
+    await page.getByRole("button", { name: "Upload and validate" }).click();
+    await expect(page).toHaveURL(/\/admin\/product-imports\/[0-9a-f-]+\/$/, { timeout: 90_000 });
+    await expect(countCard(page, "valid")).toContainText("1");
+    await expect(countCard(page, "error")).toContainText("0");
+    await expect(countCard(page, "unmatched images")).toContainText("0");
+    await page.getByRole("button", { name: "Apply valid rows" }).click();
+    await expect(countCard(page, "applied")).toContainText("1");
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("@mobile Product Import is usable in the Pixel 7 project without horizontal blocking", async ({ page }) => {
