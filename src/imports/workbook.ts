@@ -102,34 +102,154 @@ async function inspectWorkbookContainer(bytes: Uint8Array): Promise<Map<number, 
     const entries = await reader.getEntries();
     if (entries.length > PRODUCT_IMPORT_LIMITS.workbookEntries) throw new Error("Workbook contains too many package entries.");
     let expanded = 0;
+    const packagePartNames = new Set<string>();
+    const packageXmlParts = new Map<string, string>();
     for (const entry of entries) {
       if (entry.encrypted) throw new Error("Encrypted workbooks are not accepted.");
       const name = entry.filename.normalize("NFC");
       if (name.startsWith("/") || name.includes("..") || name.includes("\\") || /\u0000/.test(name)) {
         throw new Error("Workbook package path is unsafe.");
       }
+      if (packagePartNames.has(name)) throw new Error("Workbook package contains a duplicate part.");
       if (/vbaProject\.bin$/i.test(name) || /^xl\/externalLinks\//.test(name)) {
         throw new Error("Macros and external workbook links are not accepted.");
       }
       expanded += entry.uncompressedSize;
       if (expanded > PRODUCT_IMPORT_LIMITS.workbookExpandedBytes) throw new Error("Workbook expanded size exceeds the limit.");
-      if (!entry.directory && (name.endsWith(".rels") || /^xl\/worksheets\/sheet\d+\.xml$/.test(name))) {
-        const xml = textDecoder.decode(await entry.getData(new Uint8ArrayWriter(), { checkSignature: true }));
-        if (/TargetMode=["']External["']/i.test(xml)) {
-          throw new Error("External workbook links are not accepted.");
-        }
-        const dimension = xml.match(/<dimension\b[^>]*\bref=["'](?:[A-Z]+\d+:)?([A-Z]+)(\d+)["']/i);
-        if (dimension && (columnNumber(dimension[1]!.toUpperCase()) > PRODUCT_IMPORT_HEADERS.length || Number(dimension[2]) > PRODUCT_IMPORT_LIMITS.rows + 1)) {
-          throw new Error("Workbook dimensions exceed the Template V1 row or column limit.");
-        }
-        for (const match of xml.matchAll(/<c\b[^>]*\br="([A-Z]+)(\d+)"[^>]*>(?:(?!<\/c>)[\s\S])*?<f(?:\s[^>]*)?>/g)) {
-          const rowNumber = Number(match[2]);
-          const errors = formulas.get(rowNumber) ?? [];
-          errors.push({ rowNumber, column: null, code: "formula_not_allowed", detail: `Formula cell ${match[1]}${match[2]} is not accepted.` });
-          formulas.set(rowNumber, errors);
+      if (!entry.directory) {
+        packagePartNames.add(name);
+        if (/\.(?:xml|rels)$/i.test(name)) {
+          packageXmlParts.set(name, textDecoder.decode(await entry.getData(new Uint8ArrayWriter(), { checkSignature: true })));
         }
       }
     }
+    for (const [name, xml] of packageXmlParts) {
+      if (name.endsWith(".rels") && /\bTargetMode=["']External["']/i.test(xml)) {
+        throw new Error("External workbook links are not accepted.");
+      }
+    }
+    const workbookXml = packageXmlParts.get("xl/workbook.xml");
+    const relationshipsXml = packageXmlParts.get("xl/_rels/workbook.xml.rels");
+    if (!workbookXml || !relationshipsXml) throw new Error("Workbook relationship authority is incomplete.");
+
+    const decodeAttribute = (value: string): string => {
+      const entity = /&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi;
+      if (value.replaceAll(entity, "").includes("&")) throw new Error("Workbook XML attribute is invalid.");
+      return value.replaceAll(entity, (encoded) => {
+      const named: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&apos;": "'" };
+      const known = named[encoded.toLowerCase()];
+      if (known !== undefined) return known;
+      const numeric = encoded.startsWith("&#x") || encoded.startsWith("&#X")
+        ? Number.parseInt(encoded.slice(3, -1), 16)
+        : Number.parseInt(encoded.slice(2, -1), 10);
+      if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > 0x10ffff || (numeric >= 0xd800 && numeric <= 0xdfff)) {
+        throw new Error("Workbook XML attribute is invalid.");
+      }
+      return String.fromCodePoint(numeric);
+      });
+    };
+    const attributes = (tag: string): Map<string, string> => {
+      const result = new Map<string, string>();
+      const body = tag.replace(/^<[^\s>]+/, "").replace(/\/?>$/, "");
+      let consumed = "";
+      for (const match of body.matchAll(/\s+([^\s=]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+        const [full, name, doubleQuoted, singleQuoted] = match;
+        consumed += full;
+        if (!name || result.has(name)) throw new Error("Workbook XML contains duplicate attributes.");
+        result.set(name, decodeAttribute(doubleQuoted ?? singleQuoted ?? ""));
+      }
+      if (body.replace(consumed, "").trim()) throw new Error("Workbook XML attributes could not be parsed completely.");
+      for (const value of result.values()) {
+        if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value)) {
+          throw new Error("Workbook XML attribute is invalid.");
+        }
+      }
+      return result;
+    };
+    const relationshipById = new Map<string, { type: string; target: string }>();
+    for (const match of relationshipsXml.matchAll(/<Relationship\b[^>]*\/?>/g)) {
+      const value = attributes(match[0]);
+      const id = value.get("Id");
+      const type = value.get("Type");
+      const target = value.get("Target");
+      if (!id || !type || !target || value.get("TargetMode")) throw new Error("Workbook relationship is invalid or external.");
+      if (relationshipById.has(id)) throw new Error("Workbook relationship ID is duplicated.");
+      relationshipById.set(id, { type, target });
+    }
+    if (!relationshipById.size) throw new Error("Workbook relationships are missing.");
+    const resolveWorksheetTarget = (target: string): string => {
+      if (!target || target.includes("\\") || target.includes("?") || target.includes("#") || target.includes("%") || /[\u0000-\u001f]/.test(target)) {
+        throw new Error("Workbook worksheet target is unsafe.");
+      }
+      const segments = (target.startsWith("/") ? target.slice(1) : `xl/${target}`).split("/");
+      const resolved: string[] = [];
+      for (const segment of segments) {
+        if (!segment || segment === ".") continue;
+        if (segment === "..") {
+          if (!resolved.length) throw new Error("Workbook worksheet target escaped the package.");
+          resolved.pop();
+        } else if (segment.includes(":")) {
+          throw new Error("Workbook worksheet target is unsafe.");
+        } else {
+          resolved.push(segment);
+        }
+      }
+      const part = resolved.join("/");
+      if (!/^xl\/worksheets\/[A-Za-z0-9._-]+\.xml$/.test(part)) {
+        throw new Error("Workbook relationship does not reference a legal worksheet part.");
+      }
+      return part;
+    };
+    const sheetNames = new Set<string>();
+    const sheetParts = new Set<string>();
+    const workbookSheets: Array<{ name: string; part: string }> = [];
+    for (const match of workbookXml.matchAll(/<sheet\b[^>]*\/?>/g)) {
+      const value = attributes(match[0]);
+      const name = value.get("name");
+      const relationshipId = value.get("r:id");
+      if (!name || !relationshipId || sheetNames.has(name)) throw new Error("Workbook sheet identity is missing or duplicated.");
+      const relationship = relationshipById.get(relationshipId);
+      if (!relationship || !relationship.type.endsWith("/worksheet")) throw new Error("Workbook worksheet relationship is missing or invalid.");
+      const part = resolveWorksheetTarget(relationship.target);
+      if (!packagePartNames.has(part) || !packageXmlParts.has(part) || sheetParts.has(part)) throw new Error("Workbook worksheet part is missing or duplicated.");
+      sheetNames.add(name);
+      sheetParts.add(part);
+      workbookSheets.push({ name, part });
+    }
+    if (!workbookSheets.length) throw new Error("Workbook sheets could not be resolved.");
+    for (const sheet of workbookSheets) {
+      const xml = packageXmlParts.get(sheet.part)!;
+      if (!/<worksheet\b/.test(xml)) throw new Error("Workbook worksheet part is malformed.");
+      if (/<[A-Za-z_][\w.-]*:f(?:\s|>)/i.test(xml)) throw new Error("Workbook formula evidence could not be attributed safely.");
+      const dimensions = [...xml.matchAll(/<dimension\b[^>]*\bref=["'](?:[A-Z]+\d+:)?([A-Z]+)(\d+)["'][^>]*\/?>/gi)];
+      if (dimensions.length > 1) throw new Error("Workbook worksheet dimension is duplicated.");
+      const dimension = dimensions[0];
+      if (dimension && (columnNumber(dimension[1]!.toUpperCase()) > PRODUCT_IMPORT_HEADERS.length || Number(dimension[2]) > PRODUCT_IMPORT_LIMITS.rows + 1)) {
+        throw new Error("Workbook contains more than 100 Product rows or dimensions exceed the Template V1 limit.");
+      }
+      for (const match of xml.matchAll(/<c\b[^>]*\br=["']([A-Z]+)(\d+)["'][^>]*>(?:(?!<\/c>)[\s\S])*?<f(?:\s[^>]*)?>/gi)) {
+        const rowNumber = Number(match[2]);
+        if (columnNumber(match[1]!.toUpperCase()) > PRODUCT_IMPORT_HEADERS.length || rowNumber > PRODUCT_IMPORT_LIMITS.rows + 1) {
+          throw new Error("Workbook contains more than 100 Product rows or dimensions exceed the Template V1 limit.");
+        }
+        if (sheet.name !== "Products") throw new Error(`Formula cell ${match[1]}${match[2]} is not accepted.`);
+        const errors = formulas.get(rowNumber) ?? [];
+        errors.push({ rowNumber, column: null, code: "formula_not_allowed", detail: `Formula cell ${match[1]}${match[2]} is not accepted.` });
+        formulas.set(rowNumber, errors);
+      }
+      if (/<f(?:\s|>)/i.test(xml) && ![...xml.matchAll(/<c\b[^>]*\br=["']([A-Z]+)(\d+)["'][^>]*>(?:(?!<\/c>)[\s\S])*?<f(?:\s[^>]*)?>/gi)].length) {
+        throw new Error("Workbook formula evidence could not be attributed safely.");
+      }
+      for (const cell of xml.matchAll(/<c\b[^>]*\br=["']([A-Z]+)(\d+)["']/gi)) {
+        if (columnNumber(cell[1]!.toUpperCase()) > PRODUCT_IMPORT_HEADERS.length || Number(cell[2]) > PRODUCT_IMPORT_LIMITS.rows + 1) {
+          throw new Error("Workbook contains more than 100 Product rows or dimensions exceed the Template V1 limit.");
+        }
+      }
+    }
+    const unreferencedWorksheet = [...packagePartNames].find((part) =>
+      /^xl\/worksheets\/[^/]+\.xml$/i.test(part) && !sheetParts.has(part),
+    );
+    if (unreferencedWorksheet) throw new Error("Workbook contains an unreferenced worksheet part whose dimensions cannot be trusted.");
   } finally {
     await reader.close();
   }

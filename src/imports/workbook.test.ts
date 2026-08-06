@@ -34,6 +34,37 @@ async function addPackageEntry(bytes: Uint8Array, name: string, data: string): P
   }
 }
 
+async function rewritePackage(
+  bytes: Uint8Array,
+  rewrite: (name: string, data: Uint8Array) => { name?: string; data?: Uint8Array | string } | null,
+): Promise<Uint8Array> {
+  const reader = new ZipReader(new Uint8ArrayReader(bytes), { checkSignature: true });
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  try {
+    for (const entry of await reader.getEntries()) {
+      if (entry.directory) continue;
+      const data = await entry.getData(new Uint8ArrayWriter(), { checkSignature: true });
+      const changed = rewrite(entry.filename, data);
+      if (!changed) continue;
+      const nextData = typeof changed.data === "string" ? new TextEncoder().encode(changed.data) : changed.data ?? data;
+      await writer.add(changed.name ?? entry.filename, new Uint8ArrayReader(nextData));
+    }
+    return writer.close();
+  } finally {
+    await reader.close();
+  }
+}
+
+function relationshipResolvedProducts(bytes: Uint8Array, mutateWorksheet: (xml: string) => string): Promise<Uint8Array> {
+  const decoder = new TextDecoder();
+  return rewritePackage(bytes, (name, data) => {
+    if (name === "xl/worksheets/sheet1.xml") return { name: "xl/worksheets/products.xml", data: mutateWorksheet(decoder.decode(data)) };
+    if (name === "xl/_rels/workbook.xml.rels") return { data: decoder.decode(data).replace("worksheets/sheet1.xml", "worksheets/products.xml") };
+    if (name === "[Content_Types].xml") return { data: decoder.decode(data).replace("/xl/worksheets/sheet1.xml", "/xl/worksheets/products.xml") };
+    return {};
+  });
+}
+
 describe("Product Import Template V1 workbook", () => {
   it("generates the exact metadata convention and header contract", async () => {
     const parsed = await parseProductImportWorkbook(await createProductImportTemplateV1());
@@ -79,6 +110,39 @@ describe("Product Import Template V1 workbook", () => {
     row[0] = { value: "=CONCAT(\"Synthetic\",\" Product\")", type: "Formula" };
     const parsed = await parseProductImportWorkbook(await workbook([...PRODUCT_IMPORT_HEADERS], row));
     expect(parsed.rows[0]?.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "formula_not_allowed" })]));
+  });
+
+  it("follows workbook relationships for non-default Products worksheet parts", async () => {
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill(null);
+    row[0] = { value: "=1+1", type: "Formula" };
+    const renamed = await relationshipResolvedProducts(await workbook([...PRODUCT_IMPORT_HEADERS], row), (xml) => xml);
+    const parsed = await parseProductImportWorkbook(renamed);
+    expect(parsed.rows[0]?.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "formula_not_allowed" })]));
+
+    const oversized = await relationshipResolvedProducts(await workbook([...PRODUCT_IMPORT_HEADERS], Array(PRODUCT_IMPORT_HEADERS.length).fill("Synthetic")), (xml) =>
+      xml.replace(/(<worksheet\b[^>]*>)/, '$1<dimension ref="A1:S102"/>'),
+    );
+    await expect(parseProductImportWorkbook(oversized)).rejects.toThrow(/dimensions/i);
+  });
+
+  it("checks the relationship-resolved metadata worksheet and fails closed on incomplete relationships", async () => {
+    const decoder = new TextDecoder();
+    const metadataFormula = await rewritePackage(await workbook(), (name, data) => {
+      if (name === "xl/worksheets/sheet2.xml") {
+        return { name: "xl/worksheets/meta.xml", data: decoder.decode(data).replace(/(<c\b[^>]*\br="A1"[^>]*>)/, "$1<f>1+1</f>") };
+      }
+      if (name === "xl/_rels/workbook.xml.rels") return { data: decoder.decode(data).replace("worksheets/sheet2.xml", "worksheets/meta.xml") };
+      if (name === "[Content_Types].xml") return { data: decoder.decode(data).replace("/xl/worksheets/sheet2.xml", "/xl/worksheets/meta.xml") };
+      return {};
+    });
+    await expect(parseProductImportWorkbook(metadataFormula)).rejects.toThrow(/formula/i);
+
+    const missingTarget = await rewritePackage(await workbook(), (name, data) => name === "xl/worksheets/sheet1.xml" ? null : { data });
+    await expect(parseProductImportWorkbook(missingTarget)).rejects.toThrow(/missing/i);
+    const external = await rewritePackage(await workbook(), (name, data) => name === "xl/_rels/workbook.xml.rels"
+      ? { data: decoder.decode(data).replace(/(<Relationship\b[^>]*\bTarget="worksheets\/sheet1\.xml")/, '$1 TargetMode="External"') }
+      : { data });
+    await expect(parseProductImportWorkbook(external)).rejects.toThrow(/external/i);
   });
 
   it("rejects the 101st Product row", async () => {
