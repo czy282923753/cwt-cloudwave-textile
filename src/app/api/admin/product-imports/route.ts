@@ -17,7 +17,9 @@ const schema = z.object({
     assetId: z.uuid(),
     uploadBatchId: z.uuid(),
     relativePath: z.string().min(1).max(240),
-    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    // The trusted SHA-256 comes from the finalized Asset record, not the
+    // browser. This optional legacy field is ignored if an older client sends it.
+    sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   }).strict()).max(500),
 }).strict();
 

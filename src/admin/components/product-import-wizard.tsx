@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type UploadedMedia = { assetId: string; uploadBatchId: string; relativePath: string; sha256: string };
+type UploadedMedia = { assetId: string; uploadBatchId: string; relativePath: string };
 
 const workbookMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -41,11 +41,6 @@ async function issueUpload(files: File[], isolatedPackage: boolean) {
       sourceDeclaration: null,
     }),
   }));
-}
-
-async function digest(file: File): Promise<string> {
-  const value = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  return [...new Uint8Array(value)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function uploadWithSameIntent<T>(uploadUrl: string, file: File): Promise<T> {
@@ -103,7 +98,6 @@ export function ProductImportWizard({ enabled }: { enabled: boolean }) {
             assetId: item.assetId,
             uploadBatchId: item.uploadBatchId,
             relativePath: item.relativePath,
-            sha256: item.sha256,
           })));
         }
       }
@@ -126,7 +120,6 @@ export function ProductImportWizard({ enabled }: { enabled: boolean }) {
           assetId: item.assetId,
           uploadBatchId: upload.batchId,
           relativePath: item.file.webkitRelativePath || item.file.name,
-          sha256: await digest(item.file),
         });
       }
       setStatus("Validating Template V1 rows and deterministic image matches…");

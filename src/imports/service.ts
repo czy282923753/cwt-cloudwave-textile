@@ -58,7 +58,8 @@ export interface ProductImportMediaInput {
   assetId: string;
   uploadBatchId: string;
   relativePath: string;
-  sha256: string;
+  /** Legacy browser evidence; trusted identity always comes from the Asset record. */
+  sha256?: string | undefined;
 }
 
 type NormalizedImportRow = {
@@ -533,12 +534,26 @@ export async function applyProductImportBatch<TQueryResult extends PgQueryResult
       const safe = safeError(error);
       const failure = { code: "row_apply_failed", detail: safe.detail };
       await db.transaction(async (transaction) => {
-        await transaction.update(productImportItems).set({ status: "error", attemptCount: sql`${productImportItems.attemptCount} + 1`, lastAttemptAt: new Date(), errorCode: failure.code, errorDetail: failure.detail, updatedAt: new Date() }).where(eq(productImportItems.id, item.id));
-        await writeAuditLog(transaction, { actorUserId: actor.userId, action: "product_import.item_failed", entityType: "product_import_item", entityId: item.id, afterSummary: { errorCode: failure.code } });
+        // A concurrent continuation may have claimed this row after the failed
+        // transaction rolled back. Never overwrite that durable winner with the
+        // stale caller's failure result.
+        const failed = await transaction.update(productImportItems).set({ status: "error", attemptCount: sql`${productImportItems.attemptCount} + 1`, lastAttemptAt: new Date(), errorCode: failure.code, errorDetail: failure.detail, updatedAt: new Date() }).where(and(
+          eq(productImportItems.id, item.id),
+          eq(productImportItems.status, "valid"),
+        )).returning({ id: productImportItems.id });
+        if (failed[0]) {
+          await writeAuditLog(transaction, { actorUserId: actor.userId, action: "product_import.item_failed", entityType: "product_import_item", entityId: item.id, afterSummary: { errorCode: failure.code } });
+        }
       });
     }
   }
   await db.transaction(async (transaction) => {
+    const unfinished = await transaction.select({ value: count() }).from(productImportItems).where(and(
+      eq(productImportItems.batchId, batchId),
+      eq(productImportItems.kind, "row"),
+      inArray(productImportItems.status, ["valid", "pending"]),
+    ));
+    if (Number(unfinished[0]?.value ?? 0) > 0) return;
     const completed = await transaction.update(productImportBatches).set({ status: "completed", completedAt: new Date(), updatedAt: new Date() }).where(and(eq(productImportBatches.id, batchId), eq(productImportBatches.status, "applying"))).returning({ id: productImportBatches.id });
     if (completed[0]) await writeAuditLog(transaction, { actorUserId: actor.userId, action: "product_import.completed", entityType: "product_import_batch", entityId: batchId });
   });

@@ -203,6 +203,43 @@ test("@desktop Product Import accepts an actual browser folder selection through
   }
 });
 
+test("@desktop Product Import retries a lost workbook-upload response with the same durable Intent", async ({ page }) => {
+  test.setTimeout(120_000);
+  const workbookBytes = await workbook([]);
+  const attemptedUploadPaths: string[] = [];
+  let responseWasLost = false;
+  await page.route("**/api/admin/upload-intents/**", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.continue();
+      return;
+    }
+    attemptedUploadPaths.push(new URL(route.request().url()).pathname);
+    if (!responseWasLost) {
+      responseWasLost = true;
+      const serverResponse = await route.fetch();
+      expect(serverResponse.status()).toBe(201);
+      await route.abort("connectionaborted");
+      return;
+    }
+    await route.continue();
+  });
+
+  await login(page);
+  await page.goto("/admin/product-imports/");
+  await page.locator('input[name="workbook"]').setInputFiles({
+    name: "CWT-Product-Import-Template-V1.xlsx",
+    mimeType: workbookMime,
+    buffer: workbookBytes,
+  });
+  await page.getByRole("button", { name: "Upload and validate" }).click();
+  await expect(page).toHaveURL(/\/admin\/product-imports\/[0-9a-f-]+\/$/, { timeout: 90_000 });
+  expect(responseWasLost).toBe(true);
+  expect(attemptedUploadPaths).toHaveLength(2);
+  expect(attemptedUploadPaths[1]).toBe(attemptedUploadPaths[0]);
+  await expect(countCard(page, "valid")).toContainText("0");
+  await expect(countCard(page, "error")).toContainText("0");
+});
+
 test("@mobile Product Import is usable in the Pixel 7 project without horizontal blocking", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (message) => {
