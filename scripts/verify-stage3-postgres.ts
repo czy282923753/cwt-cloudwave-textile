@@ -16,10 +16,15 @@ import * as schema from "../src/db/schema";
 import {
   assetVariants,
   assets,
+  applications,
+  applicationLocalizations,
+  auditLogs,
   authSessions,
+  editorialRevisions,
   featureFlags,
   objectCleanupJobs,
   productAssets,
+  productApplications,
   productImportBatches,
   productImportItems,
   products,
@@ -332,6 +337,208 @@ async function main(): Promise<void> {
     ));
     assert.deepEqual(contentionItems.map((item) => item.status).sort(), ["applied", "error"]);
 
+    await db.update(products).set({ status: "published", publishedAt: new Date() })
+      .where(eq(products.id, concurrentProduct.id));
+    const [publishedApplication] = await db.insert(applications).values({
+      internalKey: "synthetic-stage3-published-concurrency",
+      createdByUserId: actor.userId,
+    }).returning({ id: applications.id });
+    assert.ok(publishedApplication);
+    await db.insert(applicationLocalizations).values({
+      applicationId: publishedApplication.id,
+      locale: "en",
+      name: "Synthetic Stage 3 Published Concurrency",
+    });
+    let publishedFingerprint = 100;
+    const directPublishedUpdate = async (normalizedData: Record<string, unknown>) => {
+      publishedFingerprint += 1;
+      const [batch] = await db.insert(productImportBatches).values({
+        createdByUserId: actor.userId,
+        authSessionId: actor.authSessionId,
+        mode: "update",
+        sourceFingerprint: publishedFingerprint.toString(16).padStart(64, "0"),
+        status: "validated",
+        validatedAt: new Date(),
+      }).returning({ id: productImportBatches.id });
+      assert.ok(batch);
+      const [item] = await db.insert(productImportItems).values({
+        batchId: batch.id,
+        kind: "row",
+        sourceKey: "row:002",
+        rowNumber: 2,
+        status: "valid",
+        rawData: { productCode: "CWT-TEST-002" },
+        normalizedData: {
+          productCode: "CWT-TEST-002",
+          targetProductId: concurrentProduct.id,
+          ...normalizedData,
+        },
+      }).returning({ id: productImportItems.id });
+      assert.ok(item);
+      return { batchId: batch.id, itemId: item.id };
+    };
+    const applyBehindPublishedRevisionBarrier = async (batchIds: readonly string[]) => {
+      let release!: () => void;
+      let locked!: () => void;
+      const hold = new Promise<void>((resolve) => { release = resolve; });
+      const ready = new Promise<void>((resolve) => { locked = resolve; });
+      const blocker = raw.begin(async (transaction) => {
+        await transaction`select product_id from product_localizations where product_id = ${concurrentProduct.id} and locale = 'en' for update`;
+        locked();
+        await hold;
+      });
+      await ready;
+      const applying = Promise.all(batchIds.map((batchId) => applyProductImportBatch(db, actor, batchId)));
+      let waiting = 0;
+      for (let attempt = 0; attempt < 200 && waiting < batchIds.length; attempt += 1) {
+        const [state] = await raw<{ waiting: number }[]>`
+          select count(*)::int as waiting from pg_stat_activity
+          where datname=current_database() and wait_event_type='Lock' and pid<>pg_backend_pid()
+        `;
+        waiting = state?.waiting ?? 0;
+        if (waiting < batchIds.length) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      release();
+      await blocker;
+      assert.ok(waiting >= batchIds.length, "Published concurrency harness did not place every writer behind the Product Revision lock.");
+      await applying;
+    };
+    const structureFromRevision = (snapshot: unknown) => {
+      const root = snapshot as { kind?: unknown; pendingChanges?: unknown[] };
+      const changes = root.kind === "editorial_blocks" ? root.pendingChanges ?? [] : [root];
+      const structure = changes.find((change) => (change as { kind?: unknown }).kind === "structure");
+      assert.ok(structure, "Published concurrency did not retain one structure change in the unified Draft.");
+      return structure as {
+        applicationIds: string[];
+        tagNames: string[];
+        media: Array<{ assetId: string; role: string; sortOrder: number }>;
+      };
+    };
+
+    const applicationPatch = await directPublishedUpdate({ applicationIds: [publishedApplication.id] });
+    const tagPatch = await directPublishedUpdate({ tags: ["Synthetic Published Concurrent Tag"] });
+    await applyBehindPublishedRevisionBarrier([applicationPatch.batchId, tagPatch.batchId]);
+    const differentFieldItems = await db.select().from(productImportItems).where(inArray(
+      productImportItems.id,
+      [applicationPatch.itemId, tagPatch.itemId],
+    ));
+    assert.deepEqual(differentFieldItems.map((item) => item.status).sort(), ["applied", "applied"]);
+
+    const publishedMediaBytes = await Promise.all(["orange", "purple"].map(async (background) =>
+      new Uint8Array(await sharp({
+        create: { width: 32, height: 24, channels: 3, background },
+      }).webp().toBuffer()),
+    ));
+    const publishedMediaUpload = await createAdminUploadBatch(db, actor, {
+      files: publishedMediaBytes.map((bytes, index) => ({
+        fileName: `CWT-TEST-002-${index + 2}.webp`,
+        declaredMimeType: "image/webp",
+        declaredByteSize: bytes.byteLength,
+      })),
+      category: "product",
+      role: "gallery",
+      sortOrder: 0,
+      associationType: null,
+      associationEntityId: null,
+      sourceDeclarationEnabled: false,
+    }, { rateLimiter: allowLimiter });
+    const publishedMediaAssetIds: string[] = [];
+    for (const [index, bytes] of publishedMediaBytes.entries()) {
+      publishedMediaAssetIds.push(await completeAdminUploadIntent(
+        db,
+        storage,
+        new DevelopmentFileScanner(),
+        actor,
+        { token: publishedMediaUpload.intents[index]!.token, bytes },
+        { rateLimiter: allowLimiter },
+      ));
+    }
+    await finalizeAdminUploadBatch(db, storage, actor, publishedMediaUpload.batchId, { rateLimiter: allowLimiter });
+    const mediaPatches = await Promise.all(publishedMediaAssetIds.map((assetId, index) => directPublishedUpdate({
+      media: [{
+        sourceKey: `m_published_${index}`,
+        assetId,
+        role: "hero",
+        sortOrder: 0,
+        altText: `Synthetic published concurrent image ${index + 1}`,
+        caption: null,
+      }],
+    })));
+    await applyBehindPublishedRevisionBarrier(mediaPatches.map((entry) => entry.batchId));
+    const mediaItems = await db.select().from(productImportItems).where(inArray(
+      productImportItems.id,
+      mediaPatches.map((entry) => entry.itemId),
+    ));
+    assert.deepEqual(mediaItems.map((item) => item.status).sort(), ["applied", "applied"]);
+
+    const sameFieldA = await directPublishedUpdate({ tags: ["Synthetic Published Same Field A"] });
+    const sameFieldB = await directPublishedUpdate({ tags: ["Synthetic Published Same Field B"] });
+    await applyBehindPublishedRevisionBarrier([sameFieldA.batchId, sameFieldB.batchId]);
+    let sameFieldItems = await db.select().from(productImportItems).where(inArray(
+      productImportItems.id,
+      [sameFieldA.itemId, sameFieldB.itemId],
+    ));
+    assert.deepEqual(sameFieldItems.map((item) => item.status).sort(), ["applied", "error"]);
+    const sameFieldConflict = sameFieldItems.find((item) => item.status === "error");
+    assert.equal(sameFieldConflict?.errorCode, "product_revision_conflict");
+    await retryProductImportErrors(db, actor, sameFieldConflict!.batchId);
+    await applyProductImportBatch(db, actor, sameFieldConflict!.batchId);
+    sameFieldItems = await db.select().from(productImportItems).where(inArray(
+      productImportItems.id,
+      [sameFieldA.itemId, sameFieldB.itemId],
+    ));
+    assert.deepEqual(sameFieldItems.map((item) => item.status).sort(), ["applied", "applied"]);
+
+    const [publishedRevision] = await db.select().from(editorialRevisions).where(and(
+      eq(editorialRevisions.entityType, "product"),
+      eq(editorialRevisions.entityId, concurrentProduct.id),
+      eq(editorialRevisions.status, "draft"),
+    ));
+    assert.ok(publishedRevision, "Published concurrency did not converge to one unified Draft.");
+    const publishedStructure = structureFromRevision(publishedRevision.snapshot);
+    assert.deepEqual(publishedStructure.applicationIds, [publishedApplication.id]);
+    const retriedSameFieldData = sameFieldConflict!.normalizedData as { tags: string[] };
+    assert.deepEqual(publishedStructure.tagNames, retriedSameFieldData.tags, "Conflict retry did not rebuild from the latest pending structure.");
+    const publishedMedia = publishedStructure.media.filter((entry) => publishedMediaAssetIds.includes(entry.assetId));
+    assert.equal(publishedMedia.length, 2, "Concurrent additive media was lost from the unified Draft.");
+    assert.equal(new Set(publishedStructure.media.map((entry) => entry.assetId)).size, publishedStructure.media.length, "Concurrent additive media was duplicated.");
+    assert.deepEqual(publishedMedia.map((entry) => entry.role), ["gallery", "gallery"]);
+    assert.deepEqual(publishedMedia.map((entry) => entry.sortOrder).sort((left, right) => left - right), [0, 1]);
+    for (const item of mediaItems) {
+      const normalized = item.normalizedData as { media: Array<{ assetId: string; role: string; sortOrder: number }> };
+      const durable = publishedMedia.find((entry) => entry.assetId === normalized.media[0]!.assetId);
+      assert.deepEqual(
+        { role: normalized.media[0]!.role, sortOrder: normalized.media[0]!.sortOrder },
+        { role: durable?.role, sortOrder: durable?.sortOrder },
+        "Successful Import item media evidence did not match the durable pending Revision.",
+      );
+    }
+    const appliedPublishedItemIds = [
+      applicationPatch.itemId,
+      tagPatch.itemId,
+      ...mediaPatches.map((entry) => entry.itemId),
+      sameFieldA.itemId,
+      sameFieldB.itemId,
+    ];
+    const publishedItemAudits = await db.select().from(auditLogs).where(and(
+      eq(auditLogs.action, "product_import.item_applied"),
+      inArray(auditLogs.entityId, appliedPublishedItemIds),
+    ));
+    assert.equal(publishedItemAudits.length, appliedPublishedItemIds.length);
+    assert.ok(publishedItemAudits.every((audit) => {
+      const summary = audit.afterSummary as { revisionId?: unknown; structureSha256?: unknown };
+      return summary.revisionId === publishedRevision.id &&
+        typeof summary.structureSha256 === "string" && summary.structureSha256.length === 64;
+    }), "Successful Import Audit did not identify the durable Product structure Revision evidence.");
+    assert.equal(Number((await db.select({ value: count() }).from(productApplications).where(eq(
+      productApplications.productId,
+      concurrentProduct.id,
+    )))[0]?.value), 0, "Published approved Applications changed before Revision approval.");
+    assert.equal(Number((await db.select({ value: count() }).from(productAssets).where(eq(
+      productAssets.productId,
+      concurrentProduct.id,
+    )))[0]?.value), 1, "Published approved media changed before Revision approval.");
+
     const retainedExpiryBatch = await createBatch("CWT-TEST-004", "Synthetic retained Import media expiry.");
     const [retainedExpiryAsset] = await db.select().from(assets).where(eq(assets.id, retainedExpiryBatch.imageAssetId));
     assert.ok(retainedExpiryAsset);
@@ -511,6 +718,16 @@ async function main(): Promise<void> {
       concurrentFingerprint: { batchIds: [...new Set(sameFingerprint)] },
       concurrentApply: { productCount: 1, productAssetRelations: Number(concurrentRelations?.value) },
       productCodeContention: { productCount: 1, itemStatuses: contentionItems.map((item) => item.status).sort() },
+      publishedRevisionConcurrency: {
+        differentFields: differentFieldItems.map((item) => item.status).sort(),
+        additiveMedia: mediaItems.map((item) => item.status).sort(),
+        sameFieldConflict: "product_revision_conflict",
+        retry: sameFieldItems.map((item) => item.status).sort(),
+        mediaRoleOrders: publishedMedia.map((entry) => ({ role: entry.role, sortOrder: entry.sortOrder })),
+        itemAuditCount: publishedItemAudits.length,
+        approvedApplications: 0,
+        approvedMedia: 1,
+      },
       archive: {
         sameTokenReplay: "same durable package and child Asset result",
         jsonbBindings: bindingEvidence,

@@ -13,17 +13,10 @@ import {
   assets,
   authSessions,
   featureFlags,
-  productApplications,
-  productAssets,
-  productFaqs,
-  productFeatures,
   productImportBatches,
   productImportItems,
   productLocalizations,
   products,
-  productTagAssignments,
-  productTags,
-  productTaxonomyTerms,
   taxonomyTermLocalizations,
   taxonomyTerms,
 } from "@/db/schema";
@@ -32,6 +25,9 @@ import { legacyTextToBlockDocument, parseBlockDocument } from "@/editorial/block
 import {
   changeProductSlug,
   createProductDraft,
+  patchProductStructure,
+  previewProductStructurePatch,
+  ProductRevisionConflictError,
   proposeProductImportSlugRevision,
   updateProductEditorialCopy,
   updateProductFacts,
@@ -268,6 +264,7 @@ async function resolveApplication<TQueryResult extends PgQueryResultHKT>(
 
 async function normalizeRow<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  actor: AdminUploadActor,
   mode: ProductImportMode,
   input: ProductImportRowInput,
   media: readonly (ImportMediaCandidate & { assetId: string })[],
@@ -319,7 +316,34 @@ async function normalizeRow<TQueryResult extends PgQueryResultHKT>(
     caption: item.role === "hero" ? input.primaryImageCaption ?? null : null,
   }));
   const additiveMedia = targetProductId && normalizedMedia.length
-    ? planAdditiveMedia((await existingStructure(db, targetProductId)).media, normalizedMedia)
+    ? await (async () => {
+        const planned = await previewProductStructurePatch(
+          db,
+          { userId: actor.userId, role: actor.role },
+          targetProductId,
+          { additiveMedia: normalizedMedia.map((entry) => ({
+            assetId: entry.assetId,
+            role: entry.role,
+            sortOrder: entry.sortOrder,
+            altText: entry.altText,
+            caption: entry.caption,
+            isVisible: true,
+          })) },
+        );
+        const byAssetId = new Map(
+          (planned.appliedPatch.additiveMedia ?? []).map((entry) => [entry.assetId, entry]),
+        );
+        return normalizedMedia.flatMap((entry) => {
+          const applied = byAssetId.get(entry.assetId);
+          return applied ? [{
+            ...entry,
+            role: applied.role,
+            sortOrder: applied.sortOrder,
+            altText: applied.altText,
+            caption: applied.caption,
+          }] : [];
+        });
+      })()
     : normalizedMedia;
   const moq = input.moqValue || input.moqUnit ? normalizeMoq(input.moqValue, input.moqUnit) : null;
   return {
@@ -436,7 +460,7 @@ export async function validatePreparedProductImport<TQueryResult extends PgQuery
       continue;
     }
     try {
-      normalizedRows.push({ rowNumber: row.rowNumber, input: row.input, normalized: await normalizeRow(db, batch.mode as ProductImportMode, row.input, media, reservedCodes), error: null });
+      normalizedRows.push({ rowNumber: row.rowNumber, input: row.input, normalized: await normalizeRow(db, actor, batch.mode as ProductImportMode, row.input, media, reservedCodes), error: null });
     } catch (error) {
       normalizedRows.push({ rowNumber: row.rowNumber, input: row.input, normalized: null, error: safeError(error) });
     }
@@ -497,59 +521,28 @@ export async function validatePreparedProductImport<TQueryResult extends PgQuery
   });
 }
 
-async function existingStructure<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQueryResult>, productId: string) {
-  const [primary, additional, appRows, tagRows, mediaRows, featureRows, faqRows, localization, product] = await Promise.all([
-    db.select({ id: productTaxonomyTerms.taxonomyTermId }).from(productTaxonomyTerms).where(and(eq(productTaxonomyTerms.productId, productId), eq(productTaxonomyTerms.isPrimary, true))).limit(1),
-    db.select({ id: productTaxonomyTerms.taxonomyTermId }).from(productTaxonomyTerms).where(and(eq(productTaxonomyTerms.productId, productId), eq(productTaxonomyTerms.isPrimary, false))),
-    db.select({ id: productApplications.applicationId }).from(productApplications).where(eq(productApplications.productId, productId)),
-    db.select({ name: productTags.name }).from(productTagAssignments).innerJoin(productTags, eq(productTags.id, productTagAssignments.tagId)).where(eq(productTagAssignments.productId, productId)),
-    db.select().from(productAssets).where(eq(productAssets.productId, productId)).orderBy(productAssets.role, productAssets.sortOrder, productAssets.assetId),
-    db.select({ label: productFeatures.label }).from(productFeatures).where(and(eq(productFeatures.productId, productId), eq(productFeatures.locale, "en"))).orderBy(productFeatures.sortOrder),
-    db.select({ question: productFaqs.question, answer: productFaqs.answer }).from(productFaqs).where(and(eq(productFaqs.productId, productId), eq(productFaqs.locale, "en"))).orderBy(productFaqs.sortOrder),
-    db.select().from(productLocalizations).where(and(eq(productLocalizations.productId, productId), eq(productLocalizations.locale, "en"))).limit(1),
-    db.select({
-      colorOptionsDisplay: products.colorOptionsDisplay,
-      customAvailableDisplay: products.customAvailableDisplay,
-      sampleAvailableDisplay: products.sampleAvailableDisplay,
-      moqNoteDisplay: products.moqNoteDisplay,
-    }).from(products).where(eq(products.id, productId)).limit(1),
-  ]);
-  if (!primary[0] || !localization[0] || !product[0] || !mediaRows.length) throw new Error("Existing Product structure is incomplete.");
-  return {
-    primary: primary[0].id,
-    additional: additional.map((row) => row.id),
-    applications: appRows.map((row) => row.id),
-    tags: tagRows.map((row) => row.name),
-    media: mediaRows,
-    features: featureRows.map((row) => row.label),
-    faqs: faqRows,
-    localization: localization[0],
-    ...product[0],
-  };
-}
-
-function planAdditiveMedia(
-  existing: Array<{ assetId: string; role: string; sortOrder: number; altText: string | null; caption: string | null; isVisible: boolean }>,
-  additions: NonNullable<NormalizedImportRow["media"]>,
-): NonNullable<NormalizedImportRow["media"]> {
-  const existingIds = new Set(existing.map((entry) => entry.assetId));
-  const nextOrder = new Map<string, number>();
-  for (const role of ["hero", "gallery", "detail", "application"] as const) {
-    nextOrder.set(role, Math.max(-1, ...existing.filter((entry) => entry.role === role).map((entry) => entry.sortOrder)) + 1);
-  }
-  const hasHero = existing.some((entry) => entry.role === "hero");
-  return additions.filter((entry) => !existingIds.has(entry.assetId)).map((entry) => {
-    const role = entry.role === "hero" && hasHero ? "gallery" : entry.role;
-    const sortOrder = nextOrder.get(role) ?? 0;
-    nextOrder.set(role, sortOrder + 1);
-    return { ...entry, role, sortOrder };
-  });
+async function existingEditorial<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  productId: string,
+) {
+  const rows = await db.select({
+    name: productLocalizations.name,
+    shortDescription: productLocalizations.shortDescription,
+    structuredBlocks: productLocalizations.structuredBlocks,
+    editorDocumentVersion: productLocalizations.editorDocumentVersion,
+  }).from(productLocalizations).where(and(
+    eq(productLocalizations.productId, productId),
+    eq(productLocalizations.locale, "en"),
+  )).limit(1);
+  if (!rows[0]) throw new Error("Existing Product localization is incomplete.");
+  return rows[0];
 }
 
 async function applyRow<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>, actor: AdminUploadActor, item: typeof productImportItems.$inferSelect, mode: ProductImportMode,
-): Promise<{ productId: string; revisionId: string | null }> {
+): Promise<{ productId: string; revisionId: string | null; normalizedData: NormalizedImportRow; structureSha256?: string }> {
   const normalized = item.normalizedData as NormalizedImportRow;
+  let appliedNormalized = normalized;
   const productActor: Actor = { userId: actor.userId, role: actor.role };
   const factsInput = {
     ...(normalized.composition !== undefined ? { composition: normalized.composition } : {}),
@@ -586,63 +579,72 @@ async function applyRow<TQueryResult extends PgQueryResultHKT>(
       features: [], faqs: [], colorOptionsDisplay: "inherit", customAvailableDisplay: "inherit", sampleAvailableDisplay: "inherit", moqNoteDisplay: "hide",
     });
     await releaseRelatedProductImportMedia(db, media.map((entry) => entry.assetId));
-    return { productId, revisionId: null };
+    return { productId, revisionId: null, normalizedData: normalized };
   }
   const productId = normalized.targetProductId!;
-  const current = await existingStructure(db, productId);
   let revisionId: string | null = null;
+  let structureSha256: string | undefined;
   if (normalized.composition !== undefined || normalized.weightGsm !== undefined || normalized.widthCm !== undefined || normalized.moqValue !== undefined || normalized.moqNote !== undefined) {
     revisionId = await updateProductFacts(db, productActor, productId, factsInput);
   }
   if (normalized.name || normalized.summary !== undefined || normalized.document) {
+    const current = await existingEditorial(db, productId);
     revisionId = await updateProductEditorialCopy(db, productActor, productId, {
-      name: normalized.name ?? current.localization.name,
-      shortDescription: normalized.summary ?? current.localization.shortDescription,
-      structuredDocument: normalized.document ?? parseBlockDocument(current.localization.structuredBlocks, "product"),
-      expectedEditorDocumentVersion: current.localization.editorDocumentVersion,
+      name: normalized.name ?? current.name,
+      shortDescription: normalized.summary ?? current.shortDescription,
+      structuredDocument: normalized.document ?? parseBlockDocument(current.structuredBlocks, "product"),
+      expectedEditorDocumentVersion: current.editorDocumentVersion,
     }) ?? revisionId;
   }
   if (normalized.primaryTaxonomyTermId || normalized.additionalTaxonomyTermIds || normalized.applicationIds || normalized.tags || normalized.media) {
-    const existingMedia = current.media.map((entry) => ({
-      sourceKey: `existing_${entry.assetId.replaceAll("-", "")}`,
-      assetId: entry.assetId,
-      role: entry.role as "hero" | "gallery" | "detail" | "application",
-      sortOrder: entry.sortOrder,
-      altText: entry.altText,
-      caption: entry.caption,
-      isVisible: entry.isVisible,
-    }));
-    const media = normalized.media
-      ? [...existingMedia, ...planAdditiveMedia(current.media, normalized.media)]
-      : existingMedia;
-    revisionId = await updateProductStructure(db, productActor, productId, {
-      primaryTaxonomyTermId: normalized.primaryTaxonomyTermId ?? current.primary,
-      additionalTaxonomyTermIds: normalized.additionalTaxonomyTermIds ?? current.additional,
-      applicationIds: normalized.applicationIds ?? current.applications,
-      tagNames: normalized.tags ?? current.tags,
-      assetIds: media.map((entry) => entry.assetId),
-      heroAssetId: media.find((entry) => entry.role === "hero")!.assetId,
-      media: media.map((entry) => ({
-        assetId: entry.assetId,
-        role: entry.role,
-        sortOrder: entry.sortOrder,
-        altText: entry.altText,
-        caption: entry.caption,
-        isVisible: "isVisible" in entry && typeof entry.isVisible === "boolean" ? entry.isVisible : true,
-      })),
-      features: current.features,
-      faqs: current.faqs,
-      colorOptionsDisplay: current.colorOptionsDisplay,
-      customAvailableDisplay: current.customAvailableDisplay,
-      sampleAvailableDisplay: current.sampleAvailableDisplay,
-      moqNoteDisplay: current.moqNoteDisplay,
-    }) ?? revisionId;
-    await releaseRelatedProductImportMedia(db, media.map((entry) => entry.assetId));
+    const structure = await patchProductStructure(db, productActor, productId, {
+      ...(normalized.primaryTaxonomyTermId !== undefined
+        ? { primaryTaxonomyTermId: normalized.primaryTaxonomyTermId }
+        : {}),
+      ...(normalized.additionalTaxonomyTermIds !== undefined
+        ? { additionalTaxonomyTermIds: normalized.additionalTaxonomyTermIds }
+        : {}),
+      ...(normalized.applicationIds !== undefined
+        ? { applicationIds: normalized.applicationIds }
+        : {}),
+      ...(normalized.tags !== undefined ? { tagNames: normalized.tags } : {}),
+      ...(normalized.media !== undefined
+        ? { additiveMedia: normalized.media.map((entry) => ({
+          assetId: entry.assetId,
+          role: entry.role,
+          sortOrder: entry.sortOrder,
+          altText: entry.altText,
+          caption: entry.caption,
+          isVisible: true,
+        })) }
+        : {}),
+    });
+    revisionId = structure.revisionId ?? revisionId;
+    structureSha256 = structure.structureSha256;
+    if (normalized.media) {
+      const appliedByAssetId = new Map(
+        (structure.appliedPatch.additiveMedia ?? []).map((entry) => [entry.assetId, entry]),
+      );
+      appliedNormalized = {
+        ...normalized,
+        media: normalized.media.map((entry) => {
+          const applied = appliedByAssetId.get(entry.assetId);
+          return applied ? {
+            ...entry,
+            role: applied.role,
+            sortOrder: applied.sortOrder,
+            altText: applied.altText,
+            caption: applied.caption,
+          } : entry;
+        }),
+      };
+      await releaseRelatedProductImportMedia(db, normalized.media.map((entry) => entry.assetId));
+    }
   }
   const status = (await db.select({ status: products.status }).from(products).where(eq(products.id, productId)).limit(1))[0]?.status;
   if (normalized.slug && status !== "published") await changeProductSlug(db, productActor, productId, normalized.slug);
   if (normalized.slug && status === "published") revisionId = await proposeProductImportSlugRevision(db, productActor, productId, normalized.slug);
-  return { productId, revisionId };
+  return { productId, revisionId, normalizedData: appliedNormalized, ...(structureSha256 ? { structureSha256 } : {}) };
 }
 
 export async function applyProductImportBatch<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQueryResult>, actor: AdminUploadActor, batchId: string): Promise<void> {
@@ -678,14 +680,17 @@ export async function applyProductImportBatch<TQueryResult extends PgQueryResult
           .returning();
         if (!claimedItem[0]) return;
         const result = await applyRow(transaction, actor, claimedItem[0], claimed.batch.mode as ProductImportMode);
-        const updated = await transaction.update(productImportItems).set({ status: "applied", targetProductId: result.productId, attemptCount: sql`${productImportItems.attemptCount} + 1`, lastAttemptAt: new Date(), appliedAt: new Date(), errorCode: null, errorDetail: null, updatedAt: new Date() })
+        const updated = await transaction.update(productImportItems).set({ status: "applied", targetProductId: result.productId, normalizedData: result.normalizedData, attemptCount: sql`${productImportItems.attemptCount} + 1`, lastAttemptAt: new Date(), appliedAt: new Date(), errorCode: null, errorDetail: null, updatedAt: new Date() })
           .where(and(eq(productImportItems.id, item.id), eq(productImportItems.status, "pending"))).returning({ id: productImportItems.id });
         if (!updated[0]) throw new Error("Import Item changed before result commit.");
-        await writeAuditLog(transaction, { actorUserId: actor.userId, action: "product_import.item_applied", entityType: "product_import_item", entityId: item.id, afterSummary: { productId: result.productId, revisionId: result.revisionId } });
+        await writeAuditLog(transaction, { actorUserId: actor.userId, action: "product_import.item_applied", entityType: "product_import_item", entityId: item.id, afterSummary: { productId: result.productId, revisionId: result.revisionId, ...(result.structureSha256 ? { structureSha256: result.structureSha256 } : {}) } });
       });
     } catch (error) {
       const safe = safeError(error);
-      const failure = { code: "row_apply_failed", detail: safe.detail };
+      const failure = {
+        code: error instanceof ProductRevisionConflictError ? "product_revision_conflict" : "row_apply_failed",
+        detail: safe.detail,
+      };
       await db.transaction(async (transaction) => {
         // A concurrent continuation may have claimed this row after the failed
         // transaction rolled back. Never overwrite that durable winner with the
@@ -717,7 +722,7 @@ export async function retryProductImportErrors<TQueryResult extends PgQueryResul
   await db.transaction(async (transaction) => {
     const batch = (await transaction.select().from(productImportBatches).where(and(eq(productImportBatches.id, batchId), eq(productImportBatches.createdByUserId, actor.userId), eq(productImportBatches.authSessionId, actor.authSessionId), eq(productImportBatches.status, "completed"))).limit(1))[0];
     if (!batch) throw new Error("Completed Import Batch was not found.");
-    const changed = await transaction.update(productImportItems).set({ status: "valid", errorCode: null, errorDetail: null, updatedAt: new Date() }).where(and(eq(productImportItems.batchId, batchId), eq(productImportItems.kind, "row"), eq(productImportItems.status, "error"), eq(productImportItems.errorCode, "row_apply_failed"))).returning({ id: productImportItems.id });
+    const changed = await transaction.update(productImportItems).set({ status: "valid", errorCode: null, errorDetail: null, updatedAt: new Date() }).where(and(eq(productImportItems.batchId, batchId), eq(productImportItems.kind, "row"), eq(productImportItems.status, "error"), inArray(productImportItems.errorCode, ["row_apply_failed", "product_revision_conflict"]))).returning({ id: productImportItems.id });
     if (!changed.length) throw new Error("Import Batch has no retryable Row Errors.");
     await transaction.update(productImportBatches).set({ status: "validated", completedAt: null, updatedAt: new Date() }).where(eq(productImportBatches.id, batchId));
     await writeAuditLog(transaction, { actorUserId: actor.userId, action: "product_import.errors_retried", entityType: "product_import_batch", entityId: batchId, afterSummary: { count: changed.length } });
@@ -793,7 +798,7 @@ export async function correctProductImportRow<TQueryResult extends PgQueryResult
     const code = (row.normalizedData as { productCode?: unknown }).productCode;
     return typeof code === "string" ? [code] : [];
   }));
-  const normalized = await normalizeRow(db, currentBatch.mode as ProductImportMode, input, media, reserved);
+  const normalized = await normalizeRow(db, actor, currentBatch.mode as ProductImportMode, input, media, reserved);
   const claimedMedia = new Set(reservedRows.flatMap((row) => {
     const entries = (row.normalizedData as { media?: Array<{ sourceKey?: unknown }> }).media;
     return Array.isArray(entries) ? entries.flatMap((entry) => typeof entry.sourceKey === "string" ? [entry.sourceKey] : []) : [];

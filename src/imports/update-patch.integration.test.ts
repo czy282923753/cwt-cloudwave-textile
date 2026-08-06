@@ -159,6 +159,7 @@ describe("Product Import Update patch semantics", () => {
       await finalizeAdminUploadBatch(connection.db, storage, actor, updateImageUpload.batchId, { rateLimiter: allowLimiter });
       await validatePreparedProductImport(connection.db, storage, actor, batchId);
       const preview = (await connection.db.select().from(productImportItems).where(and(eq(productImportItems.batchId, batchId), eq(productImportItems.kind, "row"))))[0]!;
+      expect(preview).toMatchObject({ status: "valid", errorCode: null, errorDetail: null });
       expect(preview.normalizedData).toMatchObject({ media: [{ assetId: imageIds[2], role: "gallery", sortOrder: 8 }] });
 
       await Promise.all([

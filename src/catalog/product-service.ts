@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { and, count, desc, eq, gt, inArray, isNotNull, isNull, like, ne, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
@@ -173,6 +175,15 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
 
 type ProductRevisionSnapshot = z.infer<typeof productRevisionSnapshotSchema>;
 
+interface ProductRevisionBuildContext<TQueryResult extends PgQueryResultHKT> {
+  transaction: AppDatabase<TQueryResult>;
+  currentChanges: readonly ProductRevisionSnapshot[];
+}
+
+type ProductRevisionProposal<TQueryResult extends PgQueryResultHKT> =
+  | ProductRevisionSnapshot
+  | ((context: ProductRevisionBuildContext<TQueryResult>) => Promise<ProductRevisionSnapshot>);
+
 interface ProductRevisionMutationOptions extends GovernedMutationOptions {
   expectedRevisionId?: string | null;
   expectedRevisionVersion?: number | null;
@@ -200,7 +211,7 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   productId: string,
-  snapshot: z.infer<typeof productRevisionSnapshotSchema>,
+  proposal: ProductRevisionProposal<TQueryResult>,
   options: ProductRevisionMutationOptions = {},
 ): Promise<string> {
   return runGovernedMutation(db, async ({ transaction, audit }) => {
@@ -276,6 +287,9 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
       }
     }
     const existingChanges = productRevisionChanges(current);
+    const snapshot = typeof proposal === "function"
+      ? await proposal({ transaction, currentChanges: existingChanges })
+      : proposal;
     let merged: ProductRevisionSnapshot[];
     if (snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy") {
       const editorial = snapshot.kind === "editorial_blocks"
@@ -334,7 +348,14 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
         action: "product.draft.saved",
         entityType: "editorial_revision",
         entityId: draft.id,
-        afterSummary: { productId, draftVersion: nextDraftVersion, kind: snapshot.kind },
+        afterSummary: {
+          productId,
+          draftVersion: nextDraftVersion,
+          kind: snapshot.kind,
+          ...(snapshot.kind === "structure"
+            ? { structureSha256: productStructureSnapshotSha256(snapshot) }
+            : {}),
+        },
       });
       return draft.id;
     }
@@ -370,7 +391,14 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
       action: "product.draft.created",
       entityType: "editorial_revision",
       entityId: revisionId,
-      afterSummary: { productId, draftVersion: nextDraftVersion, kind: snapshot.kind },
+      afterSummary: {
+        productId,
+        draftVersion: nextDraftVersion,
+        kind: snapshot.kind,
+        ...(snapshot.kind === "structure"
+          ? { structureSha256: productStructureSnapshotSha256(snapshot) }
+          : {}),
+      },
     });
     return revisionId;
   }, options);
@@ -457,6 +485,30 @@ type ProductStructureSnapshot = Extract<
   { kind: "structure" }
 >;
 
+type ProductStructureMedia = NonNullable<ProductStructureSnapshot["media"]>[number];
+
+export interface ProductStructurePatchInput {
+  primaryTaxonomyTermId?: string;
+  additionalTaxonomyTermIds?: readonly string[];
+  applicationIds?: readonly string[];
+  tagNames?: readonly string[];
+  additiveMedia?: readonly ProductStructureMedia[];
+}
+
+export interface AppliedProductStructurePatch {
+  primaryTaxonomyTermId?: string;
+  additionalTaxonomyTermIds?: string[];
+  applicationIds?: string[];
+  tagNames?: string[];
+  additiveMedia?: ProductStructureMedia[];
+}
+
+export interface ProductStructurePatchResult {
+  revisionId: string | null;
+  appliedPatch: AppliedProductStructurePatch;
+  structureSha256: string;
+}
+
 function productStructureMedia(
   snapshot: ProductStructureSnapshot,
 ): ProductBlockMediaPlacement[] {
@@ -468,6 +520,233 @@ function productStructureMedia(
     caption: null,
     isVisible: true,
   }));
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function productStructureSnapshotSha256(snapshot: ProductStructureSnapshot): string {
+  return createHash("sha256").update(canonicalJson(snapshot)).digest("hex");
+}
+
+function normalizeStructureTagNames(values: readonly string[]): string[] {
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value, index, all) =>
+      all.findIndex((candidate) => slugify(candidate) === slugify(value)) === index,
+    );
+}
+
+function normalizedIdSet(values: readonly string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function normalizedTagSet(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => slugify(value)))].sort();
+}
+
+function sameValues(left: readonly string[], right: readonly string[]): boolean {
+  return JSON.stringify(normalizedIdSet(left)) === JSON.stringify(normalizedIdSet(right));
+}
+
+function sameTags(left: readonly string[], right: readonly string[]): boolean {
+  return JSON.stringify(normalizedTagSet(left)) === JSON.stringify(normalizedTagSet(right));
+}
+
+function assertStructurePatchBaseCurrent(
+  expected: ProductStructureSnapshot,
+  current: ProductStructureSnapshot,
+  patch: ProductStructurePatchInput,
+): void {
+  const conflicts =
+    patch.primaryTaxonomyTermId !== undefined &&
+      current.primaryTaxonomyTermId !== expected.primaryTaxonomyTermId &&
+      current.primaryTaxonomyTermId !== patch.primaryTaxonomyTermId ||
+    patch.additionalTaxonomyTermIds !== undefined &&
+      !sameValues(current.additionalTaxonomyTermIds, expected.additionalTaxonomyTermIds) &&
+      !sameValues(current.additionalTaxonomyTermIds, patch.additionalTaxonomyTermIds) ||
+    patch.applicationIds !== undefined &&
+      !sameValues(current.applicationIds, expected.applicationIds) &&
+      !sameValues(current.applicationIds, patch.applicationIds) ||
+    patch.tagNames !== undefined &&
+      !sameTags(current.tagNames, expected.tagNames) &&
+      !sameTags(current.tagNames, patch.tagNames);
+  if (conflicts) {
+    throw new ProductRevisionConflictError(
+      "Product structure changed in the same field; retry from the latest unified Draft.",
+    );
+  }
+}
+
+function applyProductStructurePatch(
+  base: ProductStructureSnapshot,
+  patch: ProductStructurePatchInput,
+): { snapshot: ProductStructureSnapshot; appliedPatch: AppliedProductStructurePatch } {
+  const media = productStructureMedia(base).map((item) => ({ ...item }));
+  const existingAssetIds = new Set(media.map((item) => item.assetId));
+  const nextOrder = new Map<ProductStructureMedia["role"], number>();
+  for (const role of ["hero", "gallery", "detail", "application"] as const) {
+    nextOrder.set(
+      role,
+      Math.max(-1, ...media.filter((item) => item.role === role).map((item) => item.sortOrder ?? 0)) + 1,
+    );
+  }
+  const appliedMedia: ProductStructureMedia[] = [];
+  const hasHero = media.some((item) => item.role === "hero");
+  for (const input of patch.additiveMedia ?? []) {
+    if (existingAssetIds.has(input.assetId)) continue;
+    existingAssetIds.add(input.assetId);
+    const role = input.role === "hero" && hasHero ? "gallery" : input.role;
+    const applied = {
+      ...input,
+      role,
+      sortOrder: nextOrder.get(role) ?? 0,
+      altText: input.altText?.trim() || null,
+      caption: input.caption?.trim() || null,
+    };
+    nextOrder.set(role, applied.sortOrder + 1);
+    media.push(applied);
+    appliedMedia.push(applied);
+  }
+  const tagNames = patch.tagNames === undefined
+    ? base.tagNames
+    : normalizeStructureTagNames(patch.tagNames);
+  const snapshot = productRevisionSnapshotSchema.parse({
+    ...base,
+    primaryTaxonomyTermId: patch.primaryTaxonomyTermId ?? base.primaryTaxonomyTermId,
+    additionalTaxonomyTermIds: patch.additionalTaxonomyTermIds === undefined
+      ? base.additionalTaxonomyTermIds
+      : [...new Set(patch.additionalTaxonomyTermIds)],
+    applicationIds: patch.applicationIds === undefined
+      ? base.applicationIds
+      : [...new Set(patch.applicationIds)],
+    tagNames,
+    assetIds: media.map((item) => item.assetId),
+    heroAssetId: media.find((item) => item.role === "hero")?.assetId,
+    media,
+  });
+  if (snapshot.kind !== "structure") {
+    throw new ProductValidationError("Invalid Product structure patch result.");
+  }
+  return {
+    snapshot,
+    appliedPatch: {
+      ...(patch.primaryTaxonomyTermId !== undefined
+        ? { primaryTaxonomyTermId: snapshot.primaryTaxonomyTermId }
+        : {}),
+      ...(patch.additionalTaxonomyTermIds !== undefined
+        ? { additionalTaxonomyTermIds: snapshot.additionalTaxonomyTermIds }
+        : {}),
+      ...(patch.applicationIds !== undefined
+        ? { applicationIds: snapshot.applicationIds }
+        : {}),
+      ...(patch.tagNames !== undefined ? { tagNames: snapshot.tagNames } : {}),
+      ...(patch.additiveMedia !== undefined ? { additiveMedia: appliedMedia } : {}),
+    },
+  };
+}
+
+async function loadLiveProductStructure<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  productId: string,
+): Promise<{ status: typeof products.$inferSelect.status; snapshot: ProductStructureSnapshot }> {
+  const [primary, additional, applicationRows, tagRows, mediaRows, featureRows, faqRows, productRows] = await Promise.all([
+    db.select({ id: productTaxonomyTerms.taxonomyTermId }).from(productTaxonomyTerms).where(and(
+      eq(productTaxonomyTerms.productId, productId),
+      eq(productTaxonomyTerms.isPrimary, true),
+    )).limit(1),
+    db.select({ id: productTaxonomyTerms.taxonomyTermId }).from(productTaxonomyTerms).where(and(
+      eq(productTaxonomyTerms.productId, productId),
+      eq(productTaxonomyTerms.isPrimary, false),
+    )).orderBy(productTaxonomyTerms.taxonomyTermId),
+    db.select({ id: productApplications.applicationId }).from(productApplications)
+      .where(eq(productApplications.productId, productId)).orderBy(productApplications.applicationId),
+    db.select({ name: productTags.name }).from(productTagAssignments)
+      .innerJoin(productTags, eq(productTags.id, productTagAssignments.tagId))
+      .where(eq(productTagAssignments.productId, productId)).orderBy(productTags.name),
+    db.select().from(productAssets).where(eq(productAssets.productId, productId))
+      .orderBy(productAssets.role, productAssets.sortOrder, productAssets.assetId),
+    db.select({ label: productFeatures.label }).from(productFeatures).where(and(
+      eq(productFeatures.productId, productId),
+      eq(productFeatures.locale, "en"),
+    )).orderBy(productFeatures.sortOrder),
+    db.select({ question: productFaqs.question, answer: productFaqs.answer }).from(productFaqs).where(and(
+      eq(productFaqs.productId, productId),
+      eq(productFaqs.locale, "en"),
+    )).orderBy(productFaqs.sortOrder),
+    db.select({
+      status: products.status,
+      colorOptionsDisplay: products.colorOptionsDisplay,
+      customAvailableDisplay: products.customAvailableDisplay,
+      sampleAvailableDisplay: products.sampleAvailableDisplay,
+      moqNoteDisplay: products.moqNoteDisplay,
+    }).from(products).where(eq(products.id, productId)).limit(1),
+  ]);
+  const product = productRows[0];
+  if (!primary[0] || !product || !mediaRows.length) {
+    throw new ProductValidationError("Existing Product structure is incomplete.");
+  }
+  const snapshot = productRevisionSnapshotSchema.parse({
+    kind: "structure",
+    primaryTaxonomyTermId: primary[0].id,
+    additionalTaxonomyTermIds: additional.map((row) => row.id),
+    applicationIds: applicationRows.map((row) => row.id),
+    tagNames: tagRows.map((row) => row.name),
+    assetIds: mediaRows.map((row) => row.assetId),
+    heroAssetId: mediaRows.find((row) => row.role === "hero")?.assetId,
+    media: mediaRows.map((row) => ({
+      assetId: row.assetId,
+      role: row.role,
+      sortOrder: row.sortOrder,
+      altText: row.altText,
+      caption: row.caption,
+      isVisible: row.isVisible,
+    })),
+    features: featureRows.map((row) => row.label),
+    faqs: faqRows,
+    colorOptionsDisplay: product.colorOptionsDisplay,
+    customAvailableDisplay: product.customAvailableDisplay,
+    sampleAvailableDisplay: product.sampleAvailableDisplay,
+    moqNoteDisplay: product.moqNoteDisplay,
+  });
+  if (snapshot.kind !== "structure") {
+    throw new ProductValidationError("Existing Product structure is invalid.");
+  }
+  return { status: product.status, snapshot };
+}
+
+async function loadProductStructurePatchBase<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  productId: string,
+): Promise<{ status: typeof products.$inferSelect.status; snapshot: ProductStructureSnapshot }> {
+  const live = await loadLiveProductStructure(db, productId);
+  if (live.status !== "published") return live;
+  const activeRows = await db.select().from(editorialRevisions).where(and(
+    eq(editorialRevisions.entityType, "product"),
+    eq(editorialRevisions.entityId, productId),
+    eq(editorialRevisions.locale, "en"),
+    inArray(editorialRevisions.status, ["draft", "in_review"]),
+  )).orderBy(desc(editorialRevisions.versionNumber));
+  const draft = activeRows.find((revision) => revision.status === "draft");
+  if (!draft && activeRows.some((revision) => revision.status === "in_review")) {
+    throw new ProductRevisionConflictError(
+      "The current Product Revision is already In Review; resolve it before editing again.",
+    );
+  }
+  if (!draft) return live;
+  const pendingStructure = productRevisionChanges(productRevisionSnapshotSchema.parse(draft.snapshot))
+    .find((change): change is ProductStructureSnapshot => change.kind === "structure");
+  return { status: live.status, snapshot: pendingStructure ?? live.snapshot };
 }
 
 async function loadProductBlockDocument<TQueryResult extends PgQueryResultHKT>(
@@ -1550,9 +1829,93 @@ export async function updateProductStructure<TQueryResult extends PgQueryResultH
       action: "product.structure.updated",
       entityType: "product",
       entityId: productId,
+      afterSummary: { structureSha256: productStructureSnapshotSha256(snapshot) },
     });
   }, options);
   return null;
+}
+
+/**
+ * Applies the explicit Product Import structure contract. Published Products
+ * rebuild their full structure snapshot only after the existing unified Draft
+ * lock is held. Replacement fields use optimistic per-field conflict evidence;
+ * additive media always merges against the latest locked structure.
+ */
+export async function patchProductStructure<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  patch: ProductStructurePatchInput,
+  options: ProductRevisionMutationOptions = {},
+): Promise<ProductStructurePatchResult> {
+  requireEditorialResourceAccess(actor.role, "product", "write");
+  const expected = await loadProductStructurePatchBase(db, productId);
+  if (expected.status === "archived") {
+    throw new ProductValidationError("Archived Products cannot be edited.");
+  }
+  if (expected.status !== "published") {
+    const applied = applyProductStructurePatch(expected.snapshot, patch);
+    const revisionId = await updateProductStructure(db, actor, productId, applied.snapshot, options);
+    return {
+      revisionId,
+      appliedPatch: applied.appliedPatch,
+      structureSha256: productStructureSnapshotSha256(applied.snapshot),
+    };
+  }
+
+  let appliedPatch: AppliedProductStructurePatch | undefined;
+  let structureSha256: string | undefined;
+  const revisionId = await proposeProductRevision(db, actor, productId, async ({ transaction, currentChanges }) => {
+    const live = await loadLiveProductStructure(transaction, productId);
+    if (live.status !== "published") {
+      throw new ProductRevisionConflictError("Product publication state changed before the structure patch was saved.");
+    }
+    const pending = currentChanges.find(
+      (change): change is ProductStructureSnapshot => change.kind === "structure",
+    );
+    const current = pending ?? live.snapshot;
+    assertStructurePatchBaseCurrent(expected.snapshot, current, patch);
+    const applied = applyProductStructurePatch(current, patch);
+    await validateProductStructure(transaction, applied.snapshot);
+    const editorial = currentChanges[0];
+    if (!editorial || editorial.kind !== "editorial_blocks") {
+      throw new ProductValidationError("Product Draft requires one editorial base.");
+    }
+    await assertProductBlockProjection(
+      transaction,
+      productId,
+      editorial.document,
+      editorial.shortDescription,
+      productStructureMedia(applied.snapshot),
+    );
+    appliedPatch = applied.appliedPatch;
+    structureSha256 = productStructureSnapshotSha256(applied.snapshot);
+    return applied.snapshot;
+  }, options);
+  if (!appliedPatch || !structureSha256) {
+    throw new ProductValidationError("Product structure patch evidence was not produced.");
+  }
+  return { revisionId, appliedPatch, structureSha256 };
+}
+
+export async function previewProductStructurePatch<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  patch: ProductStructurePatchInput,
+): Promise<ProductStructurePatchResult> {
+  requireEditorialResourceAccess(actor.role, "product", "write");
+  const current = await loadProductStructurePatchBase(db, productId);
+  if (current.status === "archived") {
+    throw new ProductValidationError("Archived Products cannot be edited.");
+  }
+  const applied = applyProductStructurePatch(current.snapshot, patch);
+  await validateProductStructure(db, applied.snapshot);
+  return {
+    revisionId: null,
+    appliedPatch: applied.appliedPatch,
+    structureSha256: productStructureSnapshotSha256(applied.snapshot),
+  };
 }
 
 export async function updateProductSeo<TQueryResult extends PgQueryResultHKT>(
