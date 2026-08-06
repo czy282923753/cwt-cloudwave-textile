@@ -13,6 +13,13 @@ export interface ObjectStorage {
     bytes: Uint8Array,
     contentType: string,
   ): Promise<StoredObject>;
+  putStream?(
+    partition: StoragePartition,
+    objectKey: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    expectedBytes: number,
+  ): Promise<StoredObject>;
   get(partition: StoragePartition, objectKey: string): Promise<Uint8Array>;
   exists(partition: StoragePartition, objectKey: string): Promise<boolean>;
   delete(partition: StoragePartition, objectKey: string): Promise<void>;

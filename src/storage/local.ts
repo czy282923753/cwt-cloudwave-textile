@@ -1,6 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createWriteStream } from "node:fs";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import { env } from "@/config/env";
 
@@ -59,6 +62,39 @@ export class LocalObjectStorage implements ObjectStorage {
     await mkdir(dirname(objectPath), { recursive: true });
     await writeFile(objectPath, bytes, { flag: "wx" });
     return { partition, objectKey, byteSize: bytes.byteLength };
+  }
+
+  async putStream(
+    partition: StoragePartition,
+    objectKey: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    expectedBytes: number,
+  ): Promise<StoredObject> {
+    void contentType;
+    const objectPath = resolveObjectPath(partition, objectKey);
+    await mkdir(dirname(objectPath), { recursive: true });
+    let actual = 0;
+    const bounded = stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        actual += chunk.byteLength;
+        if (actual > expectedBytes) throw new Error("Streamed object exceeds its declared size.");
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (actual !== expectedBytes) throw new Error("Streamed object does not match its declared size.");
+      },
+    }));
+    try {
+      await pipeline(
+        Readable.fromWeb(bounded as import("node:stream/web").ReadableStream<Uint8Array>),
+        createWriteStream(objectPath, { flags: "wx" }),
+      );
+    } catch (error) {
+      await rm(objectPath, { force: true });
+      throw error;
+    }
+    return { partition, objectKey, byteSize: actual };
   }
 
   async get(partition: StoragePartition, objectKey: string): Promise<Uint8Array> {

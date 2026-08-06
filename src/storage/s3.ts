@@ -6,6 +6,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { Readable } from "node:stream";
 
 import { env } from "@/config/env";
 
@@ -54,6 +55,35 @@ export class S3ObjectStorage implements ObjectStorage {
       }),
     );
     return { partition, objectKey, byteSize: bytes.byteLength };
+  }
+
+  async putStream(
+    partition: StoragePartition,
+    objectKey: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    expectedBytes: number,
+  ): Promise<StoredObject> {
+    assertSafeObjectKey(objectKey);
+    let actual = 0;
+    const bounded = stream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        actual += chunk.byteLength;
+        if (actual > expectedBytes) throw new Error("Streamed object exceeds its declared size.");
+        controller.enqueue(chunk);
+      },
+      flush() {
+        if (actual !== expectedBytes) throw new Error("Streamed object does not match its declared size.");
+      },
+    }));
+    await this.client.send(new PutObjectCommand({
+      Bucket: requireBucket(partition),
+      Key: objectKey,
+      Body: Readable.fromWeb(bounded as import("node:stream/web").ReadableStream<Uint8Array>),
+      ContentType: contentType,
+      ContentLength: expectedBytes,
+    }));
+    return { partition, objectKey, byteSize: actual };
   }
 
   async get(partition: StoragePartition, objectKey: string): Promise<Uint8Array> {

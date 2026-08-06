@@ -45,12 +45,12 @@ export async function recoverStaleLegacyAssetRescans<
 function purposeFor(asset: {
   category: typeof assets.$inferSelect.category;
   storagePartition: string;
-}): "public_asset" | "inquiry" | "import" {
+}): "public_asset" | "inquiry" | "admin_asset_staging" {
   if (asset.category === "inquiry" && asset.storagePartition === "private") {
     return "inquiry";
   }
   if (asset.storagePartition === "public") return "public_asset";
-  return "import";
+  return "admin_asset_staging";
 }
 
 function maximumBytesFor(purpose: ReturnType<typeof purposeFor>): number {

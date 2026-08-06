@@ -86,6 +86,7 @@ export interface CreateProductDraftInput {
   assetIds: readonly string[];
   productCode?: string;
   requestedSlug?: string;
+  importItemId?: string;
 }
 
 export const eligibleProductImageMimeTypes = allowedImageMimeTypes;
@@ -161,6 +162,11 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
     title: z.string().nullable(),
     metaDescription: z.string().nullable(),
     focusKeyword: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal("route"),
+    currentRouteId: z.uuid(),
+    newPath: z.string().regex(/^\/products\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/),
   }),
 ]);
 
@@ -728,7 +734,12 @@ export async function createProductDraft<TQueryResult extends PgQueryResultHKT>(
       action: "product.draft.created",
       entityType: "product",
       entityId: productId,
-      afterSummary: { name, path, indexStatus: "noindex" },
+      afterSummary: {
+        name,
+        path,
+        indexStatus: "noindex",
+        ...(input.importItemId ? { importItemId: input.importItemId } : {}),
+      },
     });
     return productId;
   });
@@ -1871,6 +1882,22 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
           updatedAt: new Date(),
         })
         .where(eq(seoMetadata.routeId, snapshot.routeId));
+    } else if (snapshot.kind === "route") {
+      const currentRoute = (await transaction.select({ id: routes.id }).from(routes).where(and(
+        eq(routes.id, snapshot.currentRouteId),
+        eq(routes.entityType, "product"),
+        eq(routes.entityId, revision.entityId),
+        eq(routes.isCurrent, true),
+      )).limit(1))[0];
+      if (!currentRoute) throw new ProductRevisionConflictError("Product route changed after this revision was proposed.");
+      await changeEntityRoute(transaction, {
+        entityType: "product",
+        entityId: revision.entityId,
+        locale: "en",
+        newPath: snapshot.newPath,
+        actor,
+        reason: "Approved Product Import Revision changed the Product slug",
+      });
     } else {
       snapshot satisfies never;
     }
@@ -2293,4 +2320,32 @@ export async function changeProductSlug<TQueryResult extends PgQueryResultHKT>(
     actor,
     reason: "Published product slug changed by an authorized operator",
   }, options);
+}
+
+export async function proposeProductImportSlugRevision<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  productId: string,
+  requestedSlug: string,
+): Promise<string> {
+  requirePermission(actor.role, "seo.manage");
+  requireEditorialResourceAccess(actor.role, "product", "write");
+  const current = (await db.select({ routeId: routes.id, status: products.status }).from(products).innerJoin(routes, and(
+    eq(routes.entityType, "product"),
+    eq(routes.entityId, products.id),
+    eq(routes.locale, "en"),
+    eq(routes.isCurrent, true),
+  )).where(eq(products.id, productId)).limit(1))[0];
+  if (!current || current.status !== "published") throw new ProductValidationError("Published Product route was not found.");
+  const newPath = `/products/${slugify(requestedSlug)}/`;
+  const conflicts = await Promise.all([
+    db.select({ id: routes.id }).from(routes).where(eq(routes.path, newPath)).limit(1),
+    db.select({ id: redirects.id }).from(redirects).where(eq(redirects.sourcePath, newPath)).limit(1),
+  ]);
+  if (conflicts.some((rows) => rows[0])) throw new ProductValidationError("Product Slug candidate is already owned.");
+  return proposeProductRevision(db, actor, productId, productRevisionSnapshotSchema.parse({
+    kind: "route",
+    currentRouteId: current.routeId,
+    newPath,
+  }));
 }

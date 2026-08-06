@@ -28,6 +28,31 @@ export class InMemoryObjectStorage implements ObjectStorage {
     return { partition, objectKey, byteSize: bytes.byteLength };
   }
 
+  async putStream(
+    partition: StoragePartition,
+    objectKey: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    expectedBytes: number,
+  ): Promise<StoredObject> {
+    void contentType;
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let actual = 0;
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      actual += result.value.byteLength;
+      if (actual > expectedBytes) throw new Error("Streamed object exceeds its declared size.");
+      chunks.push(result.value);
+    }
+    if (actual !== expectedBytes) throw new Error("Streamed object does not match its declared size.");
+    const bytes = new Uint8Array(actual);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return this.put(partition, objectKey, bytes, contentType);
+  }
+
   async get(partition: StoragePartition, objectKey: string): Promise<Uint8Array> {
     const value = this.objects.get(this.key(partition, objectKey));
     if (!value) throw new Error("Object was not found.");
