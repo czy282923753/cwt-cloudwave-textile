@@ -6,7 +6,7 @@ export function AdminTable({
   rows: readonly (readonly React.ReactNode[])[];
 }>) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-white/10">
+    <div className="overflow-x-auto rounded-2xl border border-white/10" tabIndex={0}>
       <table className="w-full min-w-2xl text-left text-sm">
         <thead className="bg-slate-900 text-slate-300">
           <tr>

@@ -10,6 +10,7 @@ import {
 
 const areas: ReadonlyArray<readonly [string, string, Permission, EditorialResourceKind?]> = [
   ["Products", "/admin/products/", "products.read", "product"],
+  ["Product Imports", "/admin/product-imports/", "products.import"],
   ["Taxonomy", "/admin/taxonomy/", "products.read"],
   ["Applications", "/admin/applications/", "products.read"],
   ["Assets", "/admin/assets/", "assets.read"],

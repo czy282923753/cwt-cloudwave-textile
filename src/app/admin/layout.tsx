@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { RefineAdminProvider } from "@/admin/refine/refine-admin-provider";
 import { resolveCurrentUser } from "@/auth/current-user";
-import { requirePermission } from "@/auth/permissions";
+import { hasPermission, requirePermission } from "@/auth/permissions";
 import { canAccessEditorialResource } from "@/admin/preview-policy";
 
 export const metadata: Metadata = {
@@ -30,7 +30,7 @@ export default async function AdminLayout({
           </button>
         </form>
       </header>
-      <RefineAdminProvider editorialResources={editorialResources}>{children}</RefineAdminProvider>
+      <RefineAdminProvider canImportProducts={hasPermission(user.role, "products.import")} editorialResources={editorialResources}>{children}</RefineAdminProvider>
     </div>
   );
 }
