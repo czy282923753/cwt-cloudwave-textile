@@ -11,8 +11,8 @@ import {
   updateProductBlocks,
 } from "../src/catalog/product-service";
 import {
-  createApplicationDraft,
-  createTaxonomyTerm,
+  quickCreateApplicationDraft,
+  quickCreateTaxonomyTerm,
 } from "../src/catalog/taxonomy-service";
 import {
   applyContentRevision,
@@ -331,32 +331,33 @@ async function main(): Promise<void> {
 
     const quickName = "TEST Stage 2 Concurrent Category";
     const concurrentCategory = await Promise.allSettled([
-      createTaxonomyTerm(db, productEditor, {
+      quickCreateTaxonomyTerm(db, productEditor, {
         internalKey: `stage2-concurrent-a-${crypto.randomUUID()}`,
         name: quickName,
         dimension: "structure_construction",
         productCodePrefix: "SQA",
       }),
-      createTaxonomyTerm(secondDb, productEditor, {
+      quickCreateTaxonomyTerm(secondDb, productEditor, {
         internalKey: `stage2-concurrent-b-${crypto.randomUUID()}`,
         name: quickName,
         dimension: "structure_construction",
         productCodePrefix: "SQB",
       }),
     ]);
-    assert(concurrentCategory.filter((result) => result.status === "fulfilled").length === 1, "Concurrent Category quick-create did not select one winner.");
-    assert(concurrentCategory.filter((result) => result.status === "rejected").length === 1, "Concurrent Category quick-create did not reject the duplicate.");
-    const applicationId = await createApplicationDraft(db, productEditor, {
+    assert(concurrentCategory.every((result) => result.status === "fulfilled"), "Concurrent Category quick-create did not converge safely.");
+    const categoryIds = concurrentCategory.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    assert(new Set(categoryIds).size === 1, "Concurrent Category quick-create did not converge on one internal entity.");
+    const applicationId = await quickCreateApplicationDraft(db, productEditor, {
       internalKey: `stage2-quick-application-${crypto.randomUUID()}`,
       name: "TEST Stage 2 Quick Application",
     });
     const quickRoutes = await db.select({ entityId: routes.entityId, indexStatus: seoMetadata.indexStatus }).from(routes).innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id)).where(inArray(routes.path, ["/fabric-types/test-stage-2-concurrent-category/", "/applications/test-stage-2-quick-application/"]));
-    assert(quickRoutes.length === 2 && quickRoutes.every((row) => row.indexStatus === "noindex"), "Quick-created records were not noindex.");
+    assert(quickRoutes.length === 0, "Quick-created records unexpectedly acquired public Route or SEO authority.");
     assert((await db.select({ status: applications.status }).from(applications).where(eq(applications.id, applicationId)))[0]?.status === "draft", "Quick-created Application was not Draft.");
-    const quickAuditRows = await db.select({ action: auditLogs.action }).from(auditLogs).where(inArray(auditLogs.action, ["taxonomy.created", "application.draft.created"]));
-    assert(quickAuditRows.filter((row) => row.action === "taxonomy.created").length === 1, "Concurrent Category quick-create wrote duplicate Audit authority.");
-    assert(quickAuditRows.some((row) => row.action === "application.draft.created"), "Application quick-create required Audit is missing.");
-    scenarios.push("Category concurrency and Application Draft/noindex/Required Audit quick-create");
+    const quickAuditRows = await db.select({ action: auditLogs.action }).from(auditLogs).where(inArray(auditLogs.action, ["taxonomy.quick_draft.created", "application.quick_draft.created"]));
+    assert(quickAuditRows.filter((row) => row.action === "taxonomy.quick_draft.created").length === 1, "Concurrent Category quick-create wrote duplicate Audit authority.");
+    assert(quickAuditRows.some((row) => row.action === "application.quick_draft.created"), "Application quick-create required Audit is missing.");
+    scenarios.push("Category/Application quick-create converges on internal Drafts without Route or SEO authority");
 
     const targetRows = await db.insert(contents).values({
       channel: "fabric_knowledge",

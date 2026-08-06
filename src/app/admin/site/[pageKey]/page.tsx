@@ -11,7 +11,7 @@ import { AssetUploadForm } from "@/admin/components/asset-upload-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
 import { PreviewViewportPanel } from "@/admin/components/preview-viewport-panel";
 import { getAdminStaticPage, listAdminAssets } from "@/admin/data";
-import { requireCurrentUser } from "@/auth/current-user";
+import { resolveCurrentUser } from "@/auth/current-user";
 import { hasPermission } from "@/auth/permissions";
 import {
   ABOUT_MODULE_ORDER,
@@ -19,9 +19,10 @@ import {
   HOME_MODULE_ORDER,
   type StaticPageConfig,
 } from "@/content/static-page-projection";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 
-const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
-const panelClass = "grid gap-5 rounded-2xl border border-white/10 bg-slate-900 p-6";
+const inputClass = "min-w-0 w-full rounded-lg border border-white/10 bg-slate-950 p-3";
+const panelClass = "grid min-w-0 gap-5 rounded-2xl border border-white/10 bg-slate-900 p-4 sm:p-6";
 
 interface ModuleCopyValue {
   eyebrow: string;
@@ -40,9 +41,9 @@ function ModuleCopyFields({
   value: ModuleCopyValue;
 }>) {
   return (
-    <fieldset className="grid gap-3 rounded-xl border border-white/10 p-4">
+    <fieldset className="grid min-w-0 gap-3 rounded-xl border border-white/10 p-4">
       <legend>{label}</legend>
-      <label className="grid gap-2">
+      <label className="grid min-w-0 gap-2">
         Eyebrow
         <input
           className={inputClass}
@@ -50,7 +51,7 @@ function ModuleCopyFields({
           name={`copy:${fieldKey}:eyebrow`}
         />
       </label>
-      <label className="grid gap-2">
+      <label className="grid min-w-0 gap-2">
         Title
         <input
           className={inputClass}
@@ -59,7 +60,7 @@ function ModuleCopyFields({
           required
         />
       </label>
-      <label className="grid gap-2">
+      <label className="grid min-w-0 gap-2">
         Summary
         <textarea
           className={inputClass}
@@ -69,8 +70,8 @@ function ModuleCopyFields({
         />
       </label>
       {value.cta ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-2">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <label className="grid min-w-0 gap-2">
             CTA label
             <input
               className={inputClass}
@@ -79,7 +80,7 @@ function ModuleCopyFields({
               required
             />
           </label>
-          <label className="grid gap-2">
+          <label className="grid min-w-0 gap-2">
             CTA internal path
             <input
               className={inputClass}
@@ -107,35 +108,35 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
       ["inquiryCta", "Inquiry CTA", copy.inquiryCta],
     ];
     return (
-      <div className="grid gap-5">
-        <fieldset className="grid gap-3 rounded-xl border border-white/10 p-4">
+      <div className="grid min-w-0 gap-5">
+        <fieldset className="grid min-w-0 gap-3 rounded-xl border border-white/10 p-4">
           <legend>Hero copy</legend>
-          <label className="grid gap-2">
+          <label className="grid min-w-0 gap-2">
             Eyebrow
             <input className={inputClass} defaultValue={copy.hero.eyebrow} name="copy:hero:eyebrow" />
           </label>
-          <label className="grid gap-2">
+          <label className="grid min-w-0 gap-2">
             Title
             <input className={inputClass} defaultValue={copy.hero.title} name="copy:hero:title" required />
           </label>
-          <label className="grid gap-2">
+          <label className="grid min-w-0 gap-2">
             Summary
             <textarea className={inputClass} defaultValue={copy.hero.summary} name="copy:hero:summary" rows={3} />
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-2">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <label className="grid min-w-0 gap-2">
               Primary CTA label
               <input className={inputClass} defaultValue={copy.hero.primaryCta.label} name="copy:hero:primaryLabel" required />
             </label>
-            <label className="grid gap-2">
+            <label className="grid min-w-0 gap-2">
               Primary CTA internal path
               <input className={inputClass} defaultValue={copy.hero.primaryCta.href} name="copy:hero:primaryHref" pattern="/.*" required />
             </label>
-            <label className="grid gap-2">
+            <label className="grid min-w-0 gap-2">
               Secondary CTA label
               <input className={inputClass} defaultValue={copy.hero.secondaryCta?.label ?? ""} name="copy:hero:secondaryLabel" />
             </label>
-            <label className="grid gap-2">
+            <label className="grid min-w-0 gap-2">
               Secondary CTA internal path
               <input className={inputClass} defaultValue={copy.hero.secondaryCta?.href ?? ""} name="copy:hero:secondaryHref" pattern="/.*" />
             </label>
@@ -156,7 +157,7 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
     ["inquiryCta", "Inquiry CTA", copy.inquiryCta],
   ];
   return (
-    <div className="grid gap-5">
+    <div className="grid min-w-0 gap-5">
       {modules.map(([fieldKey, label, value]) => (
         <ModuleCopyFields fieldKey={fieldKey} key={fieldKey} label={label} value={value} />
       ))}
@@ -167,7 +168,8 @@ function CopyFields({ config }: Readonly<{ config: StaticPageConfig }>) {
 export default async function StaticPageEditor({
   params,
 }: Readonly<{ params: Promise<{ pageKey: string }> }>) {
-  const user = await requireCurrentUser("content.read");
+  const user = await resolveCurrentUser();
+  if (!user || !canAccessEditorialResource(user.role, "static_page", "manage")) notFound();
   const { pageKey: rawPageKey } = await params;
   if (rawPageKey !== "home" && rawPageKey !== "about") notFound();
   const pageKey = rawPageKey;
@@ -175,7 +177,7 @@ export default async function StaticPageEditor({
     getAdminStaticPage(pageKey),
     listAdminAssets(),
   ]);
-  const config = page.pendingRevision?.config ?? page.liveConfig;
+  const config = page.pendingRevision?.config ?? page.liveConfig ?? DEFAULT_STATIC_PAGE_CONFIGS[pageKey];
   const moduleKeys = pageKey === "home" ? HOME_MODULE_ORDER : ABOUT_MODULE_ORDER;
   const readyAssets = allAssets.filter((asset) =>
     isEligiblePublicImagePickerAsset(asset),
@@ -191,17 +193,23 @@ export default async function StaticPageEditor({
   const stateDescription = page.pendingRevision
     ? `Pending v${page.pendingRevision.versionNumber} ${page.pendingRevision.status} by ${page.pendingRevision.createdByName ?? "unknown"} at ${page.pendingRevision.createdAt.toLocaleString("en-GB")}`
     : "No pending revision";
-  const liveDescription = page.liveUpdatedAt
-    ? `Live updated by ${page.liveUpdatedByName ?? "unknown"} at ${page.liveUpdatedAt.toLocaleString("en-GB")}`
-    : "Live safe code default";
+  const liveDescription = page.liveAuthorityState === "invalid"
+    ? "Invalid Live Configuration — public output is failing closed"
+    : page.liveAuthorityState === "bootstrap"
+      ? "Bootstrap code default — no approved database setting"
+      : page.liveUpdatedAt
+        ? `Live updated by ${page.liveUpdatedByName ?? "unknown"} at ${page.liveUpdatedAt.toLocaleString("en-GB")}`
+        : "Approved database Live configuration";
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
+    <main className="mx-auto min-w-0 max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <AdminPageHeader
         action={(
           <a
             className="rounded-xl border border-white/20 px-4 py-3"
             href={`/admin/preview/site/${pageKey}/`}
+            referrerPolicy="no-referrer"
+            rel="noopener noreferrer"
             target="_blank"
           >
             Preview Draft
@@ -210,11 +218,16 @@ export default async function StaticPageEditor({
         description={`Fixed schema · ${liveDescription} · ${stateDescription}`}
         title={`${pageKey === "home" ? "Home" : "About CWT"} Page Settings`}
       />
-      <div className="grid gap-8">
+      <div className="grid min-w-0 gap-8">
         <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
           Modules use a frozen order and allowlist. Disabling a module removes its DOM
           and media authority. Facility media and Company Facts remain server-validated.
         </p>
+        {page.liveAuthorityState === "invalid" ? (
+          <p className="rounded-xl border border-red-300/40 bg-red-950/40 p-4 text-sm text-red-100" role="alert">
+            Invalid Live Configuration. Bootstrap defaults are not being substituted. Save, review, and apply a valid Draft to restore this page.
+          </p>
+        ) : null}
         <PreviewViewportPanel
           href={`/admin/preview/site/${pageKey}/`}
           label={pageKey === "home" ? "Home" : "About CWT"}
@@ -239,7 +252,7 @@ export default async function StaticPageEditor({
             value={page.pendingRevision?.status === "draft" ? page.pendingRevision.draftVersion ?? 1 : 0}
           />
           <fieldset className="contents" disabled={!canWrite || !draftEditable}>
-            <fieldset className="grid gap-3">
+            <fieldset className="grid min-w-0 gap-3">
               <legend className="text-xl font-semibold">Fixed modules</legend>
               {moduleKeys.map((key) => (
                 <label className="flex items-center gap-3" key={key}>
@@ -254,7 +267,7 @@ export default async function StaticPageEditor({
               ))}
             </fieldset>
             <CopyFields config={config} />
-            <fieldset className="grid gap-3">
+            <fieldset className="grid min-w-0 gap-3">
               <legend className="text-xl font-semibold">Verified public Company Facts</legend>
               {page.facts.length ? page.facts.map((fact) => (
                 <label className="flex gap-3" key={fact.id}>
@@ -275,22 +288,22 @@ export default async function StaticPageEditor({
                 </p>
               )}
             </fieldset>
-            <fieldset className="grid gap-5">
+            <fieldset className="grid min-w-0 gap-5">
               <legend className="text-xl font-semibold">Desktop and mobile media placements</legend>
               {moduleKeys.map((placementKey) => {
                 const selectableAssets = placementKey === "manufacturing_strength" || placementKey === "owned_manufacturing"
                   ? readyAssets.filter((asset) => asset.subjectRelationship === "cwt" && asset.isCwtOwnedFacility === true)
                   : readyAssets;
                 return (
-                  <section className="grid gap-3 rounded-xl border border-white/10 p-4" key={placementKey}>
+                  <section className="grid min-w-0 gap-3 rounded-xl border border-white/10 p-4" key={placementKey}>
                     <h3 className="font-semibold">{placementKey.replaceAll("_", " ")}</h3>
                     {(["desktop", "mobile"] as const).map((viewport) => {
                       const placement = config.placements.find((item) =>
                         item.placementKey === placementKey && item.viewport === viewport,
                       );
                       return (
-                        <div className="grid gap-3 rounded-lg bg-slate-950/40 p-3 sm:grid-cols-2" key={viewport}>
-                          <label className="grid gap-2 sm:col-span-2">
+                        <div className="grid min-w-0 gap-3 rounded-lg bg-slate-950/40 p-3 sm:grid-cols-2" key={viewport}>
+                          <label className="grid min-w-0 gap-2 sm:col-span-2">
                             {viewport} Asset
                             <select className={inputClass} defaultValue={placement?.assetId ?? ""} name={`asset:${placementKey}:${viewport}`}>
                               <option value="">No media</option>
@@ -299,23 +312,23 @@ export default async function StaticPageEditor({
                               ))}
                             </select>
                           </label>
-                          <label className="grid gap-2">
+                          <label className="grid min-w-0 gap-2">
                             Placement Alt Text
                             <input className={inputClass} defaultValue={placement?.altText ?? ""} name={`alt:${placementKey}:${viewport}`} />
                           </label>
-                          <label className="grid gap-2">
+                          <label className="grid min-w-0 gap-2">
                             Caption
                             <input className={inputClass} defaultValue={placement?.caption ?? ""} name={`caption:${placementKey}:${viewport}`} />
                           </label>
-                          <label className="grid gap-2">
+                          <label className="grid min-w-0 gap-2">
                             Focal X
                             <input className={inputClass} defaultValue={placement?.focalX ?? 50} max="100" min="0" name={`focalX:${placementKey}:${viewport}`} type="number" />
                           </label>
-                          <label className="grid gap-2">
+                          <label className="grid min-w-0 gap-2">
                             Focal Y
                             <input className={inputClass} defaultValue={placement?.focalY ?? 50} max="100" min="0" name={`focalY:${placementKey}:${viewport}`} type="number" />
                           </label>
-                          <label className="grid gap-2">
+                          <label className="grid min-w-0 gap-2">
                             Overlay
                             <input className={inputClass} defaultValue={placement?.overlayOpacity ?? 0} max="0.9" min="0" name={`overlay:${placementKey}:${viewport}`} step="0.05" type="number" />
                           </label>

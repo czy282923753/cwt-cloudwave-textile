@@ -43,10 +43,10 @@ export function AdminPageHeader({
   action?: React.ReactNode;
 }>) {
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="text-3xl font-semibold">{title}</h1>
-        <p className="mt-2 max-w-3xl text-slate-300">{description}</p>
+    <div className="mb-8 flex min-w-0 flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="break-words text-3xl font-semibold">{title}</h1>
+        <p className="mt-2 max-w-3xl break-words text-slate-300">{description}</p>
       </div>
       {action}
     </div>

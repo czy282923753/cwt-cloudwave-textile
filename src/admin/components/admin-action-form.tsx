@@ -122,6 +122,15 @@ export function AdminActionForm({
               )}
             </ul>
           ) : null}
+          {result.errorCode === "CONFLICT" ? (
+            <button
+              className="mt-3 rounded-lg border border-red-100/40 px-3 py-2 font-semibold"
+              onClick={() => window.location.reload()}
+              type="button"
+            >
+              Reload latest server Draft
+            </button>
+          ) : null}
         </div>
       ) : null}
     </form>

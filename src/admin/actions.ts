@@ -18,6 +18,9 @@ import {
 import {
   createApplicationDraft,
   createTaxonomyTerm,
+  quickCreateApplicationDraft,
+  quickCreateTaxonomyTerm,
+  approveTaxonomyPublicRoute,
   setTaxonomyActive,
   setTaxonomyIndexStatus,
   updateTaxonomyTerm,
@@ -180,6 +183,13 @@ function optionalString(form: FormData, key: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function editorialDraftExpectation(form: FormData) {
+  return {
+    expectedRevisionId: optionalString(form, "expectedRevisionId") ?? null,
+    expectedRevisionVersion: Number(optionalString(form, "expectedRevisionVersion") ?? 0),
+  };
+}
+
 async function withDatabase<TResult>(
   operation: <TQueryResult extends PgQueryResultHKT>(
     db: AppDatabase<TQueryResult>,
@@ -256,13 +266,13 @@ export async function quickCreateProductRelation(
     const parsed = quickCreateProductRelationSchema.parse(input);
     const actor = await currentActor();
     const id = parsed.kind === "taxonomy"
-      ? await withDatabase((db) => createTaxonomyTerm(db, actor, {
+      ? await withDatabase((db) => quickCreateTaxonomyTerm(db, actor, {
           internalKey: `quick-${slugify(parsed.name)}`,
           name: parsed.name,
           dimension: parsed.dimension,
           productCodePrefix: parsed.productCodePrefix,
         }))
-      : await withDatabase((db) => createApplicationDraft(db, actor, {
+      : await withDatabase((db) => quickCreateApplicationDraft(db, actor, {
           internalKey: `quick-${slugify(parsed.name)}`,
           name: parsed.name,
         }));
@@ -511,7 +521,7 @@ export async function updateProductFactsAction(form: FormData): Promise<AdminMut
       sampleAvailable: parseRequiredField(
         z.enum(["unknown", "yes", "no"]), form, "sampleAvailable",
       ),
-    }),
+    }, editorialDraftExpectation(form)),
   );
   revalidatePath(`/admin/products/${productId}`);
   return mutationResult(productId);
@@ -535,6 +545,7 @@ export async function correctProductCodeAction(form: FormData): Promise<AdminMut
       productId,
       requiredString(form, "newProductCode"),
       requiredString(form, "reason"),
+      editorialDraftExpectation(form),
     ),
   );
   revalidatePath(`/admin/products/${productId}`);
@@ -588,7 +599,7 @@ export async function updateProductSeoAction(form: FormData): Promise<AdminMutat
       title: optionalString(form, "seoTitle") ?? null,
       metaDescription: optionalString(form, "metaDescription") ?? null,
       focusKeyword: optionalString(form, "focusKeyword") ?? null,
-    }),
+    }, editorialDraftExpectation(form)),
   );
   revalidatePath(`/admin/products/${productId}`);
   return mutationResult(productId);
@@ -669,7 +680,7 @@ export async function updateProductStructureAction(form: FormData): Promise<Admi
       moqNoteDisplay: parseRequiredField(
         z.enum(["inherit", "show", "hide"]), form, "moqNoteDisplay",
       ),
-    }),
+    }, editorialDraftExpectation(form)),
   );
   revalidatePath(`/admin/products/${productId}`);
   revalidatePath("/products/[slug]", "page");
@@ -801,8 +812,12 @@ export async function updateTaxonomyAction(form: FormData): Promise<AdminMutatio
         ]), form, "dimension"),
     }),
   );
+  const existingRouteId = optionalString(form, "routeId");
+  const routeId = existingRouteId ?? await withDatabase((db) =>
+    approveTaxonomyPublicRoute(db, actor, termId),
+  );
   await withDatabase((db) =>
-    updateSeoMetadata(db, actor, requiredString(form, "routeId"), {
+    updateSeoMetadata(db, actor, routeId, {
       title: optionalString(form, "seoTitle") ?? null,
       metaDescription: optionalString(form, "metaDescription") ?? null,
     }),
@@ -879,6 +894,7 @@ export async function createApplicationAction(form: FormData): Promise<AdminMuta
 export async function updateApplicationAction(form: FormData): Promise<AdminMutationOutcome> {
   const actor = await currentActor();
   const applicationId = requiredString(form, "applicationId");
+  const routeId = optionalString(form, "routeId");
   await withDatabase((db) =>
     updateApplication(db, actor, applicationId, {
       name: requiredString(form, "name"),
@@ -887,12 +903,12 @@ export async function updateApplicationAction(form: FormData): Promise<AdminMuta
       productIds: form
         .getAll("productIds")
         .filter((value): value is string => typeof value === "string" && Boolean(value)),
-      seo: {
-        routeId: requiredString(form, "routeId"),
-        title: optionalString(form, "seoTitle") ?? null,
-        metaDescription: optionalString(form, "metaDescription") ?? null,
-        focusKeyword: optionalString(form, "focusKeyword") ?? null,
-      },
+      ...(routeId ? { seo: {
+          routeId,
+          title: optionalString(form, "seoTitle") ?? null,
+          metaDescription: optionalString(form, "metaDescription") ?? null,
+          focusKeyword: optionalString(form, "focusKeyword") ?? null,
+        } } : {}),
     }),
   );
   revalidatePath(`/admin/applications/${applicationId}`);
@@ -1084,6 +1100,7 @@ export async function updateContentAction(form: FormData): Promise<AdminMutation
       ...(optionalString(form, "changeSummary")
         ? { changeSummary: requiredString(form, "changeSummary") }
         : {}),
+      ...editorialDraftExpectation(form),
     }),
   );
   revalidatePath(`/admin/contents/${contentId}`);

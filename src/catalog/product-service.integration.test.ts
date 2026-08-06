@@ -30,6 +30,7 @@ import {
   publishReviewedProduct,
   setProductIndexStatus,
   submitProductForReview,
+  submitProductBlockDraftForReview,
   updateProductEditorialCopy,
   ProductRevisionConflictError,
 } from "./product-service";
@@ -360,6 +361,12 @@ describe("Product workflow", () => {
       .from(productLocalizations)
       .where(eq(productLocalizations.productId, productId));
     expect(beforeApproval[0]?.shortDescription).toBeNull();
+    await submitProductBlockDraftForReview(
+      connection.db,
+      { userId: editorId, role: "product_editor" },
+      productId,
+      revisionId!,
+    );
     await applyProductRevision(
       connection.db,
       { userId: publisherId, role: "reviewer_publisher" },

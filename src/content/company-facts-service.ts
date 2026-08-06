@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog } from "@/audit/service";
@@ -9,6 +9,20 @@ import type { AppDatabase } from "@/db/types";
 
 interface CompanyFactServiceOptions {
   auditWriter?: typeof writeAuditLog;
+}
+
+export function currentPublicCompanyFactConditions(now = new Date()) {
+  return and(
+    eq(companyFacts.verificationStatus, "verified"),
+    eq(companyFacts.publicUseAllowed, true),
+    isNotNull(companyFacts.verifiedByUserId),
+    isNotNull(companyFacts.verifiedAt),
+    sql`length(trim(${companyFacts.factKey})) > 0`,
+    sql`length(trim(${companyFacts.subject})) > 0`,
+    sql`length(trim(${companyFacts.statement})) > 0`,
+    sql`length(trim(coalesce(${companyFacts.evidenceReference}, ''))) > 0`,
+    or(isNull(companyFacts.reviewAfter), gt(companyFacts.reviewAfter, now)),
+  )!;
 }
 
 export async function createCompanyFact<TQueryResult extends PgQueryResultHKT>(
@@ -165,11 +179,6 @@ export async function listVerifiedPublicCompanyFacts<
   const rows = await db
     .select({ key: companyFacts.factKey, statement: companyFacts.statement })
     .from(companyFacts)
-    .where(
-      and(
-        eq(companyFacts.verificationStatus, "verified"),
-        eq(companyFacts.publicUseAllowed, true),
-      ),
-    );
+    .where(currentPublicCompanyFactConditions());
   return new Map(rows.map((row) => [row.key, row.statement]));
 }

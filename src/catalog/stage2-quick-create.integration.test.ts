@@ -11,10 +11,14 @@ import {
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
 
-import { createApplicationDraft, createTaxonomyTerm } from "./taxonomy-service";
+import {
+  approveTaxonomyPublicRoute,
+  quickCreateApplicationDraft,
+  quickCreateTaxonomyTerm,
+} from "./taxonomy-service";
 
 describe("I-03 Category/Application governed quick creation", () => {
-  it("creates immediately selectable noindex records with Required Audit and rejects normalized duplicates", async () => {
+  it("creates one immediately selectable internal Draft without Route or SEO authority", async () => {
     const connection = await createTestDatabase();
     const userRows = await connection.db.insert(users).values({
       email: `stage2-taxonomy-${crypto.randomUUID()}@example.test`,
@@ -23,15 +27,25 @@ describe("I-03 Category/Application governed quick creation", () => {
       passwordHash: "test",
     }).returning({ id: users.id });
     const actor = { userId: userRows[0]!.id, role: "product_editor" as const };
-    const termId = await createTaxonomyTerm(connection.db, actor, {
-      internalKey: `stage2-category-${crypto.randomUUID()}`,
-      name: "TEST Stage 2 Performance Knit",
+    const termName = `TEST Stage 2 Performance Knit ${crypto.randomUUID()}`;
+    const [termId, repeatedTermId] = await Promise.all([
+      quickCreateTaxonomyTerm(connection.db, actor, {
+      internalKey: "ignored-by-quick-create",
+      name: termName,
       dimension: "structure_construction",
       productCodePrefix: "SPK",
-    });
-    const applicationId = await createApplicationDraft(connection.db, actor, {
-      internalKey: `stage2-application-${crypto.randomUUID()}`,
-      name: "TEST Stage 2 Protective Apparel",
+    }),
+      quickCreateTaxonomyTerm(connection.db, actor, {
+      internalKey: "also-ignored",
+      name: `  ${termName}  `,
+      dimension: "structure_construction",
+      productCodePrefix: "SPK",
+    }),
+    ]);
+    expect(repeatedTermId).toBe(termId);
+    const applicationId = await quickCreateApplicationDraft(connection.db, actor, {
+      internalKey: "ignored-by-quick-create",
+      name: `TEST Stage 2 Protective Apparel ${crypto.randomUUID()}`,
     });
     expect((await connection.db.select().from(taxonomyTerms).where(eq(taxonomyTerms.id, termId)))[0])
       .toMatchObject({ productCodePrefix: "SPK", isActive: true });
@@ -42,21 +56,17 @@ describe("I-03 Category/Application governed quick creation", () => {
       .from(routes)
       .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
       .where(inArray(routes.entityId, [termId, applicationId]));
-    expect(createdRoutes).toEqual(expect.arrayContaining([
-      { entityType: "taxonomy", indexStatus: "noindex" },
-      { entityType: "application", indexStatus: "noindex" },
-    ]));
+    expect(createdRoutes).toHaveLength(0);
     const audits = await connection.db.select({ action: auditLogs.action }).from(auditLogs).where(and(
       inArray(auditLogs.entityId, [termId, applicationId]),
-      inArray(auditLogs.action, ["taxonomy.created", "application.draft.created"]),
+      inArray(auditLogs.action, ["taxonomy.quick_draft.created", "application.quick_draft.created"]),
     ));
     expect(audits).toHaveLength(2);
-    await expect(createTaxonomyTerm(connection.db, actor, {
-      internalKey: `stage2-category-duplicate-${crypto.randomUUID()}`,
-      name: "  TEST Stage 2 Performance Knit  ",
-      dimension: "structure_construction",
-      productCodePrefix: null,
-    })).rejects.toThrow(/URL is already in use/);
+    const approvedRouteId = await approveTaxonomyPublicRoute(connection.db, actor, termId);
+    expect((await connection.db.select().from(routes).where(eq(routes.id, approvedRouteId)))[0])
+      .toMatchObject({ entityType: "taxonomy", entityId: termId });
+    expect((await connection.db.select().from(seoMetadata).where(eq(seoMetadata.routeId, approvedRouteId)))[0]?.indexStatus)
+      .toBe("noindex");
     await connection.close();
   });
 
@@ -68,7 +78,7 @@ describe("I-03 Category/Application governed quick creation", () => {
       role: "sales",
       passwordHash: "test",
     }).returning({ id: users.id });
-    await expect(createApplicationDraft(connection.db, {
+    await expect(quickCreateApplicationDraft(connection.db, {
       userId: userRows[0]!.id,
       role: "sales",
     }, {

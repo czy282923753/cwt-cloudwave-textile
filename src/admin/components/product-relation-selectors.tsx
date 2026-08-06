@@ -7,7 +7,7 @@ import {
   type QuickCreateProductRelationResult,
 } from "@/admin/actions";
 
-const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
+const inputClass = "min-w-0 w-full rounded-lg border border-white/10 bg-slate-950 p-3";
 const buttonClass = "rounded-lg border border-white/20 px-3 py-2 disabled:opacity-40";
 
 type TaxonomyDimension =
@@ -176,7 +176,7 @@ export function ProductRelationSelectors({
   );
 
   return (
-    <section className="grid gap-5 rounded-xl border border-white/10 p-4">
+    <section className="grid min-w-0 gap-5 rounded-xl border border-white/10 p-3 sm:p-4">
       <input name="primaryTaxonomyTermId" type="hidden" value={primary} />
       {[...additional].filter((id) => id !== primary).map((id) => (
         <input key={id} name="taxonomyTermIds" type="hidden" value={id} />
@@ -199,7 +199,7 @@ export function ProductRelationSelectors({
         </label>
         <div className="grid max-h-48 gap-2 overflow-auto rounded-lg border border-white/10 p-3">
           {primaryOptions.map((term) => (
-            <label className="flex gap-2" key={term.id}>
+            <label className="flex min-w-0 gap-2 break-words" key={term.id}>
               <input
                 checked={primary === term.id}
                 disabled={!term.isActive && primary !== term.id}
@@ -229,7 +229,7 @@ export function ProductRelationSelectors({
         </label>
         <div className="grid max-h-48 gap-2 overflow-auto rounded-lg border border-white/10 p-3">
           {additionalOptions.map((term) => (
-            <label className="flex gap-2" key={term.id}>
+            <label className="flex min-w-0 gap-2 break-words" key={term.id}>
               <input
                 checked={additional.has(term.id)}
                 disabled={term.id === primary || (!term.isActive && !additional.has(term.id))}
@@ -250,7 +250,7 @@ export function ProductRelationSelectors({
         </label>
         <div className="grid max-h-48 gap-2 overflow-auto rounded-lg border border-white/10 p-3">
           {applicationOptions.map((application) => (
-            <label className="flex gap-2" key={application.id}>
+            <label className="flex min-w-0 gap-2 break-words" key={application.id}>
               <input
                 checked={selectedApplications.has(application.id)}
                 onChange={(event) =>
@@ -276,7 +276,7 @@ export function ProductRelationSelectors({
         <div className="grid content-start gap-3 rounded-lg border border-white/10 p-3">
           <strong>Quick-create Application Draft</strong>
           <label className="grid gap-2">Name<input className={inputClass} onChange={(event) => setQuickApplicationName(event.target.value)} required value={quickApplicationName} /></label>
-          <p className="text-xs text-slate-400">The new Application remains Draft and Noindex.</p>
+          <p className="text-xs text-slate-300">The new Application remains an internal Draft with no public Route or SEO record.</p>
           <button className={buttonClass} disabled={pending || !quickApplicationName.trim()} onClick={() => void quickCreateApplication()} type="button">Create and select</button>
         </div>
       </div>

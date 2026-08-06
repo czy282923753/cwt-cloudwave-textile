@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, type DragEvent } from "react";
 
-const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
+const inputClass = "min-w-0 w-full rounded-lg border border-white/10 bg-slate-950 p-3";
 const buttonClass =
   "rounded-lg border border-white/20 px-3 py-2 text-sm disabled:opacity-40";
 
@@ -91,14 +91,14 @@ export function MediaPlacementEditor({
   }
 
   return (
-    <fieldset className="grid gap-4 rounded-xl border border-white/10 p-4">
+    <fieldset className="grid min-w-0 gap-4 rounded-xl border border-white/10 p-3 sm:p-4">
       <legend>Governed media placements</legend>
       <p className="text-sm text-slate-400">
         Pointer drag and keyboard Move controls update the same deterministic order.
         Unlinking never deletes the shared Asset.
       </p>
       <div className="flex flex-wrap gap-3">
-        <label className="grid min-w-64 flex-1 gap-2">
+        <label className="grid min-w-0 basis-64 flex-1 gap-2">
           Asset Library
           <select
             className={inputClass}
@@ -147,8 +147,8 @@ export function MediaPlacementEditor({
             type="hidden"
             value={index}
           />
-          <div className="flex items-center justify-between gap-3 sm:col-span-2">
-            <strong>
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 sm:col-span-2">
+            <strong className="min-w-0 break-all">
               {index + 1}. {labels.get(placement.assetId) ?? placement.assetId}
             </strong>
             <div className="flex flex-wrap gap-2">

@@ -22,6 +22,7 @@ const blockProjectionFixtures = {
   },
   enabledStaticAssetId: "91000000-0000-4000-8000-000000000001",
   disabledStaticAssetId: "91000000-0000-4000-8000-000000000002",
+  aboutStaticAssetId: "91000000-0000-4000-8000-000000000003",
 } as const;
 
 test.beforeEach(async ({ page }) => {
@@ -38,6 +39,15 @@ async function loginAsLocalAdmin(page: Page) {
   await page
     .getByLabel("Password", { exact: true })
     .fill("local-only-admin-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/$/);
+}
+
+async function loginAsEditorialRole(page: Page, email: string) {
+  await page.context().clearCookies();
+  await page.goto("/operations-login/");
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("local-only-role-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/$/);
 }
@@ -326,6 +336,113 @@ test("@all Stage 2 fixed-page settings and shared Block Editor remain keyboard-o
       ["critical", "serious"].includes(violation.impact ?? ""),
     ),
   ).toEqual([]);
+});
+
+test("@desktop Stage 2 editor, Preview, and Preview Asset role matrix fails closed", async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/products/");
+  const productHref = await page.getByRole("link", { name: /TEST E2E Block Media Product/ }).getAttribute("href");
+  await page.goto("/admin/contents/");
+  const contentHref = await page.getByRole("link", { name: /TEST E2E Block Media Content/ }).getAttribute("href");
+  if (!productHref || !contentHref) throw new Error("Expected synthetic editorial fixture links.");
+  const productId = productHref.split("/").filter(Boolean).at(-1)!;
+  const contentId = contentHref.split("/").filter(Boolean).at(-1)!;
+  const editorPaths = {
+    product: productHref,
+    content: contentHref,
+    home: "/admin/site/home/",
+    about: "/admin/site/about/",
+  } as const;
+  const previewPaths = {
+    product: `/admin/preview/product/${productId}/`,
+    content: `/admin/preview/content/${contentId}/`,
+    home: "/admin/preview/site/home/",
+    about: "/admin/preview/site/about/",
+  } as const;
+  await page.goto(previewPaths.product);
+  const productAssetPath = await page.locator('img[src*="/api/admin/preview-assets/product/"]').first().getAttribute("src");
+  await page.goto(previewPaths.content);
+  const contentAssetPath = await page.locator('img[src*="/api/admin/preview-assets/content/"]').first().getAttribute("src");
+  if (!productAssetPath || !contentAssetPath) throw new Error("Expected governed Preview media URLs.");
+  const assetPaths = {
+    product: productAssetPath,
+    content: contentAssetPath,
+    home: `/api/admin/preview-assets/site/home/${blockProjectionFixtures.enabledStaticAssetId}/`,
+    about: `/api/admin/preview-assets/site/about/${blockProjectionFixtures.aboutStaticAssetId}/`,
+  } as const;
+  const expectations = [
+    ["admin@example.test", new Set(["product", "content", "home", "about"])],
+    ["product-editor@example.test", new Set(["product"])],
+    ["content-editor@example.test", new Set(["content", "home", "about"])],
+    ["reviewer@example.test", new Set(["product", "content", "home", "about"])],
+    ["sales@example.test", new Set<string>()],
+    ["analyst@example.test", new Set<string>()],
+  ] as const;
+  for (const [email, allowed] of expectations) {
+    if (email === "admin@example.test") {
+      await page.context().clearCookies();
+      await loginAsLocalAdmin(page);
+    } else {
+      await loginAsEditorialRole(page, email);
+    }
+    for (const key of ["product", "content", "home", "about"] as const) {
+      const editorResponse = await page.goto(editorPaths[key]);
+      expect(editorResponse?.status(), `${email} editor ${key}`).toBe(allowed.has(key) ? 200 : 404);
+      const previewResponse = await page.goto(previewPaths[key]);
+      expect(previewResponse?.status(), `${email} preview ${key}`).toBe(allowed.has(key) ? 200 : 404);
+      const assetResponse = await page.request.get(assetPaths[key]);
+      expect(assetResponse.status(), `${email} Preview Asset ${key}`).toBe(allowed.has(key) ? 200 : 404);
+    }
+  }
+  await page.context().clearCookies();
+  for (const key of ["product", "content", "home", "about"] as const) {
+    expect((await page.goto(previewPaths[key]))?.status(), `anonymous preview ${key}`).toBe(404);
+    expect((await page.request.get(assetPaths[key])).status(), `anonymous Preview Asset ${key}`).toBe(403);
+  }
+});
+
+test("@desktop six-width Admin and Public-context Preview matrix has no serious Axe or overflow failures", async ({ page }) => {
+  test.setTimeout(240_000);
+  await loginAsLocalAdmin(page);
+  await page.goto("/admin/products/");
+  const productHref = await page.getByRole("link", { name: /TEST E2E Block Media Product/ }).getAttribute("href");
+  await page.goto("/admin/contents/");
+  const contentHref = await page.getByRole("link", { name: /TEST E2E Block Media Content/ }).getAttribute("href");
+  if (!productHref || !contentHref) throw new Error("Expected synthetic editorial fixture links.");
+  const productId = productHref.split("/").filter(Boolean).at(-1)!;
+  const contentId = contentHref.split("/").filter(Boolean).at(-1)!;
+  const adminPaths = ["/admin/site/home/", "/admin/site/about/", productHref, contentHref];
+  const previewPaths = [
+    "/admin/preview/site/home/",
+    "/admin/preview/site/about/",
+    `/admin/preview/product/${productId}/`,
+    `/admin/preview/content/${contentId}/`,
+  ];
+  const runtimeErrors: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) runtimeErrors.push(`${message.type()}: ${message.text()}`);
+  });
+  page.on("pageerror", (error) => runtimeErrors.push(`pageerror: ${error.message}`));
+  for (const width of [320, 375, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: width < 800 ? 900 : 1000 });
+    for (const path of [...adminPaths, ...previewPaths]) {
+      const response = await page.goto(path);
+      expect(response?.status(), `${path} at ${width}px`).toBe(200);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `${path} overflow at ${width}px`)
+        .toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+      const accessibility = await new AxeBuilder({ page }).analyze();
+      expect(accessibility.violations.filter((violation) =>
+        ["critical", "serious"].includes(violation.impact ?? ""),
+      ), `${path} Axe at ${width}px`).toEqual([]);
+      if (path.includes("/admin/preview/")) {
+        await expect(page.getByText(/Authenticated .* Preview/)).toBeVisible();
+        await expect(page.getByText(/CWT Operations/)).toHaveCount(0);
+        await expect(page.getByRole("link", { name: "CloudWave Textile" })).toBeVisible();
+      }
+    }
+  }
+  expect(runtimeErrors).toEqual([]);
 });
 
 test("@desktop remediation public routes produce no Console, page, or Hydration errors", async ({ page }) => {

@@ -52,7 +52,7 @@ describe("U-11 shared Block Editor command history", () => {
     });
   });
 
-  it("enforces Lock for edit/delete, allows explicit unlock, and keeps moves available", () => {
+  it("enforces Lock for every mutation except explicit unlock", () => {
     const locked = applyBlockCommand(initial, { type: "toggle_lock", blockId: "one" });
     expect(locked.blocks[0]?.locked).toBe(true);
     expect(() => applyBlockCommand(locked, {
@@ -62,8 +62,13 @@ describe("U-11 shared Block Editor command history", () => {
     })).toThrow(/Unlock/);
     expect(() => applyBlockCommand(locked, { type: "remove", blockId: "one" }))
       .toThrow(/Unlock/);
-    expect(applyBlockCommand(locked, { type: "move", blockId: "one", toIndex: 1 }).blocks[1]?.id)
-      .toBe("one");
+    expect(() => applyBlockCommand(locked, { type: "move", blockId: "one", toIndex: 1 }))
+      .toThrow(/Unlock/);
+    expect(() => applyBlockCommand(locked, {
+      type: "duplicate",
+      blockId: "one",
+      newBlockId: "copy",
+    })).toThrow(/Unlock/);
     const unlocked = applyBlockCommand(locked, { type: "toggle_lock", blockId: "one" });
     expect(applyBlockCommand(unlocked, { type: "remove", blockId: "one" }).blocks)
       .toHaveLength(1);
@@ -85,6 +90,11 @@ describe("U-11 shared Block Editor command history", () => {
       type: "command",
       command: { type: "toggle_lock", blockId: "one" },
     });
+    expect(state.present.blocks[0]?.locked).toBe(true);
+    state = blockHistoryReducer(state, { type: "undo" });
+    expect(state.present.blocks[0]?.locked).not.toBe(true);
+    state = blockHistoryReducer(state, { type: "redo" });
+    expect(state.present.blocks[0]?.locked).toBe(true);
     expect(state.future).toEqual([]);
 
     for (let index = 0; index < BLOCK_HISTORY_LIMIT + 5; index += 1) {

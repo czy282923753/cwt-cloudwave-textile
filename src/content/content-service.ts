@@ -9,6 +9,8 @@ import {
 } from "@/audit/governed-mutation";
 import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
+import { requireEditorialResourceAccess } from "@/admin/preview-policy";
+import { EditorialDraftConflictError } from "@/editorial/conflict";
 import {
   contentLocalizations,
   contentAssets,
@@ -31,6 +33,7 @@ import {
 } from "@/editorial/blocks";
 import {
   resolveBlockPublicProjection,
+  synchronizeBlockInternalLinks,
   type ContentBlockMediaPlacement,
 } from "@/editorial/block-references";
 import { slugify } from "@/seo/path";
@@ -223,7 +226,7 @@ export async function createContentDraft<TQueryResult extends PgQueryResultHKT>(
     initialDocument?: BlockDocument;
   },
 ): Promise<string> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "content", "write");
   const title = input.title.trim();
   const document = input.initialDocument
     ? parseBlockDocument(input.initialDocument, "content")
@@ -315,10 +318,12 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
     media?: readonly ContentMediaPlacement[];
     structuredDocument?: BlockDocument;
     expectedEditorDocumentVersion?: number;
+    expectedRevisionId?: string | null;
+    expectedRevisionVersion?: number | null;
     changeSummary?: string;
   },
 ): Promise<string | null> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "content", "write");
   const media = normalizeContentMedia(input.assetIds, input.media);
   const document = input.structuredDocument
     ? parseBlockDocument(input.structuredDocument, "content")
@@ -392,6 +397,12 @@ export async function updateContent<TQueryResult extends PgQueryResultHKT>(
       ...(snapshot.media ? { media: snapshot.media } : {}),
       seo,
       changeSummary: input.changeSummary?.trim() || "Published Content update",
+      ...(input.expectedRevisionId !== undefined
+        ? { expectedRevisionId: input.expectedRevisionId }
+        : {}),
+      ...(input.expectedRevisionVersion !== undefined
+        ? { expectedRevisionVersion: input.expectedRevisionVersion }
+        : {}),
     });
   }
   await db.transaction(async (transaction) => {
@@ -470,7 +481,7 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
   },
   options: GovernedMutationOptions = {},
 ): Promise<ContentBlockDraftSaveResult> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "content", "write");
   const document = parseBlockDocument(input.document, "content");
   const title = input.title.trim();
   const excerpt = input.excerpt?.trim() || null;
@@ -479,6 +490,9 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
     .select({
       status: contents.status,
       editorDocumentVersion: contentLocalizations.editorDocumentVersion,
+      title: contentLocalizations.title,
+      excerpt: contentLocalizations.excerpt,
+      structuredBlocks: contentLocalizations.structuredBlocks,
     })
     .from(contents)
     .innerJoin(contentLocalizations, and(
@@ -491,7 +505,21 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
   if (!content) throw new Error("Content was not found.");
   if (content.status === "archived") throw new Error("Archived Content cannot be edited.");
   if (content.editorDocumentVersion !== input.expectedEditorDocumentVersion) {
-    throw new Error("Content changed after this editor loaded; refresh before saving.");
+    const currentDocument = parseBlockDocument(content.structuredBlocks, "content");
+    if (JSON.stringify({
+      title: content.title,
+      excerpt: content.excerpt,
+      document: currentDocument,
+    }) === JSON.stringify({ title, excerpt, document })) {
+      return {
+        editorDocumentVersion: content.editorDocumentVersion,
+        revisionId: null,
+        revisionVersion: null,
+      };
+    }
+    throw new EditorialDraftConflictError(
+      "Content changed after this editor loaded; refresh before saving.",
+    );
   }
   const projection = await validateContentMedia(db, contentId, document, undefined);
   await assertIndexedContentRemainsReadable(db, contentId, projection.readableText);
@@ -516,7 +544,7 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
           ),
         ))
         .returning({ contentId: contentLocalizations.contentId });
-      if (!updated[0]) throw new Error("Content changed after this editor loaded; refresh before saving.");
+      if (!updated[0]) throw new EditorialDraftConflictError("Content changed after this editor loaded; refresh before saving.");
       await transaction.update(contents).set({ updatedAt: new Date() }).where(eq(contents.id, contentId));
       await audit({
         actorUserId: actor.userId,
@@ -544,7 +572,7 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
       .limit(1)
       .for("update");
     if (localizationRows[0]?.editorDocumentVersion !== input.expectedEditorDocumentVersion) {
-      throw new Error("Content changed after this editor loaded; refresh before saving.");
+      throw new EditorialDraftConflictError("Content changed after this editor loaded; refresh before saving.");
     }
     const draftRows = await transaction
       .select()
@@ -562,7 +590,7 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
     const expectedRevisionVersion = input.expectedRevisionVersion ?? 0;
     if (draft) {
       if (input.revisionId && input.revisionId !== draft.id) {
-        throw new Error("A different Content Draft Revision is current.");
+        throw new EditorialDraftConflictError("A different Content Draft Revision is current.");
       }
       const current = structuredRevisionSnapshotSchema.parse(draft.snapshot);
       const currentDraftVersion = current.draftVersion ?? 1;
@@ -579,7 +607,7 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
             revisionVersion: currentDraftVersion,
           };
         }
-        throw new Error("Content Draft Revision changed in another editor; reload before saving.");
+        throw new EditorialDraftConflictError("Content Draft Revision changed in another editor; reload before saving.");
       }
       const snapshot = structuredRevisionSnapshotSchema.parse({
         ...current,
@@ -606,7 +634,7 @@ export async function saveContentBlockDraft<TQueryResult extends PgQueryResultHK
       };
     }
     if (input.revisionId || expectedRevisionVersion !== 0) {
-      throw new Error("Content Draft Revision is no longer available.");
+      throw new EditorialDraftConflictError("Content Draft Revision is no longer available.");
     }
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
@@ -665,7 +693,7 @@ export async function submitContentBlockDraftForReview<
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "content", "write");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(editorialRevisions)
@@ -677,7 +705,7 @@ export async function submitContentBlockDraftForReview<
         eq(editorialRevisions.status, "draft"),
       ))
       .returning({ id: editorialRevisions.id });
-    if (!updated[0]) throw new Error("Content Draft Revision is not current.");
+    if (!updated[0]) throw new EditorialDraftConflictError("Content Draft Revision is not current.");
     await audit({
       actorUserId: actor.userId,
       action: "content.block_draft.review_requested",
@@ -711,10 +739,12 @@ export async function proposePublishedContentRevision<
       focusKeyword: string | null;
     };
     changeSummary: string;
+    expectedRevisionId?: string | null;
+    expectedRevisionVersion?: number | null;
   },
   options: GovernedMutationOptions = {},
 ): Promise<string> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "content", "write");
   const contentRows = await db
     .select({ status: contents.status })
     .from(contents)
@@ -756,6 +786,76 @@ export async function proposePublishedContentRevision<
   }
   await validateContentMedia(db, contentId, snapshot.document, snapshot.media);
   return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const activeRows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "content"),
+        eq(editorialRevisions.entityId, contentId),
+        eq(editorialRevisions.locale, "en"),
+        inArray(editorialRevisions.status, ["draft", "in_review"]),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .for("update");
+    const draft = activeRows.find((revision) => revision.status === "draft");
+    let expectedDraftConflict = false;
+    if (input.expectedRevisionVersion !== undefined) {
+      if (!draft) {
+        if (input.expectedRevisionId || input.expectedRevisionVersion !== 0) {
+          throw new EditorialDraftConflictError("Content Draft Revision is no longer current.");
+        }
+      } else {
+        const currentSnapshot = structuredRevisionSnapshotSchema.parse(draft.snapshot);
+        if (
+          (input.expectedRevisionId ?? null) !== draft.id ||
+          input.expectedRevisionVersion !== (currentSnapshot.draftVersion ?? 1)
+        ) {
+          expectedDraftConflict = true;
+        }
+      }
+    }
+    if (!draft && activeRows.some((revision) => revision.status === "in_review")) {
+      throw new EditorialDraftConflictError(
+        "The current Content Revision is already In Review; resolve it before editing again.",
+      );
+    }
+    const currentDraft = draft
+      ? structuredRevisionSnapshotSchema.parse(draft.snapshot)
+      : null;
+    const draftVersion = currentDraft ? (currentDraft.draftVersion ?? 1) + 1 : 1;
+    const unified = structuredRevisionSnapshotSchema.parse({
+      ...(currentDraft ?? {}),
+      ...snapshot,
+      draftVersion,
+    });
+    if (draft) {
+      if (JSON.stringify({ ...currentDraft, draftVersion }) === JSON.stringify(unified)) {
+        return draft.id;
+      }
+      if (expectedDraftConflict) {
+        throw new EditorialDraftConflictError(
+          "Content Draft Revision changed in another editor; reload before saving.",
+        );
+      }
+      await transaction
+        .update(editorialRevisions)
+        .set({
+          snapshot: unified,
+          changeSummary: input.changeSummary.trim(),
+        })
+        .where(and(
+          eq(editorialRevisions.id, draft.id),
+          eq(editorialRevisions.status, "draft"),
+        ));
+      await audit({
+        actorUserId: actor.userId,
+        action: "content.draft.saved",
+        entityType: "editorial_revision",
+        entityId: draft.id,
+        afterSummary: { contentId, draftVersion },
+      });
+      return draft.id;
+    }
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
       .from(editorialRevisions)
@@ -775,8 +875,8 @@ export async function proposePublishedContentRevision<
         entityId: contentId,
         locale: "en",
         versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
-        status: "in_review",
-        snapshot,
+        status: "draft",
+        snapshot: unified,
         changeSummary: input.changeSummary.trim(),
         createdByUserId: actor.userId,
       })
@@ -785,10 +885,10 @@ export async function proposePublishedContentRevision<
     if (!revisionId) throw new Error("Editorial revision insert failed.");
     await audit({
       actorUserId: actor.userId,
-      action: "content.revision.proposed",
+      action: "content.draft.created",
       entityType: "editorial_revision",
       entityId: revisionId,
-      afterSummary: { contentId },
+      afterSummary: { contentId, draftVersion },
     });
     return revisionId;
   }, options);
@@ -800,7 +900,7 @@ export async function submitContentForReview<TQueryResult extends PgQueryResultH
   contentId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "content", "write");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(contents)
@@ -823,7 +923,7 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.publish");
+  requireEditorialResourceAccess(actor.role, "content", "apply");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const rows = await transaction
       .select()
@@ -903,8 +1003,8 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
       .set({
         title: snapshot.title,
         excerpt: snapshot.excerpt,
-        structuredBlocks: document,
-        blocksVersion: 1,
+        structuredBlocks: projection.renderableDocument,
+        blocksVersion: projection.renderableDocument.version,
         editorDocumentVersion: editorDocumentVersion + 1,
       })
       .where(
@@ -931,11 +1031,16 @@ export async function applyContentRevision<TQueryResult extends PgQueryResultHKT
       })
       .where(eq(contents.id, revision.entityId));
     await applyContentMedia(transaction, revision.entityId, media);
-    await validateContentMedia(
+    const appliedProjection = await validateContentMedia(
       transaction,
       revision.entityId,
-      document,
+      projection.renderableDocument,
       undefined,
+    );
+    await synchronizeBlockInternalLinks(
+      transaction,
+      { type: "content", id: revision.entityId },
+      appliedProjection,
     );
     if (snapshot.seo) {
       const routeRows = await transaction
@@ -979,7 +1084,7 @@ export async function rejectContentReview<TQueryResult extends PgQueryResultHKT>
   reason: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.review");
+  requireEditorialResourceAccess(actor.role, "content", "review");
   if (!reason.trim()) throw new Error("Review rejection requires a reason.");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
@@ -1004,7 +1109,7 @@ export async function rejectContentRevision<TQueryResult extends PgQueryResultHK
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.publish");
+  requireEditorialResourceAccess(actor.role, "content", "apply");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(editorialRevisions)
@@ -1034,7 +1139,7 @@ export async function publishContent<TQueryResult extends PgQueryResultHKT>(
   contentId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.publish");
+  requireEditorialResourceAccess(actor.role, "content", "apply");
   const localizationRows = await db
     .select({
       structuredBlocks: contentLocalizations.structuredBlocks,
@@ -1216,7 +1321,7 @@ export async function archiveContent<TQueryResult extends PgQueryResultHKT>(
   contentId: string,
   reason: string,
 ): Promise<void> {
-  requirePermission(actor.role, "content.publish");
+  requireEditorialResourceAccess(actor.role, "content", "apply");
   if (!reason.trim()) throw new Error("Archive requires a reason.");
   await db.transaction(async (transaction) => {
     const rows = await transaction

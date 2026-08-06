@@ -15,11 +15,13 @@ import {
   keywordPageMappings,
   productApplications,
   products,
+  redirects,
   routes,
   seoMetadata,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import { publicProductEligibilityConditions } from "./product-eligibility";
+import { slugify } from "@/seo/path";
 
 import type { Actor } from "./product-service";
 
@@ -33,7 +35,7 @@ const applicationRevisionSchema = z.object({
     title: z.string().nullable(),
     metaDescription: z.string().nullable(),
     focusKeyword: z.string().nullable(),
-  }),
+  }).optional(),
 });
 
 type ApplicationSnapshot = z.infer<typeof applicationRevisionSchema>;
@@ -43,19 +45,21 @@ async function validateApplicationSnapshot<TQueryResult extends PgQueryResultHKT
   applicationId: string,
   snapshot: ApplicationSnapshot,
 ): Promise<void> {
-  const routeRows = await db
-    .select({ id: routes.id })
-    .from(routes)
-    .where(
-      and(
-        eq(routes.id, snapshot.seo.routeId),
-        eq(routes.entityType, "application"),
-        eq(routes.entityId, applicationId),
-        eq(routes.isCurrent, true),
-      ),
-    )
-    .limit(1);
-  if (!routeRows[0]) throw new Error("Application revision targets an invalid route.");
+  if (snapshot.seo) {
+    const routeRows = await db
+      .select({ id: routes.id })
+      .from(routes)
+      .where(
+        and(
+          eq(routes.id, snapshot.seo.routeId),
+          eq(routes.entityType, "application"),
+          eq(routes.entityId, applicationId),
+          eq(routes.isCurrent, true),
+        ),
+      )
+      .limit(1);
+    if (!routeRows[0]) throw new Error("Application revision targets an invalid route.");
+  }
   const uniqueProductIds = [...new Set(snapshot.productIds)];
   if (uniqueProductIds.length) {
     const productRows = await db
@@ -94,16 +98,18 @@ async function applyApplicationSnapshot<TQueryResult extends PgQueryResultHKT>(
       productIds.map((productId) => ({ productId, applicationId })),
     );
   }
-  await db
-    .update(seoMetadata)
-    .set({
-      title: snapshot.seo.title,
-      metaDescription: snapshot.seo.metaDescription,
-      focusKeyword: snapshot.seo.focusKeyword,
-      updatedByUserId: actor.userId,
-      updatedAt: new Date(),
-    })
-    .where(eq(seoMetadata.routeId, snapshot.seo.routeId));
+  if (snapshot.seo) {
+    await db
+      .update(seoMetadata)
+      .set({
+        title: snapshot.seo.title,
+        metaDescription: snapshot.seo.metaDescription,
+        focusKeyword: snapshot.seo.focusKeyword,
+        updatedByUserId: actor.userId,
+        updatedAt: new Date(),
+      })
+      .where(eq(seoMetadata.routeId, snapshot.seo.routeId));
+  }
   await db
     .update(applications)
     .set({ updatedAt: new Date() })
@@ -254,10 +260,56 @@ export async function publishApplication<TQueryResult extends PgQueryResultHKT>(
       ),
     )
     .limit(1);
-  if (!localizationRows[0]?.name.trim() || !localizationRows[0].body?.trim()) {
+  const localization = localizationRows[0];
+  if (!localization?.name.trim() || !localization.body?.trim()) {
     throw new Error("Application publication requires an English name and useful body copy.");
   }
   await runGovernedMutation(db, async ({ transaction, audit }) => {
+    const currentRouteRows = await transaction
+      .select({ id: routes.id, path: routes.path })
+      .from(routes)
+      .where(and(
+        eq(routes.entityType, "application"),
+        eq(routes.entityId, applicationId),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      ))
+      .limit(1);
+    let approvedPath = currentRouteRows[0]?.path ?? null;
+    if (!currentRouteRows[0]) {
+      approvedPath = `/applications/${slugify(localization.name)}/`;
+      const collisions = await transaction
+        .select({ path: routes.path })
+        .from(routes)
+        .where(eq(routes.path, approvedPath))
+        .limit(1);
+      const redirectCollisions = await transaction
+        .select({ sourcePath: redirects.sourcePath })
+        .from(redirects)
+        .where(and(eq(redirects.sourcePath, approvedPath), eq(redirects.isActive, true)))
+        .limit(1);
+      if (collisions[0] || redirectCollisions[0]) {
+        throw new Error("The approved Application URL is already in use.");
+      }
+      const routeRows = await transaction
+        .insert(routes)
+        .values({
+          locale: "en",
+          path: approvedPath,
+          entityType: "application",
+          entityId: applicationId,
+        })
+        .returning({ id: routes.id });
+      const routeId = routeRows[0]?.id;
+      if (!routeId) throw new Error("Application route approval failed.");
+      await transaction.insert(seoMetadata).values({
+        routeId,
+        title: `${localization.name.trim()} | CloudWave Textile`,
+        indexStatus: "noindex",
+        canonicalPath: approvedPath,
+        updatedByUserId: actor.userId,
+      });
+    }
     const updated = await transaction
       .update(applications)
       .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
@@ -271,6 +323,7 @@ export async function publishApplication<TQueryResult extends PgQueryResultHKT>(
       action: "application.published",
       entityType: "application",
       entityId: applicationId,
+      afterSummary: { approvedPath },
     });
   }, options);
 }

@@ -11,6 +11,7 @@ import {
   users,
 } from "@/db/schema";
 import { findPublicAssetForDelivery } from "@/public-site/public-asset-access";
+import { listVerifiedPublicCompanyFacts } from "./company-facts-service";
 import { createTestDatabase } from "@/test/database";
 
 import {
@@ -208,21 +209,32 @@ describe("static-page authoritative live projection", () => {
       test.editor,
       config,
     )).rejects.toThrow(/verified and approved/);
-    await test.connection.db.insert(companyFacts).values({
+    expect((await listVerifiedPublicCompanyFacts(test.connection.db)).has("test-owned-facility"))
+      .toBe(false);
+    const factRows = await test.connection.db.insert(companyFacts).values({
       factKey: "test-owned-facility",
       subject: "TEST owned facility",
       statement: "Synthetic verified CWT-owned facility fact.",
       relationshipToCwt: "owned",
+      evidenceReference: "TEST evidence reference",
       publicUseAllowed: true,
       verificationStatus: "verified",
       verifiedByUserId: test.reviewer.userId,
       verifiedAt: new Date(),
-    });
+    }).returning({ id: companyFacts.id });
     await expect(saveStaticPageConfigDraft(
       test.connection.db,
       test.editor,
       config,
     )).resolves.toMatchObject({ revisionVersion: 1 });
+    await test.connection.db.update(companyFacts).set({
+      reviewAfter: new Date(Date.now() - 1_000),
+    }).where(eq(companyFacts.id, factRows[0]!.id));
+    await expect(saveStaticPageConfigDraft(
+      test.connection.db,
+      test.editor,
+      config,
+    )).rejects.toThrow(/verified and approved/);
     await test.connection.close();
   });
 
@@ -249,10 +261,33 @@ describe("static-page authoritative live projection", () => {
       subjectRelationship: "cwt",
       isCwtOwnedFacility: true,
     }).where(eq(assets.id, test.assetIds[0]!));
-    await expect(saveStaticPageConfigDraft(test.connection.db, test.editor, {
+    const ownedDraft = await saveStaticPageConfigDraft(test.connection.db, test.editor, {
       ...DEFAULT_STATIC_PAGE_CONFIGS.home,
       placements: [placement],
-    })).resolves.toMatchObject({ revisionVersion: 1 });
+    });
+    await submitStaticPageConfigDraftForReview(
+      test.connection.db,
+      test.editor,
+      ownedDraft.revisionId,
+    );
+    await applyStaticPageConfigRevision(
+      test.connection.db,
+      test.reviewer,
+      ownedDraft.revisionId,
+    );
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toMatchObject({ id: test.assetIds[0] });
+    await test.connection.db.update(assets).set({
+      subjectRelationship: "partner_factory",
+    }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
+    await test.connection.db.update(assets).set({
+      subjectRelationship: "cwt",
+      isCwtOwnedFacility: false,
+    }).where(eq(assets.id, test.assetIds[0]!));
+    await expect(findPublicAssetForDelivery(test.connection.db, test.assetIds[0]!))
+      .resolves.toBeNull();
     await test.connection.close();
   });
 

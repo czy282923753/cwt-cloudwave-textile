@@ -138,4 +138,17 @@ describe("fixed Home/About public renderer", () => {
     expect(aboutHtml).toContain('<h1 class="sr-only">About CloudWave Textile</h1>');
     expect(aboutHtml).not.toContain(DEFAULT_STATIC_PAGE_CONFIGS.about.copy!.hero.title);
   });
+
+  it("does not substitute bootstrap copy into an approved config that intentionally omits optional copy", () => {
+    const withoutCopy = {
+      version: DEFAULT_STATIC_PAGE_CONFIGS.home.version,
+      pageKey: DEFAULT_STATIC_PAGE_CONFIGS.home.pageKey,
+      modules: DEFAULT_STATIC_PAGE_CONFIGS.home.modules,
+      placements: DEFAULT_STATIC_PAGE_CONFIGS.home.placements,
+    };
+    const html = renderHome(withoutCopy);
+    expect(html).toContain('<h1 class="sr-only">CloudWave Textile</h1>');
+    expect(html).not.toContain(DEFAULT_STATIC_PAGE_CONFIGS.home.copy!.hero.title);
+    expect(html).not.toContain(DEFAULT_STATIC_PAGE_CONFIGS.home.copy!.inquiryCta.title);
+  });
 });

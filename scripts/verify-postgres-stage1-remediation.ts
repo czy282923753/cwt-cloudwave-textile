@@ -7,6 +7,7 @@ import {
   confirmRealProductBasis,
   createProductDraft,
   publishReviewedProduct,
+  submitProductBlockDraftForReview,
   submitProductForReview,
   updateProductBlocks,
   updateProductStructure,
@@ -16,6 +17,7 @@ import {
   createContentDraft,
   publishContent,
   setContentIndexStatus,
+  submitContentBlockDraftForReview,
   submitContentForReview,
   updateContent,
 } from "../src/content/content-service";
@@ -183,6 +185,7 @@ async function main() {
       expectedEditorDocumentVersion: 2,
     });
     assert(productRevisionId, "Product revision was not created.");
+    await submitProductBlockDraftForReview(db, productEditor, productId, productRevisionId);
     await db.update(productAssets).set({ isVisible: false }).where(and(eq(productAssets.productId, productId), eq(productAssets.assetId, detailAssetId)));
     let productApplyFailed = false;
     try { await applyProductRevision(db, reviewer, productRevisionId); } catch { productApplyFailed = true; }
@@ -192,18 +195,12 @@ async function main() {
     scenarios.push("Product Save valid then media invalid before Apply fails closed");
 
     await db.update(productAssets).set({ isVisible: true }).where(and(eq(productAssets.productId, productId), eq(productAssets.assetId, detailAssetId)));
-    const concurrentProductRevisionId = await updateProductBlocks(db, productEditor, productId, {
-      name: "TEST PostgreSQL Block Product", shortDescription: null,
-      document: { version: 1, blocks: [{ id: "concurrent", type: "paragraph", text: "Concurrent approved Product narrative." }] },
-      expectedEditorDocumentVersion: 2,
-    });
-    assert(concurrentProductRevisionId, "Concurrent Product revision was not created.");
     const concurrentProductResults = await Promise.all([
-      applyProductRevision(db, reviewer, concurrentProductRevisionId),
-      applyProductRevision(secondDb, reviewer, concurrentProductRevisionId),
+      applyProductRevision(db, reviewer, productRevisionId),
+      applyProductRevision(secondDb, reviewer, productRevisionId),
     ]);
     assert(concurrentProductResults.every((result) => result === productId), "Concurrent Product Revision Apply did not converge.");
-    assert((await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, concurrentProductRevisionId), eq(auditLogs.action, "product.revision.applied")))).length === 1, "Concurrent Product Revision Apply duplicated Audit.");
+    assert((await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, productRevisionId), eq(auditLogs.action, "product.revision.applied")))).length === 1, "Concurrent Product Revision Apply duplicated Audit.");
     scenarios.push("Product Revision concurrent Apply converges with one Audit");
 
     const productAuditRevisionId = await updateProductBlocks(db, productEditor, productId, {
@@ -212,6 +209,7 @@ async function main() {
       expectedEditorDocumentVersion: 3,
     });
     assert(productAuditRevisionId, "Product Audit revision was not created.");
+    await submitProductBlockDraftForReview(db, productEditor, productId, productAuditRevisionId);
     let productAuditFailed = false;
     try {
       await applyProductRevision(db, reviewer, productAuditRevisionId, {
@@ -235,6 +233,7 @@ async function main() {
       expectedEditorDocumentVersion: 4,
     });
     assert(validMediaRevisionId, "Valid Product media Revision was not created.");
+    await submitProductBlockDraftForReview(db, productEditor, productId, validMediaRevisionId);
     await applyProductRevision(db, reviewer, validMediaRevisionId);
     const mediaPublicProduct = await queryProductByPath(db, productPath);
     assert(mediaPublicProduct?.narrativeProjection.hasRenderableContent, "Valid Product media did not restore the narrative projection.");
@@ -252,12 +251,14 @@ async function main() {
       media: [{ assetId: contentAssetId, role: "inline", sortOrder: 0, altText: "TEST inline", caption: null, isVisible: true, blockKey: "inline" }],
     });
     assert(mediaRevisionId, "Content media revision was not created.");
+    await submitContentBlockDraftForReview(db, contentEditor, contentId, mediaRevisionId);
     await applyContentRevision(db, reviewer, mediaRevisionId);
     const contentRevisionId = await updateContent(db, contentEditor, contentId, {
       title: "TEST PostgreSQL Block Content", body: "", authorId: authorRows[0]!.id, type: "guide", expectedEditorDocumentVersion: 2,
       structuredDocument: { version: 1, blocks: [{ id: "image", type: "image", mediaKey: "inline" }, { id: "text", type: "paragraph", text: "Pending media narrative." }] },
     });
     assert(contentRevisionId, "Content revision was not created.");
+    await submitContentBlockDraftForReview(db, contentEditor, contentId, contentRevisionId);
     await db.update(contentAssets).set({ isVisible: false }).where(eq(contentAssets.contentId, contentId));
     let contentApplyFailed = false;
     try { await applyContentRevision(db, reviewer, contentRevisionId); } catch { contentApplyFailed = true; }
@@ -275,6 +276,7 @@ async function main() {
     assert(contentAuditFailed, "Content required Audit failure was not surfaced.");
     assert((await db.select({ status: editorialRevisions.status }).from(editorialRevisions).where(eq(editorialRevisions.id, contentRevisionId)))[0]?.status === "in_review", "Content Audit failure did not roll back Revision.");
     scenarios.push("Content required Audit rollback");
+    await applyContentRevision(db, reviewer, contentRevisionId);
 
     const contentRouteRows = await db.select({ id: routes.id, path: routes.path }).from(routes).where(and(
       eq(routes.entityType, "content"), eq(routes.entityId, contentId), eq(routes.isCurrent, true),
@@ -290,11 +292,12 @@ async function main() {
     await setContentIndexStatus(db, adminActor, contentId, "index");
     assert((await queryIndexableRoutes(db)).some((row) => row.path === contentRoute.path), "Readable Content was missing from sitemap eligibility.");
     const dividerRevisionId = await updateContent(db, contentEditor, contentId, {
-      title: "TEST PostgreSQL Block Content", body: "", authorId: authorRows[0]!.id, type: "guide", expectedEditorDocumentVersion: 2,
+      title: "TEST PostgreSQL Block Content", body: "", authorId: authorRows[0]!.id, type: "guide", expectedEditorDocumentVersion: 3,
       structuredDocument: { version: 1, blocks: [{ id: "divider-only", type: "divider" }] },
       seoTitle: "TEST PostgreSQL Content SEO", metaDescription: "Synthetic PostgreSQL readable projection metadata.",
     });
     assert(dividerRevisionId, "Divider-only Content revision was not created.");
+    await submitContentBlockDraftForReview(db, contentEditor, contentId, dividerRevisionId);
     let indexedApplyFailed = false;
     try { await applyContentRevision(db, reviewer, dividerRevisionId); } catch { indexedApplyFailed = true; }
     assert(indexedApplyFailed, "Indexed Content accepted a non-readable Revision.");

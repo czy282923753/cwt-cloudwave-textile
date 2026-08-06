@@ -36,9 +36,13 @@ import {
   parseBlockDocument,
   type BlockDocument,
 } from "@/editorial/blocks";
+import { EditorialDraftConflictError } from "@/editorial/conflict";
+import { requireEditorialResourceAccess } from "@/admin/preview-policy";
 import {
   resolveBlockPublicProjection,
+  synchronizeBlockInternalLinks,
   type ProductBlockMediaPlacement,
+  type ResolvedBlockProjection,
 } from "@/editorial/block-references";
 import { changeEntityRoute } from "@/seo/redirects";
 import { slugify } from "@/seo/path";
@@ -64,7 +68,7 @@ export class ProductValidationError extends Error {
   }
 }
 
-export class ProductRevisionConflictError extends Error {
+export class ProductRevisionConflictError extends EditorialDraftConflictError {
   constructor(message = "Product revision was already handled by another reviewer.") {
     super(message);
     this.name = "ProductRevisionConflictError";
@@ -94,6 +98,7 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
     document: blockDocumentSchema,
     expectedEditorDocumentVersion: z.number().int().positive(),
     draftVersion: z.number().int().positive().optional(),
+    pendingChanges: z.array(z.unknown()).optional(),
   }),
   z.object({
     kind: z.literal("editorial_copy"),
@@ -159,14 +164,173 @@ const productRevisionSnapshotSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+type ProductRevisionSnapshot = z.infer<typeof productRevisionSnapshotSchema>;
+
+interface ProductRevisionMutationOptions extends GovernedMutationOptions {
+  expectedRevisionId?: string | null;
+  expectedRevisionVersion?: number | null;
+}
+
+function productRevisionChanges(
+  snapshot: ProductRevisionSnapshot,
+): ProductRevisionSnapshot[] {
+  if (snapshot.kind !== "editorial_blocks") return [snapshot];
+  const pending = (snapshot.pendingChanges ?? []).map((change) => {
+    const parsed = productRevisionSnapshotSchema.parse(change);
+    if (parsed.kind === "editorial_blocks" || parsed.kind === "editorial_copy") {
+      throw new ProductValidationError("Product Draft contains duplicate editorial authority.");
+    }
+    return parsed;
+  });
+  return [snapshot, ...pending];
+}
+
+function productChangeKey(snapshot: ProductRevisionSnapshot): string {
+  return snapshot.kind === "editorial_copy" ? "editorial_blocks" : snapshot.kind;
+}
+
 async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   productId: string,
   snapshot: z.infer<typeof productRevisionSnapshotSchema>,
-  options: GovernedMutationOptions = {},
+  options: ProductRevisionMutationOptions = {},
 ): Promise<string> {
   return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const localizationRows = await transaction
+      .select({
+        name: productLocalizations.name,
+        shortDescription: productLocalizations.shortDescription,
+        structuredBlocks: productLocalizations.structuredBlocks,
+        editorDocumentVersion: productLocalizations.editorDocumentVersion,
+      })
+      .from(productLocalizations)
+      .where(and(
+        eq(productLocalizations.productId, productId),
+        eq(productLocalizations.locale, "en"),
+      ))
+      .limit(1)
+      .for("update");
+    const localization = localizationRows[0];
+    if (!localization) throw new ProductValidationError("Product localization was not found.");
+    const activeRows = await transaction
+      .select()
+      .from(editorialRevisions)
+      .where(and(
+        eq(editorialRevisions.entityType, "product"),
+        eq(editorialRevisions.entityId, productId),
+        eq(editorialRevisions.locale, "en"),
+        inArray(editorialRevisions.status, ["draft", "in_review"]),
+      ))
+      .orderBy(desc(editorialRevisions.versionNumber))
+      .for("update");
+    const draft = activeRows.find((revision) => revision.status === "draft");
+    let expectedDraftConflict = false;
+    if (options.expectedRevisionVersion !== undefined) {
+      if (!draft) {
+        if (options.expectedRevisionId || options.expectedRevisionVersion !== 0) {
+          throw new ProductRevisionConflictError("Product Draft Revision is no longer current.");
+        }
+      } else {
+        const expectedId = options.expectedRevisionId ?? null;
+        const currentSnapshot = productRevisionSnapshotSchema.parse(draft.snapshot);
+        const currentVersion = currentSnapshot.kind === "editorial_blocks"
+          ? currentSnapshot.draftVersion ?? 1
+          : 1;
+        if (expectedId !== draft.id || options.expectedRevisionVersion !== currentVersion) {
+          expectedDraftConflict = true;
+        }
+      }
+    }
+    if (!draft && activeRows.some((revision) => revision.status === "in_review")) {
+      throw new ProductRevisionConflictError(
+        "The current Product Revision is already In Review; resolve it before editing again.",
+      );
+    }
+    const liveEditorial = productRevisionSnapshotSchema.parse({
+      kind: "editorial_blocks",
+      name: localization.name,
+      shortDescription: localization.shortDescription,
+      document: parseBlockDocument(localization.structuredBlocks, "product"),
+      expectedEditorDocumentVersion: localization.editorDocumentVersion,
+      draftVersion: 1,
+      pendingChanges: [],
+    });
+    if (liveEditorial.kind !== "editorial_blocks") {
+      throw new ProductValidationError("Product Draft base could not be created.");
+    }
+    let current = liveEditorial;
+    if (draft) {
+      const parsed = productRevisionSnapshotSchema.parse(draft.snapshot);
+      if (parsed.kind === "editorial_blocks") {
+        current = parsed;
+      } else {
+        current = { ...liveEditorial, pendingChanges: [parsed] };
+      }
+    }
+    const existingChanges = productRevisionChanges(current);
+    let merged: ProductRevisionSnapshot[];
+    if (snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy") {
+      const editorial = snapshot.kind === "editorial_blocks"
+        ? snapshot
+        : productRevisionSnapshotSchema.parse({
+            kind: "editorial_blocks",
+            name: snapshot.name,
+            shortDescription: snapshot.shortDescription,
+            document: legacyTextToBlockDocument(snapshot.fullDescription),
+            expectedEditorDocumentVersion: localization.editorDocumentVersion,
+          });
+      merged = [editorial, ...existingChanges.filter((change) =>
+        productChangeKey(change) !== "editorial_blocks",
+      )];
+    } else {
+      const nextChange = snapshot.kind === "facts"
+        ? productRevisionSnapshotSchema.parse({
+            ...(existingChanges.find((change) => change.kind === "facts") ?? {}),
+            ...snapshot,
+          })
+        : snapshot;
+      merged = [current, ...existingChanges.slice(1).filter((change) =>
+        productChangeKey(change) !== productChangeKey(snapshot),
+      ), nextChange];
+    }
+    const editorial = merged[0];
+    if (editorial?.kind !== "editorial_blocks") {
+      throw new ProductValidationError("Product Draft requires one editorial base.");
+    }
+    const nextDraftVersion = (current.draftVersion ?? 1) + (draft ? 1 : 0);
+    const unified = productRevisionSnapshotSchema.parse({
+      ...editorial,
+      draftVersion: nextDraftVersion,
+      pendingChanges: merged.slice(1),
+    });
+    if (draft) {
+      const comparableCurrent = { ...current, draftVersion: nextDraftVersion };
+      if (JSON.stringify(comparableCurrent) === JSON.stringify(unified)) return draft.id;
+      if (expectedDraftConflict) {
+        throw new ProductRevisionConflictError(
+          "Product Draft Revision changed in another editor; reload before saving.",
+        );
+      }
+      await transaction
+        .update(editorialRevisions)
+        .set({
+          snapshot: unified,
+          changeSummary: "Published Product unified Draft updated",
+        })
+        .where(and(
+          eq(editorialRevisions.id, draft.id),
+          eq(editorialRevisions.status, "draft"),
+        ));
+      await audit({
+        actorUserId: actor.userId,
+        action: "product.draft.saved",
+        entityType: "editorial_revision",
+        entityId: draft.id,
+        afterSummary: { productId, draftVersion: nextDraftVersion, kind: snapshot.kind },
+      });
+      return draft.id;
+    }
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
       .from(editorialRevisions)
@@ -186,12 +350,9 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
         entityId: productId,
         locale: "en",
         versionNumber: (latestRows[0]?.versionNumber ?? 0) + 1,
-        status: "in_review",
-        snapshot,
-        changeSummary:
-          snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy"
-            ? "Published Product editorial update"
-            : "Published Product factual update",
+        status: "draft",
+        snapshot: unified,
+        changeSummary: "Published Product unified Draft",
         createdByUserId: actor.userId,
       })
       .returning({ id: editorialRevisions.id });
@@ -199,10 +360,10 @@ async function proposeProductRevision<TQueryResult extends PgQueryResultHKT>(
     if (!revisionId) throw new Error("Product revision insert failed.");
     await audit({
       actorUserId: actor.userId,
-      action: "product.revision.proposed",
+      action: "product.draft.created",
       entityType: "editorial_revision",
       entityId: revisionId,
-      afterSummary: { productId, kind: snapshot.kind },
+      afterSummary: { productId, draftVersion: nextDraftVersion, kind: snapshot.kind },
     });
     return revisionId;
   }, options);
@@ -334,7 +495,7 @@ async function assertProductBlockProjection<TQueryResult extends PgQueryResultHK
   document: BlockDocument,
   shortDescription: string | null,
   media?: readonly ProductBlockMediaPlacement[],
-): Promise<void> {
+): Promise<ResolvedBlockProjection> {
   const projection = await resolveBlockPublicProjection(
     db,
     { type: "product", id: productId, ...(media ? { media } : {}) },
@@ -359,6 +520,7 @@ async function assertProductBlockProjection<TQueryResult extends PgQueryResultHK
       "An indexed Product revision must retain readable public narrative content.",
     );
   }
+  return projection;
 }
 
 async function validateProductStructure<TQueryResult extends PgQueryResultHKT>(
@@ -507,7 +669,7 @@ export async function createProductDraft<TQueryResult extends PgQueryResultHKT>(
   actor: Actor,
   input: CreateProductDraftInput,
 ): Promise<string> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   const name = normalizeProductName(input.name);
   await assertDraftAssets(db, input.assetIds);
   const baseSlug = slugify(input.requestedSlug ?? name);
@@ -578,7 +740,7 @@ export async function submitProductForReview<TQueryResult extends PgQueryResultH
   productId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(products)
@@ -602,7 +764,7 @@ export async function rejectProductReview<TQueryResult extends PgQueryResultHKT>
   reason: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.review");
+  requireEditorialResourceAccess(actor.role, "product", "review");
   if (!reason.trim()) throw new ProductValidationError("Review rejection requires a reason.");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
@@ -635,12 +797,15 @@ export async function updateProductEditorialCopy<
     expectedEditorDocumentVersion?: number;
   },
 ): Promise<string | null> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   const name = normalizeProductName(input.name);
   const productRows = await db
     .select({
       status: products.status,
       editorDocumentVersion: productLocalizations.editorDocumentVersion,
+      name: productLocalizations.name,
+      shortDescription: productLocalizations.shortDescription,
+      structuredBlocks: productLocalizations.structuredBlocks,
     })
     .from(products)
     .innerJoin(
@@ -767,7 +932,7 @@ export async function saveProductBlockDraft<TQueryResult extends PgQueryResultHK
   },
   options: GovernedMutationOptions = {},
 ): Promise<ProductBlockDraftSaveResult> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   const document = parseBlockDocument(input.document, "product");
   const name = normalizeProductName(input.name);
   const shortDescription = input.shortDescription?.trim() || null;
@@ -775,6 +940,9 @@ export async function saveProductBlockDraft<TQueryResult extends PgQueryResultHK
     .select({
       status: products.status,
       editorDocumentVersion: productLocalizations.editorDocumentVersion,
+      name: productLocalizations.name,
+      shortDescription: productLocalizations.shortDescription,
+      structuredBlocks: productLocalizations.structuredBlocks,
     })
     .from(products)
     .innerJoin(productLocalizations, and(
@@ -789,6 +957,18 @@ export async function saveProductBlockDraft<TQueryResult extends PgQueryResultHK
     throw new ProductValidationError("Archived Products cannot be edited.");
   }
   if (input.expectedEditorDocumentVersion !== product.editorDocumentVersion) {
+    const currentDocument = parseBlockDocument(product.structuredBlocks, "product");
+    if (JSON.stringify({
+      name: product.name,
+      shortDescription: product.shortDescription,
+      document: currentDocument,
+    }) === JSON.stringify({ name, shortDescription, document })) {
+      return {
+        editorDocumentVersion: product.editorDocumentVersion,
+        revisionId: null,
+        revisionVersion: null,
+      };
+    }
     throw new ProductRevisionConflictError(
       "Product narrative changed after this editor loaded; refresh before saving.",
     );
@@ -842,10 +1022,20 @@ export async function saveProductBlockDraft<TQueryResult extends PgQueryResultHK
         throw new ProductRevisionConflictError("A different Product Draft Revision is current.");
       }
       const current = productRevisionSnapshotSchema.parse(draft.snapshot);
-      if (current.kind !== "editorial_blocks") {
+      const currentEditorial = current.kind === "editorial_blocks" ? current
+        : productRevisionSnapshotSchema.parse({
+            kind: "editorial_blocks",
+            name: product.name,
+            shortDescription: product.shortDescription,
+            document: parseBlockDocument(product.structuredBlocks, "product"),
+            expectedEditorDocumentVersion: product.editorDocumentVersion,
+            draftVersion: 1,
+            pendingChanges: [current],
+          });
+      if (currentEditorial.kind !== "editorial_blocks") {
         throw new ProductRevisionConflictError("A different Product Draft Revision is current.");
       }
-      const currentDraftVersion = current.draftVersion ?? 1;
+      const currentDraftVersion = currentEditorial.draftVersion ?? 1;
       const proposedSnapshot = productRevisionSnapshotSchema.parse({
         kind: "editorial_blocks",
         name,
@@ -853,12 +1043,13 @@ export async function saveProductBlockDraft<TQueryResult extends PgQueryResultHK
         document,
         expectedEditorDocumentVersion: input.expectedEditorDocumentVersion,
         draftVersion: currentDraftVersion + 1,
+        pendingChanges: currentEditorial.pendingChanges ?? [],
       });
       if (expectedRevisionVersion !== currentDraftVersion) {
         const samePayload = JSON.stringify({
-          name: current.name,
-          shortDescription: current.shortDescription,
-          document: current.document,
+          name: currentEditorial.name,
+          shortDescription: currentEditorial.shortDescription,
+          document: currentEditorial.document,
         }) === JSON.stringify({ name, shortDescription, document });
         if (samePayload) {
           return {
@@ -954,7 +1145,7 @@ export async function submitProductBlockDraftForReview<
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(editorialRevisions)
@@ -995,8 +1186,9 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
     customAvailable?: "unknown" | "yes" | "no";
     sampleAvailable?: "unknown" | "yes" | "no";
   },
+  options: ProductRevisionMutationOptions = {},
 ): Promise<string | null> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   const statusRows = await db
     .select({ status: products.status, productCode: products.productCode })
     .from(products)
@@ -1061,7 +1253,7 @@ export async function updateProductFacts<TQueryResult extends PgQueryResultHKT>(
     throw new ProductValidationError("Invalid Product facts revision.");
   }
   if (currentStatus === "published") {
-    return proposeProductRevision(db, actor, productId, normalized);
+    return proposeProductRevision(db, actor, productId, normalized, options);
   }
   const reviewedFacts = ["composition", "weightGsm", "widthCm", "moqValue", "moqUnit"]
     .flatMap((fieldName) => fieldName in normalized ? [fieldName] : []);
@@ -1146,9 +1338,9 @@ export async function assignGeneratedProductCode<TQueryResult extends PgQueryRes
   db: AppDatabase<TQueryResult>,
   actor: Actor,
   productId: string,
-  options: GovernedMutationOptions = {},
+  options: ProductRevisionMutationOptions = {},
 ): Promise<string> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const rows = await transaction
       .select({
@@ -1210,7 +1402,7 @@ export async function correctProductCode<TQueryResult extends PgQueryResultHKT>(
   productId: string,
   newProductCodeInput: string,
   reasonInput: string,
-  options: GovernedMutationOptions = {},
+  options: ProductRevisionMutationOptions = {},
 ): Promise<string | null> {
   if (actor.role !== "admin") {
     throw new ProductValidationError("Only an Admin may correct an assigned Product Code.");
@@ -1278,9 +1470,9 @@ export async function updateProductStructure<TQueryResult extends PgQueryResultH
   actor: Actor,
   productId: string,
   input: Omit<ProductStructureSnapshot, "kind">,
-  options: GovernedMutationOptions = {},
+  options: ProductRevisionMutationOptions = {},
 ): Promise<string | null> {
-  requirePermission(actor.role, "products.write");
+  requireEditorialResourceAccess(actor.role, "product", "write");
   const statusRows = await db
     .select({ status: products.status })
     .from(products)
@@ -1360,6 +1552,7 @@ export async function updateProductSeo<TQueryResult extends PgQueryResultHKT>(
     metaDescription?: string | null;
     focusKeyword?: string | null;
   },
+  options: ProductRevisionMutationOptions = {},
 ): Promise<string | null> {
   requirePermission(actor.role, "seo.manage");
   const rows = await db
@@ -1389,7 +1582,7 @@ export async function updateProductSeo<TQueryResult extends PgQueryResultHKT>(
     throw new ProductValidationError("Invalid Product SEO revision.");
   }
   if (product.status === "published") {
-    return proposeProductRevision(db, actor, productId, snapshot);
+    return proposeProductRevision(db, actor, productId, snapshot, options);
   }
   if (product.status === "archived") {
     throw new ProductValidationError("Archived Products cannot be edited.");
@@ -1421,7 +1614,7 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<string> {
-  requirePermission(actor.role, "products.publish");
+  requireEditorialResourceAccess(actor.role, "product", "apply");
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const claimedRows = await transaction
       .update(editorialRevisions)
@@ -1476,31 +1669,37 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
         "A newer Product revision exists; this revision is stale.",
       );
     }
-    const snapshot = productRevisionSnapshotSchema.parse(revision.snapshot);
+    const rootSnapshot = productRevisionSnapshotSchema.parse(revision.snapshot);
+    const snapshots = productRevisionChanges(rootSnapshot);
+    const editorialSnapshot = snapshots.find((snapshot) =>
+      snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy",
+    );
+    const structureSnapshot = snapshots.find((snapshot) => snapshot.kind === "structure");
     const currentNarrative = await loadProductBlockDocument(transaction, revision.entityId);
-    const finalDocument = snapshot.kind === "editorial_blocks"
-      ? parseBlockDocument(snapshot.document, "product")
-      : snapshot.kind === "editorial_copy"
-        ? legacyTextToBlockDocument(snapshot.fullDescription)
+    const finalDocument = editorialSnapshot?.kind === "editorial_blocks"
+      ? parseBlockDocument(editorialSnapshot.document, "product")
+      : editorialSnapshot?.kind === "editorial_copy"
+        ? legacyTextToBlockDocument(editorialSnapshot.fullDescription)
         : currentNarrative.document;
-    const finalShortDescription = snapshot.kind === "editorial_blocks" || snapshot.kind === "editorial_copy"
-      ? snapshot.shortDescription
+    const finalShortDescription = editorialSnapshot?.kind === "editorial_blocks" || editorialSnapshot?.kind === "editorial_copy"
+      ? editorialSnapshot.shortDescription
       : currentNarrative.shortDescription;
-    await assertProductBlockProjection(
+    const finalProjection = await assertProductBlockProjection(
       transaction,
       revision.entityId,
       finalDocument,
       finalShortDescription,
-      snapshot.kind === "structure" ? productStructureMedia(snapshot) : undefined,
+      structureSnapshot?.kind === "structure" ? productStructureMedia(structureSnapshot) : undefined,
     );
+    for (const snapshot of snapshots) {
     if (snapshot.kind === "editorial_blocks") {
       const updated = await transaction
         .update(productLocalizations)
         .set({
           name: snapshot.name,
           shortDescription: snapshot.shortDescription,
-          structuredBlocks: parseBlockDocument(snapshot.document, "product"),
-          blocksVersion: snapshot.document.version,
+          structuredBlocks: finalProjection.renderableDocument,
+          blocksVersion: finalProjection.renderableDocument.version,
           editorDocumentVersion: snapshot.expectedEditorDocumentVersion + 1,
         })
         .where(
@@ -1537,8 +1736,8 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
         .set({
           name: snapshot.name,
           shortDescription: snapshot.shortDescription,
-          structuredBlocks: legacyTextToBlockDocument(snapshot.fullDescription),
-          blocksVersion: 1,
+          structuredBlocks: finalProjection.renderableDocument,
+          blocksVersion: finalProjection.renderableDocument.version,
           editorDocumentVersion: editorDocumentVersion + 1,
         })
         .where(
@@ -1675,6 +1874,17 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
     } else {
       snapshot satisfies never;
     }
+    }
+    const appliedProjection = await resolveBlockPublicProjection(
+      transaction,
+      { type: "product", id: revision.entityId },
+      finalDocument,
+    );
+    await synchronizeBlockInternalLinks(
+      transaction,
+      { type: "product", id: revision.entityId },
+      appliedProjection,
+    );
     await transaction
       .update(products)
       .set({ updatedAt: new Date() })
@@ -1684,7 +1894,10 @@ export async function applyProductRevision<TQueryResult extends PgQueryResultHKT
       action: "product.revision.applied",
       entityType: "editorial_revision",
       entityId: revisionId,
-      afterSummary: { productId: revision.entityId, kind: snapshot.kind },
+      afterSummary: {
+        productId: revision.entityId,
+        kinds: snapshots.map((snapshot) => snapshot.kind),
+      },
     });
     return revision.entityId;
   }, options);
@@ -1696,7 +1909,7 @@ export async function rejectProductRevision<TQueryResult extends PgQueryResultHK
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.publish");
+  requireEditorialResourceAccess(actor.role, "product", "review");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(editorialRevisions)
@@ -1726,7 +1939,7 @@ export async function publishReviewedProduct<TQueryResult extends PgQueryResultH
   productId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.publish");
+  requireEditorialResourceAccess(actor.role, "product", "apply");
   const narrative = await loadProductBlockDocument(db, productId);
   await assertProductBlockProjection(
     db,
@@ -1832,7 +2045,7 @@ export async function confirmRealProductBasis<TQueryResult extends PgQueryResult
   evidenceNote?: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.review");
+  requireEditorialResourceAccess(actor.role, "product", "review");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const updated = await transaction
       .update(products)
@@ -1864,7 +2077,7 @@ export async function reviewProductField<TQueryResult extends PgQueryResultHKT>(
   status: "verified" | "rejected",
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.review");
+  requireEditorialResourceAccess(actor.role, "product", "review");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     await transaction
       .insert(productFieldReviews)
@@ -2025,7 +2238,7 @@ export async function archiveProduct<TQueryResult extends PgQueryResultHKT>(
   reason: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "products.publish");
+  requireEditorialResourceAccess(actor.role, "product", "apply");
   if (!reason.trim()) throw new ProductValidationError("Archive requires a reason.");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const routeRows = await transaction

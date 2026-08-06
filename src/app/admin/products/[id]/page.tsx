@@ -31,17 +31,19 @@ import {
   listAdminAssets,
   listAdminTaxonomy,
 } from "@/admin/data";
-import { requireCurrentUser } from "@/auth/current-user";
+import { resolveCurrentUser } from "@/auth/current-user";
 import { isEligiblePublicImagePickerAsset } from "@/admin/asset-picker";
 import { blockDocumentSchema, parseBlockDocument } from "@/editorial/blocks";
+import { canAccessEditorialResource } from "@/admin/preview-policy";
 
-const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
-const panelClass = "grid gap-4 rounded-2xl border border-white/10 bg-slate-900 p-6";
+const inputClass = "min-w-0 w-full rounded-lg border border-white/10 bg-slate-950 p-3";
+const panelClass = "grid min-w-0 gap-4 rounded-2xl border border-white/10 bg-slate-900 p-4 sm:p-6";
 
 export default async function ProductEditorPage({
   params,
 }: Readonly<{ params: Promise<{ id: string }> }>) {
-  const currentUser = await requireCurrentUser("products.read");
+  const currentUser = await resolveCurrentUser();
+  if (!currentUser || !canAccessEditorialResource(currentUser.role, "product", "manage")) notFound();
   const { id } = await params;
   const [product, taxonomy, applications, allAssets, pickerOptions] = await Promise.all([
     getAdminProduct(id),
@@ -104,7 +106,7 @@ export default async function ProductEditorPage({
   }));
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
+    <main className="mx-auto min-w-0 max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <AdminPageHeader
         description={`${product.path} · ${product.status} · ${product.indexStatus}`}
         title={product.name}
@@ -112,8 +114,8 @@ export default async function ProductEditorPage({
       <div className="grid gap-8">
         {product.status === "published" ? (
           <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-sm text-amber-100">
-            This Product is live. Editorial, factual, structural, and SEO changes create
-            an In Review revision; public pages keep the approved version until approval.
+            This Product is live. Editorial, factual, structural, and SEO changes merge
+            into one Draft Revision; public pages keep the approved version until explicit Review and Apply.
           </p>
         ) : null}
 
@@ -141,6 +143,8 @@ export default async function ProductEditorPage({
             <p className="mt-2 text-sm text-amber-200">Unknown values stay blank. Saving a value marks it Provided, not Verified.</p>
           </div>
           <input name="productId" type="hidden" value={product.id} />
+          <input name="expectedRevisionId" type="hidden" value={draftRevision?.id ?? ""} />
+          <input name="expectedRevisionVersion" type="hidden" value={draftVersion ?? 0} />
           {[
             ["Supplier Type", "supplierType", product.supplierType],
             ["Composition", "composition", product.composition],
@@ -163,7 +167,7 @@ export default async function ProductEditorPage({
           <h2 className="text-xl font-semibold">Product Code</h2>
           <p className="text-sm text-slate-300">Current: {product.productCode ?? "Unassigned"}</p>
           {!product.productCode ? <AdminActionForm action={assignProductCodeAction} successMessage="Product Code assigned from the managed Primary Category prefix."><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Generate from Primary Category</button></AdminActionForm> : null}
-          {product.productCode && currentUser.role === "admin" ? <AdminActionForm action={correctProductCodeAction} className="grid gap-3 sm:grid-cols-2" successMessage="Product Code correction saved or proposed for the published Product."><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="newProductCode" pattern="[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*" placeholder="Corrected Product Code" required /><input className={inputClass} name="reason" placeholder="Mandatory correction reason" required /><button className="rounded-xl border border-amber-300/40 px-4 py-3 sm:col-span-2" type="submit">Correct with Audit</button></AdminActionForm> : null}
+          {product.productCode && currentUser.role === "admin" ? <AdminActionForm action={correctProductCodeAction} className="grid gap-3 sm:grid-cols-2" successMessage="Product Code correction saved or proposed for the published Product."><input name="productId" type="hidden" value={product.id} /><input name="expectedRevisionId" type="hidden" value={draftRevision?.id ?? ""} /><input name="expectedRevisionVersion" type="hidden" value={draftVersion ?? 0} /><label className="grid gap-2">Corrected Product Code<input className={inputClass} name="newProductCode" pattern="[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*" required /></label><label className="grid gap-2">Mandatory correction reason<input className={inputClass} name="reason" required /></label><button className="rounded-xl border border-amber-300/40 px-4 py-3 sm:col-span-2" type="submit">Correct with Audit</button></AdminActionForm> : null}
         </section>
 
         <section className={panelClass}>
@@ -185,6 +189,8 @@ export default async function ProductEditorPage({
         <AdminActionForm action={updateProductStructureAction} className={panelClass} successMessage="Product relations and display structure saved.">
           <h2 className="text-xl font-semibold">Taxonomy, Applications, media, and structured content</h2>
           <input name="productId" type="hidden" value={product.id} />
+          <input name="expectedRevisionId" type="hidden" value={draftRevision?.id ?? ""} />
+          <input name="expectedRevisionVersion" type="hidden" value={draftVersion ?? 0} />
           <ProductRelationSelectors
             applications={applications}
             initialAdditional={[...selectedTaxonomy].filter((id) => id !== primaryTaxonomy)}
@@ -210,6 +216,8 @@ export default async function ProductEditorPage({
         <AdminActionForm action={updateProductSeoAction} className={panelClass} successMessage="Product SEO draft saved.">
           <h2 className="text-xl font-semibold">SEO metadata</h2>
           <input name="productId" type="hidden" value={product.id} />
+          <input name="expectedRevisionId" type="hidden" value={draftRevision?.id ?? ""} />
+          <input name="expectedRevisionVersion" type="hidden" value={draftVersion ?? 0} />
           <label className="grid gap-2">SEO Title<input className={inputClass} defaultValue={product.seoTitle ?? ""} name="seoTitle" /></label>
           <label className="grid gap-2">Meta Description<textarea className={inputClass} defaultValue={product.metaDescription ?? ""} name="metaDescription" rows={3} /></label>
           <label className="grid gap-2">Focus Keyword<input className={inputClass} defaultValue={product.focusKeyword ?? ""} name="focusKeyword" /></label>
@@ -232,7 +240,7 @@ export default async function ProductEditorPage({
             <AdminActionForm action={submitProductReviewAction} successMessage="Product submitted for review."><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Submit for review</button></AdminActionForm>
             <AdminActionForm action={publishProductAction} successMessage="Product published; Index remains independently controlled."><input name="productId" type="hidden" value={product.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Publish</button></AdminActionForm>
           </div>
-          <AdminActionForm action={rejectProductReviewAction} className="flex flex-wrap gap-3" successMessage="Product returned to Draft."><input name="productId" type="hidden" value={product.id} /><input className={`${inputClass} flex-1`} name="reason" placeholder="Review rejection reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Reject to Draft</button></AdminActionForm>
+          <AdminActionForm action={rejectProductReviewAction} className="flex min-w-0 flex-wrap gap-3" successMessage="Product returned to Draft."><input name="productId" type="hidden" value={product.id} /><label className="min-w-0 basis-64 flex-1">Review rejection reason<input className={inputClass} name="reason" required /></label><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Reject to Draft</button></AdminActionForm>
           <AdminActionForm action={confirmRealProductAction} className="grid gap-3 sm:grid-cols-2" successMessage="Real Product basis confirmed.">
             <input name="productId" type="hidden" value={product.id} />
             <label className="grid gap-2">Real Product basis<select className={inputClass} defaultValue={product.realProductBasis ?? ""} name="basis" required><option value="">Select only with evidence…</option><option value="physical_product">Physical product</option><option value="physical_sample">Physical sample</option><option value="internal_product_code">Internal product code</option><option value="supply_specification">Supply specification</option><option value="explicit_specification_combination">Explicit specification combination</option></select></label>
@@ -248,7 +256,7 @@ export default async function ProductEditorPage({
           <AdminActionForm action={setProductIndexAction} className="grid gap-3" successMessage="Product Index status updated.">
             <h2 className="text-lg font-semibold">Index decision</h2><input name="productId" type="hidden" value={product.id} /><label className="grid gap-2">Index status<select className={inputClass} defaultValue={product.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select></label><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Apply index status</button>
           </AdminActionForm>
-          <AdminActionForm action={archiveProductAction} className="grid gap-3 sm:col-span-2" successMessage="Product archived and forced to Noindex."><h2 className="text-lg font-semibold">Archive Product</h2><input name="productId" type="hidden" value={product.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Archive and force Noindex</button></AdminActionForm>
+          <AdminActionForm action={archiveProductAction} className="grid gap-3 sm:col-span-2" successMessage="Product archived and forced to Noindex."><h2 className="text-lg font-semibold">Archive Product</h2><input name="productId" type="hidden" value={product.id} /><label className="grid gap-2">Archive reason<input className={inputClass} name="reason" required /></label><button className="rounded-xl border border-red-300/40 px-4 py-3" type="submit">Archive and force Noindex</button></AdminActionForm>
         </section>
       </div>
     </main>

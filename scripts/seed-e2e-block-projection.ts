@@ -6,6 +6,7 @@ import {
   confirmRealProductBasis,
   createProductDraft,
   publishReviewedProduct,
+  submitProductBlockDraftForReview,
   submitProductForReview,
   updateProductBlocks,
   updateProductStructure,
@@ -261,6 +262,7 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     expectedEditorDocumentVersion: 2,
   });
   if (!appliedRevisionId) throw new Error("E2E applied Product Revision was not created.");
+  await submitProductBlockDraftForReview(db, actor, appliedRevisionProductId, appliedRevisionId);
   await applyProductRevision(db, actor, appliedRevisionId);
 
   const contentAssetIds = await Promise.all([
@@ -296,9 +298,11 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
 
   const enabledStaticAssetId = "91000000-0000-4000-8000-000000000001";
   const disabledStaticAssetId = "91000000-0000-4000-8000-000000000002";
+  const aboutStaticAssetId = "91000000-0000-4000-8000-000000000003";
   const staticAssets = [
     { id: enabledStaticAssetId, label: "enabled", color: [18, 105, 90] as const },
     { id: disabledStaticAssetId, label: "disabled", color: [105, 72, 38] as const },
+    { id: aboutStaticAssetId, label: "about-enabled", color: [65, 98, 120] as const },
   ] as const;
   for (const item of staticAssets) {
     const objectKey = `e2e/static-${item.label}.jpg`;
@@ -336,6 +340,15 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     placements: [{ ...placement(disabledStaticAssetId), placementKey: "hero" as const }],
   }, "TEST E2E disabled Static media");
   await applyStaticPageConfigRevision(db, actor, disabledRevision);
+  const aboutRevision = await proposeStaticPageConfigRevision(db, actor, {
+    ...DEFAULT_STATIC_PAGE_CONFIGS.about,
+    placements: [{
+      ...placement(aboutStaticAssetId),
+      placementKey: "service_strength" as const,
+      role: "detail" as const,
+    }],
+  }, "TEST E2E enabled About Static media");
+  await applyStaticPageConfigRevision(db, actor, aboutRevision);
 
   return {
     productPath: "/products/test-e2e-block-media-product/",
@@ -356,6 +369,7 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     },
     enabledStaticAssetId,
     disabledStaticAssetId,
+    aboutStaticAssetId,
   };
 }
 

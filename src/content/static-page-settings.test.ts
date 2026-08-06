@@ -1,8 +1,30 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_STATIC_PAGE_CONFIGS, staticPageConfigSchema } from "./static-page-settings";
+import { resolveStaticPageLiveAuthority } from "./static-page-projection";
 
 describe("fixed Home/About page settings", () => {
+  it("uses bootstrap defaults only before an applied persisted authority exists", () => {
+    expect(resolveStaticPageLiveAuthority("home", null, false)).toMatchObject({ state: "bootstrap" });
+    expect(resolveStaticPageLiveAuthority("home", { invalid: true }, true)).toEqual({
+      state: "invalid",
+      config: null,
+    });
+    expect(resolveStaticPageLiveAuthority("home", DEFAULT_STATIC_PAGE_CONFIGS.home, false))
+      .toMatchObject({ state: "bootstrap" });
+    const approved = {
+      ...DEFAULT_STATIC_PAGE_CONFIGS.home,
+      copy: {
+        ...DEFAULT_STATIC_PAGE_CONFIGS.home.copy!,
+        hero: { ...DEFAULT_STATIC_PAGE_CONFIGS.home.copy!.hero, title: "Approved persisted title" },
+      },
+    };
+    expect(resolveStaticPageLiveAuthority("home", approved, true)).toEqual({
+      state: "live",
+      config: approved,
+    });
+  });
+
   it("accepts the fixed Home module order and bounded media controls", () => {
     expect(staticPageConfigSchema.parse({
       ...DEFAULT_STATIC_PAGE_CONFIGS.home,

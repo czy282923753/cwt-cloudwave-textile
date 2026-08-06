@@ -11,6 +11,7 @@ import {
   proposePublishedContentRevision,
   publishContent,
   submitContentForReview,
+  submitContentBlockDraftForReview,
   updateContent,
 } from "./content-service";
 
@@ -96,6 +97,12 @@ describe("published content revisions", () => {
     expect(
       blockDocumentPlainText(parseBlockDocument(before[0]?.structuredBlocks, "content")),
     ).toBe("Approved fixture body.");
+    await submitContentBlockDraftForReview(
+      connection.db,
+      { userId: editorId, role: "content_editor" },
+      contentId,
+      revisionId,
+    );
     await applyContentRevision(
       connection.db,
       { userId: reviewerId, role: "reviewer_publisher" },

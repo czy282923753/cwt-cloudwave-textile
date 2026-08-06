@@ -5,6 +5,7 @@ import {
   assets,
   contentAssets,
   contents,
+  editorialRevisions,
   fabricLibraryEntries,
   fabricLibraryEntryAssets,
   productAssets,
@@ -96,9 +97,18 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
         isVisible: sitePageAssets.isVisible,
         settingKey: systemSettings.key,
         settingValue: systemSettings.value,
+        subjectRelationship: assets.subjectRelationship,
+        isCwtOwnedFacility: assets.isCwtOwnedFacility,
       })
       .from(sitePageAssets)
       .innerJoin(systemSettings, eq(systemSettings.id, sitePageAssets.systemSettingId))
+      .innerJoin(assets, eq(assets.id, sitePageAssets.assetId))
+      .innerJoin(editorialRevisions, and(
+        eq(editorialRevisions.entityType, "static_page"),
+        eq(editorialRevisions.entityId, systemSettings.id),
+        eq(editorialRevisions.locale, "en"),
+        eq(editorialRevisions.status, "applied"),
+      ))
       .where(
         and(
           eq(sitePageAssets.assetId, assetId),
@@ -112,7 +122,11 @@ async function hasPublishedEntityRelation<TQueryResult extends PgQueryResultHKT>
     const config = staticPageConfigSchema.safeParse(row.settingValue);
     return config.success &&
       row.settingKey === `site_page.${config.data.pageKey}` &&
-      isPersistedStaticPagePlacementLive(config.data, row);
+      isPersistedStaticPagePlacementLive(config.data, row) &&
+      (
+        (row.placementKey !== "manufacturing_strength" && row.placementKey !== "owned_manufacturing") ||
+        (row.subjectRelationship === "cwt" && row.isCwtOwnedFacility === true)
+      );
   });
   return Boolean(
     productRows[0] || fabricRows[0] || contentRows[0] || hasLiveStaticPageRelation,

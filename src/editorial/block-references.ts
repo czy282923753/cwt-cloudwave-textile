@@ -8,9 +8,11 @@ import {
   contentAssets,
   contentLocalizations,
   contents,
+  internalLinkRelations,
   productAssets,
   productLocalizations,
   products,
+  redirects,
   routes,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
@@ -66,8 +68,14 @@ export type BlockProjectionOwner =
 
 export interface ResolvedBlockLink {
   id: string;
+  routeId: string;
   label: string;
   href: string;
+}
+
+export interface ResolvedInternalLink {
+  destinationRouteId: string;
+  anchorText: string;
 }
 
 export interface ResolvedBlockProjection {
@@ -78,6 +86,7 @@ export interface ResolvedBlockProjection {
   hasRenderableContent: boolean;
   referencesValid: boolean;
   readableText: string;
+  internalLinks: readonly ResolvedInternalLink[];
 }
 
 export interface ResolveBlockProjectionOptions {
@@ -217,7 +226,7 @@ async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
   const [productRows, contentRows] = await Promise.all([
     productIds.length
       ? db
-          .select({ id: products.id, label: productLocalizations.name, href: routes.path })
+          .select({ id: products.id, routeId: routes.id, label: productLocalizations.name, href: routes.path })
           .from(products)
           .innerJoin(productLocalizations, and(
             eq(productLocalizations.productId, products.id),
@@ -233,7 +242,7 @@ async function resolveRelatedLinks<TQueryResult extends PgQueryResultHKT>(
       : Promise.resolve([]),
     contentIds.length
       ? db
-          .select({ id: contents.id, label: contentLocalizations.title, href: routes.path })
+          .select({ id: contents.id, routeId: routes.id, label: contentLocalizations.title, href: routes.path })
           .from(contents)
           .innerJoin(contentLocalizations, and(
             eq(contentLocalizations.contentId, contents.id),
@@ -274,15 +283,32 @@ const fixedInternalPaths = new Set([
 async function resolveInternalCtaHrefs<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   document: BlockDocument,
-): Promise<Set<string>> {
+): Promise<{
+  validHrefs: Set<string>;
+  routeIds: Map<string, string>;
+  normalizedHrefs: Map<string, string>;
+}> {
   const hrefs = [...new Set(document.blocks.flatMap((block) => block.type === "cta" ? [block.href] : []))];
   const resolved = new Set(hrefs.filter((href) => fixedInternalPaths.has(href)));
-  const routed = hrefs.filter((href) => !fixedInternalPaths.has(href));
-  if (!routed.length) return resolved;
-  const routeRows = await db
-    .select({ path: routes.path, entityType: routes.entityType, entityId: routes.entityId })
+  const routeIds = new Map<string, string>();
+  const normalizedHrefs = new Map(hrefs.filter((href) => fixedInternalPaths.has(href)).map((href) => [href, href]));
+  if (!hrefs.length) return { validHrefs: resolved, routeIds, normalizedHrefs };
+  const directRouteRows = await db
+    .select({ id: routes.id, path: routes.path, entityType: routes.entityType, entityId: routes.entityId })
     .from(routes)
-    .where(and(inArray(routes.path, routed), eq(routes.locale, "en"), eq(routes.isCurrent, true)));
+    .where(and(inArray(routes.path, hrefs), eq(routes.locale, "en"), eq(routes.isCurrent, true)));
+  const directPaths = new Set(directRouteRows.map((route) => route.path));
+  const unresolvedHrefs = hrefs.filter((href) => !directPaths.has(href));
+  const redirectRows = unresolvedHrefs.length ? await db
+    .select({ sourcePath: redirects.sourcePath, destinationPath: redirects.destinationPath })
+    .from(redirects)
+    .where(and(inArray(redirects.sourcePath, unresolvedHrefs), eq(redirects.isActive, true))) : [];
+  const destinationPaths = [...new Set(redirectRows.map((redirect) => redirect.destinationPath))];
+  const destinationRouteRows = destinationPaths.length ? await db
+    .select({ id: routes.id, path: routes.path, entityType: routes.entityType, entityId: routes.entityId })
+    .from(routes)
+    .where(and(inArray(routes.path, destinationPaths), eq(routes.locale, "en"), eq(routes.isCurrent, true))) : [];
+  const routeRows = [...directRouteRows, ...destinationRouteRows];
   const productIds = routeRows.flatMap((row) =>
     row.entityType === "product" && row.entityId ? [row.entityId] : [],
   );
@@ -298,16 +324,37 @@ async function resolveInternalCtaHrefs<TQueryResult extends PgQueryResultHKT>(
     applicationIds.length ? db.select({ id: applications.id }).from(applications).where(and(inArray(applications.id, applicationIds), eq(applications.status, "published"))) : Promise.resolve([]),
   ]);
   const eligibleIds = new Set([...eligibleProducts, ...eligibleContents, ...eligibleApplications].map((row) => row.id));
-  for (const route of routeRows) {
-    if (
+  const isEligibleRoute = (route: (typeof routeRows)[number]): boolean =>
+    fixedInternalPaths.has(route.path) || (
       (route.entityType === "product" || route.entityType === "content" || route.entityType === "application") &&
       route.entityId !== null &&
       eligibleIds.has(route.entityId)
-    ) {
+    );
+  for (const route of directRouteRows) {
+    if (fixedInternalPaths.has(route.path)) {
       resolved.add(route.path);
+      routeIds.set(route.path, route.id);
+      normalizedHrefs.set(route.path, route.path);
+      continue;
+    }
+    if (isEligibleRoute(route)) {
+      resolved.add(route.path);
+      routeIds.set(route.path, route.id);
+      normalizedHrefs.set(route.path, route.path);
     }
   }
-  return resolved;
+  const destinationRoutesByPath = new Map(destinationRouteRows.map((route) => [route.path, route]));
+  for (const destination of destinationRouteRows) {
+    if (isEligibleRoute(destination)) routeIds.set(destination.path, destination.id);
+  }
+  for (const redirect of redirectRows) {
+    const destination = destinationRoutesByPath.get(redirect.destinationPath);
+    if (!destination || !isEligibleRoute(destination)) continue;
+    resolved.add(redirect.sourcePath);
+    routeIds.set(redirect.sourcePath, destination.id);
+    normalizedHrefs.set(redirect.sourcePath, destination.path);
+  }
+  return { validHrefs: resolved, routeIds, normalizedHrefs };
 }
 
 function projectRenderableDocument(
@@ -316,6 +363,7 @@ function projectRenderableDocument(
   relatedProducts: Readonly<Record<string, ResolvedBlockLink>>,
   relatedArticles: Readonly<Record<string, ResolvedBlockLink>>,
   validInternalHrefs: ReadonlySet<string>,
+  normalizedInternalHrefs: ReadonlyMap<string, string>,
 ): BlockDocument {
   const blocks: EditorialBlock[] = [];
   for (const block of document.blocks) {
@@ -338,7 +386,9 @@ function projectRenderableDocument(
       continue;
     }
     if (block.type === "cta") {
-      if (validInternalHrefs.has(block.href)) blocks.push(block);
+      if (validInternalHrefs.has(block.href)) {
+        blocks.push({ ...block, href: normalizedInternalHrefs.get(block.href) ?? block.href });
+      }
       continue;
     }
     blocks.push(block);
@@ -357,13 +407,13 @@ export async function resolveBlockPublicProjection<
   document: BlockDocument,
   options: ResolveBlockProjectionOptions = {},
 ): Promise<ResolvedBlockProjection> {
-  const [media, links, validInternalHrefs] = await Promise.all([
+  const [media, links, internalCtas] = await Promise.all([
     resolveMedia(db, owner, document),
     resolveRelatedLinks(db, document),
     resolveInternalCtaHrefs(db, document),
   ]);
   const ctaHrefs = document.blocks.flatMap((block) => block.type === "cta" ? [block.href] : []);
-  const referencesValid = media.referencesValid && links.referencesValid && ctaHrefs.every((href) => validInternalHrefs.has(href));
+  const referencesValid = media.referencesValid && links.referencesValid && ctaHrefs.every((href) => internalCtas.validHrefs.has(href));
   if (options.invalidReferences !== "filter" && !referencesValid) {
     if (media.ambiguityMessage) {
       throw new BlockReferenceResolutionError(media.ambiguityMessage);
@@ -380,7 +430,8 @@ export async function resolveBlockPublicProjection<
     media.mediaAssetIds,
     links.relatedProducts,
     links.relatedArticles,
-    validInternalHrefs,
+    internalCtas.validHrefs,
+    internalCtas.normalizedHrefs,
   );
   const relatedText = [
     ...renderableDocument.blocks.flatMap((block) =>
@@ -404,5 +455,67 @@ export async function resolveBlockPublicProjection<
       .filter((value) => value.trim())
       .join("\n")
       .trim(),
+    internalLinks: renderableDocument.blocks.flatMap((block) => {
+      if (block.type === "related_products") {
+        return block.productIds.map((id) => ({
+          destinationRouteId: links.relatedProducts[id]!.routeId,
+          anchorText: links.relatedProducts[id]!.label,
+        }));
+      }
+      if (block.type === "related_articles") {
+        return block.contentIds.map((id) => ({
+          destinationRouteId: links.relatedArticles[id]!.routeId,
+          anchorText: links.relatedArticles[id]!.label,
+        }));
+      }
+      if (block.type === "cta") {
+        const destinationRouteId = internalCtas.routeIds.get(block.href);
+        return destinationRouteId ? [{ destinationRouteId, anchorText: block.label }] : [];
+      }
+      return [];
+    }),
   };
+}
+
+export async function synchronizeBlockInternalLinks<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  owner: { type: "product" | "content"; id: string },
+  projection: ResolvedBlockProjection,
+): Promise<void> {
+  const sourceRows = await db
+    .select({ id: routes.id })
+    .from(routes)
+    .where(and(
+      eq(routes.entityType, owner.type),
+      eq(routes.entityId, owner.id),
+      eq(routes.locale, "en"),
+      eq(routes.isCurrent, true),
+    ))
+    .limit(1);
+  const sourceRouteId = sourceRows[0]?.id;
+  if (!sourceRouteId) {
+    if (!projection.internalLinks.length) return;
+    throw new BlockReferenceResolutionError("Block link owner has no current Route authority.");
+  }
+  const deduplicated = new Map<string, ResolvedInternalLink>();
+  for (const link of projection.internalLinks) {
+    if (link.destinationRouteId !== sourceRouteId && !deduplicated.has(link.destinationRouteId)) {
+      deduplicated.set(link.destinationRouteId, link);
+    }
+  }
+  await db
+    .delete(internalLinkRelations)
+    .where(eq(internalLinkRelations.sourceRouteId, sourceRouteId));
+  if (deduplicated.size) {
+    await db.insert(internalLinkRelations).values(
+      [...deduplicated.values()].map((link) => ({
+        sourceRouteId,
+        destinationRouteId: link.destinationRouteId,
+        anchorText: link.anchorText,
+        status: "published" as const,
+      })),
+    );
+  }
 }

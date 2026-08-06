@@ -46,11 +46,30 @@ import {
   users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { currentPublicCompanyFactConditions } from "@/content/company-facts-service";
 import {
-  DEFAULT_STATIC_PAGE_CONFIGS,
+  resolveStaticPageLiveAuthority,
   staticPageConfigSchema,
   type StaticPageConfig,
 } from "@/content/static-page-projection";
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nestedRevisionChanges(snapshot: unknown): Record<string, unknown>[] {
+  const root = objectRecord(snapshot);
+  if (!root) return [];
+  const pending = Array.isArray(root.pendingChanges)
+    ? root.pendingChanges.flatMap((value) => {
+        const record = objectRecord(value);
+        return record ? [record] : [];
+      })
+    : [];
+  return [root, ...pending];
+}
 
 async function queryProducts<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
@@ -74,7 +93,7 @@ async function queryProducts<TQueryResult extends PgQueryResultHKT>(
         eq(productLocalizations.locale, "en"),
       ),
     )
-    .leftJoin(
+    .innerJoin(
       routes,
       and(
         eq(routes.entityId, products.id),
@@ -140,7 +159,7 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
         eq(productLocalizations.locale, "en"),
       ),
     )
-    .innerJoin(
+    .leftJoin(
       routes,
       and(
         eq(routes.entityId, products.id),
@@ -200,14 +219,68 @@ async function queryProductDetail<TQueryResult extends PgQueryResultHKT>(
         .where(and(eq(editorialRevisions.entityType, "product"), eq(editorialRevisions.entityId, productId)))
         .orderBy(desc(editorialRevisions.versionNumber)),
     ]);
+  const draft = revisions.find((revision) => revision.status === "draft");
+  const changes = nestedRevisionChanges(draft?.kind);
+  const editorial = changes.find((change) => change.kind === "editorial_blocks");
+  const facts = changes.find((change) => change.kind === "facts");
+  const structure = changes.find((change) => change.kind === "structure");
+  const seo = changes.find((change) => change.kind === "seo");
+  const pendingMedia = Array.isArray(structure?.media)
+    ? structure.media as typeof assetRows
+    : null;
+  const pendingTaxonomy = structure && typeof structure.primaryTaxonomyTermId === "string" &&
+      Array.isArray(structure.additionalTaxonomyTermIds)
+    ? [
+        { taxonomyTermId: structure.primaryTaxonomyTermId, isPrimary: true },
+        ...structure.additionalTaxonomyTermIds.flatMap((value) =>
+          typeof value === "string"
+            ? [{ taxonomyTermId: value, isPrimary: false }]
+            : [],
+        ),
+      ]
+    : null;
+  const factualValue = <TValue,>(key: string, fallback: TValue): TValue =>
+    facts && key in facts ? facts[key] as TValue : fallback;
+  const structureValue = <TValue,>(key: string, fallback: TValue): TValue =>
+    structure && key in structure ? structure[key] as TValue : fallback;
   return {
     ...product,
-    taxonomy,
-    applicationIds: productApplicationRows.map((row) => row.applicationId),
-    assets: assetRows,
-    tags: tagRows.map((row) => row.name),
-    features: featureRows.map((row) => row.label),
-    faqs: faqRows,
+    name: typeof editorial?.name === "string" ? editorial.name : product.name,
+    shortDescription: typeof editorial?.shortDescription === "string" || editorial?.shortDescription === null
+      ? editorial.shortDescription
+      : product.shortDescription,
+    structuredBlocks: editorial?.document ?? product.structuredBlocks,
+    productCode: factualValue("productCode", product.productCode),
+    supplierType: factualValue("supplierType", product.supplierType),
+    composition: factualValue("composition", product.composition),
+    weightGsm: factualValue("weightGsm", product.weightGsm),
+    widthCm: factualValue("widthCm", product.widthCm),
+    fabricStyle: factualValue("fabricStyle", product.fabricStyle),
+    colorOptions: factualValue("colorOptions", product.colorOptions),
+    moqNote: factualValue("moqNote", product.moqNote),
+    moqValue: factualValue("moqValue", product.moqValue),
+    moqUnit: factualValue("moqUnit", product.moqUnit),
+    customAvailable: factualValue("customAvailable", product.customAvailable),
+    sampleAvailable: factualValue("sampleAvailable", product.sampleAvailable),
+    seoTitle: typeof seo?.title === "string" || seo?.title === null ? seo.title : product.seoTitle,
+    metaDescription: typeof seo?.metaDescription === "string" || seo?.metaDescription === null ? seo.metaDescription : product.metaDescription,
+    focusKeyword: typeof seo?.focusKeyword === "string" || seo?.focusKeyword === null ? seo.focusKeyword : product.focusKeyword,
+    taxonomy: pendingTaxonomy ?? taxonomy,
+    applicationIds: Array.isArray(structure?.applicationIds)
+      ? structure.applicationIds.filter((value): value is string => typeof value === "string")
+      : productApplicationRows.map((row) => row.applicationId),
+    assets: pendingMedia ?? assetRows,
+    tags: Array.isArray(structure?.tagNames)
+      ? structure.tagNames.filter((value): value is string => typeof value === "string")
+      : tagRows.map((row) => row.name),
+    features: Array.isArray(structure?.features)
+      ? structure.features.filter((value): value is string => typeof value === "string")
+      : featureRows.map((row) => row.label),
+    faqs: Array.isArray(structure?.faqs) ? structure.faqs as typeof faqRows : faqRows,
+    colorOptionsDisplay: structureValue("colorOptionsDisplay", product.colorOptionsDisplay),
+    customAvailableDisplay: structureValue("customAvailableDisplay", product.customAvailableDisplay),
+    sampleAvailableDisplay: structureValue("sampleAvailableDisplay", product.sampleAvailableDisplay),
+    moqNoteDisplay: structureValue("moqNoteDisplay", product.moqNoteDisplay),
     fieldReviews: reviewRows,
     revisions,
   };
@@ -244,7 +317,7 @@ async function queryTaxonomy<TQueryResult extends PgQueryResultHKT>(
         eq(taxonomyTermLocalizations.locale, "en"),
       ),
     )
-    .innerJoin(
+    .leftJoin(
       routes,
       and(
         eq(routes.entityType, "taxonomy"),
@@ -252,7 +325,7 @@ async function queryTaxonomy<TQueryResult extends PgQueryResultHKT>(
         eq(routes.isCurrent, true),
       ),
     )
-    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id));
+    .leftJoin(seoMetadata, eq(seoMetadata.routeId, routes.id));
 }
 
 export async function listAdminTaxonomy() {
@@ -397,7 +470,6 @@ async function queryAdminStaticPage<TQueryResult extends PgQueryResultHKT>(
     .where(eq(systemSettings.key, `site_page.${pageKey}`))
     .limit(1);
   const setting = settingRows[0];
-  const live = setting ? staticPageConfigSchema.safeParse(setting.value) : null;
   const revisions = setting ? await db
     .select({
       id: editorialRevisions.id,
@@ -416,11 +488,16 @@ async function queryAdminStaticPage<TQueryResult extends PgQueryResultHKT>(
     ))
     .orderBy(desc(editorialRevisions.versionNumber)) : [];
   const pendingRow = revisions.find((revision) => revision.status === "draft" || revision.status === "in_review");
+  const liveAuthority = resolveStaticPageLiveAuthority(
+    pageKey,
+    setting?.value ?? null,
+    revisions.some((revision) => revision.status === "applied"),
+  );
   const pending = pendingRow ? staticPageConfigFromRevision(pendingRow.snapshot, pageKey) : null;
   const facts = await db
     .select({ id: companyFacts.id, key: companyFacts.factKey, statement: companyFacts.statement })
     .from(companyFacts)
-    .where(and(eq(companyFacts.verificationStatus, "verified"), eq(companyFacts.publicUseAllowed, true)));
+    .where(currentPublicCompanyFactConditions());
   const modifierIds = [...new Set([
     setting?.updatedByUserId,
     pendingRow?.createdByUserId,
@@ -431,7 +508,8 @@ async function queryAdminStaticPage<TQueryResult extends PgQueryResultHKT>(
   const modifierNames = new Map(modifierRows.map((row) => [row.id, row.name]));
   return {
     settingId: setting?.id ?? null,
-    liveConfig: live?.success ? live.data : DEFAULT_STATIC_PAGE_CONFIGS[pageKey],
+    liveAuthorityState: liveAuthority.state,
+    liveConfig: liveAuthority.config,
     liveUpdatedAt: setting?.updatedAt ?? null,
     liveUpdatedByUserId: setting?.updatedByUserId ?? null,
     liveUpdatedByName: setting?.updatedByUserId
@@ -528,7 +606,7 @@ async function queryApplicationDetail<TQueryResult extends PgQueryResultHKT>(
         eq(applicationLocalizations.locale, "en"),
       ),
     )
-    .innerJoin(
+    .leftJoin(
       routes,
       and(
         eq(routes.entityType, "application"),
@@ -536,7 +614,7 @@ async function queryApplicationDetail<TQueryResult extends PgQueryResultHKT>(
         eq(routes.isCurrent, true),
       ),
     )
-    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .leftJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
     .where(eq(applications.id, applicationId))
     .limit(1);
   const application = rows[0];
@@ -662,7 +740,31 @@ async function queryContentDetail<TQueryResult extends PgQueryResultHKT>(
       .where(and(eq(editorialRevisions.entityType, "content"), eq(editorialRevisions.entityId, contentId)))
       .orderBy(desc(editorialRevisions.versionNumber)),
   ]);
-  return { ...content, assets: assetRows, revisions };
+  const draft = revisions.find((revision) => revision.status === "draft");
+  const snapshot = objectRecord(draft?.snapshot);
+  const media = Array.isArray(snapshot?.media) ? snapshot.media as typeof assetRows : null;
+  const seo = objectRecord(snapshot?.seo);
+  return {
+    ...content,
+    title: typeof snapshot?.title === "string" ? snapshot.title : content.title,
+    excerpt: typeof snapshot?.excerpt === "string" || snapshot?.excerpt === null
+      ? snapshot.excerpt
+      : content.excerpt,
+    structuredBlocks: snapshot?.document ?? content.structuredBlocks,
+    authorId: typeof snapshot?.authorId === "string" ? snapshot.authorId : content.authorId,
+    type: typeof snapshot?.type === "string"
+      ? snapshot.type as typeof content.type
+      : content.type,
+    seoTitle: typeof seo?.title === "string" || seo?.title === null ? seo.title : content.seoTitle,
+    metaDescription: typeof seo?.metaDescription === "string" || seo?.metaDescription === null
+      ? seo.metaDescription
+      : content.metaDescription,
+    focusKeyword: typeof seo?.focusKeyword === "string" || seo?.focusKeyword === null
+      ? seo.focusKeyword
+      : content.focusKeyword,
+    assets: media ?? assetRows,
+    revisions,
+  };
 }
 
 export async function getAdminContent(contentId: string) {

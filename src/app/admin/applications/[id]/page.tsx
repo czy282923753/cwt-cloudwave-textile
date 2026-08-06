@@ -16,8 +16,8 @@ import { AdminPageHeader } from "@/admin/components/admin-table";
 import { getAdminApplication, listAdminProducts } from "@/admin/data";
 import { requireCurrentUser } from "@/auth/current-user";
 
-const inputClass = "rounded-lg border border-white/10 bg-slate-950 p-3";
-const panelClass = "grid gap-4 rounded-2xl border border-white/10 bg-slate-900 p-6";
+const inputClass = "min-w-0 w-full rounded-lg border border-white/10 bg-slate-950 p-3";
+const panelClass = "grid min-w-0 gap-4 rounded-2xl border border-white/10 bg-slate-900 p-4 sm:p-6";
 
 export default async function ApplicationEditorPage({
   params,
@@ -31,9 +31,9 @@ export default async function ApplicationEditorPage({
   if (!application) notFound();
   const selectedProducts = new Set(application.productIds);
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
       <AdminPageHeader
-        description={`${application.status} · ${application.indexStatus} · ${application.path}`}
+        description={`${application.status} · ${application.indexStatus ?? "noindex"} · ${application.path ?? "Internal Draft · no public route"}`}
         title={application.name}
       />
       <div className="grid gap-8">
@@ -45,7 +45,7 @@ export default async function ApplicationEditorPage({
         ) : null}
         <AdminActionForm action={updateApplicationAction} className={panelClass} successMessage="Application changes saved.">
           <input name="applicationId" type="hidden" value={application.id} />
-          <input name="routeId" type="hidden" value={application.routeId} />
+          <input name="routeId" type="hidden" value={application.routeId ?? ""} />
           <h2 className="text-xl font-semibold">Landing page, relations, and SEO</h2>
           <label className="grid gap-2">
             Name
@@ -68,18 +68,20 @@ export default async function ApplicationEditorPage({
               </label>
             ))}
           </fieldset>
-          <label className="grid gap-2">
-            SEO Title
-            <input className={inputClass} defaultValue={application.seoTitle ?? ""} name="seoTitle" />
-          </label>
-          <label className="grid gap-2">
-            Meta Description
-            <textarea className={inputClass} defaultValue={application.metaDescription ?? ""} name="metaDescription" rows={3} />
-          </label>
-          <label className="grid gap-2">
-            Focus Keyword
-            <input className={inputClass} defaultValue={application.focusKeyword ?? ""} name="focusKeyword" />
-          </label>
+          {application.routeId ? <>
+            <label className="grid gap-2">
+              SEO Title
+              <input className={inputClass} defaultValue={application.seoTitle ?? ""} name="seoTitle" />
+            </label>
+            <label className="grid gap-2">
+              Meta Description
+              <textarea className={inputClass} defaultValue={application.metaDescription ?? ""} name="metaDescription" rows={3} />
+            </label>
+            <label className="grid gap-2">
+              Focus Keyword
+              <input className={inputClass} defaultValue={application.focusKeyword ?? ""} name="focusKeyword" />
+            </label>
+          </> : <p className="text-sm text-slate-300">Public URL and SEO authority are created only after formal review and Publish approval.</p>}
           <button className="rounded-xl bg-teal-400 px-4 py-3 font-semibold text-slate-950" type="submit">
             Save or propose revision
           </button>
@@ -90,8 +92,8 @@ export default async function ApplicationEditorPage({
             <AdminActionForm action={submitApplicationReviewAction} successMessage="Application submitted for review."><input name="applicationId" type="hidden" value={application.id} /><button className="rounded-xl border border-white/20 px-4 py-3">Submit for review</button></AdminActionForm>
             <AdminActionForm action={publishApplicationAction} successMessage="Application published; Index remains independently controlled."><input name="applicationId" type="hidden" value={application.id} /><button className="rounded-xl border border-white/20 px-4 py-3">Publish</button></AdminActionForm>
           </div>
-          <AdminActionForm action={rejectApplicationReviewAction} className="flex gap-3" successMessage="Application returned to Draft."><input name="applicationId" type="hidden" value={application.id} /><input className={`${inputClass} flex-1`} name="reason" placeholder="Review rejection reason" required /><button className="rounded-xl border border-red-300/40 px-4">Reject to Draft</button></AdminActionForm>
-          <AdminActionForm action={setApplicationIndexAction} className="flex gap-3" successMessage="Application Index status updated."><input name="applicationId" type="hidden" value={application.id} /><select className={`${inputClass} flex-1`} defaultValue={application.indexStatus} name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select><button className="rounded-xl border border-white/20 px-4">Apply</button></AdminActionForm>
+          <AdminActionForm action={rejectApplicationReviewAction} className="flex min-w-0 flex-wrap gap-3" successMessage="Application returned to Draft."><input name="applicationId" type="hidden" value={application.id} /><label className="min-w-0 basis-64 flex-1">Review rejection reason<input className={inputClass} name="reason" required /></label><button className="rounded-xl border border-red-300/40 px-4">Reject to Draft</button></AdminActionForm>
+          {application.routeId ? <AdminActionForm action={setApplicationIndexAction} className="flex gap-3" successMessage="Application Index status updated."><input name="applicationId" type="hidden" value={application.id} /><label className="sr-only" htmlFor="application-index-status">Index status</label><select className={`${inputClass} flex-1`} defaultValue={application.indexStatus ?? "noindex"} id="application-index-status" name="indexStatus"><option value="noindex">Noindex</option><option value="index">Index — quality gates apply</option></select><button className="rounded-xl border border-white/20 px-4">Apply</button></AdminActionForm> : null}
         </section>
         <section className={panelClass}>
           <h2 className="text-xl font-semibold">Revisions</h2>
@@ -103,8 +105,8 @@ export default async function ApplicationEditorPage({
             </article>
           ))}
         </section>
-        <AdminActionForm action={archiveApplicationAction} className={panelClass} successMessage="Application archived and forced to Noindex."><h2 className="text-xl font-semibold">Archive Application</h2><input name="applicationId" type="hidden" value={application.id} /><input className={inputClass} name="reason" placeholder="Archive reason" required /><button className="rounded-xl border border-red-300/40 px-4 py-3">Archive and force Noindex</button></AdminActionForm>
-        <AdminActionForm action={changeApplicationSlugAction} className={panelClass} successMessage="Application URL changed and 301 Redirect created."><h2 className="text-xl font-semibold">Change slug with 301</h2><input name="applicationId" type="hidden" value={application.id} /><input className={inputClass} name="slug" placeholder="new-application-slug" required /><button className="rounded-xl border border-white/20 px-4 py-3">Change URL transactionally</button></AdminActionForm>
+        <AdminActionForm action={archiveApplicationAction} className={panelClass} successMessage="Application archived and forced to Noindex."><h2 className="text-xl font-semibold">Archive Application</h2><input name="applicationId" type="hidden" value={application.id} /><label className="grid gap-2">Archive reason<input className={inputClass} name="reason" required /></label><button className="rounded-xl border border-red-300/40 px-4 py-3">Archive and force Noindex</button></AdminActionForm>
+        {application.routeId ? <AdminActionForm action={changeApplicationSlugAction} className={panelClass} successMessage="Application URL changed and 301 Redirect created."><h2 className="text-xl font-semibold">Change slug with 301</h2><input name="applicationId" type="hidden" value={application.id} /><label className="grid gap-2">New Application slug<input className={inputClass} name="slug" placeholder="new-application-slug" required /></label><button className="rounded-xl border border-white/20 px-4 py-3">Change URL transactionally</button></AdminActionForm> : null}
       </div>
     </main>
   );

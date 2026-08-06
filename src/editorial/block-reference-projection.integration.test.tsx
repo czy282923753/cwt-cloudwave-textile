@@ -8,6 +8,7 @@ import {
   createProductDraft,
   publishReviewedProduct,
   submitProductForReview,
+  submitProductBlockDraftForReview,
   updateProductBlocks,
   updateProductStructure,
 } from "@/catalog/product-service";
@@ -17,10 +18,12 @@ import {
   publishContent,
   setContentIndexStatus,
   submitContentForReview,
+  submitContentBlockDraftForReview,
   updateContent,
 } from "@/content/content-service";
 import {
   assets,
+  applications,
   authors,
   contentAssets,
   contentLocalizations,
@@ -32,6 +35,7 @@ import {
   productLocalizations,
   productTaxonomyTerms,
   products,
+  redirects,
   routes,
   seoMetadata,
   seoTopicMembers,
@@ -363,6 +367,99 @@ describe("normalized readable Block projection", () => {
 });
 
 describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
+  it("synchronizes Product and Content Block links into the existing current-Route authority", async () => {
+    const productFixture = await productResolverFixture();
+    const reviewerRows = await productFixture.connection.db.insert(users).values({
+      email: `link-reviewer-${crypto.randomUUID()}@example.test`, displayName: "TEST Link Reviewer", role: "reviewer_publisher", passwordHash: "test",
+    }).returning({ id: users.id });
+    const destinationApplicationRows = await productFixture.connection.db.insert(applications).values({
+      internalKey: `link-destination-${crypto.randomUUID()}`, status: "published",
+    }).returning({ id: applications.id });
+    const sourceRouteRows = await productFixture.connection.db.insert(routes).values({
+      entityType: "product", entityId: productFixture.productA, locale: "en", path: `/products/link-source-${crypto.randomUUID()}/`,
+    }).returning({ id: routes.id });
+    const destinationRouteRows = await productFixture.connection.db.insert(routes).values({
+      entityType: "application", entityId: destinationApplicationRows[0]!.id, locale: "en", path: `/applications/link-target-${crypto.randomUUID()}/`,
+    }).returning({ id: routes.id, path: routes.path });
+    const redirectedSourcePath = `/applications/old-link-target-${crypto.randomUUID()}/`;
+    await productFixture.connection.db.insert(redirects).values({
+      sourcePath: redirectedSourcePath,
+      destinationPath: destinationRouteRows[0]!.path,
+      reason: "TEST normalize Block link to current Route",
+    });
+    const productRevisionRows = await productFixture.connection.db.insert(editorialRevisions).values({
+      entityType: "product", entityId: productFixture.productA, locale: "en", versionNumber: 1, status: "in_review",
+      snapshot: {
+        kind: "editorial_blocks", name: "TEST Product A", shortDescription: null,
+        document: { version: 1, blocks: [{ id: "product-cta", type: "cta", label: "TEST Application", href: redirectedSourcePath }] },
+        expectedEditorDocumentVersion: 1,
+      },
+      changeSummary: "TEST Product link",
+    }).returning({ id: editorialRevisions.id });
+    await applyProductRevision(productFixture.connection.db, {
+      userId: reviewerRows[0]!.id, role: "reviewer_publisher",
+    }, productRevisionRows[0]!.id);
+    expect(await productFixture.connection.db.select().from(internalLinkRelations).where(eq(
+      internalLinkRelations.sourceRouteId, sourceRouteRows[0]!.id,
+    ))).toEqual([expect.objectContaining({
+      destinationRouteId: destinationRouteRows[0]!.id,
+      anchorText: "TEST Application",
+      status: "published",
+    })]);
+    expect((await productFixture.connection.db.select({
+      document: productLocalizations.structuredBlocks,
+    }).from(productLocalizations).where(eq(
+      productLocalizations.productId, productFixture.productA,
+    )))[0]?.document).toMatchObject({
+      blocks: [expect.objectContaining({ href: destinationRouteRows[0]!.path })],
+    });
+    const removeRevisionRows = await productFixture.connection.db.insert(editorialRevisions).values({
+      entityType: "product", entityId: productFixture.productA, locale: "en", versionNumber: 2, status: "in_review",
+      snapshot: {
+        kind: "editorial_blocks", name: "TEST Product A", shortDescription: null,
+        document: { version: 1, blocks: [{ id: "link-removed", type: "paragraph", text: "TEST link removed." }] }, expectedEditorDocumentVersion: 2,
+      },
+      changeSummary: "TEST Product link removal",
+    }).returning({ id: editorialRevisions.id });
+    await applyProductRevision(productFixture.connection.db, {
+      userId: reviewerRows[0]!.id, role: "reviewer_publisher",
+    }, removeRevisionRows[0]!.id);
+    expect(await productFixture.connection.db.select().from(internalLinkRelations).where(eq(
+      internalLinkRelations.sourceRouteId, sourceRouteRows[0]!.id,
+    ))).toHaveLength(0);
+    await productFixture.connection.close();
+
+    const contentFixture = await contentResolverFixture();
+    const contentReviewerRows = await contentFixture.connection.db.insert(users).values({
+      email: `content-link-reviewer-${crypto.randomUUID()}@example.test`, displayName: "TEST Content Link Reviewer", role: "reviewer_publisher", passwordHash: "test",
+    }).returning({ id: users.id });
+    const targetRows = await contentFixture.connection.db.insert(applications).values({
+      internalKey: `content-link-target-${crypto.randomUUID()}`, status: "published",
+    }).returning({ id: applications.id });
+    const contentSourceRouteRows = await contentFixture.connection.db.insert(routes).values({
+      entityType: "content", entityId: contentFixture.contentA, locale: "en", path: `/fabric-knowledge/link-source-${crypto.randomUUID()}/`,
+    }).returning({ id: routes.id });
+    const contentTargetRouteRows = await contentFixture.connection.db.insert(routes).values({
+      entityType: "application", entityId: targetRows[0]!.id, locale: "en", path: `/applications/content-link-target-${crypto.randomUUID()}/`,
+    }).returning({ id: routes.id, path: routes.path });
+    const contentRevisionRows = await contentFixture.connection.db.insert(editorialRevisions).values({
+      entityType: "content", entityId: contentFixture.contentA, locale: "en", versionNumber: 1, status: "in_review",
+      snapshot: {
+        kind: "content_blocks_v1", title: "TEST Content A", excerpt: null,
+        document: { version: 1, blocks: [{ id: "content-cta", type: "cta", label: "TEST Content CTA", href: contentTargetRouteRows[0]!.path }] },
+        expectedEditorDocumentVersion: 1,
+      },
+      changeSummary: "TEST Content link",
+    }).returning({ id: editorialRevisions.id });
+    await applyContentRevision(contentFixture.connection.db, {
+      userId: contentReviewerRows[0]!.id, role: "reviewer_publisher",
+    }, contentRevisionRows[0]!.id);
+    expect(await contentFixture.connection.db.select().from(internalLinkRelations).where(eq(
+      internalLinkRelations.sourceRouteId, contentSourceRouteRows[0]!.id,
+    ))).toEqual([expect.objectContaining({ destinationRouteId: contentTargetRouteRows[0]!.id, status: "published" })]);
+    await contentFixture.connection.close();
+  });
+
   it("revalidates Product media at Apply and leaves approved public narrative unchanged", async () => {
     const connection = await createTestDatabase();
     const userRows = await connection.db.insert(users).values([
@@ -403,6 +500,7 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
       expectedEditorDocumentVersion: 2,
     });
     expect(revisionId).toBeTruthy();
+    await submitProductBlockDraftForReview(connection.db, editor, productId, revisionId!);
     await connection.db.update(productAssets).set({ isVisible: false }).where(and(eq(productAssets.productId, productId), eq(productAssets.assetId, detailAssetId)));
     await expect(applyProductRevision(connection.db, reviewer, revisionId!)).rejects.toThrow(/visible, role-compatible/);
     const localization = (await connection.db.select({ document: productLocalizations.structuredBlocks }).from(productLocalizations).where(eq(productLocalizations.productId, productId)))[0]!;
@@ -444,11 +542,13 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
       structuredDocument: { version: 1, blocks: [{ id: "valid-image", type: "image", mediaKey: "inline-image" }, { id: "text", type: "paragraph", text: "Approved image narrative." }] },
       media: [{ assetId, role: "inline", sortOrder: 0, altText: "TEST inline", caption: null, isVisible: true, blockKey: "inline-image" }],
     });
+    await submitContentBlockDraftForReview(connection.db, editor, contentId, mediaRevision!);
     await applyContentRevision(connection.db, reviewer, mediaRevision!);
     const pendingRevision = await updateContent(connection.db, editor, contentId, {
       title: "TEST Content Workflow", body: "", authorId: authorRows[0]!.id, type: "guide", expectedEditorDocumentVersion: 2,
       structuredDocument: { version: 1, blocks: [{ id: "pending-image", type: "image", mediaKey: "inline-image" }, { id: "pending-text", type: "paragraph", text: "Pending narrative." }] },
     });
+    await submitContentBlockDraftForReview(connection.db, editor, contentId, pendingRevision!);
     await connection.db.update(contentAssets).set({ isVisible: false }).where(eq(contentAssets.contentId, contentId));
     await expect(applyContentRevision(connection.db, reviewer, pendingRevision!)).rejects.toThrow(/visible, role-compatible/);
     await connection.db.update(contentAssets).set({ isVisible: true }).where(eq(contentAssets.contentId, contentId));
@@ -495,6 +595,7 @@ describe("save, Revision Apply, Publish, and required Audit boundaries", () => {
       structuredDocument: { version: 1, blocks: [{ id: "divider-only", type: "divider" }] },
       seoTitle: "TEST Readable Projection SEO", metaDescription: "Synthetic metadata for readable projection verification.",
     });
+    await submitContentBlockDraftForReview(connection.db, editor, contentId, dividerRevision!);
     await expect(applyContentRevision(connection.db, reviewer, dividerRevision!)).rejects.toThrow(/retain readable/);
     expect((await queryIndexableRoutes(connection.db)).map((row) => row.path)).toContain(routeRows[0]!.path);
     expect((await connection.db.select({ status: editorialRevisions.status }).from(editorialRevisions).where(eq(editorialRevisions.id, dividerRevision!)))[0]?.status).toBe("in_review");

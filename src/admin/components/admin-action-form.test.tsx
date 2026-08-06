@@ -125,4 +125,27 @@ describe("AdminActionForm", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
   });
+
+  it("keeps local form values and offers an explicit reload for a typed conflict", async () => {
+    invokeAdminAction.mockResolvedValue({
+      success: false,
+      message: "This record changed or conflicts with another record.",
+      formError: "Refresh the page, review the latest data, and try again.",
+      fieldErrors: {},
+      errorCode: "CONFLICT",
+      intent: "none",
+    } satisfies AdminActionResult);
+    const user = userEvent.setup();
+    render(
+      <AdminActionForm action={action}>
+        <label>Draft title<input defaultValue="Local unsaved title" name="title" /></label>
+        <button type="submit">Save Draft</button>
+      </AdminActionForm>,
+    );
+    await user.click(screen.getByRole("button", { name: "Save Draft" }));
+    expect(await screen.findByRole("button", { name: "Reload latest server Draft" }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText("Draft title")).toHaveValue("Local unsaved title");
+    expect(refresh).not.toHaveBeenCalled();
+  });
 });

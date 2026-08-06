@@ -42,26 +42,27 @@ describe("Stage 2 editor authority boundaries", () => {
     expect(source("../catalog/product-service.ts")).toContain("resolveBlockPublicProjection");
     expect(source("../content/content-service.ts")).toContain("resolveBlockPublicProjection");
     expect(source("../app/products/[slug]/page.tsx")).toContain("ProductDetailRenderer");
-    expect(source("../app/admin/preview/product/[id]/page.tsx")).toContain("ProductDetailRenderer");
+    expect(source("../app/(admin-preview)/admin/preview/product/[id]/page.tsx")).toContain("ProductDetailRenderer");
     expect(source("../public-site/content-pages.tsx")).toContain("ContentArticleRenderer");
-    expect(source("../app/admin/preview/content/[id]/page.tsx")).toContain("ContentArticleRenderer");
+    expect(source("../app/(admin-preview)/admin/preview/content/[id]/page.tsx")).toContain("ContentArticleRenderer");
   });
 
   it("keeps Draft Preview authenticated, noindex, no-store, and behind controlled Asset delivery", () => {
     const proxy = source("../proxy.ts");
-    const productPreview = source("../app/admin/preview/product/[id]/page.tsx");
-    const contentPreview = source("../app/admin/preview/content/[id]/page.tsx");
-    const sitePreview = source("../app/admin/preview/site/[pageKey]/page.tsx");
+    const productPreview = source("../app/(admin-preview)/admin/preview/product/[id]/page.tsx");
+    const contentPreview = source("../app/(admin-preview)/admin/preview/content/[id]/page.tsx");
+    const sitePreview = source("../app/(admin-preview)/admin/preview/site/[pageKey]/page.tsx");
     const assetRoute = source("../app/api/admin/preview-assets/[entityType]/[entityId]/[assetId]/route.ts");
     for (const preview of [productPreview, contentPreview, sitePreview]) {
-      expect(preview).toContain("requireCurrentUser");
+      expect(preview).toContain("resolveCurrentUser");
       expect(preview).toContain("index: false");
       expect(preview).toContain("follow: false");
     }
     expect(proxy).toContain("/admin/preview/:path*");
     expect(proxy).toContain("noindex, nofollow, noarchive");
     expect(proxy).toContain("private, no-store");
-    expect(assetRoute).toContain("requireCurrentUser");
+    expect(assetRoute).toContain("resolveCurrentUser");
+    expect(assetRoute).toContain("canAccessEditorialResource");
     expect(assetRoute).toContain("publicReadyImageSqlConditions");
     expect(assetRoute).toContain("deriveStaticPageLivePlacements");
     expect(assetRoute).toContain("private, no-store");

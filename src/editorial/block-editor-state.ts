@@ -56,11 +56,13 @@ export function applyBlockCommand(
       if (current.locked) throw new Error("Unlock this Block before deleting it.");
       blocks.splice(index, 1);
     } else if (command.type === "duplicate") {
+      if (current.locked) throw new Error("Unlock this Block before copying it.");
       if (blocks.some((block) => block.id === command.newBlockId)) {
         throw new Error("Block IDs must be unique within a document.");
       }
       blocks.splice(index + 1, 0, { ...current, id: command.newBlockId, locked: false });
     } else if (command.type === "move") {
+      if (current.locked) throw new Error("Unlock this Block before moving it.");
       blocks.splice(index, 1);
       blocks.splice(normalizeIndex(command.toIndex, blocks.length), 0, current);
     } else {

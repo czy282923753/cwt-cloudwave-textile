@@ -3,7 +3,6 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
 import { runGovernedMutation, type GovernedMutationOptions } from "@/audit/governed-mutation";
-import { requirePermission } from "@/auth/permissions";
 import type { Actor } from "@/catalog/product-service";
 import {
   assets,
@@ -13,6 +12,9 @@ import {
   systemSettings,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
+import { EditorialDraftConflictError } from "@/editorial/conflict";
+import { currentPublicCompanyFactConditions } from "./company-facts-service";
+import { requireEditorialResourceAccess } from "@/admin/preview-policy";
 import { publicReadyImageSqlConditions } from "@/uploads/asset-eligibility";
 import {
   DEFAULT_STATIC_PAGE_CONFIGS,
@@ -68,8 +70,7 @@ async function validateStaticPageAssets<TQueryResult extends PgQueryResultHKT>(
       .from(companyFacts)
       .where(and(
         inArray(companyFacts.factKey, factKeys),
-        eq(companyFacts.verificationStatus, "verified"),
-        eq(companyFacts.publicUseAllowed, true),
+        currentPublicCompanyFactConditions(),
       ));
     if (new Set(factRows.map((row) => row.key)).size !== factKeys.length) {
       throw new Error("Static-page Company Facts must be verified and approved for public use.");
@@ -110,7 +111,7 @@ export async function proposeStaticPageConfigRevision<
   changeSummary: string,
   options: GovernedMutationOptions = {},
 ): Promise<string> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "static_page", "write");
   const config = staticPageConfigSchema.parse(input);
   if (!changeSummary.trim()) throw new Error("Static-page revision requires a change summary.");
   await validateStaticPageAssets(db, config);
@@ -175,7 +176,7 @@ export async function saveStaticPageConfigDraft<
   expectedRevisionVersion = 0,
   options: GovernedMutationOptions = {},
 ): Promise<StaticPageDraftSaveResult> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "static_page", "write");
   const config = staticPageConfigSchema.parse(input);
   await validateStaticPageAssets(db, config);
   return runGovernedMutation(db, async ({ transaction, audit }) => {
@@ -207,14 +208,14 @@ export async function saveStaticPageConfigDraft<
     const draft = draftRows[0];
     if (draft) {
       if (expectedRevisionId && expectedRevisionId !== draft.id) {
-        throw new StaticPageProjectionMismatchError();
+        throw new EditorialDraftConflictError("A different Static Page Draft Revision is current.");
       }
       const current = staticPageDraftSnapshotSchema.parse(draft.snapshot);
       if (expectedRevisionVersion !== current.draftVersion) {
         if (JSON.stringify(current.config) === JSON.stringify(config)) {
           return { revisionId: draft.id, revisionVersion: current.draftVersion };
         }
-        throw new Error("Static-page Draft changed in another editor; reload before saving.");
+        throw new EditorialDraftConflictError("Static-page Draft changed in another editor; reload before saving.");
       }
       const revisionVersion = current.draftVersion + 1;
       await transaction
@@ -234,7 +235,7 @@ export async function saveStaticPageConfigDraft<
       return { revisionId: draft.id, revisionVersion };
     }
     if (expectedRevisionId || expectedRevisionVersion !== 0) {
-      throw new Error("Static-page Draft Revision is no longer current.");
+      throw new EditorialDraftConflictError("Static-page Draft Revision is no longer current.");
     }
     const latestRows = await transaction
       .select({ versionNumber: editorialRevisions.versionNumber })
@@ -280,7 +281,7 @@ export async function submitStaticPageConfigDraftForReview<
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<void> {
-  requirePermission(actor.role, "content.write");
+  requireEditorialResourceAccess(actor.role, "static_page", "write");
   await runGovernedMutation(db, async ({ transaction, audit }) => {
     const revisionRows = await transaction
       .select({ snapshot: editorialRevisions.snapshot })
@@ -318,7 +319,7 @@ export async function applyStaticPageConfigRevision<
   revisionId: string,
   options: GovernedMutationOptions = {},
 ): Promise<"home" | "about"> {
-  requirePermission(actor.role, "content.publish");
+  requireEditorialResourceAccess(actor.role, "static_page", "apply");
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const revisionRows = await transaction
       .select()

@@ -9,6 +9,7 @@ import {
   contentLocalizations,
   contentAssets,
   contents,
+  editorialRevisions,
   fabricLibraryEntries,
   fabricLibraryEntryAssets,
   fabricLibraryEntryLocalizations,
@@ -36,9 +37,8 @@ import { createObjectStorage } from "@/storage";
 import { parseBlockDocument } from "@/editorial/blocks";
 import { resolveBlockPublicProjection } from "@/editorial/block-references";
 import {
-  DEFAULT_STATIC_PAGE_CONFIGS,
   isPersistedStaticPagePlacementLive,
-  staticPageConfigSchema,
+  resolveStaticPageLiveAuthority,
   type StaticPageConfig,
 } from "@/content/static-page-projection";
 
@@ -78,18 +78,35 @@ export interface PublicStaticPagePlacement {
 async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   pageKey: "home" | "about",
-): Promise<{ config: StaticPageConfig; placements: PublicStaticPagePlacement[]; facts: string[] }> {
+): Promise<{
+  authorityState: "bootstrap" | "live" | "invalid";
+  config: StaticPageConfig | null;
+  placements: PublicStaticPagePlacement[];
+  facts: string[];
+}> {
   const settingRows = await db
     .select({ id: systemSettings.id, value: systemSettings.value })
     .from(systemSettings)
     .where(eq(systemSettings.key, `site_page.${pageKey}`))
     .limit(1);
   const setting = settingRows[0];
-  const parsed = setting ? staticPageConfigSchema.safeParse(setting.value) : null;
-  const config: StaticPageConfig = parsed?.success
-    ? parsed.data
-    : DEFAULT_STATIC_PAGE_CONFIGS[pageKey];
-  const relationRows = setting ? await db
+  const appliedRows = setting ? await db
+    .select({ id: editorialRevisions.id })
+    .from(editorialRevisions)
+    .where(and(
+      eq(editorialRevisions.entityType, "static_page"),
+      eq(editorialRevisions.entityId, setting.id),
+      eq(editorialRevisions.locale, "en"),
+      eq(editorialRevisions.status, "applied"),
+    ))
+    .limit(1) : [];
+  const authority = resolveStaticPageLiveAuthority(
+    pageKey,
+    setting?.value ?? null,
+    Boolean(appliedRows[0]),
+  );
+  const config = authority.config;
+  const relationRows = setting && authority.state === "live" && config ? await db
     .select({
       systemSettingId: sitePageAssets.systemSettingId,
       assetId: sitePageAssets.assetId,
@@ -113,6 +130,8 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
       publicUsePermission: assets.publicUsePermission,
       rightsPublicWebsiteAllowed: assets.rightsPublicWebsiteAllowed,
       declarationExpiryDate: assets.declarationExpiryDate,
+      subjectRelationship: assets.subjectRelationship,
+      isCwtOwnedFacility: assets.isCwtOwnedFacility,
       assetAltText: assets.altText,
       width: assets.width,
       height: assets.height,
@@ -125,7 +144,12 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
     )) : [];
   const placements: PublicStaticPagePlacement[] = [];
   for (const row of relationRows) {
+    if (!config) continue;
     if (!isPersistedStaticPagePlacementLive(config, row)) continue;
+    if (
+      (row.placementKey === "manufacturing_strength" || row.placementKey === "owned_manufacturing") &&
+      (row.subjectRelationship !== "cwt" || row.isCwtOwnedFacility !== true)
+    ) continue;
     const configured = config.placements.find((placement) => (
       placement.assetId === row.assetId &&
       placement.placementKey === row.placementKey &&
@@ -160,10 +184,13 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
     });
   }
   const verifiedFacts = await listVerifiedPublicCompanyFacts(db);
-  const factKeys = config.pageKey === "home"
+  const factKeys = config?.pageKey === "home"
     ? config.copy?.manufacturingStrength.factKeys ?? []
-    : config.copy?.ownedManufacturing.factKeys ?? [];
+    : config?.pageKey === "about"
+      ? config.copy?.ownedManufacturing.factKeys ?? []
+      : [];
   return {
+    authorityState: authority.state,
     config,
     placements: placements.sort((left, right) => left.sortOrder - right.sortOrder),
     facts: factKeys.flatMap((key) => verifiedFacts.get(key) ? [verifiedFacts.get(key)!] : []),

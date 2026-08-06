@@ -174,6 +174,31 @@ export const DEFAULT_STATIC_PAGE_CONFIGS: Readonly<{
   },
 };
 
+export type StaticPageLiveAuthorityState = "bootstrap" | "live" | "invalid";
+
+export interface StaticPageLiveAuthority {
+  state: StaticPageLiveAuthorityState;
+  config: StaticPageConfig | null;
+}
+
+export function resolveStaticPageLiveAuthority(
+  pageKey: "home" | "about",
+  settingValue: unknown | null,
+  hasAppliedRevision: boolean,
+): StaticPageLiveAuthority {
+  if (settingValue === null) {
+    return { state: "bootstrap", config: DEFAULT_STATIC_PAGE_CONFIGS[pageKey] };
+  }
+  const parsed = staticPageConfigSchema.safeParse(settingValue);
+  if (!parsed.success || parsed.data.pageKey !== pageKey) {
+    return { state: "invalid", config: null };
+  }
+  if (!hasAppliedRevision) {
+    return { state: "bootstrap", config: DEFAULT_STATIC_PAGE_CONFIGS[pageKey] };
+  }
+  return { state: "live", config: parsed.data };
+}
+
 export function deriveStaticPageLivePlacements(
   config: StaticPageConfig,
 ): StaticPageLivePlacement[] {

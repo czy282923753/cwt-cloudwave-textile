@@ -10,6 +10,7 @@ import { requirePermission } from "@/auth/permissions";
 import {
   applicationLocalizations,
   applications,
+  redirects,
   routes,
   seoMetadata,
   taxonomyTermLocalizations,
@@ -173,6 +174,88 @@ export async function createApplicationDraft<TQueryResult extends PgQueryResultH
   });
 }
 
+export async function quickCreateTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  input: {
+    internalKey: string;
+    name: string;
+    dimension: typeof taxonomyTerms.$inferInsert.dimension;
+    productCodePrefix?: string | null;
+  },
+): Promise<string> {
+  requirePermission(actor.role, "taxonomy.manage");
+  assertSportsBoundary("taxonomy", input.name, input.dimension);
+  const name = input.name.trim();
+  const internalKey = `quick-${slugify(name)}`;
+  if (!name || internalKey === "quick-") throw new Error("Taxonomy name is required.");
+  return db.transaction(async (transaction) => {
+    const inserted = await transaction.insert(taxonomyTerms).values({
+      internalKey,
+      dimension: input.dimension,
+      productCodePrefix: normalizeProductCodePrefix(input.productCodePrefix),
+      isActive: true,
+    }).onConflictDoNothing({ target: taxonomyTerms.internalKey }).returning({ id: taxonomyTerms.id });
+    if (inserted[0]) {
+      await transaction.insert(taxonomyTermLocalizations).values({
+        taxonomyTermId: inserted[0].id,
+        locale: "en",
+        name,
+      });
+      await writeAuditLog(transaction, {
+        actorUserId: actor.userId,
+        action: "taxonomy.quick_draft.created",
+        entityType: "taxonomy",
+        entityId: inserted[0].id,
+        afterSummary: { publicRouteCreated: false, internalKey },
+      });
+      return inserted[0].id;
+    }
+    const existing = await transaction.select({ id: taxonomyTerms.id }).from(taxonomyTerms)
+      .where(eq(taxonomyTerms.internalKey, internalKey)).limit(1);
+    if (!existing[0]) throw new Error("The normalized Category already exists.");
+    return existing[0].id;
+  });
+}
+
+export async function quickCreateApplicationDraft<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  input: { internalKey: string; name: string },
+): Promise<string> {
+  requirePermission(actor.role, "taxonomy.manage");
+  assertSportsBoundary("application", input.name);
+  const name = input.name.trim();
+  const internalKey = `quick-${slugify(name)}`;
+  if (!name || internalKey === "quick-") throw new Error("Application name is required.");
+  return db.transaction(async (transaction) => {
+    const inserted = await transaction.insert(applications).values({
+      internalKey,
+      status: "draft",
+      createdByUserId: actor.userId,
+    }).onConflictDoNothing({ target: applications.internalKey }).returning({ id: applications.id });
+    if (inserted[0]) {
+      await transaction.insert(applicationLocalizations).values({
+        applicationId: inserted[0].id,
+        locale: "en",
+        name,
+      });
+      await writeAuditLog(transaction, {
+        actorUserId: actor.userId,
+        action: "application.quick_draft.created",
+        entityType: "application",
+        entityId: inserted[0].id,
+        afterSummary: { publicRouteCreated: false, internalKey },
+      });
+      return inserted[0].id;
+    }
+    const existing = await transaction.select({ id: applications.id }).from(applications)
+      .where(eq(applications.internalKey, internalKey)).limit(1);
+    if (!existing[0]) throw new Error("The normalized Application already exists.");
+    return existing[0].id;
+  });
+}
+
 export async function updateTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   actor: Actor,
@@ -221,6 +304,69 @@ export async function updateTaxonomyTerm<TQueryResult extends PgQueryResultHKT>(
       },
     });
   });
+}
+
+export async function approveTaxonomyPublicRoute<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: Actor,
+  termId: string,
+  options: GovernedMutationOptions = {},
+): Promise<string> {
+  requirePermission(actor.role, "taxonomy.manage");
+  return runGovernedMutation(db, async ({ transaction, audit }) => {
+    const existing = await transaction
+      .select({ id: routes.id })
+      .from(routes)
+      .where(and(
+        eq(routes.entityType, "taxonomy"),
+        eq(routes.entityId, termId),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      ))
+      .limit(1);
+    if (existing[0]) return existing[0].id;
+    const names = await transaction
+      .select({ name: taxonomyTermLocalizations.name })
+      .from(taxonomyTermLocalizations)
+      .where(and(
+        eq(taxonomyTermLocalizations.taxonomyTermId, termId),
+        eq(taxonomyTermLocalizations.locale, "en"),
+      ))
+      .limit(1);
+    if (!names[0]?.name.trim()) throw new Error("Taxonomy approval requires an English name.");
+    const path = `/fabric-types/${slugify(names[0].name)}/`;
+    const [routeCollision, redirectCollision] = await Promise.all([
+      transaction.select({ id: routes.id }).from(routes).where(eq(routes.path, path)).limit(1),
+      transaction.select({ id: redirects.id }).from(redirects)
+        .where(and(eq(redirects.sourcePath, path), eq(redirects.isActive, true))).limit(1),
+    ]);
+    if (routeCollision[0] || redirectCollision[0]) {
+      throw new Error("The approved Taxonomy URL is already in use.");
+    }
+    const inserted = await transaction.insert(routes).values({
+      locale: "en",
+      path,
+      entityType: "taxonomy",
+      entityId: termId,
+    }).returning({ id: routes.id });
+    const routeId = inserted[0]?.id;
+    if (!routeId) throw new Error("Taxonomy route approval failed.");
+    await transaction.insert(seoMetadata).values({
+      routeId,
+      title: `${names[0].name.trim()} | CloudWave Textile`,
+      indexStatus: "noindex",
+      canonicalPath: path,
+      updatedByUserId: actor.userId,
+    });
+    await audit({
+      actorUserId: actor.userId,
+      action: "taxonomy.route.approved",
+      entityType: "taxonomy",
+      entityId: termId,
+      afterSummary: { path },
+    });
+    return routeId;
+  }, options);
 }
 
 export async function setTaxonomyIndexStatus<TQueryResult extends PgQueryResultHKT>(
