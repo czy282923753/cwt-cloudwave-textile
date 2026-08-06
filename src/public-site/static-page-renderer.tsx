@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 
 import {
   projectStaticPageEvidenceGates,
@@ -17,6 +18,7 @@ import type {
 import { InquiryForm } from "./inquiry-form";
 import { ProductCard } from "./product-card";
 import { TrackedLink } from "./tracking";
+import { publicAssetSrcSet, ResponsivePublicImage } from "./responsive-image";
 
 type HomeConfig = Extract<StaticPageConfig, { pageKey: "home" }>;
 type AboutConfig = Extract<StaticPageConfig, { pageKey: "about" }>;
@@ -34,44 +36,38 @@ function StaticMedia({
   const mobile = placements.find((item) => item.placementKey === placementKey && item.viewport === "mobile");
   const fallback = desktop ?? mobile;
   if (!fallback) return null;
+  const desktopAsset = desktop?.asset ?? fallback.asset;
+  const mobileAsset = mobile?.asset ?? fallback.asset;
+  const desktopAvif = publicAssetSrcSet(desktopAsset, "avif");
+  const desktopWebp = publicAssetSrcSet(desktopAsset, "webp");
+  const mobileAvif = publicAssetSrcSet(mobileAsset, "avif");
+  const mobileWebp = publicAssetSrcSet(mobileAsset, "webp");
+  const sizes = "(max-width: 1024px) 100vw, 50vw";
   return (
     <div
       className={`relative overflow-hidden rounded-[2rem] bg-stone-200 ${className}`}
       data-static-media={placementKey}
     >
-      {desktop ? (
+      <picture>
+        {desktopAvif ? <source media="(min-width: 640px)" sizes={sizes} srcSet={desktopAvif} type="image/avif" /> : null}
+        {desktopWebp ? <source media="(min-width: 640px)" sizes={sizes} srcSet={desktopWebp} type="image/webp" /> : null}
+        {mobileAvif ? <source media="(max-width: 639px)" sizes="100vw" srcSet={mobileAvif} type="image/avif" /> : null}
+        {mobileWebp ? <source media="(max-width: 639px)" sizes="100vw" srcSet={mobileWebp} type="image/webp" /> : null}
         <Image
-          alt={desktop.asset.alt}
-          className="hidden object-cover sm:block"
+          alt={fallback.asset.alt}
+          className="object-cover [object-position:var(--mobile-object-position)] sm:[object-position:var(--desktop-object-position)]"
+          fetchPriority={placementKey === "hero" ? "high" : undefined}
           fill
-          sizes="(max-width: 1024px) 100vw, 50vw"
-          src={desktop.asset.url}
-          style={{ objectPosition: `${desktop.focalX}% ${desktop.focalY}%` }}
+          loading={placementKey === "hero" ? "eager" : "lazy"}
+          sizes={sizes}
+          src={fallback.asset.url}
+          style={{
+            "--desktop-object-position": `${(desktop ?? fallback).focalX}% ${(desktop ?? fallback).focalY}%`,
+            "--mobile-object-position": `${(mobile ?? fallback).focalX}% ${(mobile ?? fallback).focalY}%`,
+          } as CSSProperties}
           unoptimized
         />
-      ) : null}
-      {mobile ? (
-        <Image
-          alt={mobile.asset.alt}
-          className={desktop ? "object-cover sm:hidden" : "object-cover"}
-          fill
-          sizes="100vw"
-          src={mobile.asset.url}
-          style={{ objectPosition: `${mobile.focalX}% ${mobile.focalY}%` }}
-          unoptimized
-        />
-      ) : null}
-      {!mobile && desktop ? (
-        <Image
-          alt={desktop.asset.alt}
-          className="object-cover sm:hidden"
-          fill
-          sizes="100vw"
-          src={desktop.asset.url}
-          style={{ objectPosition: `${desktop.focalX}% ${desktop.focalY}%` }}
-          unoptimized
-        />
-      ) : null}
+      </picture>
       {desktop?.overlayOpacity ? (
         <span
           aria-hidden="true"
@@ -160,7 +156,7 @@ export function StaticHomeRenderer({
     {config.modules.hero ? <section className="relative overflow-hidden border-b border-stone-200 bg-[#f4f0e5]"><div className="site-container grid min-h-[42rem] items-center gap-12 py-20 lg:grid-cols-[1.1fr_.9fr]"><div><p className="eyebrow">{copy.hero.eyebrow}</p><h1 className="display-title mt-6">{copy.hero.title}</h1>{copy.hero.summary ? <p className="mt-7 max-w-2xl text-lg leading-8 text-stone-600 sm:text-xl">{copy.hero.summary}</p> : null}<div className="mt-9 flex flex-wrap gap-3"><TrackedLink className="button-primary" eventName="quote_cta_click" href={copy.hero.primaryCta.href} placement="home_hero">{copy.hero.primaryCta.label}</TrackedLink>{copy.hero.secondaryCta ? <TrackedLink className="button-secondary" eventName="quote_cta_click" href={copy.hero.secondaryCta.href} placement="home_hero_secondary">{copy.hero.secondaryCta.label}</TrackedLink> : null}</div></div><StaticMedia className="aspect-[4/5]" placementKey="hero" placements={placements} /></div></section> : null}
     {config.modules.products ? <section className="site-container py-24"><div className="flex flex-wrap items-end justify-between gap-6"><div><p className="eyebrow">{copy.products.eyebrow}</p><h2 className="section-title mt-4">{copy.products.title}</h2>{copy.products.summary ? <p className="mt-4 text-stone-600">{copy.products.summary}</p> : null}</div><Link className="button-secondary" href="/products/">All Products</Link></div>{products.length ? <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">{products.slice(0, 6).map((product) => <ProductCard key={product.id} product={product} />)}</div> : <p className="mt-10 text-stone-600">Product records appear after real-data validation, review, and publication.</p>}</section> : null}
     {config.modules.applications ? <section className="bg-[#143f38] py-24 text-white"><div className="site-container grid gap-12 lg:grid-cols-[.8fr_1.2fr]"><div><p className="eyebrow !text-[#93d1bf]">{copy.applications.eyebrow}</p><h2 className="section-title mt-4 !text-white">{copy.applications.title}</h2>{copy.applications.summary ? <p className="mt-6 leading-7 text-white/70">{copy.applications.summary}</p> : null}<Link className="mt-8 inline-flex text-sm font-semibold text-[#a9e2d2]" href="/applications/">Explore Applications →</Link></div><div><StaticMedia className="mb-6 aspect-[16/9]" placementKey="applications" placements={placements} /><div className="grid gap-4 sm:grid-cols-2">{applications.slice(0, 6).map((application) => <Link className="rounded-3xl border border-white/10 bg-white/5 p-6" href={application.path} key={application.id}><h3 className="text-xl font-semibold">{application.name}</h3>{application.shortDescription ? <p className="mt-3 text-sm text-white/70">{application.shortDescription}</p> : null}</Link>)}</div></div></div></section> : null}
-    {config.modules.fabric_library ? <section className="site-container py-24"><div className="flex flex-wrap items-end justify-between gap-6"><div><p className="eyebrow">{copy.fabricLibrary.eyebrow}</p><h2 className="section-title mt-4">{copy.fabricLibrary.title}</h2></div><Link className="button-secondary" href="/fabric-library/">Browse Library</Link></div><StaticMedia className="mt-8 aspect-[16/7]" placementKey="fabric_library" placements={placements} />{libraryEntries.length ? <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{libraryEntries.slice(0, 4).map((entry) => <Link href={entry.path} key={entry.id}><div className="weave-placeholder relative aspect-square overflow-hidden rounded-3xl">{entry.image ? <Image alt={entry.image.alt} className="object-cover" fill sizes="25vw" src={entry.image.url} unoptimized /> : null}</div><h3 className="mt-4 font-semibold text-[#143a34]">{entry.title}</h3></Link>)}</div> : null}</section> : null}
+    {config.modules.fabric_library ? <section className="site-container py-24"><div className="flex flex-wrap items-end justify-between gap-6"><div><p className="eyebrow">{copy.fabricLibrary.eyebrow}</p><h2 className="section-title mt-4">{copy.fabricLibrary.title}</h2></div><Link className="button-secondary" href="/fabric-library/">Browse Library</Link></div><StaticMedia className="mt-8 aspect-[16/7]" placementKey="fabric_library" placements={placements} />{libraryEntries.length ? <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{libraryEntries.slice(0, 4).map((entry) => <Link href={entry.path} key={entry.id}><div className="weave-placeholder relative aspect-square overflow-hidden rounded-3xl">{entry.image ? <ResponsivePublicImage asset={entry.image} className="object-cover" fill sizes="25vw" /> : null}</div><h3 className="mt-4 font-semibold text-[#143a34]">{entry.title}</h3></Link>)}</div> : null}</section> : null}
     {config.modules.fabric_sourcing ? <section className="border-y border-stone-200 bg-white py-24"><div className="site-container"><p className="eyebrow">{copy.fabricSourcing.eyebrow}</p><h2 className="section-title mt-4">{copy.fabricSourcing.title}</h2>{copy.fabricSourcing.summary ? <p className="mt-5 max-w-3xl text-stone-600">{copy.fabricSourcing.summary}</p> : null}<StaticMedia className="mt-8 aspect-[16/7]" placementKey="fabric_sourcing" placements={placements} /><div className="mt-10 grid gap-5 md:grid-cols-3">{[["Fabric Knowledge", "/fabric-knowledge/"], ["China Textile Guide", "/china-textile-guide/"], ["China Sourcing Guide", "/china-sourcing-guide/"]] .map(([label, href]) => <Link className="rounded-3xl border border-stone-200 p-7 font-semibold text-[#17695a]" href={href!} key={href}>{label}</Link>)}</div>{contents.length ? <p className="mt-6 text-sm text-stone-500">{contents.length} published resource{contents.length === 1 ? "" : "s"} available.</p> : null}</div></section> : null}
     {evidenceGates.manufacturing_strength ? <section className="site-container py-24" data-fact-sensitive-module="manufacturing_strength"><div className="grid gap-12 lg:grid-cols-[.8fr_1.2fr]"><div><h2 className="section-title">{STATIC_PAGE_FACT_SENSITIVE_LABELS.manufacturing_strength}</h2><ul className="mt-6 grid gap-3 text-stone-600">{facts.map((fact) => <li key={fact.key}>— {fact.statement}</li>)}</ul></div><div><StaticMedia className="mb-6 aspect-[16/9]" placementKey="manufacturing_strength" placements={placements} /><div className="grid gap-3 sm:grid-cols-2">{strengthTitles.map((title) => <h3 className="rounded-2xl bg-[#e6eee9] p-5 font-semibold text-[#143a34]" key={title}>{title}</h3>)}</div></div></div></section> : null}
     {config.modules.inquiry_cta ? <section className="bg-[#eadfce] py-24"><div className="site-container grid gap-12 lg:grid-cols-[.8fr_1.2fr]"><div><p className="eyebrow">{copy.inquiryCta.eyebrow}</p><h2 className="section-title mt-4">{copy.inquiryCta.title}</h2>{copy.inquiryCta.summary ? <p className="mt-6 leading-7 text-stone-600">{copy.inquiryCta.summary}</p> : null}<TrackedLink className="button-secondary mt-6" eventName="quote_cta_click" href={copy.inquiryCta.cta.href} placement="home_inquiry">{copy.inquiryCta.cta.label}</TrackedLink><StaticMedia className="mt-8 aspect-[16/9]" placementKey="inquiry_cta" placements={placements} /></div><div className="rounded-[2rem] bg-[#faf8f2] p-6 shadow-sm sm:p-9"><InquiryForm compact /></div></div></section> : null}

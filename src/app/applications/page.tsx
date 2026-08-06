@@ -3,13 +3,19 @@ import Link from "next/link";
 
 import { listPublishedApplications } from "@/public-site/data";
 import { PublicShell } from "@/public-site/shell";
+import { staticPageRobots } from "@/seo/page-indexability";
 
 export const revalidate = 3600;
-export const metadata: Metadata = {
-  title: "Fabric Applications",
-  description: "Explore fabric sourcing by end use, from sportswear and activewear to fashion, underwear, and home textile applications.",
-  alternates: { canonical: "/applications/" },
-};
+
+export async function generateMetadata(): Promise<Metadata> {
+  const applications = await listPublishedApplications();
+  return {
+    title: "Fabric Applications",
+    description: "Explore fabric sourcing by end use, from sportswear and activewear to fashion, underwear, and home textile applications.",
+    alternates: { canonical: "/applications/" },
+    robots: staticPageRobots(applications.length > 0),
+  };
+}
 
 export default async function ApplicationsPage() {
   const applications = await listPublishedApplications();

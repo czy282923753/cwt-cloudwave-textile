@@ -3,6 +3,7 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
   assets,
+  assetVariants,
   companyFacts,
   contentAssets,
   contents,
@@ -166,6 +167,7 @@ export async function findPublicAssetForDelivery<
 >(
   db: AppDatabase<TQueryResult>,
   assetId: string,
+  variantKey?: string,
 ): Promise<{
   id: string;
   objectKey: string;
@@ -205,6 +207,29 @@ export async function findPublicAssetForDelivery<
   if (!asset || asset.partition !== "public") return null;
   if (!asset.detectedMimeType || !isPublicAssetCandidate(asset)) return null;
   if (!(await hasPublishedEntityRelation(db, asset.id, asset.detectedMimeType))) return null;
+  if (variantKey) {
+    const variantRows = await db
+      .select({
+        objectKey: assetVariants.objectKey,
+        format: assetVariants.format,
+      })
+      .from(assetVariants)
+      .where(and(
+        eq(assetVariants.sourceAssetId, asset.id),
+        eq(assetVariants.variantKey, variantKey),
+      ))
+      .limit(1);
+    const variant = variantRows[0];
+    if (!variant || (variant.format !== "avif" && variant.format !== "webp")) {
+      return null;
+    }
+    return {
+      id: asset.id,
+      objectKey: variant.objectKey,
+      partition: "public",
+      detectedMimeType: `image/${variant.format}`,
+    };
+  }
   return {
     id: asset.id,
     objectKey: asset.objectKey,

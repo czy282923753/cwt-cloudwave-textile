@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, countDistinct, desc, eq, inArray, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 
 import {
   applicationLocalizations,
   applications,
   assets,
+  assetVariants,
   authors,
   contentLocalizations,
   contentAssets,
@@ -37,6 +38,7 @@ import { createObjectStorage } from "@/storage";
 import { parseBlockDocument } from "@/editorial/blocks";
 import { resolveBlockPublicProjection } from "@/editorial/block-references";
 import {
+  hasRenderableStaticPageContent,
   isPersistedStaticPagePlacementLive,
   isStaticPageFactSensitivePlacement,
   resolveStaticPageLiveAuthority,
@@ -45,7 +47,12 @@ import {
 
 import { resolveVisibleProductFields } from "./product-visibility";
 import { assertPublicAssetCandidate } from "./public-asset-policy";
-import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
+import {
+  hasPubliclyEligibleProductForApplicationConditions,
+  hasPubliclyEligibleProductForFabricEntryConditions,
+  hasPubliclyEligibleProductForTaxonomyConditions,
+  publicProductEligibilityConditions,
+} from "@/catalog/product-eligibility";
 import {
   publicImageRoles,
   publicReadyImageSqlConditions,
@@ -57,6 +64,14 @@ export interface PublicAsset {
   alt: string;
   caption: string | null;
   width: number | null;
+  height: number | null;
+  variants?: readonly PublicAssetVariant[];
+}
+
+export interface PublicAssetVariant {
+  format: "avif" | "webp";
+  url: string;
+  width: number;
   height: number | null;
 }
 
@@ -84,6 +99,7 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
   config: StaticPageConfig | null;
   placements: PublicStaticPagePlacement[];
   facts: Array<{ key: string; statement: string }>;
+  hasRenderableContent: boolean;
 }> {
   const settingRows = await db
     .select({ id: systemSettings.id, value: systemSettings.value })
@@ -157,7 +173,7 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
       placement.viewport === row.viewport
     ));
     if (!configured || (row.viewport !== "desktop" && row.viewport !== "mobile")) continue;
-    const asset = await toPublicAsset({
+    const asset = await toPublicAsset(db, {
       id: row.assetId,
       objectKey: row.objectKey,
       storagePartition: row.storagePartition,
@@ -190,13 +206,21 @@ async function queryPublicStaticPage<TQueryResult extends PgQueryResultHKT>(
     : config?.pageKey === "about"
       ? config.copy?.ownedManufacturing.factKeys ?? []
       : [];
+  const facts = factKeys.flatMap((key) => verifiedFacts.get(key)
+    ? [{ key, statement: verifiedFacts.get(key)! }]
+    : []);
   return {
     authorityState: authority.state,
     config,
     placements: placements.sort((left, right) => left.sortOrder - right.sortOrder),
-    facts: factKeys.flatMap((key) => verifiedFacts.get(key)
-      ? [{ key, statement: verifiedFacts.get(key)! }]
-      : []),
+    facts,
+    hasRenderableContent: config
+      ? hasRenderableStaticPageContent(
+          config,
+          new Set(facts.map((fact) => fact.key)),
+          new Set(placements.map((placement) => placement.placementKey)),
+        )
+      : false,
   };
 }
 
@@ -204,6 +228,44 @@ export async function getPublicStaticPage(pageKey: "home" | "about") {
   return databaseConnection.kind === "pglite"
     ? queryPublicStaticPage(databaseConnection.db, pageKey)
     : queryPublicStaticPage(databaseConnection.db, pageKey);
+}
+
+export class PublicStaticPageUnavailableError extends Error {
+  constructor() {
+    super("Public static page is temporarily unavailable.");
+    this.name = "PublicStaticPageUnavailableError";
+  }
+}
+
+type PublicStaticPageResult = Awaited<ReturnType<typeof getPublicStaticPage>>;
+
+export function assertPublicStaticPageProjection<K extends "home" | "about">(
+  page: PublicStaticPageResult,
+  pageKey: K,
+): Omit<PublicStaticPageResult, "config"> & {
+  config: Extract<StaticPageConfig, { pageKey: K }>;
+} {
+  if (page.authorityState === "invalid" || !page.config || page.config.pageKey !== pageKey) {
+    throw new PublicStaticPageUnavailableError();
+  }
+  return {
+    ...page,
+    config: page.config as Extract<StaticPageConfig, { pageKey: K }>,
+  };
+}
+
+export async function requirePublicStaticPage<K extends "home" | "about">(
+  pageKey: K,
+): Promise<Omit<PublicStaticPageResult, "config"> & {
+  config: Extract<StaticPageConfig, { pageKey: K }>;
+}> {
+  const page = await getPublicStaticPage(pageKey);
+  try {
+    return assertPublicStaticPageProjection(page, pageKey);
+  } catch (error) {
+    console.error("Public static page projection unavailable.", { pageKey });
+    throw error;
+  }
 }
 
 async function assetUrl(partition: string, assetId: string): Promise<string> {
@@ -214,7 +276,9 @@ async function assetUrl(partition: string, assetId: string): Promise<string> {
   return storage.createPublicUrl(assetId);
 }
 
-async function toPublicAsset(row: {
+async function toPublicAsset<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  row: {
   id: string;
   objectKey: string;
   storagePartition: string;
@@ -230,23 +294,55 @@ async function toPublicAsset(row: {
   caption?: string | null;
   width: number | null;
   height: number | null;
-}): Promise<PublicAsset> {
+  },
+): Promise<PublicAsset> {
   assertPublicAssetCandidate(row);
+  const baseUrl = await assetUrl(row.storagePartition, row.id);
+  const variantRows = await db
+    .select({
+      format: assetVariants.format,
+      variantKey: assetVariants.variantKey,
+      width: assetVariants.width,
+      height: assetVariants.height,
+    })
+    .from(assetVariants)
+    .where(eq(assetVariants.sourceAssetId, row.id))
+    .orderBy(asc(assetVariants.width), asc(assetVariants.variantKey));
+  const variants: PublicAssetVariant[] = variantRows.flatMap((variant) => (
+    (variant.format === "avif" || variant.format === "webp") &&
+      variant.width !== null && variant.width > 0
+      ? [{
+          format: variant.format as "avif" | "webp",
+          url: `${baseUrl}?variant=${encodeURIComponent(variant.variantKey)}`,
+          width: variant.width,
+          height: variant.height,
+        }]
+      : []
+  ));
   return {
     id: row.id,
-    url: await assetUrl(row.storagePartition, row.id),
+    url: baseUrl,
     alt: row.altText ?? "",
     caption: row.caption ?? null,
     width: row.width,
     height: row.height,
+    variants,
   };
+}
+
+export interface PublicProductQueryOptions {
+  limit?: number;
+  offset?: number;
+  productIds?: readonly string[];
 }
 
 export async function queryPublishedProducts<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
-  limit = 100,
+  input: number | PublicProductQueryOptions = {},
 ) {
-  const rows = await db
+  const options = typeof input === "number" ? { limit: input } : input;
+  if (options.productIds?.length === 0) return [];
+  let query = db
     .select({
       id: products.id,
       name: productLocalizations.name,
@@ -303,9 +399,15 @@ export async function queryPublishedProducts<TQueryResult extends PgQueryResultH
         publicReadyImageSqlConditions(),
       ),
     )
-    .where(publicProductEligibilityConditions(db))
-    .orderBy(desc(products.publishedAt))
-    .limit(limit);
+    .where(and(
+      publicProductEligibilityConditions(db),
+      options.productIds ? inArray(products.id, [...options.productIds]) : undefined,
+    ))
+    .orderBy(desc(products.publishedAt), asc(products.id))
+    .$dynamic();
+  if (options.limit !== undefined) query = query.limit(options.limit);
+  if (options.offset !== undefined) query = query.offset(options.offset);
+  const rows = await query;
   return Promise.all(
     rows.map(async (row) => ({
       id: row.id,
@@ -320,7 +422,7 @@ export async function queryPublishedProducts<TQueryResult extends PgQueryResultH
         row.assetAccess &&
         row.assetStatus &&
         row.assetScanStatus
-          ? await toPublicAsset({
+          ? await toPublicAsset(db, {
               id: row.assetId,
               objectKey: row.objectKey,
               storagePartition: row.storagePartition,
@@ -346,6 +448,48 @@ export async function listPublishedProducts(limit?: number) {
   return databaseConnection.kind === "pglite"
     ? queryPublishedProducts(databaseConnection.db, limit)
     : queryPublishedProducts(databaseConnection.db, limit);
+}
+
+export const PUBLIC_PRODUCTS_PAGE_SIZE = 24;
+
+export async function queryPublishedProductPage<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  page: number,
+  pageSize = PUBLIC_PRODUCTS_PAGE_SIZE,
+) {
+  if (!Number.isSafeInteger(page) || page < 1) {
+    throw new RangeError("Product page must be a positive integer.");
+  }
+  const totalRows = await db
+    .select({ value: countDistinct(products.id) })
+    .from(products)
+    .innerJoin(
+      routes,
+      and(
+        eq(routes.entityType, "product"),
+        eq(routes.entityId, products.id),
+        eq(routes.locale, "en"),
+        eq(routes.isCurrent, true),
+      ),
+    )
+    .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
+    .where(publicProductEligibilityConditions(db));
+  const total = totalRows[0]?.value ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (page > totalPages) return null;
+  const items = await queryPublishedProducts(db, {
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+  });
+  return { items, page, pageSize, total, totalPages };
+}
+
+export async function getPublishedProductPage(page: number) {
+  return databaseConnection.kind === "pglite"
+    ? queryPublishedProductPage(databaseConnection.db, page)
+    : queryPublishedProductPage(databaseConnection.db, page);
 }
 
 export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
@@ -528,7 +672,10 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
             eq(routes.locale, "en"),
           ),
         )
-        .where(eq(productTaxonomyTerms.productId, product.id)),
+        .where(and(
+          eq(productTaxonomyTerms.productId, product.id),
+          eq(taxonomyTerms.isActive, true),
+        )),
     ]);
   const verified = new Set(reviewRows.map((row) => row.fieldName));
   const visibleFields = resolveVisibleProductFields(product, verified);
@@ -542,7 +689,7 @@ export async function queryProductByPath<TQueryResult extends PgQueryResultHKT>(
       readableText: blockProjection.readableText,
       referencesValid: blockProjection.referencesValid,
     },
-    images: await Promise.all(imageRows.map((row) => toPublicAsset({
+    images: await Promise.all(imageRows.map((row) => toPublicAsset(db, {
       ...row,
       altText: row.placementAltText ?? row.altText,
       caption: row.placementCaption,
@@ -580,8 +727,9 @@ export async function findRedirect(path: string) {
     : queryRedirect(databaseConnection.db, path);
 }
 
-async function queryApplications<TQueryResult extends PgQueryResultHKT>(
+export async function queryApplications<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  options: { path?: string; requireEligibleProduct?: boolean } = {},
 ) {
   return db
     .select({
@@ -594,6 +742,7 @@ async function queryApplications<TQueryResult extends PgQueryResultHKT>(
       seoTitle: seoMetadata.title,
       metaDescription: seoMetadata.metaDescription,
       canonicalPath: seoMetadata.canonicalPath,
+      hasEligibleProducts: sql<boolean>`${hasPubliclyEligibleProductForApplicationConditions(db)}`,
     })
     .from(applications)
     .innerJoin(
@@ -612,32 +761,44 @@ async function queryApplications<TQueryResult extends PgQueryResultHKT>(
       ),
     )
     .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
-    .where(eq(applications.status, "published"));
+    .where(and(
+      eq(applications.status, "published"),
+      options.path ? eq(routes.path, options.path) : undefined,
+      options.requireEligibleProduct
+        ? hasPubliclyEligibleProductForApplicationConditions(db)
+        : undefined,
+    ));
 }
 
 export async function listPublishedApplications() {
   return databaseConnection.kind === "pglite"
-    ? queryApplications(databaseConnection.db)
-    : queryApplications(databaseConnection.db);
+    ? queryApplications(databaseConnection.db, { requireEligibleProduct: true })
+    : queryApplications(databaseConnection.db, { requireEligibleProduct: true });
 }
 
 export async function getPublishedApplicationByPath(path: string) {
-  const all = await listPublishedApplications();
-  return all.find((application) => application.path === path) ?? null;
+  const rows = databaseConnection.kind === "pglite"
+    ? await queryApplications(databaseConnection.db, { path })
+    : await queryApplications(databaseConnection.db, { path });
+  return rows[0] ?? null;
 }
 
-async function queryProductsForApplication<TQueryResult extends PgQueryResultHKT>(
+export async function queryProductsForApplication<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   applicationId: string,
 ) {
   const productIds = await db
     .select({ id: productApplications.productId })
     .from(productApplications)
-    .where(eq(productApplications.applicationId, applicationId));
+    .innerJoin(products, eq(products.id, productApplications.productId))
+    .where(and(
+      eq(productApplications.applicationId, applicationId),
+      publicProductEligibilityConditions(db),
+    ));
   if (productIds.length === 0) return [];
-  const productsForApplication = await queryPublishedProducts(db);
-  const allowed = new Set(productIds.map((item) => item.id));
-  return productsForApplication.filter((product) => allowed.has(product.id));
+  return queryPublishedProducts(db, {
+    productIds: productIds.map((item) => item.id),
+  });
 }
 
 export async function listProductsForApplication(applicationId: string) {
@@ -646,18 +807,22 @@ export async function listProductsForApplication(applicationId: string) {
     : queryProductsForApplication(databaseConnection.db, applicationId);
 }
 
-async function queryProductsForTaxonomy<TQueryResult extends PgQueryResultHKT>(
+export async function queryProductsForTaxonomy<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   taxonomyTermId: string,
 ) {
   const productIds = await db
     .select({ id: productTaxonomyTerms.productId })
     .from(productTaxonomyTerms)
-    .where(eq(productTaxonomyTerms.taxonomyTermId, taxonomyTermId));
+    .innerJoin(products, eq(products.id, productTaxonomyTerms.productId))
+    .where(and(
+      eq(productTaxonomyTerms.taxonomyTermId, taxonomyTermId),
+      publicProductEligibilityConditions(db),
+    ));
   if (productIds.length === 0) return [];
-  const allProducts = await queryPublishedProducts(db);
-  const allowed = new Set(productIds.map((item) => item.id));
-  return allProducts.filter((product) => allowed.has(product.id));
+  return queryPublishedProducts(db, {
+    productIds: productIds.map((item) => item.id),
+  });
 }
 
 export async function listProductsForTaxonomy(taxonomyTermId: string) {
@@ -668,6 +833,7 @@ export async function listProductsForTaxonomy(taxonomyTermId: string) {
 
 export async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
+  options: { path?: string; requireEligibleProduct?: boolean } = {},
 ) {
   const rows = await db
     .select({
@@ -693,6 +859,7 @@ export async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
       altText: assets.altText,
       width: assets.width,
       height: assets.height,
+      hasEligibleProducts: sql<boolean>`${hasPubliclyEligibleProductForFabricEntryConditions(db)}`,
     })
     .from(fabricLibraryEntries)
     .innerJoin(
@@ -728,7 +895,13 @@ export async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
         publicReadyImageSqlConditions(),
       ),
     )
-    .where(eq(fabricLibraryEntries.status, "published"));
+    .where(and(
+      eq(fabricLibraryEntries.status, "published"),
+      options.path ? eq(routes.path, options.path) : undefined,
+      options.requireEligibleProduct
+        ? hasPubliclyEligibleProductForFabricEntryConditions(db)
+        : undefined,
+    ));
   return Promise.all(
     rows.map(async (row) => ({
       ...row,
@@ -739,7 +912,7 @@ export async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
         row.assetAccess &&
         row.assetStatus &&
         row.assetScanStatus
-          ? await toPublicAsset({
+          ? await toPublicAsset(db, {
               id: row.assetId,
               objectKey: row.objectKey,
               storagePartition: row.storagePartition,
@@ -762,20 +935,26 @@ export async function queryFabricEntries<TQueryResult extends PgQueryResultHKT>(
 
 export async function listPublishedFabricEntries() {
   return databaseConnection.kind === "pglite"
-    ? queryFabricEntries(databaseConnection.db)
-    : queryFabricEntries(databaseConnection.db);
+    ? queryFabricEntries(databaseConnection.db, { requireEligibleProduct: true })
+    : queryFabricEntries(databaseConnection.db, { requireEligibleProduct: true });
 }
 
 export async function getPublishedFabricEntryByPath(path: string) {
-  const entries = await listPublishedFabricEntries();
-  const entry = entries.find((item) => item.path === path);
+  const entries = databaseConnection.kind === "pglite"
+    ? await queryFabricEntries(databaseConnection.db, { path })
+    : await queryFabricEntries(databaseConnection.db, { path });
+  const entry = entries[0];
   if (!entry) return null;
   const relatedIds = databaseConnection.kind === "pglite"
     ? await queryPublishedFabricRelatedProductIds(databaseConnection.db, entry.id)
     : await queryPublishedFabricRelatedProductIds(databaseConnection.db, entry.id);
-  const publishedProducts = await listPublishedProducts();
-  const allowed = new Set(relatedIds.map((row) => row.id));
-  const relatedProducts = publishedProducts.filter((product) => allowed.has(product.id));
+  const relatedProducts = databaseConnection.kind === "pglite"
+    ? await queryPublishedProducts(databaseConnection.db, {
+        productIds: relatedIds.map((row) => row.id),
+      })
+    : await queryPublishedProducts(databaseConnection.db, {
+        productIds: relatedIds.map((row) => row.id),
+      });
   return { ...entry, relatedProducts };
 }
 
@@ -808,6 +987,7 @@ async function queryContents<TQueryResult extends PgQueryResultHKT>(
       structuredBlocks: contentLocalizations.structuredBlocks,
       blocksVersion: contentLocalizations.blocksVersion,
       authorName: authors.displayName,
+      authorIsOrganization: authors.isOrganization,
       publishedAt: contents.publishedAt,
       path: routes.path,
       indexStatus: seoMetadata.indexStatus,
@@ -851,18 +1031,22 @@ export async function listPublishedContents(channel?: typeof contents.$inferSele
     : queryContents(databaseConnection.db, channel);
 }
 
-export async function getPublishedContentByPath(path: string) {
-  const all = await listPublishedContents();
+async function queryPublishedContentByPath<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  path: string,
+) {
+  const all = await queryContents(db);
   const content = all.find((item) => item.path === path);
   if (!content) return null;
-  const imageRows = databaseConnection.kind === "pglite"
-    ? await queryPublicContentImages(databaseConnection.db, content.id)
-    : await queryPublicContentImages(databaseConnection.db, content.id);
-  const images = await Promise.all(imageRows.map((row) => toPublicAsset({
+  const imageRows = await queryPublicContentImages(db, content.id);
+  const images = await Promise.all(imageRows.map((row) => toPublicAsset(
+    db,
+    {
     ...row,
     altText: row.placementAltText ?? row.altText,
     caption: row.placementCaption,
-  })));
+    },
+  )));
   const blockMedia: Record<string, PublicAsset> = {};
   imageRows.forEach((row, index) => {
     const image = images[index];
@@ -875,6 +1059,12 @@ export async function getPublishedContentByPath(path: string) {
     relatedProducts: content.blockProjection.relatedProducts,
     relatedArticles: content.blockProjection.relatedArticles,
   };
+}
+
+export async function getPublishedContentByPath(path: string) {
+  return databaseConnection.kind === "pglite"
+    ? queryPublishedContentByPath(databaseConnection.db, path)
+    : queryPublishedContentByPath(databaseConnection.db, path);
 }
 
 export async function queryPublicContentImages<
@@ -918,10 +1108,13 @@ export async function queryPublicContentImages<
       .orderBy(asc(contentAssets.sortOrder));
 }
 
-export async function listPublishedTaxonomyTerms() {
-  const query = async <TQueryResult extends PgQueryResultHKT>(
-    db: AppDatabase<TQueryResult>,
-  ) =>
+export async function queryPublishedTaxonomyTerms<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  options: { path?: string; requireEligibleProduct?: boolean } = {},
+) {
+  return (
     db
       .select({
         id: taxonomyTerms.id,
@@ -930,18 +1123,31 @@ export async function listPublishedTaxonomyTerms() {
         dimension: taxonomyTerms.dimension,
         path: routes.path,
         indexStatus: seoMetadata.indexStatus,
+        hasEligibleProducts: sql<boolean>`${hasPubliclyEligibleProductForTaxonomyConditions(db)}`,
       })
       .from(taxonomyTerms)
       .innerJoin(taxonomyTermLocalizations, and(eq(taxonomyTermLocalizations.taxonomyTermId, taxonomyTerms.id), eq(taxonomyTermLocalizations.locale, "en")))
       .innerJoin(routes, and(eq(routes.entityType, "taxonomy"), eq(routes.entityId, taxonomyTerms.id), eq(routes.isCurrent, true)))
       .innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id))
-      .where(eq(taxonomyTerms.isActive, true));
+      .where(and(
+        eq(taxonomyTerms.isActive, true),
+        options.path ? eq(routes.path, options.path) : undefined,
+        options.requireEligibleProduct
+          ? hasPubliclyEligibleProductForTaxonomyConditions(db)
+          : undefined,
+      ))
+  );
+}
+
+export async function listPublishedTaxonomyTerms() {
   return databaseConnection.kind === "pglite"
-    ? query(databaseConnection.db)
-    : query(databaseConnection.db);
+    ? queryPublishedTaxonomyTerms(databaseConnection.db, { requireEligibleProduct: true })
+    : queryPublishedTaxonomyTerms(databaseConnection.db, { requireEligibleProduct: true });
 }
 
 export async function getPublishedTaxonomyByPath(path: string) {
-  const terms = await listPublishedTaxonomyTerms();
-  return terms.find((term) => term.path === path) ?? null;
+  const terms = databaseConnection.kind === "pglite"
+    ? await queryPublishedTaxonomyTerms(databaseConnection.db, { path })
+    : await queryPublishedTaxonomyTerms(databaseConnection.db, { path });
+  return terms[0] ?? null;
 }

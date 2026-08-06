@@ -1,5 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
+
+import { ResponsivePublicImage } from "@/public-site/responsive-image";
+import type { PublicAssetVariant } from "@/public-site/data";
 
 import type { BlockDocument } from "./blocks";
 
@@ -8,6 +10,7 @@ export interface BlockMedia {
   url: string;
   alt: string;
   caption: string | null;
+  variants?: readonly PublicAssetVariant[];
 }
 
 export interface BlockRelatedLink {
@@ -42,12 +45,12 @@ export function BlockRenderer({
           case "image": {
             const item = media[block.mediaKey];
             if (!item) return null;
-            return <figure key={block.id}><div className="relative aspect-[16/9] overflow-hidden rounded-3xl bg-stone-200"><Image alt={item.alt} className="object-cover" fill sizes="(max-width: 1024px) 100vw, 800px" src={item.url} unoptimized /></div>{item.caption ? <figcaption className="mt-3 text-sm text-stone-500">{item.caption}</figcaption> : null}</figure>;
+            return <figure key={block.id}><div className="relative aspect-[16/9] overflow-hidden rounded-3xl bg-stone-200"><ResponsivePublicImage asset={item} className="object-cover" fill sizes="(max-width: 1024px) 100vw, 800px" /></div>{item.caption ? <figcaption className="mt-3 text-sm text-stone-500">{item.caption}</figcaption> : null}</figure>;
           }
           case "gallery": {
             const items = block.mediaKeys.flatMap((key) => media[key] ? [media[key]] : []);
             if (!items.length) return null;
-            return <div className="grid gap-4 sm:grid-cols-2" key={block.id}>{items.map((item) => <figure key={item.id}><div className="relative aspect-square overflow-hidden rounded-3xl bg-stone-200"><Image alt={item.alt} className="object-cover" fill sizes="(max-width: 640px) 100vw, 50vw" src={item.url} unoptimized /></div>{item.caption ? <figcaption className="mt-2 text-sm text-stone-500">{item.caption}</figcaption> : null}</figure>)}</div>;
+            return <div className="grid gap-4 sm:grid-cols-2" key={block.id}>{items.map((item) => <figure key={item.id}><div className="relative aspect-square overflow-hidden rounded-3xl bg-stone-200"><ResponsivePublicImage asset={item} className="object-cover" fill sizes="(max-width: 640px) 100vw, 50vw" /></div>{item.caption ? <figcaption className="mt-2 text-sm text-stone-500">{item.caption}</figcaption> : null}</figure>)}</div>;
           }
           case "specification_table":
             return <div className="overflow-x-auto" key={block.id}><table className="w-full border-collapse text-left"><caption className="sr-only">{block.caption ?? "Specifications"}</caption><tbody>{block.rows.map((row) => <tr className="border-b border-stone-200" key={row.label}><th className="py-3 pr-6 font-semibold text-[#143a34]" scope="row">{row.label}</th><td className="py-3">{row.value}</td></tr>)}</tbody></table></div>;

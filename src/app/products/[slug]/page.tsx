@@ -6,6 +6,7 @@ import { getPublishedProductByPath } from "@/public-site/data";
 import { ProductDetailRenderer, productSpecifications } from "@/public-site/product-detail-renderer";
 import { ProductViewTracker } from "@/public-site/product-view-tracker";
 import { PublicShell } from "@/public-site/shell";
+import { productStructuredData } from "@/seo/structured-data";
 
 export const revalidate = 3600;
 
@@ -26,6 +27,12 @@ export default async function ProductPage({ params }: Readonly<{ params: Promise
   const product = await resolveProduct(slug);
   if (!product) notFound();
   const specifications = productSpecifications(product);
-  const productSchema = { "@context": "https://schema.org", "@graph": [{ "@type": "Product", name: product.name, description: product.shortDescription ?? (product.narrativeProjection.readableText || undefined), brand: { "@type": "Brand", name: "CloudWave Textile" }, additionalProperty: specifications.map(([name, value]) => ({ "@type": "PropertyValue", name, value })) }, { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Home", item: env.NEXT_PUBLIC_SITE_URL }, { "@type": "ListItem", position: 2, name: "Products", item: new URL("/products/", env.NEXT_PUBLIC_SITE_URL).toString() }, { "@type": "ListItem", position: 3, name: product.name, item: new URL(product.path, env.NEXT_PUBLIC_SITE_URL).toString() }] }, ...(product.faqs.length ? [{ "@type": "FAQPage", mainEntity: product.faqs.map((faq) => ({ "@type": "Question", name: faq.question, acceptedAnswer: { "@type": "Answer", text: faq.answer } })) }] : [])] };
+  const productSchema = productStructuredData({
+    name: product.name,
+    description: product.shortDescription ?? (product.narrativeProjection.readableText || undefined),
+    path: product.path,
+    specifications,
+    faqs: product.faqs,
+  }, env.NEXT_PUBLIC_SITE_URL);
   return <PublicShell><ProductViewTracker path={product.path} /><ProductDetailRenderer product={product} /><script dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema).replaceAll("<", "\\u003c") }} type="application/ld+json" /></PublicShell>;
 }

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { env, publicIndexingAllowed } from "@/config/env";
+import { env } from "@/config/env";
 import { getPublishedApplicationByPath, listProductsForApplication } from "@/public-site/data";
 import { ProductCard } from "@/public-site/product-card";
 import { PublicShell } from "@/public-site/shell";
 import { TrackedLink } from "@/public-site/tracking";
+import { derivedPageRobots } from "@/seo/page-indexability";
 
 export const revalidate = 3600;
 async function resolveApplication(slug: string) {
@@ -15,12 +16,11 @@ async function resolveApplication(slug: string) {
 export async function generateMetadata({ params }: Readonly<{ params: Promise<{ slug: string }> }>): Promise<Metadata> {
   const application = await resolveApplication((await params).slug);
   if (!application) return { title: "Application not found", robots: { index: false } };
-  const index = publicIndexingAllowed() && application.indexStatus === "index";
   return {
     title: { absolute: application.seoTitle ?? `${application.name} | CloudWave Textile` },
     description: application.metaDescription ?? application.shortDescription ?? undefined,
     alternates: { canonical: application.canonicalPath ?? application.path },
-    robots: { index, follow: index },
+    robots: derivedPageRobots(application.indexStatus, application.hasEligibleProducts),
     openGraph: {
       type: "website",
       title: application.seoTitle ?? application.name,

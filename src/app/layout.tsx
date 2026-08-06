@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { publicIndexingAllowed } from "@/config/env";
+import { env, publicIndexingAllowed } from "@/config/env";
 import { AnalyticsConsent } from "@/public-site/analytics-consent";
 import "./globals.css";
 
@@ -15,9 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
-  ),
+  metadataBase: new URL(env.NEXT_PUBLIC_SITE_URL),
   title: {
     default: "CloudWave Textile | Professional Fabric Supplier in China",
     template: "%s | CloudWave Textile",

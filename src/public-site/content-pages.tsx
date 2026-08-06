@@ -6,6 +6,7 @@ import { ContentArticleRenderer } from "./content-article-renderer";
 
 import { getPublishedContentByPath, listPublishedContents } from "./data";
 import { PublicShell } from "./shell";
+import { articleAuthorStructuredData } from "@/seo/structured-data";
 
 type Channel = "fabric_knowledge" | "china_textile_guide" | "china_sourcing_guide";
 
@@ -35,6 +36,6 @@ export async function ContentArticlePage({ channel, slug }: Readonly<{ channel: 
   const path = `/${information.prefix}/${slug.toLowerCase()}/`;
   const content = await getPublishedContentByPath(path);
   if (!content) notFound();
-  const schema = { "@context": "https://schema.org", "@graph": [{ "@type": "Article", headline: content.title, author: { "@type": "Organization", name: content.authorName }, publisher: { "@type": "Organization", name: "CloudWave Textile" }, datePublished: content.publishedAt?.toISOString() }, { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Home", item: env.NEXT_PUBLIC_SITE_URL }, { "@type": "ListItem", position: 2, name: information.title, item: new URL(`/${information.prefix}/`, env.NEXT_PUBLIC_SITE_URL).toString() }, { "@type": "ListItem", position: 3, name: content.title, item: new URL(content.path, env.NEXT_PUBLIC_SITE_URL).toString() }] }] };
+  const schema = { "@context": "https://schema.org", "@graph": [{ "@type": "Article", headline: content.title, author: articleAuthorStructuredData(content.authorName, content.authorIsOrganization), publisher: { "@type": "Organization", name: "CloudWave Textile" }, datePublished: content.publishedAt?.toISOString() }, { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Home", item: env.NEXT_PUBLIC_SITE_URL }, { "@type": "ListItem", position: 2, name: information.title, item: new URL(`/${information.prefix}/`, env.NEXT_PUBLIC_SITE_URL).toString() }, { "@type": "ListItem", position: 3, name: content.title, item: new URL(content.path, env.NEXT_PUBLIC_SITE_URL).toString() }] }] };
   return <PublicShell><ContentArticleRenderer channelTitle={information.title} content={content} /><script dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replaceAll("<", "\\u003c") }} type="application/ld+json" /></PublicShell>;
 }

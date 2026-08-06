@@ -283,6 +283,33 @@ export function projectStaticPageEvidenceGates(
   };
 }
 
+export function hasRenderableStaticPageContent(
+  config: StaticPageConfig,
+  currentFactKeys: ReadonlySet<string>,
+  currentOwnedMediaPlacementKeys: ReadonlySet<string>,
+): boolean {
+  if (!config.copy) return false;
+  const evidenceGates = projectStaticPageEvidenceGates(
+    config,
+    currentFactKeys,
+    currentOwnedMediaPlacementKeys,
+  );
+  if (config.pageKey === "home") {
+    return config.modules.hero ||
+      config.modules.products ||
+      config.modules.applications ||
+      config.modules.fabric_library ||
+      config.modules.fabric_sourcing ||
+      config.modules.inquiry_cta ||
+      evidenceGates.manufacturing_strength;
+  }
+  return config.modules.hero ||
+    config.modules.introduction ||
+    config.modules.inquiry_cta ||
+    evidenceGates.owned_manufacturing ||
+    evidenceGates.service_strength;
+}
+
 export interface PersistedStaticPagePlacement {
   systemSettingId: string;
   assetId: string;

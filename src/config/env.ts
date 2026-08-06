@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const PRODUCTION_SITE_ORIGIN = "https://cwtextile.com";
+
 const booleanString = z
   .enum(["true", "false"])
   .default("false")
@@ -92,8 +94,10 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
   if (environment.DATABASE_DRIVER !== "postgres" || !environment.DATABASE_URL) {
     failures.push("a dedicated PostgreSQL DATABASE_URL is required");
   }
-  if (new URL(environment.NEXT_PUBLIC_SITE_URL).hostname === "localhost") {
-    failures.push("a formal public site URL is required");
+  if (environment.NEXT_PUBLIC_SITE_URL !== PRODUCTION_SITE_ORIGIN) {
+    failures.push(
+      `NEXT_PUBLIC_SITE_URL must be exactly ${PRODUCTION_SITE_ORIGIN}`,
+    );
   }
   if (environment.STORAGE_DRIVER !== "s3") {
     failures.push("S3-compatible isolated storage is required");
