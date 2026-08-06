@@ -7,16 +7,19 @@ import {
   listAdminFabricEntries,
   listAdminProducts,
 } from "@/admin/data";
-import { requireCurrentUser } from "@/auth/current-user";
+import { resolveCurrentUser } from "@/auth/current-user";
 import { hasPermission } from "@/auth/permissions";
 import { canAccessEditorialResource } from "@/admin/preview-policy";
 import { databaseConnection } from "@/db/client";
 import { createObjectStorage } from "@/storage";
 import { listRetryableAdminUploadBatches } from "@/uploads/admin-upload-service";
 import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 
 export default async function AdminAssetsPage() {
-  const user = await requireCurrentUser("assets.read");
+  const user = await resolveCurrentUser();
+  if (!user) redirect("/operations-login");
+  if (!hasPermission(user.role, "assets.read")) notFound();
   const canWriteAssets = hasPermission(user.role, "assets.write");
   const retryableBatchesPromise = canWriteAssets
     ? databaseConnection.kind === "pglite"

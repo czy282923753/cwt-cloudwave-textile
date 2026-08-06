@@ -699,6 +699,61 @@ test("@desktop Asset Library opens a governed Asset with Source Declaration off 
   await expect(page.getByRole("checkbox", { name: "Enable Source Declaration" })).not.toBeChecked();
 });
 
+test("@desktop Asset Library denies Analyst before data and preserves scoped role access", async ({ page }) => {
+  const consoleFailures: string[] = [];
+  const pageFailures: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      consoleFailures.push(`${message.text()} @ ${message.location().url}`);
+    }
+  });
+  page.on("pageerror", (error) => pageFailures.push(error.message));
+
+  await loginAsEditorialRole(page, "analyst@example.test");
+  const analystResponse = await page.goto("/admin/assets/");
+  expect(analystResponse?.status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "Asset Library" })).toHaveCount(0);
+  await expect(page.getByText(/TEST E2E Block Media Product/)).toHaveCount(0);
+  await expect(page.getByText(/TEST E2E Block Media Content/)).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("AuthorizationError");
+  await expect(page.locator("body")).not.toContainText("assets.read");
+
+  await loginAsEditorialRole(page, "sales@example.test");
+  expect((await page.goto("/admin/assets/"))?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Asset Library" })).toBeVisible();
+  await expect(page.getByText("You have review-only Asset access.", { exact: false })).toBeVisible();
+  await expect(page.getByText(/TEST E2E Block Media Product/)).toHaveCount(0);
+  await expect(page.getByText(/TEST E2E Block Media Content/)).toHaveCount(0);
+
+  await loginAsEditorialRole(page, "product-editor@example.test");
+  expect((await page.goto("/admin/assets/"))?.status()).toBe(200);
+  await expect(page.getByLabel("Associate with")).toContainText("TEST E2E Block Media Product");
+  await expect(page.getByLabel("Associate with")).not.toContainText("TEST E2E Block Media Content");
+
+  await loginAsEditorialRole(page, "content-editor@example.test");
+  expect((await page.goto("/admin/assets/"))?.status()).toBe(200);
+  await expect(page.getByLabel("Associate with")).not.toContainText("TEST E2E Block Media Product");
+  await expect(page.getByLabel("Associate with")).toContainText("TEST E2E Block Media Content");
+
+  await loginAsEditorialRole(page, "reviewer@example.test");
+  expect((await page.goto("/admin/assets/"))?.status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Asset Library" })).toBeVisible();
+  await expect(page.getByLabel("Associate with")).toHaveCount(0);
+
+  await page.context().clearCookies();
+  await page.goto("/admin/assets/");
+  await expect(page).toHaveURL(/\/operations-login\/?$/);
+  await expect(page.getByRole("heading", { name: "Asset Library" })).toHaveCount(0);
+
+  const controlledDenialNetworkMessages = consoleFailures.filter((message) =>
+    message.includes("Failed to load resource: the server responded with a status of 404") &&
+    message.endsWith("@ http://127.0.0.1:3100/admin/assets/"),
+  );
+  expect(controlledDenialNetworkMessages).toHaveLength(1);
+  expect(consoleFailures).toEqual(controlledDenialNetworkMessages);
+  expect(pageFailures).toEqual([]);
+});
+
 test("@desktop Asset Library uploads through authenticated binary Intents with Source Declaration off", async ({ page }) => {
   await loginAsLocalAdmin(page);
   await page.goto("/admin/assets/");
