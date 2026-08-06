@@ -254,13 +254,15 @@ export async function claimObjectCleanupJob<
       identityMismatch ||= !intent ||
         !recovery ||
         !asset ||
-        currentJob.storagePartition !== "private" ||
+        !(["private", "imports"] as const).includes(currentJob.storagePartition as "private" | "imports") ||
         currentJob.uploadBatchId !== intent.uploadBatchId ||
         currentJob.uploadBatchId !== recovery.uploadBatchId ||
         currentJob.assetId !== intent.assetId ||
         currentJob.assetId !== recovery.assetId ||
         currentJob.objectKey !== recovery.objectKey ||
         currentJob.objectKey !== asset.objectKey ||
+        currentJob.storagePartition !== recovery.storagePartition ||
+        (currentJob.cleanupKind === "staging" && currentJob.storagePartition !== asset.storagePartition) ||
         currentJob.recoveryVersion !== recovery.version ||
         currentJob.expectedObjectRole !== intent.adminAssetRole ||
         currentJob.expectedMimeType !== (asset.detectedMimeType ?? asset.declaredMimeType) ||
@@ -431,14 +433,14 @@ async function reconcileCleanupTransaction<TQueryResult extends PgQueryResultHKT
     }
   }
 
-  if (job.assetId && job.partition === "private") {
+  if (job.assetId && (job.partition === "private" || job.partition === "imports")) {
     const recovery = (await db.select().from(uploadRecoveryJobs).where(and(
       eq(uploadRecoveryJobs.assetId, job.assetId),
       eq(uploadRecoveryJobs.kind, "staging"),
     )).limit(1))[0];
     const asset = (await db.select({ partition: assets.storagePartition }).from(assets)
       .where(eq(assets.id, job.assetId)).limit(1))[0];
-    if (recovery && asset?.partition === "private") {
+    if (recovery && asset?.partition === job.partition) {
       const wasCompleted = recovery.status === "completed";
       await db.update(assets).set({
         status: "deleted",

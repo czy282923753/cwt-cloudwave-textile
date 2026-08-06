@@ -48,6 +48,24 @@ async function digest(file: File): Promise<string> {
   return [...new Uint8Array(value)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function uploadWithSameIntent<T>(uploadUrl: string, file: File): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await json<T>(await fetch(uploadUrl, {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "content-type": declaredMime(file) },
+        body: file,
+      }));
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Upload replay failed safely.");
+}
+
 export function ProductImportWizard({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -77,9 +95,7 @@ export function ProductImportWizard({ enabled }: { enabled: boolean }) {
       for (const [index, file] of packageFiles.entries()) {
         setStatus(`Uploading isolated package ${index + 1} of ${packageFiles.length}…`);
         const intent = packageUpload.intents[index]!;
-        const response = await json<{ assetId: string; media?: UploadedMedia[] }>(await fetch(intent.uploadUrl, {
-          method: "PUT", credentials: "same-origin", headers: { "content-type": declaredMime(file) }, body: file,
-        }));
+        const response = await uploadWithSameIntent<{ assetId: string; media?: UploadedMedia[] }>(intent.uploadUrl, file);
         if (file === workbook) workbookAssetId = response.assetId;
         else {
           mediaPackageAssetId = response.assetId;
@@ -100,9 +116,7 @@ export function ProductImportWizard({ enabled }: { enabled: boolean }) {
         const uploaded: Array<{ assetId: string; file: File }> = [];
         for (const [index, file] of files.entries()) {
           setStatus(`Uploading folder image ${start + index + 1} of ${folder.length}…`);
-          const response = await json<{ assetId: string }>(await fetch(upload.intents[index]!.uploadUrl, {
-            method: "PUT", credentials: "same-origin", headers: { "content-type": declaredMime(file) }, body: file,
-          }));
+          const response = await uploadWithSameIntent<{ assetId: string }>(upload.intents[index]!.uploadUrl, file);
           uploaded.push({ assetId: response.assetId, file });
         }
         await json(await fetch(`/api/admin/upload-batches/${upload.batchId}/finalize/`, {

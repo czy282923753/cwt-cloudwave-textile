@@ -120,7 +120,20 @@ interface AdminUploadOptions {
   leaseMilliseconds?: number;
   clock?: () => Date;
   faultInjector?: (point: AdminUploadFaultPoint) => void | Promise<void>;
+  importBinding?: ImportMediaUploadBinding;
+  issuedTokens?: readonly string[];
 }
+
+const importMediaUploadBindingSchema = z.object({
+  packageAssetId: z.uuid(),
+  sourceKey: z.string().min(1).max(240),
+  sourceOrder: z.number().int().min(0).max(499),
+  relativePath: z.string().min(1).max(240),
+  displayName: z.string().min(1).max(200),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+type ImportMediaUploadBinding = z.infer<typeof importMediaUploadBindingSchema>;
 
 export type AdminUploadFaultPoint =
   | "before_recovery_job_insert"
@@ -139,7 +152,8 @@ export type AdminUploadFaultPoint =
   | "before_finalize_publish_commit"
   | "before_post_commit_cleanup"
   | "after_post_commit_cleanup"
-  | "before_post_commit_warning";
+  | "before_post_commit_warning"
+  | "after_import_archive_first_media";
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -270,7 +284,26 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
     throw new Error("Upload rate limit exceeded.");
   }
   const expiresAt = new Date(now.getTime() + env.UPLOAD_INTENT_TTL_SECONDS * 1_000);
-  const issued = normalized.files.map((file) => ({ file, token: randomBytes(32).toString("base64url") }));
+  if (options.issuedTokens && options.issuedTokens.length !== normalized.files.length) {
+    throw new Error("Issued Upload token count does not match the declared files.");
+  }
+  const importBinding = options.importBinding
+    ? importMediaUploadBindingSchema.parse(options.importBinding)
+    : null;
+  if (importBinding && (
+    normalized.files.length !== 1 ||
+    normalized.category !== "product" ||
+    normalized.role !== "gallery" ||
+    normalized.associationType ||
+    normalized.associationEntityId ||
+    normalized.sourceDeclarationEnabled
+  )) {
+    throw new Error("Import media binding requires one isolated Product media upload.");
+  }
+  const issued = normalized.files.map((file, index) => ({
+    file,
+    token: options.issuedTokens?.[index] ?? randomBytes(32).toString("base64url"),
+  }));
   const auditWriter = options.auditWriter ?? writeAuditLog;
   return db.transaction(async (transaction) => {
     await assertActiveSession(transaction, actor, now);
@@ -279,7 +312,11 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
       createdByUserId: actor.userId,
       authSessionId: actor.authSessionId,
       sourceDeclarationEnabled: normalized.sourceDeclarationEnabled,
-      declarationInput: normalized.sourceDeclarationEnabled ? normalized.sourceDeclaration ?? {} : null,
+      declarationInput: importBinding
+        ? { importMediaBinding: importBinding }
+        : normalized.sourceDeclarationEnabled
+          ? normalized.sourceDeclaration ?? {}
+          : null,
       declaredFileCount: issued.length,
       completedFileCount: 0,
       status: "created",
@@ -309,7 +346,11 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
       action: "asset.upload_batch.created",
       entityType: "asset_upload_batch",
       entityId: batchId,
-      afterSummary: { fileCount: issued.length, sourceDeclarationEnabled: normalized.sourceDeclarationEnabled },
+      afterSummary: {
+        fileCount: issued.length,
+        sourceDeclarationEnabled: normalized.sourceDeclarationEnabled,
+        importBound: Boolean(importBinding),
+      },
     });
     return {
       batchId,
@@ -334,7 +375,7 @@ export async function inspectAdminUploadIntent<TQueryResult extends PgQueryResul
     eq(uploadIntents.kind, "admin_asset"),
     eq(uploadIntents.createdByUserId, actor.userId),
     eq(uploadIntents.authSessionId, actor.authSessionId),
-    eq(uploadIntents.status, "created"),
+    inArray(uploadIntents.status, ["created", "uploading", "passed", "consumed"]),
     gt(uploadIntents.expiresAt, now),
   )).limit(1))[0];
   if (!row) throw new Error("Admin Upload Intent is invalid, expired, or already used.");
@@ -357,19 +398,41 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
   const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
   const expectedAssetId = randomUUID();
   const datePrefix = now.toISOString().slice(0, 10).replaceAll("-", "/");
+  const inputSha256 = createHash("sha256").update(input.bytes).digest("hex");
 
   const preregistered = await db.transaction(async (transaction) => {
     await assertActiveSession(transaction, actor, now);
+    await transaction.execute(sql`
+      select id from upload_intents
+      where token_hash = ${hashToken(input.token)}
+      for update
+    `);
     const intent = (await transaction.select().from(uploadIntents).where(and(
       eq(uploadIntents.tokenHash, hashToken(input.token)),
       eq(uploadIntents.kind, "admin_asset"),
       eq(uploadIntents.createdByUserId, actor.userId),
       eq(uploadIntents.authSessionId, actor.authSessionId),
-      eq(uploadIntents.status, "created"),
+      inArray(uploadIntents.status, ["created", "uploading", "passed", "consumed"]),
       gt(uploadIntents.expiresAt, now),
     )).limit(1))[0];
     if (!intent?.uploadBatchId || !intent.adminAssetCategory || !intent.adminAssetRole) {
       throw new Error("Admin Upload Intent is invalid, expired, or already used.");
+    }
+    if (intent.status === "passed" || intent.status === "consumed") {
+      const completedAsset = intent.assetId
+        ? (await transaction.select().from(assets).where(eq(assets.id, intent.assetId)).limit(1))[0]
+        : undefined;
+      if (
+        !completedAsset ||
+        completedAsset.uploadBatchId !== intent.uploadBatchId ||
+        completedAsset.byteSize !== input.bytes.byteLength ||
+        completedAsset.sha256 !== inputSha256 ||
+        completedAsset.status !== "ready" ||
+        completedAsset.scanStatus !== "passed"
+      ) {
+        throw new Error("Completed Admin Upload replay does not match its durable Asset evidence.");
+      }
+      return { mismatch: false, completedAssetId: completedAsset.id } as const;
     }
     if (input.bytes.byteLength !== intent.declaredByteSize) {
       await transaction.update(uploadIntents).set({
@@ -392,8 +455,112 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
     }
     const importPackage = isImportPackageMime(intent.declaredMimeType);
     const storagePartition = importPackage ? "imports" as const : "private" as const;
+    if (intent.status === "uploading") {
+      const existingAsset = intent.assetId
+        ? (await transaction.select().from(assets).where(eq(assets.id, intent.assetId)).limit(1))[0]
+        : undefined;
+      const existingRecovery = (await transaction.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadIntentId, intent.id),
+        eq(uploadRecoveryJobs.kind, "staging"),
+      )).limit(1))[0];
+      const cleanup = existingAsset
+        ? (await transaction.select().from(objectCleanupJobs).where(and(
+            eq(objectCleanupJobs.assetId, existingAsset.id),
+            eq(objectCleanupJobs.uploadIntentId, intent.id),
+            eq(objectCleanupJobs.storagePartition, storagePartition),
+          )).limit(1))[0]
+        : undefined;
+      if (
+        !existingAsset ||
+        !existingRecovery ||
+        !cleanup ||
+        existingAsset.uploadBatchId !== intent.uploadBatchId ||
+        existingAsset.storagePartition !== storagePartition ||
+        existingAsset.access !== "internal" ||
+        existingAsset.byteSize !== input.bytes.byteLength ||
+        existingAsset.sha256 !== inputSha256 ||
+        existingRecovery.assetId !== existingAsset.id ||
+        existingRecovery.objectKey !== existingAsset.objectKey ||
+        existingRecovery.status === "dead" ||
+        cleanup.status === "dead" ||
+        (existingRecovery.status === "processing" && existingRecovery.leaseExpiresAt && existingRecovery.leaseExpiresAt > now) ||
+        (cleanup.status === "processing" && cleanup.leaseExpiresAt && cleanup.leaseExpiresAt > now)
+      ) {
+        throw new Error("Admin Upload retry is not safely reclaimable yet.");
+      }
+      const recovery = (await transaction.update(uploadRecoveryJobs).set({
+        status: "processing",
+        stage: "preregistered",
+        attemptCount: sql`${uploadRecoveryJobs.attemptCount} + 1`,
+        nextAttemptAt: leaseExpiresAt,
+        lockedBy: workerId,
+        lockedAt: now,
+        leaseExpiresAt,
+        version: sql`${uploadRecoveryJobs.version} + 1`,
+        lastError: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+      }).where(and(
+        eq(uploadRecoveryJobs.id, existingRecovery.id),
+        eq(uploadRecoveryJobs.version, existingRecovery.version),
+        inArray(uploadRecoveryJobs.status, ["processing", "retryable", "cleanup_required"]),
+      )).returning({
+        id: uploadRecoveryJobs.id,
+        version: uploadRecoveryJobs.version,
+        attemptCount: uploadRecoveryJobs.attemptCount,
+      }))[0];
+      if (!recovery) throw new Error("Admin Upload retry lease could not be reclaimed.");
+      await transaction.update(objectCleanupJobs).set({
+        status: "pending",
+        recoveryVersion: recovery.version,
+        nextAttemptAt: leaseExpiresAt,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        completedAt: null,
+        lastError: null,
+        updatedAt: now,
+      }).where(eq(objectCleanupJobs.id, cleanup.id));
+      await transaction.update(assets).set({
+        status: "scanning",
+        scanStatus: "pending",
+        detectedMimeType: null,
+        width: null,
+        height: null,
+        scanProvider: null,
+        scanResult: null,
+        scanFailureReason: null,
+        scanCompletedAt: null,
+        updatedAt: now,
+      }).where(eq(assets.id, existingAsset.id));
+      await transaction.update(assetUploadBatches).set({
+        status: "uploading",
+        failureReason: null,
+      }).where(eq(assetUploadBatches.id, intent.uploadBatchId));
+      await auditWriter(transaction, {
+        actorUserId: actor.userId,
+        action: "asset.upload.retry_claimed",
+        entityType: "asset",
+        entityId: existingAsset.id,
+        afterSummary: { uploadBatchId: intent.uploadBatchId, attempt: recovery.attemptCount },
+      });
+      return {
+        mismatch: false,
+        intent,
+        assetId: existingAsset.id,
+        objectKey: existingAsset.objectKey,
+        resumed: true,
+        recoveryLease: {
+          id: recovery.id,
+          workerId,
+          version: recovery.version,
+          attemptCount: recovery.attemptCount,
+          leaseExpiresAt,
+        } satisfies UploadRecoveryLease,
+      } as const;
+    }
     const objectKey = `${importPackage ? "packages/admin" : "staging/admin"}/${datePrefix}/${randomUUID()}.${safeExtension(intent.declaredMimeType)}`;
-    const sha256 = createHash("sha256").update(input.bytes).digest("hex");
     await transaction.insert(assets).values({
       id: expectedAssetId,
       uploadBatchId: intent.uploadBatchId,
@@ -407,7 +574,7 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
       status: "scanning",
       declaredMimeType: intent.declaredMimeType,
       byteSize: input.bytes.byteLength,
-      sha256,
+      sha256: inputSha256,
       sourceDeclarationEnabled: false,
       nonBlockingRiskHints: inferNonBlockingRiskHints(intent.declaredFileName),
       retentionExpiresAt: intent.expiresAt,
@@ -477,6 +644,7 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
       intent,
       assetId: expectedAssetId,
       objectKey,
+      resumed: false,
       recoveryLease: {
         id: recovery.id,
         workerId,
@@ -489,6 +657,7 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
   if (preregistered.mismatch) {
     throw new Error("Uploaded size does not match the Admin Upload Intent.");
   }
+  if ("completedAssetId" in preregistered) return preregistered.completedAssetId;
 
   let recoveryLease = preregistered.recoveryLease;
   try {
@@ -499,6 +668,15 @@ export async function completeAdminUploadIntent<TQueryResult extends PgQueryResu
       new Date(),
       leaseMilliseconds,
     );
+    if (preregistered.resumed && await storage.exists(
+      isImportPackageMime(preregistered.intent.declaredMimeType) ? "imports" : "private",
+      preregistered.objectKey,
+    )) {
+      await storage.delete(
+        isImportPackageMime(preregistered.intent.declaredMimeType) ? "imports" : "private",
+        preregistered.objectKey,
+      );
+    }
     await storage.put(
       isImportPackageMime(preregistered.intent.declaredMimeType) ? "imports" : "private",
       preregistered.objectKey,
@@ -633,6 +811,102 @@ export interface CompletedImportArchiveMedia {
   uploadBatchId: string;
 }
 
+function importMediaToken(parentToken: string, sourceKey: string): string {
+  return createHash("sha256")
+    .update("cwt-import-media-v1\0")
+    .update(parentToken)
+    .update("\0")
+    .update(sourceKey)
+    .digest("base64url");
+}
+
+async function digestBoundedStream(
+  stream: ReadableStream<Uint8Array>,
+  expectedBytes: number,
+): Promise<string> {
+  const digest = createHash("sha256");
+  const reader = stream.getReader();
+  let actualBytes = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      actualBytes += next.value.byteLength;
+      if (actualBytes > expectedBytes) throw new Error("Streamed object exceeds its declared size.");
+      digest.update(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (actualBytes !== expectedBytes) throw new Error("Streamed object does not match its declared size.");
+  return digest.digest("hex");
+}
+
+async function readBoundImportMedia<TQueryResult extends PgQueryResultHKT>(
+  db: AppDatabase<TQueryResult>,
+  actor: AdminUploadActor,
+  packageAssetId: string,
+): Promise<Map<string, {
+  binding: ImportMediaUploadBinding;
+  batchId: string;
+  completed: CompletedImportArchiveMedia | null;
+}>> {
+  const batches = await db.select().from(assetUploadBatches).where(and(
+    eq(assetUploadBatches.createdByUserId, actor.userId),
+    eq(assetUploadBatches.authSessionId, actor.authSessionId),
+    sql`${assetUploadBatches.declarationInput} -> 'importMediaBinding' ->> 'packageAssetId' = ${packageAssetId}`,
+  ));
+  if (!batches.length) return new Map();
+  const batchIds = batches.map((batch) => batch.id);
+  const relatedAssets = await db.select().from(assets).where(inArray(assets.uploadBatchId, batchIds));
+  const assetsByBatch = new Map<string, typeof relatedAssets>();
+  for (const asset of relatedAssets) {
+    if (!asset.uploadBatchId) continue;
+    const current = assetsByBatch.get(asset.uploadBatchId) ?? [];
+    current.push(asset);
+    assetsByBatch.set(asset.uploadBatchId, current);
+  }
+  const result = new Map<string, {
+    binding: ImportMediaUploadBinding;
+    batchId: string;
+    completed: CompletedImportArchiveMedia | null;
+  }>();
+  for (const batch of batches) {
+    const input = batch.declarationInput as { importMediaBinding?: unknown } | null;
+    const parsed = importMediaUploadBindingSchema.safeParse(input?.importMediaBinding);
+    if (!parsed.success || parsed.data.packageAssetId !== packageAssetId) {
+      throw new Error("Import media Upload binding is invalid.");
+    }
+    if (result.has(parsed.data.sourceKey)) {
+      throw new Error("Import media Upload binding is duplicated.");
+    }
+    const batchAssets = assetsByBatch.get(batch.id) ?? [];
+    const publicAsset = batch.status === "completed" && batchAssets.length === 1
+      ? batchAssets[0]
+      : undefined;
+    const completed = publicAsset &&
+      publicAsset.storagePartition === "public" &&
+      publicAsset.access === "public" &&
+      publicAsset.status === "ready" &&
+      publicAsset.scanStatus === "passed" &&
+      publicAsset.sha256 === parsed.data.sha256
+      ? {
+          sourceKey: parsed.data.sourceKey,
+          relativePath: parsed.data.relativePath,
+          displayName: parsed.data.displayName,
+          sha256: parsed.data.sha256,
+          assetId: publicAsset.id,
+          uploadBatchId: batch.id,
+        }
+      : null;
+    if (batch.status === "completed" && !completed) {
+      throw new Error("Completed Import media Upload binding has inconsistent Asset evidence.");
+    }
+    result.set(parsed.data.sourceKey, { binding: parsed.data, batchId: batch.id, completed });
+  }
+  return result;
+}
+
 export async function completeAdminImportArchiveIntent<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
   storage: ObjectStorage,
@@ -644,31 +918,146 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
   const now = options.now ?? new Date();
   await assertActiveSession(db, actor, now);
   if (!storage.putStream) throw new Error("Configured storage does not support bounded Import streams.");
-  const intent = (await db.select().from(uploadIntents).where(and(
-    eq(uploadIntents.tokenHash, hashToken(input.token)),
-    eq(uploadIntents.kind, "admin_asset"),
-    eq(uploadIntents.createdByUserId, actor.userId),
-    eq(uploadIntents.authSessionId, actor.authSessionId),
-    eq(uploadIntents.status, "created"),
-    eq(uploadIntents.declaredMimeType, IMPORT_ARCHIVE_MIME),
-    gt(uploadIntents.expiresAt, now),
-  )).limit(1))[0];
-  if (!intent?.uploadBatchId || !intent.adminAssetCategory || !intent.adminAssetRole) {
-    throw new Error("Import Archive Intent is invalid, expired, or already used.");
-  }
-  const uploadBatchId = intent.uploadBatchId;
-  const assetId = randomUUID();
   const workerId = options.workerId ?? `import-archive-${randomUUID()}`;
   const leaseMilliseconds = options.leaseMilliseconds ?? 5 * UPLOAD_RECOVERY_LEASE_MILLISECONDS;
   const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
   const datePrefix = now.toISOString().slice(0, 10).replaceAll("-", "/");
-  const objectKey = `packages/admin/${datePrefix}/${randomUUID()}.zip`;
   const auditWriter = options.auditWriter ?? writeAuditLog;
-  const recovery = await db.transaction(async (transaction) => {
+  const claim = await db.transaction(async (transaction) => {
     await assertActiveSession(transaction, actor, now);
+    await transaction.execute(sql`
+      select id from upload_intents
+      where token_hash = ${hashToken(input.token)}
+      for update
+    `);
+    const intent = (await transaction.select().from(uploadIntents).where(and(
+      eq(uploadIntents.tokenHash, hashToken(input.token)),
+      eq(uploadIntents.kind, "admin_asset"),
+      eq(uploadIntents.createdByUserId, actor.userId),
+      eq(uploadIntents.authSessionId, actor.authSessionId),
+      inArray(uploadIntents.status, ["created", "uploading", "passed", "consumed"]),
+      eq(uploadIntents.declaredMimeType, IMPORT_ARCHIVE_MIME),
+      gt(uploadIntents.expiresAt, now),
+    )).limit(1))[0];
+    if (!intent?.uploadBatchId || !intent.adminAssetCategory || !intent.adminAssetRole) {
+      throw new Error("Import Archive Intent is invalid, expired, or already used.");
+    }
+    if (intent.status === "passed" || intent.status === "consumed") {
+      const completedAsset = intent.assetId
+        ? (await transaction.select().from(assets).where(eq(assets.id, intent.assetId)).limit(1))[0]
+        : undefined;
+      if (
+        !completedAsset ||
+        completedAsset.uploadBatchId !== intent.uploadBatchId ||
+        completedAsset.storagePartition !== "imports" ||
+        completedAsset.access !== "internal" ||
+        completedAsset.status !== "ready" ||
+        completedAsset.scanStatus !== "passed" ||
+        completedAsset.detectedMimeType !== IMPORT_ARCHIVE_MIME
+      ) {
+        throw new Error("Completed Import Archive replay has inconsistent durable evidence.");
+      }
+      return { completed: true, intent, asset: completedAsset } as const;
+    }
+    if (intent.status === "uploading") {
+      const existingAsset = intent.assetId
+        ? (await transaction.select().from(assets).where(eq(assets.id, intent.assetId)).limit(1))[0]
+        : undefined;
+      const existingRecovery = (await transaction.select().from(uploadRecoveryJobs).where(and(
+        eq(uploadRecoveryJobs.uploadIntentId, intent.id),
+        eq(uploadRecoveryJobs.kind, "staging"),
+      )).limit(1))[0];
+      const cleanup = existingAsset
+        ? (await transaction.select().from(objectCleanupJobs).where(and(
+            eq(objectCleanupJobs.assetId, existingAsset.id),
+            eq(objectCleanupJobs.uploadIntentId, intent.id),
+            eq(objectCleanupJobs.storagePartition, "imports"),
+          )).limit(1))[0]
+        : undefined;
+      if (
+        !existingAsset ||
+        !existingRecovery ||
+        !cleanup ||
+        existingAsset.uploadBatchId !== intent.uploadBatchId ||
+        existingAsset.storagePartition !== "imports" ||
+        existingAsset.access !== "internal" ||
+        existingAsset.byteSize !== intent.declaredByteSize ||
+        existingRecovery.assetId !== existingAsset.id ||
+        existingRecovery.objectKey !== existingAsset.objectKey ||
+        existingRecovery.status === "dead" ||
+        cleanup.status === "dead" ||
+        (existingRecovery.status === "processing" && existingRecovery.leaseExpiresAt && existingRecovery.leaseExpiresAt > now) ||
+        (cleanup.status === "processing" && cleanup.leaseExpiresAt && cleanup.leaseExpiresAt > now)
+      ) {
+        throw new Error("Import Archive retry is not safely reclaimable yet.");
+      }
+      const recovery = (await transaction.update(uploadRecoveryJobs).set({
+        status: "processing",
+        stage: "preregistered",
+        attemptCount: sql`${uploadRecoveryJobs.attemptCount} + 1`,
+        nextAttemptAt: leaseExpiresAt,
+        lockedBy: workerId,
+        lockedAt: now,
+        leaseExpiresAt,
+        version: sql`${uploadRecoveryJobs.version} + 1`,
+        lastError: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+      }).where(and(
+        eq(uploadRecoveryJobs.id, existingRecovery.id),
+        eq(uploadRecoveryJobs.version, existingRecovery.version),
+        inArray(uploadRecoveryJobs.status, ["processing", "retryable", "cleanup_required"]),
+      )).returning({
+        id: uploadRecoveryJobs.id,
+        version: uploadRecoveryJobs.version,
+        attemptCount: uploadRecoveryJobs.attemptCount,
+      }))[0];
+      if (!recovery) throw new Error("Import Archive retry lease could not be reclaimed.");
+      await transaction.update(objectCleanupJobs).set({
+        status: "pending",
+        recoveryVersion: recovery.version,
+        nextAttemptAt: leaseExpiresAt,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        completedAt: null,
+        lastError: null,
+        updatedAt: now,
+      }).where(eq(objectCleanupJobs.id, cleanup.id));
+      await transaction.update(assets).set({
+        status: "scanning",
+        scanStatus: "pending",
+        detectedMimeType: null,
+        scanProvider: null,
+        scanResult: null,
+        scanFailureReason: null,
+        scanCompletedAt: null,
+        sha256: "0".repeat(64),
+        updatedAt: now,
+      }).where(eq(assets.id, existingAsset.id));
+      await transaction.update(assetUploadBatches).set({ status: "uploading", failureReason: null })
+        .where(eq(assetUploadBatches.id, intent.uploadBatchId));
+      await auditWriter(transaction, {
+        actorUserId: actor.userId,
+        action: "asset.import_archive.retry_claimed",
+        entityType: "asset",
+        entityId: existingAsset.id,
+        afterSummary: { uploadBatchId: intent.uploadBatchId, attempt: recovery.attemptCount },
+      });
+      return {
+        completed: false,
+        resumed: true,
+        intent,
+        asset: existingAsset,
+        recovery,
+      } as const;
+    }
+    const assetId = randomUUID();
+    const objectKey = `packages/admin/${datePrefix}/${randomUUID()}.zip`;
     await transaction.insert(assets).values({
       id: assetId,
-      uploadBatchId,
+      uploadBatchId: intent.uploadBatchId,
       uploadedByUserId: actor.userId,
       originalFileName: intent.declaredFileName,
       storageProvider: env.STORAGE_DRIVER,
@@ -684,7 +1073,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
     });
     const row = (await transaction.insert(uploadRecoveryJobs).values({
       kind: "staging",
-      uploadBatchId,
+      uploadBatchId: intent.uploadBatchId,
       uploadIntentId: intent.id,
       assetId,
       storagePartition: "imports",
@@ -702,7 +1091,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
     }).returning({ id: uploadRecoveryJobs.id, version: uploadRecoveryJobs.version }))[0];
     if (!row) throw new Error("Import Archive Recovery Job insert failed.");
     await transaction.insert(objectCleanupJobs).values({
-      uploadBatchId,
+      uploadBatchId: intent.uploadBatchId,
       uploadIntentId: intent.id,
       assetId,
       storagePartition: "imports",
@@ -719,17 +1108,45 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
     await transaction.update(uploadIntents).set({ assetId, status: "uploading", updatedAt: now })
       .where(and(eq(uploadIntents.id, intent.id), eq(uploadIntents.status, "created")));
     await transaction.update(assetUploadBatches).set({ status: "uploading" })
-      .where(eq(assetUploadBatches.id, uploadBatchId));
+      .where(eq(assetUploadBatches.id, intent.uploadBatchId));
     await auditWriter(transaction, {
       actorUserId: actor.userId,
       action: "asset.import_archive.receiving",
       entityType: "asset",
       entityId: assetId,
-      afterSummary: { uploadBatchId, recoveryJobId: row.id },
+      afterSummary: { uploadBatchId: intent.uploadBatchId, recoveryJobId: row.id },
     });
-    return { id: row.id, version: row.version };
+    return {
+      completed: false,
+      resumed: false,
+      intent,
+      asset: { id: assetId, objectKey, sha256: "0".repeat(64) },
+      recovery: { id: row.id, version: row.version, attemptCount: 1 },
+    } as const;
   });
-  let lease: UploadRecoveryLease = { id: recovery.id, workerId, version: recovery.version, attemptCount: 1, leaseExpiresAt };
+  if (claim.completed) {
+    const replaySha256 = await digestBoundedStream(input.stream, claim.intent.declaredByteSize);
+    if (replaySha256 !== claim.asset.sha256) {
+      throw new Error("Completed Import Archive replay does not match the original package.");
+    }
+    const bindings = await readBoundImportMedia(db, actor, claim.asset.id);
+    const media = [...bindings.values()].map((entry) => {
+      if (!entry.completed) throw new Error("Completed Import Archive has incomplete media evidence.");
+      return { order: entry.binding.sourceOrder, media: entry.completed };
+    }).sort((left, right) => left.order - right.order).map((entry) => entry.media);
+    return { packageAssetId: claim.asset.id, media };
+  }
+  const intent = claim.intent;
+  const uploadBatchId = intent.uploadBatchId!;
+  const assetId = claim.asset.id;
+  const objectKey = claim.asset.objectKey;
+  let lease: UploadRecoveryLease = {
+    id: claim.recovery.id,
+    workerId,
+    version: claim.recovery.version,
+    attemptCount: claim.recovery.attemptCount,
+    leaseExpiresAt,
+  };
   const [storageStream, inspectStream] = input.stream.tee();
   const sha = createHash("sha256");
   const hashingStream = storageStream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
@@ -754,6 +1171,9 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
   };
   try {
     lease = await advanceUploadRecoveryStage(db, lease, "storage_writing", new Date(), leaseMilliseconds);
+    if (claim.resumed && await storage.exists("imports", objectKey)) {
+      await storage.delete("imports", objectKey);
+    }
     await Promise.all([
       storage.putStream("imports", objectKey, hashingStream, IMPORT_ARCHIVE_MIME, intent.declaredByteSize),
       inspectImportImageArchiveStream(inspectStream, async (file) => {
@@ -769,6 +1189,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         });
       }),
     ]);
+    stagedMedia.sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en"));
     for (const file of stagedMedia) {
       const bytes = new Uint8Array(await readFile(file.path));
       await validateUploadedFile({
@@ -780,7 +1201,8 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
       const scan = await scanner.scan(bytes, file.displayName);
       if (!scan.clean) throw new Error("An archive image was rejected by malware scanning.");
     }
-    for (const file of stagedMedia) {
+    const existingBindings = await readBoundImportMedia(db, actor, assetId);
+    for (const [sourceOrder, file] of stagedMedia.entries()) {
       const bytes = new Uint8Array(await readFile(file.path));
       const validated = await validateUploadedFile({
         bytes,
@@ -788,29 +1210,53 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         maximumBytes: 20 * 1024 * 1024,
         purpose: "admin_asset_staging",
       });
-      const issued = await createAdminUploadBatch(db, actor, {
-        files: [{ fileName: file.displayName, declaredMimeType: validated.detectedMimeType, declaredByteSize: file.byteSize }],
-        category: "product",
-        role: "gallery",
-        sortOrder: 0,
-        associationType: null,
-        associationEntityId: null,
-        sourceDeclarationEnabled: false,
-        sourceDeclaration: null,
-      }, internalImportOptions);
-      const token = issued.intents[0]?.token;
-      if (!token) throw new Error("Import media Upload Intent was not issued.");
-      const stagedAssetId = await completeAdminUploadIntent(db, storage, scanner, actor, { token, bytes }, internalImportOptions);
-      const finalized = await finalizeAdminUploadBatch(db, storage, actor, issued.batchId, internalImportOptions);
-      if (!finalized.assetIds.includes(stagedAssetId)) throw new Error("Import media Finalize identity mismatch.");
-      media.push({
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const binding = importMediaUploadBindingSchema.parse({
+        packageAssetId: assetId,
         sourceKey: file.sourceKey,
+        sourceOrder,
         relativePath: file.relativePath,
         displayName: file.displayName,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        assetId: stagedAssetId,
-        uploadBatchId: issued.batchId,
+        sha256,
       });
+      const existing = existingBindings.get(file.sourceKey);
+      if (existing && JSON.stringify(existing.binding) !== JSON.stringify(binding)) {
+        throw new Error("Import media retry does not match its durable binding.");
+      }
+      if (existing?.completed) {
+        media.push(existing.completed);
+      } else {
+        const token = importMediaToken(input.token, file.sourceKey);
+        const issued = existing
+          ? { batchId: existing.batchId, intents: [{ token }] }
+          : await createAdminUploadBatch(db, actor, {
+              files: [{ fileName: file.displayName, declaredMimeType: validated.detectedMimeType, declaredByteSize: file.byteSize }],
+              category: "product",
+              role: "gallery",
+              sortOrder: 0,
+              associationType: null,
+              associationEntityId: null,
+              sourceDeclarationEnabled: false,
+              sourceDeclaration: null,
+            }, {
+              ...internalImportOptions,
+              importBinding: binding,
+              issuedTokens: [token],
+            });
+        const stagedAssetId = await completeAdminUploadIntent(db, storage, scanner, actor, { token, bytes }, internalImportOptions);
+        const finalized = await finalizeAdminUploadBatch(db, storage, actor, issued.batchId, internalImportOptions);
+        if (!finalized.assetIds.includes(stagedAssetId)) throw new Error("Import media Finalize identity mismatch.");
+        media.push({
+          sourceKey: binding.sourceKey,
+          relativePath: binding.relativePath,
+          displayName: binding.displayName,
+          sha256: binding.sha256,
+          assetId: stagedAssetId,
+          uploadBatchId: issued.batchId,
+        });
+      }
+      lease = await advanceUploadRecoveryStage(db, lease, "scanning", new Date(), leaseMilliseconds);
+      if (media.length === 1) await options.faultInjector?.("after_import_archive_first_media");
     }
     lease = await advanceUploadRecoveryStage(db, lease, "scan_passed", new Date(), leaseMilliseconds);
     await db.transaction(async (transaction) => {
@@ -840,7 +1286,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         completedFileCount: passedCount,
         status: passedCount >= declaredCount ? "ready_to_finalize" : "uploading",
       }).where(and(eq(assetUploadBatches.id, uploadBatchId), eq(assetUploadBatches.status, "uploading")));
-      await transaction.update(uploadRecoveryJobs).set({
+      const recoveryUpdated = await transaction.update(uploadRecoveryJobs).set({
         status: "completed",
         stage: "completed",
         completedAt,
@@ -849,8 +1295,19 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         leaseExpiresAt: null,
         version: sql`${uploadRecoveryJobs.version} + 1`,
         updatedAt: completedAt,
-      }).where(and(eq(uploadRecoveryJobs.id, lease.id), eq(uploadRecoveryJobs.lockedBy, lease.workerId), eq(uploadRecoveryJobs.version, lease.version)));
-      await transaction.update(objectCleanupJobs).set({ nextAttemptAt: intent.expiresAt, updatedAt: completedAt })
+      }).where(and(
+        eq(uploadRecoveryJobs.id, lease.id),
+        eq(uploadRecoveryJobs.status, "processing"),
+        eq(uploadRecoveryJobs.lockedBy, lease.workerId),
+        eq(uploadRecoveryJobs.version, lease.version),
+        gt(uploadRecoveryJobs.leaseExpiresAt, completedAt),
+      )).returning({ version: uploadRecoveryJobs.version });
+      if (!recoveryUpdated[0]) throw new Error("Import Archive Recovery lease was lost before completion.");
+      await transaction.update(objectCleanupJobs).set({
+        nextAttemptAt: intent.expiresAt,
+        recoveryVersion: recoveryUpdated[0].version,
+        updatedAt: completedAt,
+      })
         .where(and(eq(objectCleanupJobs.assetId, assetId), eq(objectCleanupJobs.storagePartition, "imports")));
       await auditWriter(transaction, {
         actorUserId: actor.userId,

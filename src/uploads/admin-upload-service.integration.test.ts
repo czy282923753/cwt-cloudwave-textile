@@ -600,8 +600,16 @@ describe("Admin Asset Upload Intents", () => {
       }, { rateLimiter: allowLimiter });
       await expect(inspectAdminUploadIntent(connection.db, crossSession, batch.intents[0]!.token)).rejects.toThrow(/invalid|expired|used/i);
       await expect(inspectAdminUploadIntent(connection.db, crossUser, batch.intents[0]!.token)).rejects.toThrow(/invalid|expired|used/i);
-      await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: batch.intents[0]!.token, bytes });
-      await expect(completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: batch.intents[0]!.token, bytes })).rejects.toThrow(/invalid|expired|used/i);
+      const stagedAssetId = await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: batch.intents[0]!.token, bytes });
+      await expect(completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: batch.intents[0]!.token, bytes }))
+        .resolves.toBe(stagedAssetId);
+      const mismatchedReplay = bytes.slice();
+      const mismatchIndex = mismatchedReplay.length - 1;
+      mismatchedReplay[mismatchIndex] = (mismatchedReplay[mismatchIndex] ?? 0) ^ 1;
+      await expect(completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, {
+        token: batch.intents[0]!.token,
+        bytes: mismatchedReplay,
+      })).rejects.toThrow(/does not match/i);
       expect((await connection.db.select().from(assetUploadBatches).where(eq(assetUploadBatches.id, batch.batchId)))[0]).toMatchObject({ status: "ready_to_finalize", completedFileCount: 1 });
       const result = await finalizeAdminUploadBatch(connection.db, storage, actor, batch.batchId);
       const released = (await connection.db.select().from(assets).where(eq(assets.id, result.assetIds[0]!)))[0]!;

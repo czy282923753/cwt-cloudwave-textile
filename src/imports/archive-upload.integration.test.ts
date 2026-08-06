@@ -22,6 +22,7 @@ import {
   type AdminUploadActor,
 } from "@/uploads/admin-upload-service";
 import { DevelopmentFileScanner, type FileScanner } from "@/uploads/scanner";
+import { processPendingUploadRecoveryJobs } from "@/uploads/upload-recovery-service";
 
 const allowLimiter = { consume: async () => true };
 
@@ -87,6 +88,26 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         "CWT-MESH-001/CWT-MESH-001-01.webp",
         "CWT-MESH-001/CWT-MESH-001-detail-01.avif",
       ]);
+      const replay = await completeAdminImportArchiveIntent(
+        test.connection.db,
+        test.storage,
+        new DevelopmentFileScanner(),
+        test.actor,
+        { token: issued.intents[0]!.token, stream: stream(bytes) },
+        { rateLimiter: allowLimiter },
+      );
+      expect(replay).toEqual(completed);
+      const mismatchedReplay = bytes.slice();
+      const mismatchIndex = mismatchedReplay.length - 1;
+      mismatchedReplay[mismatchIndex] = (mismatchedReplay[mismatchIndex] ?? 0) ^ 1;
+      await expect(completeAdminImportArchiveIntent(
+        test.connection.db,
+        test.storage,
+        new DevelopmentFileScanner(),
+        test.actor,
+        { token: issued.intents[0]!.token, stream: stream(mismatchedReplay) },
+        { rateLimiter: allowLimiter },
+      )).rejects.toThrow(/does not match/i);
       const finalized = await finalizeAdminUploadBatch(test.connection.db, test.storage, test.actor, issued.batchId, { rateLimiter: allowLimiter });
       expect(finalized.assetIds).toEqual([completed.packageAssetId]);
       const packageAsset = (await test.connection.db.select().from(assets).where(eq(assets.id, completed.packageAssetId)))[0]!;
@@ -104,6 +125,104 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
       const recovery = await test.connection.db.select().from(uploadRecoveryJobs).where(eq(uploadRecoveryJobs.assetId, completed.packageAssetId));
       expect(recovery).toHaveLength(1);
       expect(recovery[0]).toMatchObject({ status: "completed", stage: "completed", lockedBy: null });
+    } finally {
+      await test.connection.close();
+    }
+  });
+
+  it("resumes the same archive authority after a crash without duplicating finalized media", async () => {
+    const test = await fixture();
+    try {
+      const first = new Uint8Array(await sharp({ create: { width: 20, height: 20, channels: 3, background: "teal" } }).webp().toBuffer());
+      const second = new Uint8Array(await sharp({ create: { width: 20, height: 20, channels: 3, background: "navy" } }).webp().toBuffer());
+      const bytes = await zip([
+        { name: "CWT-MESH-001/CWT-MESH-001-01.webp", bytes: first },
+        { name: "CWT-MESH-001/CWT-MESH-001-02.webp", bytes: second },
+      ]);
+      const issued = await createAdminUploadBatch(test.connection.db, test.actor, {
+        files: [{ fileName: "synthetic-retry-images.zip", declaredMimeType: IMPORT_ARCHIVE_MIME, declaredByteSize: bytes.byteLength }],
+        category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null,
+        sourceDeclarationEnabled: false,
+      }, { rateLimiter: allowLimiter });
+      const startedAt = new Date();
+      let injected = false;
+      await expect(completeAdminImportArchiveIntent(
+        test.connection.db,
+        test.storage,
+        new DevelopmentFileScanner(),
+        test.actor,
+        { token: issued.intents[0]!.token, stream: stream(bytes) },
+        {
+          rateLimiter: allowLimiter,
+          now: startedAt,
+          leaseMilliseconds: 10_000,
+          faultInjector(point) {
+            if (point === "after_import_archive_first_media" && !injected) {
+              injected = true;
+              throw new Error("synthetic process crash after first Import media");
+            }
+          },
+        },
+      )).rejects.toThrow(/synthetic process crash/i);
+
+      const afterCrash = await test.connection.db.select().from(assets).where(eq(assets.storagePartition, "public"));
+      expect(afterCrash).toHaveLength(1);
+      const firstAssetVariantsAfterCrash = await test.connection.db.select().from(assetVariants)
+        .where(eq(assetVariants.sourceAssetId, afterCrash[0]!.id));
+      expect(firstAssetVariantsAfterCrash.length).toBeGreaterThan(0);
+      await expect(completeAdminImportArchiveIntent(
+        test.connection.db,
+        test.storage,
+        new DevelopmentFileScanner(),
+        test.actor,
+        { token: issued.intents[0]!.token, stream: stream(bytes) },
+        { rateLimiter: allowLimiter, now: new Date(startedAt.getTime() + 1_000), leaseMilliseconds: 10_000 },
+      )).rejects.toThrow(/not safely reclaimable/i);
+
+      const recovered = await processPendingUploadRecoveryJobs(test.connection.db, test.storage, {
+        now: new Date(startedAt.getTime() + 30_000),
+        workerId: "synthetic-import-recovery",
+        auditWriter: async () => crypto.randomUUID(),
+      });
+      expect(recovered).toEqual({ attempted: 1, completed: 1 });
+      const retryable = (await test.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.uploadBatchId, issued.batchId)))[0];
+      expect(retryable).toMatchObject({ status: "retryable", stage: "failed", lastError: "import_staging_retryable" });
+
+      const resumed = await completeAdminImportArchiveIntent(
+        test.connection.db,
+        test.storage,
+        new DevelopmentFileScanner(),
+        test.actor,
+        { token: issued.intents[0]!.token, stream: stream(bytes) },
+        {
+          rateLimiter: allowLimiter,
+          now: new Date(startedAt.getTime() + 30_001),
+          leaseMilliseconds: 10_000,
+          faultInjector(point) {
+            if (point === "after_import_archive_first_media" && !injected) {
+              injected = true;
+              throw new Error("must not run");
+            }
+          },
+        },
+      );
+      expect(resumed.media).toHaveLength(2);
+      expect(new Set(resumed.media.map((item) => item.assetId)).size).toBe(2);
+      expect(resumed.media[0]?.assetId).toBe(afterCrash[0]?.id);
+      const publicAssets = await test.connection.db.select().from(assets).where(eq(assets.storagePartition, "public"));
+      expect(publicAssets).toHaveLength(2);
+      const firstAssetVariantsAfterResume = await test.connection.db.select().from(assetVariants)
+        .where(eq(assetVariants.sourceAssetId, afterCrash[0]!.id));
+      expect(firstAssetVariantsAfterResume).toHaveLength(firstAssetVariantsAfterCrash.length);
+      const allBatches = await test.connection.db.select().from(assetUploadBatches)
+        .where(eq(assetUploadBatches.createdByUserId, test.actor.userId));
+      expect(allBatches).toHaveLength(3);
+      expect(allBatches.filter((batch) => batch.status === "completed")).toHaveLength(2);
+      const bindings = allBatches
+        .map((batch) => (batch.declarationInput as { importMediaBinding?: unknown } | null)?.importMediaBinding)
+        .filter(Boolean);
+      expect(bindings).toHaveLength(2);
     } finally {
       await test.connection.close();
     }
@@ -143,6 +262,20 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
       const cleanup = await test.connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.uploadBatchId, issued.batchId));
       expect(cleanup).toHaveLength(1);
       expect(cleanup[0]?.status).toBe("pending");
+      const packageAsset = (await test.connection.db.select().from(assets)
+        .where(eq(assets.uploadBatchId, issued.batchId)))[0]!;
+      const recovery = (await test.connection.db.select().from(uploadRecoveryJobs)
+        .where(eq(uploadRecoveryJobs.uploadBatchId, issued.batchId)))[0]!;
+      const expiredRecovery = await processPendingUploadRecoveryJobs(test.connection.db, test.storage, {
+        now: new Date(recovery.expiresAt.getTime() + 1),
+        workerId: "synthetic-expired-import-cleanup",
+      });
+      expect(expiredRecovery).toEqual({ attempted: 1, completed: 1 });
+      await expect(test.storage.exists("imports", packageAsset.objectKey)).resolves.toBe(false);
+      expect((await test.connection.db.select().from(assets).where(eq(assets.id, packageAsset.id)))[0])
+        .toMatchObject({ status: "deleted" });
+      expect((await test.connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.id, cleanup[0]!.id)))[0])
+        .toMatchObject({ status: "completed" });
     } finally {
       await test.connection.close();
     }

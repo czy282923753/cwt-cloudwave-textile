@@ -1,4 +1,5 @@
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader, type Entry } from "@zip.js/zip.js";
+import { createHash } from "node:crypto";
 
 import { detectMimeType } from "@/uploads/file-validation";
 
@@ -90,8 +91,14 @@ async function inspectArchiveReader(
       if (expandedActual > PRODUCT_IMPORT_LIMITS.archiveExpandedBytes) throw new Error("Archive actual expanded bytes exceed the limit.");
       const mime = safeMediaMime(extracted);
       const basename = path.split("/").at(-1)!;
+      const sourceKey = `media:${createHash("sha256")
+        .update(path)
+        .update("\0")
+        .update(extracted)
+        .digest("hex")
+        .slice(0, 32)}`;
       const media = {
-        sourceKey: `media:${crypto.randomUUID().replaceAll("-", "")}`,
+        sourceKey,
         relativePath: path,
         displayName: basename.slice(0, 200),
         bytes: extracted,

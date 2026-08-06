@@ -972,7 +972,44 @@ export async function recoverUploadRecoveryJob<
 
   let noCleanupRecoveryDead = false;
   const cleanupRows = await db.transaction(async (transaction) => {
-    const partition = job.kind === "staging" ? "private" : "public";
+    const partition = job.kind === "staging"
+      ? job.storagePartition === "imports" ? "imports" : "private"
+      : "public";
+    if (job.kind === "staging" && partition === "imports" && job.expiresAt > now) {
+      await transaction.update(uploadRecoveryJobs).set({
+        status: "retryable",
+        stage: "failed",
+        nextAttemptAt: job.expiresAt,
+        lockedBy: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastError: "import_staging_retryable",
+        version: sql`${uploadRecoveryJobs.version} + 1`,
+        updatedAt: now,
+      }).where(and(
+        eq(uploadRecoveryJobs.id, job.id),
+        eq(uploadRecoveryJobs.status, "processing"),
+        eq(uploadRecoveryJobs.lockedBy, workerId),
+      ));
+      await transaction.update(assetUploadBatches).set({
+        status: "failed",
+        failureReason: "import_staging_retryable",
+      }).where(and(
+        eq(assetUploadBatches.id, job.uploadBatchId),
+        inArray(assetUploadBatches.status, ["created", "uploading", "failed"]),
+      ));
+      await auditWriter(transaction, {
+        action: "asset.import_staging.retryable",
+        entityType: "upload_recovery_job",
+        entityId: job.id,
+        afterSummary: {
+          systemActor: UPLOAD_RECOVERY_SYSTEM_ACTOR,
+          uploadBatchId: job.uploadBatchId,
+          expiresAt: job.expiresAt,
+        },
+      });
+      return [];
+    }
     if (job.kind === "finalize") {
       await transaction.execute(sql`
         select id from asset_upload_batches where id = ${job.uploadBatchId} for update
