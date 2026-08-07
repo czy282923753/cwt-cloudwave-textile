@@ -11,6 +11,8 @@ import { parseProductImportWorkbook, ProductImportWorkbookPackageError } from ".
 
 const transitionalWorksheetRelationshipType =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
+const officeRelationshipsNamespace =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const strictWorksheetRelationshipType =
   "http://purl.oclc.org/ooxml/officeDocument/relationships/worksheet";
 const contentTypesNamespace = "http://schemas.openxmlformats.org/package/2006/content-types";
@@ -102,6 +104,35 @@ function prefixRoot(xml: string, root: string, namespace: string, prefix: string
     .replace(`</${root}>`, `</${prefix}:${root}>`);
 }
 
+function appendBeforeRootClose(xml: string, root: string, addition: string): string {
+  return xml.replace(`</${root}>`, `${addition}</${root}>`);
+}
+
+function elementsWithAttributes(total: number, valueBytes = 0): string {
+  let remaining = total;
+  const elements: string[] = [];
+  while (remaining) {
+    const count = Math.min(remaining, PRODUCT_IMPORT_LIMITS.workbookXmlAttributesPerElement);
+    const attributes = Array.from({ length: count }, (_, index) =>
+      ` a${index}="${"x".repeat(valueBytes)}"`,
+    ).join("");
+    elements.push(`<synthetic${attributes}/>`);
+    remaining -= count;
+  }
+  return elements.join("");
+}
+
+async function expectInvalidPackage(bytes: Uint8Array, message: RegExp): Promise<void> {
+  try {
+    await parseProductImportWorkbook(bytes);
+    throw new Error("Expected workbook package rejection.");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ProductImportWorkbookPackageError);
+    expect(error).toMatchObject({ code: "invalid_workbook_package" });
+    expect((error as Error).message).toMatch(message);
+  }
+}
+
 describe("Product Import Template V1 workbook", () => {
   it("generates the exact metadata convention and header contract", async () => {
     const parsed = await parseProductImportWorkbook(await createProductImportTemplateV1());
@@ -130,6 +161,53 @@ describe("Product Import Template V1 workbook", () => {
     const parsed = await parseProductImportWorkbook(await workbook([...PRODUCT_IMPORT_HEADERS], row));
     expect(parsed.rows[0]).toMatchObject({ rowNumber: 2, input: { productCode: "cwt-mesh-001", gsm: "180", moqValue: "500", moqUnit: "m" }, errors: [] });
     expect(parsed.rows[0]?.input).not.toHaveProperty("name");
+  });
+
+  it("preserves shared and inline strings, XML escapes, Unicode, and safe boolean row errors", async () => {
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill(null);
+    row[0] = "Café & 织物";
+    row[7] = 180;
+    const canonical = await workbook([...PRODUCT_IMPORT_HEADERS], row);
+    expect((await parseProductImportWorkbook(canonical)).rows[0]?.input).toMatchObject({
+      name: "Café & 织物",
+      gsm: "180",
+    });
+
+    const inline = await rewriteXmlPart(canonical, "xl/worksheets/sheet1.xml", (source) =>
+      source.replace(/<c\b[^>]*\br="A2"[^>]*><v>\d+<\/v><\/c>/, '<c r="A2" t="inlineStr"><is><t>  Café &amp; 织物  </t></is></c>'),
+    );
+    expect((await parseProductImportWorkbook(inline)).rows[0]?.input.name).toBe("Café & 织物");
+
+    const boolean = await rewriteXmlPart(canonical, "xl/worksheets/sheet1.xml", (source) =>
+      source.replace(/<c\b[^>]*\br="A2"[^>]*><v>\d+<\/v><\/c>/, '<c r="A2" t="b"><v>1</v></c>'),
+    );
+    expect((await parseProductImportWorkbook(boolean)).rows[0]?.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "invalid_cell", detail: expect.stringMatching(/requires text or a number/i) }),
+    ]));
+  });
+
+  it("fails closed on date, error, and unsupported styled numeric cells", async () => {
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill(null);
+    row[0] = "Synthetic";
+    row[7] = 180;
+    const base = await workbook([...PRODUCT_IMPORT_HEADERS], row);
+    const cases = [
+      {
+        message: /date or error cell type is unsupported/i,
+        mutate: (source: string) => source.replace(/<c\b[^>]*\br="A2"[^>]*><v>\d+<\/v><\/c>/, '<c r="A2" t="d"><v>2026-08-07</v></c>'),
+      },
+      {
+        message: /date or error cell type is unsupported/i,
+        mutate: (source: string) => source.replace(/<c\b[^>]*\br="A2"[^>]*><v>\d+<\/v><\/c>/, '<c r="A2" t="e"><v>15</v></c>'),
+      },
+      {
+        message: /cell style is invalid or unsupported/i,
+        mutate: (source: string) => source.replace('<c r="H2">', '<c r="H2" s="999">'),
+      },
+    ];
+    for (const item of cases) {
+      await expectInvalidPackage(await rewriteXmlPart(base, "xl/worksheets/sheet1.xml", item.mutate), item.message);
+    }
   });
 
   it("returns typed Row Errors for invalid MOQ pairing and units", async () => {
@@ -235,6 +313,54 @@ describe("Product Import Template V1 workbook", () => {
     expect((await parseProductImportWorkbook(prefixed)).templateVersion).toBe(1);
   });
 
+  it("parses an equivalent custom Office relationship attribute prefix identically", async () => {
+    const canonical = await workbook();
+    const prefixed = await rewriteXmlPart(canonical, "xl/workbook.xml", (xml) =>
+      xml
+        .replace(
+          `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`,
+          `xmlns:office="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`,
+        )
+        .replaceAll("r:id=", "office:id="),
+    );
+
+    await expect(parseProductImportWorkbook(prefixed)).resolves.toEqual(await parseProductImportWorkbook(canonical));
+  });
+
+  it("keeps nested prefix rebinding and multiple prefixes for one URI semantically equivalent", async () => {
+    const canonical = await workbook();
+    const prefixed = await rewriteXmlPart(canonical, "xl/workbook.xml", (source) => {
+      let sheetIndex = 0;
+      return source
+        .replace(
+          `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`,
+          `xmlns:office="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:alternate="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`,
+        )
+        .replace("<sheets>", `<outer:sheets xmlns:outer="${spreadsheetNamespace}">`)
+        .replace("</sheets>", "</outer:sheets>")
+        .replaceAll(/<sheet\b/g, () => {
+          sheetIndex += 1;
+          return sheetIndex === 1
+            ? `<one:sheet xmlns:one="${spreadsheetNamespace}"`
+            : `<two:sheet xmlns:two="${spreadsheetNamespace}"`;
+        })
+        .replace('r:id="rId1"', 'office:id="rId1"')
+        .replace('r:id="rId2"', 'alternate:id="rId2"');
+    });
+
+    await expect(parseProductImportWorkbook(prefixed)).resolves.toEqual(await parseProductImportWorkbook(canonical));
+  });
+
+  it("rejects unbound and reserved namespace prefix misuse as typed package errors", async () => {
+    const base = await workbook();
+    const unbound = await rewriteXmlPart(base, "xl/workbook.xml", (source) => source.replace("r:id=", "missing:id="));
+    await expectInvalidPackage(unbound, /topology or namespace is invalid/i);
+    const reserved = await rewriteXmlPart(base, "xl/workbook.xml", (source) =>
+      source.replace(`xmlns:r="${officeRelationshipsNamespace}"`, `xmlns:xml="${officeRelationshipsNamespace}"`),
+    );
+    await expectInvalidPackage(reserved, /topology or namespace is invalid/i);
+  });
+
   it("rejects namespace lookalikes on governed relationship and content-type elements", async () => {
     const base = await workbook();
     const wrongRelationship = await rewriteXmlPart(base, "xl/_rels/workbook.xml.rels", (xml) =>
@@ -270,6 +396,148 @@ describe("Product Import Template V1 workbook", () => {
     const parsed = await parseProductImportWorkbook(prefixedFormula);
     expect(parsed.rows[0]?.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "formula_not_allowed" })]));
   });
+
+  it("fails closed when governed workbook evidence cannot be attributed to the narrow Template V1 topology", async () => {
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill(null);
+    row[0] = "Synthetic";
+    const base = await workbook([...PRODUCT_IMPORT_HEADERS], row);
+    const cases = [
+      {
+        part: "xl/workbook.xml",
+        message: /sheet topology is malformed/i,
+        mutate: (source: string) => source.replace("</workbook>", "<sheets/></workbook>"),
+      },
+      {
+        part: "xl/worksheets/sheet1.xml",
+        message: /worksheet topology is invalid/i,
+        mutate: (source: string) => source.replace("</worksheet>", "<sheetData/></worksheet>"),
+      },
+      {
+        part: "xl/worksheets/sheet1.xml",
+        message: /formula evidence could not be attributed safely/i,
+        mutate: (source: string) => source.replace("</worksheet>", "<f/></worksheet>"),
+      },
+      {
+        part: "xl/sharedStrings.xml",
+        message: /shared strings are malformed/i,
+        mutate: (source: string) => source.replace("</sst>", "<synthetic><si><t>hidden</t></si></synthetic></sst>"),
+      },
+      {
+        part: "xl/styles.xml",
+        message: /styles are malformed/i,
+        mutate: (source: string) => source.replace("</styleSheet>", "<cellXfs><xf numFmtId=\"0\"/></cellXfs></styleSheet>"),
+      },
+    ];
+
+    for (const item of cases) {
+      await expectInvalidPackage(await rewriteXmlPart(base, item.part, item.mutate), item.message);
+    }
+  });
+
+  it("rejects DTD, entity declarations, external entities, and unsupported processing instructions", async () => {
+    const base = await workbook();
+    const declarations = [
+      '<!DOCTYPE workbook>',
+      '<!DOCTYPE workbook [<!ENTITY synthetic "value">]>',
+      '<!DOCTYPE workbook [<!ENTITY synthetic SYSTEM "file:///synthetic-never-resolved">]>',
+      '<?synthetic unsupported?>',
+    ];
+    for (const declaration of declarations) {
+      const unsafe = await rewriteXmlPart(base, "xl/workbook.xml", (source) =>
+        source.replace(/(<\?xml[^?]*\?>)/, `$1${declaration}`),
+      );
+      await expectInvalidPackage(unsafe, /unsupported (?:DTD|processing instruction)/i);
+    }
+  });
+
+  it("rejects every XML resource family above its frozen limit as a typed package error", async () => {
+    const base = await workbook();
+    const mutations: Array<{ name: string; part?: string; message: RegExp; mutate: (source: string) => string }> = [
+      {
+        name: "depth",
+        message: /depth exceeds/i,
+        mutate: (source) => appendBeforeRootClose(
+          source,
+          "workbook",
+          `${"<synthetic>".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlDepth)}${"</synthetic>".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlDepth)}`,
+        ),
+      },
+      {
+        name: "total nodes",
+        message: /element count exceeds/i,
+        mutate: (source) => appendBeforeRootClose(source, "workbook", "<synthetic/>".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlNodes)),
+      },
+      {
+        name: "attributes per element",
+        message: /attributes per element exceed/i,
+        mutate: (source) => appendBeforeRootClose(
+          source,
+          "workbook",
+          `<synthetic${Array.from(
+            { length: PRODUCT_IMPORT_LIMITS.workbookXmlAttributesPerElement + 1 },
+            (_, index) => ` a${index}=""`,
+          ).join("")}/>` ,
+        ),
+      },
+      {
+        name: "total attributes",
+        message: /attribute count exceeds/i,
+        mutate: (source) => appendBeforeRootClose(source, "workbook", elementsWithAttributes(PRODUCT_IMPORT_LIMITS.workbookXmlAttributes)),
+      },
+      {
+        name: "attribute value",
+        message: /attribute value exceeds/i,
+        mutate: (source) => appendBeforeRootClose(
+          source,
+          "workbook",
+          `<synthetic value="${"x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlAttributeValueBytes + 1)}"/>`,
+        ),
+      },
+      {
+        name: "logical text run",
+        message: /logical text run exceeds/i,
+        mutate: (source) => appendBeforeRootClose(
+          source,
+          "workbook",
+          `<synthetic>${"x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlTextSegmentBytes + 1)}</synthetic>`,
+        ),
+      },
+      {
+        name: "total decoded text",
+        part: "xl/sharedStrings.xml",
+        message: /decoded text exceeds/i,
+        mutate: (source) => appendBeforeRootClose(
+          source,
+          "sst",
+          Array.from(
+            { length: PRODUCT_IMPORT_LIMITS.workbookXmlTextBytes / PRODUCT_IMPORT_LIMITS.workbookXmlTextSegmentBytes },
+            () => `<si><t>${"x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlTextSegmentBytes)}</t></si>`,
+          ).join(""),
+        ),
+      },
+      {
+        name: "actual XML source",
+        message: /source bytes exceed/i,
+        mutate: (source) => appendBeforeRootClose(
+          source,
+          "workbook",
+          elementsWithAttributes(
+            PRODUCT_IMPORT_LIMITS.workbookXmlAttributesPerElement * 128,
+            PRODUCT_IMPORT_LIMITS.workbookXmlAttributeValueBytes,
+          ),
+        ),
+      },
+    ];
+
+    for (const mutation of mutations) {
+      const oversized = await rewriteXmlPart(base, mutation.part ?? "xl/workbook.xml", mutation.mutate);
+      try {
+        await expectInvalidPackage(oversized, mutation.message);
+      } catch (error) {
+        throw new Error(`${mutation.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }, 30_000);
 
   it("accepts only the explicitly supported transitional worksheet relationship type", async () => {
     const decoder = new TextDecoder();
@@ -432,11 +700,20 @@ describe("Product Import Template V1 workbook", () => {
       { sheet: "_CWT_META", data: [["contract", PRODUCT_IMPORT_TEMPLATE_NAME], ["version", 1]] },
     ]);
     expect((await parseProductImportWorkbook(new Uint8Array(await file.toBuffer()))).rows).toHaveLength(100);
-    await expect(parseProductImportWorkbook(new Uint8Array(10 * 1024 * 1024 + 1))).rejects.toThrow(/actual bytes/i);
+    await expect(parseProductImportWorkbook(new Uint8Array(10 * 1024 * 1024 + 1))).rejects.toMatchObject({
+      name: "ProductImportWorkbookPackageError",
+      code: "invalid_workbook_package",
+      message: expect.stringMatching(/actual bytes/i),
+    } satisfies Partial<ProductImportWorkbookPackageError>);
   });
 
   it("rejects malformed or truncated containers, macro payloads, and extreme dimensions", async () => {
     const valid = await workbook();
+    await expect(parseProductImportWorkbook(new TextEncoder().encode("not an xlsx"))).rejects.toMatchObject({
+      name: "ProductImportWorkbookPackageError",
+      code: "invalid_workbook_package",
+      message: "Only an XLSX ZIP container is accepted.",
+    } satisfies Partial<ProductImportWorkbookPackageError>);
     await expect(parseProductImportWorkbook(valid.slice(0, 80))).rejects.toMatchObject({
       name: "ProductImportWorkbookPackageError",
       code: "invalid_workbook_package",

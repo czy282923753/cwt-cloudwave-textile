@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
 import { expect, test, type Page } from "@playwright/test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import writeExcelFile from "write-excel-file/node";
 
 import {
   PRODUCT_IMPORT_HEADERS,
+  PRODUCT_IMPORT_LIMITS,
   PRODUCT_IMPORT_TEMPLATE_NAME,
 } from "../../src/imports/contract";
 
@@ -35,6 +36,24 @@ async function workbook(rows: string[][]): Promise<Buffer> {
     { sheet: "_CWT_META", data: [["contract", PRODUCT_IMPORT_TEMPLATE_NAME], ["version", 1]] },
   ]);
   return file.toBuffer();
+}
+
+async function rewriteWorkbookXml(bytes: Buffer, mutate: (source: string) => string): Promise<Buffer> {
+  const reader = new ZipReader(new Uint8ArrayReader(bytes), { checkSignature: true });
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  try {
+    for (const entry of await reader.getEntries()) {
+      if (entry.directory) continue;
+      const data = await entry.getData(new Uint8ArrayWriter(), { checkSignature: true });
+      const next = entry.filename === "xl/workbook.xml"
+        ? new TextEncoder().encode(mutate(new TextDecoder().decode(data)))
+        : data;
+      await writer.add(entry.filename, new Uint8ArrayReader(next));
+    }
+    return Buffer.from(await writer.close());
+  } finally {
+    await reader.close();
+  }
 }
 
 async function archive(entries: Array<{ name: string; bytes: Uint8Array }>): Promise<Buffer> {
@@ -85,7 +104,14 @@ test("@desktop Product Import uses the real Upload Saga for partial success, cor
   correctable[2] = "TEST FIXTURE Polyester";
   correctable[13] = "Synthetic row starts without a deterministic image match.";
 
-  const workbookBytes = await workbook([valid, correctable]);
+  const workbookBytes = await rewriteWorkbookXml(await workbook([valid, correctable]), (source) =>
+    source
+      .replace(
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+        'xmlns:office="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+      )
+      .replaceAll("r:id=", "office:id="),
+  );
   const primary = new Uint8Array(await sharp({ create: { width: 64, height: 48, channels: 3, background: "teal" } }).webp().toBuffer());
   const detail = new Uint8Array(await sharp({ create: { width: 48, height: 64, channels: 3, background: "navy" } }).avif().toBuffer());
   const correctionImage = new Uint8Array(await sharp({ create: { width: 56, height: 56, channels: 3, background: "orange" } }).webp().toBuffer());
@@ -167,6 +193,29 @@ test("@desktop Product Import authorization remains resource-scoped and stable",
   await page.context().clearCookies();
   await page.goto("/admin/product-imports/");
   await expect(page).toHaveURL(/\/operations-login\/?$/);
+});
+
+test("@desktop Product Import reports an above-limit workbook safely without parser internals", async ({ page }) => {
+  test.setTimeout(120_000);
+  const oversized = await rewriteWorkbookXml(await workbook([]), (source) =>
+    source.replace(
+      "</workbook>",
+      `<synthetic value="${"x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlAttributeValueBytes + 1)}"/></workbook>`,
+    ),
+  );
+
+  await login(page);
+  await page.goto("/admin/product-imports/");
+  await page.locator('input[name="workbook"]').setInputFiles({
+    name: "CWT-Product-Import-Template-V1.xlsx",
+    mimeType: workbookMime,
+    buffer: oversized,
+  });
+  await page.getByRole("button", { name: "Upload and validate" }).click();
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText(/attribute value exceeds the Template V1 limit/i, { timeout: 90_000 });
+  await expect(alert).not.toContainText(/TypeError|saxes|stack|node_modules/i);
+  await expect(page).toHaveURL(/\/admin\/product-imports\/$/);
 });
 
 test("@desktop Product Import accepts an actual browser folder selection through the governed image path", async ({ page }) => {

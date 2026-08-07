@@ -66,6 +66,12 @@ No row may pass using Production data in local or CI environments. Synthetic fix
 | U-29 | Environment policy | Staging is noindex, formal analytics is disabled, recipients are overridden, databases/media/secrets cannot equal Production, and required Production providers fail closed. | Planned Automated | 6 |
 | U-30 | Backup-set policy | Required inclusions, derivable exclusions, retention, checksum manifest, completion marker, and restore metadata validate before a backup is marked complete. | Planned Automated | 6 |
 
+### Stage 3 Template V1 OOXML resource evidence
+
+`U-15` includes one event-time budget shared by every XML/RELS part consumed by the Template V1 workbook authority: depth 32 with root at 1; 20,000 total start-elements; 32 attributes per element; 20,000 total attributes; 4,096 decoded UTF-8 bytes in one attribute value; 32 KiB in one logical text run accumulated across parser callbacks; 8 MiB total decoded text; and 16 MiB total actual decompressed XML/RELS source bytes. Namespace declarations count as lexical attributes, while semantic matching uses namespace URI plus local name.
+
+For each limit, automated evidence must cover below, exactly-at, and above. Below and exactly-at inputs remain eligible for semantic validation; above-limit inputs fail closed before row apply with typed `invalid_workbook_package` and no parser-internal error disclosure.
+
 ## 4. Domain and integration-test gate
 
 | ID | Capability and scenario | Pass criteria | State | Stage |

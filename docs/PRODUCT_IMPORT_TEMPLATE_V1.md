@@ -125,6 +125,25 @@ All files must use the existing Upload/scan/Finalize/Manifest pipeline before an
 
 Limits are measured server-side from actual bytes. Declared length, compressed metadata, browser MIME, extension, and archive directory entries are not authority. A batch exceeding a package-level limit is rejected before business apply; an oversized individual image becomes a safe file/row error as defined by the reviewed Stage 3 transaction design.
 
+### 7.1 Template V1 OOXML structural limits
+
+Every XML or RELS part consumed by the Template V1 workbook authority shares one event-time resource budget:
+
+| Limit | Maximum |
+| --- | ---: |
+| XML element depth | 32; document root is depth 1 |
+| Total start-elements | 20,000 |
+| Attributes on one element | 32 |
+| Total attributes | 20,000 |
+| One decoded attribute value | 4,096 UTF-8 bytes |
+| One logical text run | 32 KiB decoded UTF-8 |
+| Total decoded text | 8 MiB |
+| Total actual decompressed XML/RELS source | 16 MiB |
+
+Namespace declarations count as lexical attributes for resource accounting. Element and attribute business meaning is still determined only by expanded name: namespace URI plus local name. A logical text run is accumulated across parser callbacks until an element boundary. Source bytes are actual decompressed bytes read by the parser, not ZIP metadata.
+
+Each limit accepts values below and exactly at the maximum. Exceeding any limit fails closed before row apply with the typed package error `invalid_workbook_package`. Acceptance evidence covers below, exactly-at, and above for every limit.
+
 ## 8. Validation and duplicate policy
 
 Blocking row errors include:

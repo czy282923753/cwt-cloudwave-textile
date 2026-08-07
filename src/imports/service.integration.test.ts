@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
 import sharp from "sharp";
 import writeExcelFile from "write-excel-file/node";
 import { describe, expect, it, vi } from "vitest";
@@ -11,8 +12,9 @@ import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { completeAdminUploadIntent, createAdminUploadBatch, createProductImportUploadBatch, finalizeAdminUploadBatch, IMPORT_WORKBOOK_MIME, type AdminUploadActor } from "@/uploads/admin-upload-service";
 import { DevelopmentFileScanner } from "@/uploads/scanner";
 
-import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
+import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_LIMITS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
 import { applyProductImportBatch, prepareProductImportBatch, validatePreparedProductImport } from "./service";
+import { ProductImportWorkbookPackageError } from "./workbook";
 
 const allowLimiter = { consume: async () => true };
 
@@ -22,6 +24,33 @@ async function workbook(rows: string[][]): Promise<Uint8Array> {
     { sheet: "_CWT_META", data: [["contract", PRODUCT_IMPORT_TEMPLATE_NAME], ["version", 1]] },
   ]);
   return new Uint8Array(await file.toBuffer());
+}
+
+async function rewriteWorkbookXml(bytes: Uint8Array, mutate: (source: string) => string): Promise<Uint8Array> {
+  const reader = new ZipReader(new Uint8ArrayReader(bytes), { checkSignature: true });
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  try {
+    for (const entry of await reader.getEntries()) {
+      if (entry.directory) continue;
+      const data = await entry.getData(new Uint8ArrayWriter(), { checkSignature: true });
+      const next = entry.filename === "xl/workbook.xml"
+        ? new TextEncoder().encode(mutate(new TextDecoder().decode(data)))
+        : data;
+      await writer.add(entry.filename, new Uint8ArrayReader(next));
+    }
+    return writer.close();
+  } finally {
+    await reader.close();
+  }
+}
+
+function withCustomOfficeRelationshipPrefix(bytes: Uint8Array): Promise<Uint8Array> {
+  return rewriteWorkbookXml(bytes, (source) => source
+    .replace(
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+      'xmlns:office="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+    )
+    .replaceAll("r:id=", "office:id="));
 }
 
 describe("Product Import orchestration", () => {
@@ -50,7 +79,7 @@ describe("Product Import orchestration", () => {
       const bad = Array(PRODUCT_IMPORT_HEADERS.length).fill("");
       bad[0] = "Synthetic Missing Evidence";
       bad[2] = "Synthetic Mesh";
-      const workbookBytes = await workbook([good, atomicFailure, bad]);
+      const workbookBytes = await withCustomOfficeRelationshipPrefix(await workbook([good, atomicFailure, bad]));
       const packageUpload = await createAdminUploadBatch(connection.db, actor, { files: [{ fileName: "CWT-Product-Import-Template-V1.xlsx", declaredMimeType: IMPORT_WORKBOOK_MIME, declaredByteSize: workbookBytes.byteLength }], category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null, sourceDeclarationEnabled: false }, { rateLimiter: allowLimiter });
       const workbookAssetId = await completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, { token: packageUpload.intents[0]!.token, bytes: workbookBytes }, { rateLimiter: allowLimiter });
       await finalizeAdminUploadBatch(connection.db, storage, actor, packageUpload.batchId);
@@ -118,6 +147,23 @@ describe("Product Import orchestration", () => {
       ));
       expect(revisions).toHaveLength(1);
       expect(JSON.stringify(revisions[0]!.snapshot)).toContain("Synthetic pending summary from Update import.");
+
+      const oversizedWorkbookBytes = await rewriteWorkbookXml(await workbook([]), (source) => source.replace(
+        "</workbook>",
+        `<synthetic value="${"x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlAttributeValueBytes + 1)}"/></workbook>`,
+      ));
+      const oversizedPackage = await createAdminUploadBatch(connection.db, actor, {
+        files: [{ fileName: "CWT-Product-Import-Template-V1.xlsx", declaredMimeType: IMPORT_WORKBOOK_MIME, declaredByteSize: oversizedWorkbookBytes.byteLength }],
+        category: "other", role: "document", sortOrder: 0, associationType: null, associationEntityId: null, sourceDeclarationEnabled: false,
+      }, { rateLimiter: allowLimiter });
+      await expect(completeAdminUploadIntent(connection.db, storage, new DevelopmentFileScanner(), actor, {
+        token: oversizedPackage.intents[0]!.token,
+        bytes: oversizedWorkbookBytes,
+      }, { rateLimiter: allowLimiter })).rejects.toMatchObject({
+        name: "ProductImportWorkbookPackageError",
+        code: "invalid_workbook_package",
+        message: expect.stringMatching(/attribute value exceeds the Template V1 limit/i),
+      } satisfies Partial<ProductImportWorkbookPackageError>);
     } finally { await connection.close(); }
   });
 });

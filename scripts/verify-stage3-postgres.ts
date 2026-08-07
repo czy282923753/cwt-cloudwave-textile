@@ -4,7 +4,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
 import { and, count, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
@@ -152,7 +152,26 @@ async function workbook(productCode: string, summary: string): Promise<Uint8Arra
     { sheet: "Products", data: [[...PRODUCT_IMPORT_HEADERS], row] },
     { sheet: "_CWT_META", data: [["contract", PRODUCT_IMPORT_TEMPLATE_NAME], ["version", 1]] },
   ]);
-  return new Uint8Array(await file.toBuffer());
+  const reader = new ZipReader(new Uint8ArrayReader(new Uint8Array(await file.toBuffer())), { checkSignature: true });
+  const writer = new ZipWriter(new Uint8ArrayWriter());
+  try {
+    for (const entry of await reader.getEntries()) {
+      if (entry.directory) continue;
+      const data = await entry.getData(new Uint8ArrayWriter(), { checkSignature: true });
+      const next = entry.filename === "xl/workbook.xml"
+        ? new TextEncoder().encode(new TextDecoder().decode(data)
+          .replace(
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+            'xmlns:office="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+          )
+          .replaceAll("r:id=", "office:id="))
+        : data;
+      await writer.add(entry.filename, new Uint8ArrayReader(next));
+    }
+    return writer.close();
+  } finally {
+    await reader.close();
+  }
 }
 
 async function main(): Promise<void> {

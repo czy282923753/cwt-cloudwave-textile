@@ -39,6 +39,14 @@ export const PRODUCT_IMPORT_LIMITS = Object.freeze({
   archiveExpansionRatio: 200,
   workbookEntries: 256,
   workbookExpandedBytes: 64 * 1024 * 1024,
+  workbookXmlDepth: 32,
+  workbookXmlNodes: 20_000,
+  workbookXmlAttributesPerElement: 32,
+  workbookXmlAttributes: 20_000,
+  workbookXmlAttributeValueBytes: 4_096,
+  workbookXmlTextSegmentBytes: 32 * 1024,
+  workbookXmlTextBytes: 8 * 1024 * 1024,
+  workbookXmlSourceBytes: 16 * 1024 * 1024,
 });
 
 export interface ProductImportRowInput {
