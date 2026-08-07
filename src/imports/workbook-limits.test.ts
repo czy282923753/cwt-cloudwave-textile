@@ -118,6 +118,37 @@ function reject(parts: readonly (Uint8Array | readonly Uint8Array[])[], message:
   }
 }
 
+function observedChunks(values: readonly Uint8Array[]): {
+  chunks: readonly Uint8Array[];
+  reads: () => number;
+} {
+  let reads = 0;
+  const chunks = new Proxy(values, {
+    get(target, property, receiver) {
+      if (typeof property === "string" && /^\d+$/.test(property)) reads += 1;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  return { chunks, reads: () => reads };
+}
+
+function rejectAfterChunkReads(
+  parts: readonly (Uint8Array | readonly Uint8Array[])[],
+  message: RegExp,
+  reads: () => number,
+  expectedReads: number,
+): void {
+  let thrown: unknown;
+  try {
+    parseWorkbookXmlResourceFixture(parts);
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(WorkbookPackageParseError);
+  expect((thrown as Error).message).toMatch(message);
+  expect(reads()).toBe(expectedReads);
+}
+
 describe("Template V1 OOXML event-time resource limits", () => {
   it("enforces depth below, exactly at, and above root=1", () => {
     accept([nested(PRODUCT_IMPORT_LIMITS.workbookXmlDepth - 1)]);
@@ -165,5 +196,41 @@ describe("Template V1 OOXML event-time resource limits", () => {
     accept(totalSourceBytes(PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes - 1));
     accept(totalSourceBytes(PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes));
     reject(totalSourceBytes(PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes + 1), /source bytes exceed/i);
+  });
+
+  it("rejects an attribute-value +1 chunk before pulling its closing source chunk", () => {
+    const observed = observedChunks([
+      xml('<r a="'),
+      xml("x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlAttributeValueBytes + 1)),
+      xml('"/>'),
+      xml("<sentinel/>"),
+    ]);
+
+    rejectAfterChunkReads([observed.chunks], /attribute value exceeds/i, observed.reads, 2);
+  });
+
+  it("rejects a logical-text +1 chunk before pulling the closing source chunk", () => {
+    const observed = observedChunks([
+      xml("<r>"),
+      xml("x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlTextSegmentBytes)),
+      xml("x"),
+      xml("</r>"),
+      xml("<sentinel/>"),
+    ]);
+
+    rejectAfterChunkReads([observed.chunks], /logical text run exceeds/i, observed.reads, 3);
+  });
+
+  it("rejects an entity-closing +1 subchunk without pulling the next source chunk", () => {
+    const observed = observedChunks([
+      xml("<r>"),
+      xml("x".repeat(PRODUCT_IMPORT_LIMITS.workbookXmlTextSegmentBytes)),
+      xml("&#65"),
+      xml(";"),
+      xml("</r>"),
+      xml("<sentinel/>"),
+    ]);
+
+    rejectAfterChunkReads([observed.chunks], /logical text run exceeds/i, observed.reads, 4);
   });
 });
