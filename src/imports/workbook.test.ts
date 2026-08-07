@@ -1,11 +1,11 @@
-import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader, ZipWriter } from "@zip.js/zip.js";
+import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader, ZipWriter, type ZipWriterAddDataOptions } from "@zip.js/zip.js";
 import writeExcelFile from "write-excel-file/node";
 import type { Row } from "write-excel-file/node";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
+import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_LIMITS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
 import { createProductImportTemplateV1 } from "./template";
 import { parseProductImportWorkbook } from "./workbook";
 
@@ -13,6 +13,10 @@ const transitionalWorksheetRelationshipType =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
 const strictWorksheetRelationshipType =
   "http://purl.oclc.org/ooxml/officeDocument/relationships/worksheet";
+const contentTypesNamespace = "http://schemas.openxmlformats.org/package/2006/content-types";
+const packageRelationshipsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships";
+const spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const strictSpreadsheetNamespace = "http://purl.oclc.org/ooxml/spreadsheetml/main";
 
 async function workbook(header: string[] = [...PRODUCT_IMPORT_HEADERS], row?: Row, options: { version?: number; extraSheet?: boolean } = {}): Promise<Uint8Array> {
   const sheets = [
@@ -24,7 +28,10 @@ async function workbook(header: string[] = [...PRODUCT_IMPORT_HEADERS], row?: Ro
   return new Uint8Array(await file.toBuffer());
 }
 
-async function addPackageEntry(bytes: Uint8Array, name: string, data: string): Promise<Uint8Array> {
+async function addPackageEntries(
+  bytes: Uint8Array,
+  additions: Array<{ name: string; data: string | Uint8Array; options?: ZipWriterAddDataOptions }>,
+): Promise<Uint8Array> {
   const reader = new ZipReader(new Uint8ArrayReader(bytes), { checkSignature: true });
   const writer = new ZipWriter(new Uint8ArrayWriter());
   try {
@@ -32,11 +39,18 @@ async function addPackageEntry(bytes: Uint8Array, name: string, data: string): P
       if (entry.directory) continue;
       await writer.add(entry.filename, new Uint8ArrayReader(await entry.getData(new Uint8ArrayWriter(), { checkSignature: true })));
     }
-    await writer.add(name, new Uint8ArrayReader(new TextEncoder().encode(data)));
+    for (const addition of additions) {
+      const data = typeof addition.data === "string" ? new TextEncoder().encode(addition.data) : addition.data;
+      await writer.add(addition.name, new Uint8ArrayReader(data), addition.options);
+    }
     return writer.close();
   } finally {
     await reader.close();
   }
+}
+
+function addPackageEntry(bytes: Uint8Array, name: string, data: string, options?: ZipWriterAddDataOptions): Promise<Uint8Array> {
+  return addPackageEntries(bytes, [{ name, data, ...(options ? { options } : {}) }]);
 }
 
 async function rewritePackage(
@@ -75,6 +89,17 @@ function worksheetOverride(xml: string, partName: string): string {
   const match = xml.match(new RegExp(`<Override\\b(?=[^>]*\\bPartName=["']${escaped}["'])[^>]*\\/>`));
   if (!match) throw new Error(`Synthetic fixture could not find ${partName}.`);
   return match[0];
+}
+
+function rewriteXmlPart(bytes: Uint8Array, part: string, mutate: (xml: string) => string): Promise<Uint8Array> {
+  const decoder = new TextDecoder();
+  return rewritePackage(bytes, (name, data) => name === part ? { data: mutate(decoder.decode(data)) } : { data });
+}
+
+function prefixRoot(xml: string, root: string, namespace: string, prefix: string): string {
+  return xml
+    .replace(`<${root} xmlns="${namespace}"`, `<${prefix}:${root} xmlns:${prefix}="${namespace}" xmlns="${namespace}"`)
+    .replace(`</${root}>`, `</${prefix}:${root}>`);
 }
 
 describe("Product Import Template V1 workbook", () => {
@@ -157,6 +182,91 @@ describe("Product Import Template V1 workbook", () => {
     await expect(parseProductImportWorkbook(external)).rejects.toThrow(/external/i);
   });
 
+  it("proves the exact namespace URI on every governed package root", async () => {
+    const base = await workbook();
+    const governedRoots = [
+      { part: "[Content_Types].xml", namespace: contentTypesNamespace },
+      { part: "xl/_rels/workbook.xml.rels", namespace: packageRelationshipsNamespace },
+      { part: "xl/workbook.xml", namespace: spreadsheetNamespace },
+      { part: "xl/worksheets/sheet1.xml", namespace: spreadsheetNamespace },
+      { part: "xl/worksheets/sheet2.xml", namespace: spreadsheetNamespace },
+    ];
+    for (const governed of governedRoots) {
+      const wrong = await rewriteXmlPart(base, governed.part, (xml) =>
+        xml.replace(`xmlns="${governed.namespace}"`, 'xmlns="https://synthetic.invalid/ooxml"'),
+      );
+      await expect(parseProductImportWorkbook(wrong)).rejects.toThrow(/package XML topology or namespace is invalid/i);
+      const missing = await rewriteXmlPart(base, governed.part, (xml) =>
+        xml.replace(` xmlns="${governed.namespace}"`, ""),
+      );
+      await expect(parseProductImportWorkbook(missing)).rejects.toThrow(/package XML topology or namespace is invalid/i);
+    }
+    const strictWorkbook = await rewriteXmlPart(base, "xl/workbook.xml", (xml) => xml.replace(spreadsheetNamespace, strictSpreadsheetNamespace));
+    await expect(parseProductImportWorkbook(strictWorkbook)).rejects.toThrow(/package XML topology or namespace is invalid/i);
+  });
+
+  it("accepts equivalent default and custom-prefix forms for governed root namespaces", async () => {
+    let prefixed = await workbook();
+    const governedRoots = [
+      { part: "[Content_Types].xml", root: "Types", namespace: contentTypesNamespace, prefix: "ct" },
+      { part: "xl/_rels/workbook.xml.rels", root: "Relationships", namespace: packageRelationshipsNamespace, prefix: "pr" },
+      { part: "xl/workbook.xml", root: "workbook", namespace: spreadsheetNamespace, prefix: "ss" },
+      { part: "xl/worksheets/sheet1.xml", root: "worksheet", namespace: spreadsheetNamespace, prefix: "p1" },
+      { part: "xl/worksheets/sheet2.xml", root: "worksheet", namespace: spreadsheetNamespace, prefix: "p2" },
+    ];
+    for (const governed of governedRoots) {
+      prefixed = await rewriteXmlPart(prefixed, governed.part, (xml) =>
+        prefixRoot(xml, governed.root, governed.namespace, governed.prefix),
+      );
+    }
+    prefixed = await rewriteXmlPart(prefixed, "[Content_Types].xml", (xml) =>
+      xml.replaceAll(/<(Default|Override)\b/g, "<ct:$1"),
+    );
+    prefixed = await rewriteXmlPart(prefixed, "xl/_rels/workbook.xml.rels", (xml) =>
+      xml.replaceAll(/<Relationship\b/g, "<pr:Relationship"),
+    );
+    prefixed = await rewriteXmlPart(prefixed, "xl/workbook.xml", (xml) =>
+      xml.replaceAll(/<sheet\b/g, "<ss:sheet"),
+    );
+    expect((await parseProductImportWorkbook(prefixed)).templateVersion).toBe(1);
+  });
+
+  it("rejects namespace lookalikes on governed relationship and content-type elements", async () => {
+    const base = await workbook();
+    const wrongRelationship = await rewriteXmlPart(base, "xl/_rels/workbook.xml.rels", (xml) =>
+      xml.replace("<Relationship ", '<Relationship xmlns="https://synthetic.invalid/relationships" '),
+    );
+    await expect(parseProductImportWorkbook(wrongRelationship)).rejects.toThrow(/relationships are malformed/i);
+
+    const missingContentTypeNamespace = await rewriteXmlPart(base, "[Content_Types].xml", (xml) =>
+      xml.replace("<Default ", '<Default xmlns="" '),
+    );
+    await expect(parseProductImportWorkbook(missingContentTypeNamespace)).rejects.toThrow(/content type declarations are malformed/i);
+
+    const missingSheetNamespace = await rewriteXmlPart(base, "xl/workbook.xml", (xml) =>
+      xml.replace("<sheet ", '<sheet xmlns="" '),
+    );
+    await expect(parseProductImportWorkbook(missingSheetNamespace)).rejects.toThrow(/sheet topology is malformed/i);
+
+    const wrongCellNamespace = await rewriteXmlPart(base, "xl/worksheets/sheet1.xml", (xml) =>
+      xml.replace("<c ", '<c xmlns="https://synthetic.invalid/cell" '),
+    );
+    await expect(parseProductImportWorkbook(wrongCellNamespace)).rejects.toThrow(/worksheet evidence namespace is invalid/i);
+  });
+
+  it("attributes a custom-prefixed SpreadsheetML formula by namespace rather than prefix", async () => {
+    const row = Array(PRODUCT_IMPORT_HEADERS.length).fill(null);
+    row[0] = { value: "=1+1", type: "Formula" };
+    const prefixedFormula = await rewriteXmlPart(await workbook([...PRODUCT_IMPORT_HEADERS], row), "xl/worksheets/sheet1.xml", (xml) =>
+      xml
+        .replace(`xmlns="${spreadsheetNamespace}"`, `xmlns="${spreadsheetNamespace}" xmlns:formula="${spreadsheetNamespace}"`)
+        .replace("<f>", "<formula:f>")
+        .replace("</f>", "</formula:f>"),
+    );
+    const parsed = await parseProductImportWorkbook(prefixedFormula);
+    expect(parsed.rows[0]?.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "formula_not_allowed" })]));
+  });
+
   it("accepts only the explicitly supported transitional worksheet relationship type", async () => {
     const decoder = new TextDecoder();
     const unsupportedSuffix = await rewritePackage(await workbook(), (name, data) => name === "xl/_rels/workbook.xml.rels"
@@ -202,6 +312,62 @@ describe("Product Import Template V1 workbook", () => {
 
     const noAuthority = await rewritePackage(base, (name, data) => name === "[Content_Types].xml" ? null : { data });
     await expect(parseProductImportWorkbook(noAuthority)).rejects.toThrow(/package topology is incomplete/i);
+  });
+
+  it("proves the complete normalized Default content-type declaration set", async () => {
+    const base = await workbook();
+    const decoder = new TextDecoder();
+    const contentTypes = async (mutate: (xml: string) => string) => rewritePackage(base, (name, data) =>
+      name === "[Content_Types].xml" ? { data: mutate(decoder.decode(data)) } : { data },
+    );
+    const defaultXml = '<Default ContentType="application/xml" Extension="xml"/>';
+
+    for (const duplicate of [defaultXml, defaultXml.replace('Extension="xml"', 'Extension="XML"'), defaultXml.replace('Extension="xml"', 'Extension="x&#109;l"')]) {
+      await expect(parseProductImportWorkbook(await contentTypes((xml) => xml.replace("</Types>", `${duplicate}</Types>`))))
+        .rejects.toThrow(/default content type declaration is duplicated or ambiguous/i);
+    }
+    for (const replacement of [
+      defaultXml.replace('Extension="xml"', 'Extension=""'),
+      defaultXml.replace('Extension="xml"', 'Extension="x/ml"'),
+      defaultXml.replace('ContentType="application/xml"', 'ContentType=""'),
+      defaultXml.replace("application/xml", "application/vnd.synthetic.invalid+xml"),
+    ]) {
+      await expect(parseProductImportWorkbook(await contentTypes((xml) => xml.replace(defaultXml, replacement))))
+        .rejects.toThrow(/(?:content type declaration is invalid|default content type declaration is (?:invalid|unsupported))/i);
+    }
+    await expect(parseProductImportWorkbook(await contentTypes((xml) => xml.replace(defaultXml, ""))))
+      .rejects.toThrow(/default content type declarations are incomplete/i);
+    await expect(parseProductImportWorkbook(await contentTypes((xml) => xml.replace("</Types>", '<Default ContentType="application/octet-stream" Extension="bin"/></Types>'))))
+      .rejects.toThrow(/default content type declaration is unsupported/i);
+  });
+
+  it("rejects conflicting, incomplete, and unconsumed Default or Override topology", async () => {
+    const base = await workbook();
+    const conflictingDefault = await rewriteXmlPart(base, "[Content_Types].xml", (xml) =>
+      xml.replace('Default ContentType="application/xml" Extension="xml"', `Default ContentType="${worksheetOverride(xml, "/xl/worksheets/sheet1.xml").match(/ContentType="([^"]+)"/)?.[1]}" Extension="xml"`),
+    );
+    await expect(parseProductImportWorkbook(conflictingDefault)).rejects.toThrow(/default content type declaration is unsupported or invalid/i);
+
+    const missingFixedOverride = await rewriteXmlPart(base, "[Content_Types].xml", (xml) =>
+      xml.replace(/<Override\b(?=[^>]*\bPartName=["']\/xl\/styles\.xml["'])[^>]*\/>/, ""),
+    );
+    await expect(parseProductImportWorkbook(missingFixedOverride)).rejects.toThrow(/fixed content type declaration is missing or invalid/i);
+
+    const unconsumedOverride = await rewriteXmlPart(base, "[Content_Types].xml", (xml) =>
+      xml.replace("</Types>", '<Override PartName="/xl/synthetic.xml" ContentType="application/xml"/></Types>'),
+    );
+    await expect(parseProductImportWorkbook(unconsumedOverride)).rejects.toThrow(/content type declaration is unreferenced or unsupported/i);
+
+    const encodedDuplicateOverride = await rewriteXmlPart(base, "[Content_Types].xml", (xml) => {
+      const duplicate = worksheetOverride(xml, "/xl/worksheets/sheet1.xml").replace("sheet1.xml", "sheet&#49;.xml");
+      return xml.replace("</Types>", `${duplicate}</Types>`);
+    });
+    await expect(parseProductImportWorkbook(encodedDuplicateOverride)).rejects.toThrow(/content type declaration is duplicated/i);
+
+    const malformedDeclaration = await rewriteXmlPart(base, "[Content_Types].xml", (xml) =>
+      xml.replace('<Default ContentType="application/xml" Extension="xml"/>', '<Default ContentType="application/xml"><Unexpected/></Default>'),
+    );
+    await expect(parseProductImportWorkbook(malformedDeclaration)).rejects.toThrow(/content type declarations are malformed or unsupported/i);
   });
 
   it("rejects duplicate and unreferenced worksheet relationship topology", async () => {
@@ -270,5 +436,30 @@ describe("Product Import Template V1 workbook", () => {
     await expect(parseProductImportWorkbook(valid.slice(0, 80))).rejects.toThrow();
     await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/vbaProject.bin", "synthetic macro"))).rejects.toThrow(/macros/i);
     await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/worksheets/sheet99.xml", '<worksheet><dimension ref="A1:S102"/></worksheet>'))).rejects.toThrow(/unreferenced worksheet part/i);
+  });
+
+  it("retains encrypted, duplicate-part, entry-count, and expanded-size package limits", async () => {
+    const valid = await workbook();
+    await expect(parseProductImportWorkbook(await addPackageEntry(valid, "synthetic-encrypted.bin", "synthetic", { password: "synthetic" })))
+      .rejects.toThrow(/encrypted/i);
+    const normalizedDuplicate = await addPackageEntries(valid, [
+      { name: "synthetic/caf\u00e9.xml", data: "<synthetic/>" },
+      { name: "synthetic/cafe\u0301.xml", data: "<synthetic/>" },
+    ]);
+    await expect(parseProductImportWorkbook(normalizedDuplicate))
+      .rejects.toThrow(/duplicate part/i);
+
+    const reader = new ZipReader(new Uint8ArrayReader(valid));
+    const existingEntryCount = (await reader.getEntries()).length;
+    await reader.close();
+    const additions = Array.from({ length: PRODUCT_IMPORT_LIMITS.workbookEntries - existingEntryCount + 1 }, (_, index) => ({
+      name: `synthetic/entry-${index}.bin`,
+      data: "x",
+    }));
+    await expect(parseProductImportWorkbook(await addPackageEntries(valid, additions))).rejects.toThrow(/too many package entries/i);
+
+    const expanded = new Uint8Array(PRODUCT_IMPORT_LIMITS.workbookExpandedBytes + 1);
+    await expect(parseProductImportWorkbook(await addPackageEntries(valid, [{ name: "synthetic/expanded.bin", data: expanded }])))
+      .rejects.toThrow(/expanded size exceeds/i);
   });
 });
