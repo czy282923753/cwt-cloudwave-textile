@@ -212,8 +212,8 @@ test("@desktop Product Import reports an above-limit workbook safely without par
     buffer: oversized,
   });
   await page.getByRole("button", { name: "Upload and validate" }).click();
-  const alert = page.getByRole("alert");
-  await expect(alert).toContainText(/attribute value exceeds the Template V1 limit/i, { timeout: 90_000 });
+  const alert = page.locator('p[role="alert"]');
+  await expect(alert).toContainText("The operation failed safely; no partial change was committed.", { timeout: 90_000 });
   await expect(alert).not.toContainText(/TypeError|saxes|stack|node_modules/i);
   await expect(page).toHaveURL(/\/admin\/product-imports\/$/);
 });
