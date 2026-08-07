@@ -31,6 +31,15 @@ const requiredFixedOverrideContentTypes = new Map([
   ["xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"],
 ]);
 
+export class ProductImportWorkbookPackageError extends Error {
+  readonly code = "invalid_workbook_package" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "ProductImportWorkbookPackageError";
+  }
+}
+
 type PackageXmlElement = {
   qualifiedName: string;
   localName: string;
@@ -594,7 +603,16 @@ export async function parseProductImportWorkbook(bytes: Uint8Array): Promise<Par
     throw new Error("Workbook actual bytes exceed the Template V1 limit.");
   }
   if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error("Only an XLSX ZIP container is accepted.");
-  const formulaErrors = await inspectWorkbookContainer(bytes);
+  let formulaErrors: Map<number, ProductImportParseError[]>;
+  try {
+    formulaErrors = await inspectWorkbookContainer(bytes);
+  } catch (error) {
+    if (error instanceof ProductImportWorkbookPackageError) throw error;
+    const detail = error instanceof Error && /^(?:Workbook|Encrypted workbooks|Macros and external|External workbook|Formula cell )/.test(error.message)
+      ? error.message
+      : "Workbook package could not be validated safely.";
+    throw new ProductImportWorkbookPackageError(detail);
+  }
   const sheets = await readExcelFile(Buffer.from(bytes));
   if (sheets.length !== 2 || !sheets.some((sheet) => sheet.sheet === "Products") || !sheets.some((sheet) => sheet.sheet === "_CWT_META")) {
     throw new Error("Only the generated Template V1 Products and metadata sheets are accepted.");

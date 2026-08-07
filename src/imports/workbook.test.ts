@@ -7,7 +7,7 @@ vi.mock("server-only", () => ({}));
 
 import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_LIMITS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
 import { createProductImportTemplateV1 } from "./template";
-import { parseProductImportWorkbook } from "./workbook";
+import { parseProductImportWorkbook, ProductImportWorkbookPackageError } from "./workbook";
 
 const transitionalWorksheetRelationshipType =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
@@ -203,6 +203,10 @@ describe("Product Import Template V1 workbook", () => {
     }
     const strictWorkbook = await rewriteXmlPart(base, "xl/workbook.xml", (xml) => xml.replace(spreadsheetNamespace, strictSpreadsheetNamespace));
     await expect(parseProductImportWorkbook(strictWorkbook)).rejects.toThrow(/package XML topology or namespace is invalid/i);
+    await expect(parseProductImportWorkbook(strictWorkbook)).rejects.toMatchObject({
+      name: "ProductImportWorkbookPackageError",
+      code: "invalid_workbook_package",
+    } satisfies Partial<ProductImportWorkbookPackageError>);
   });
 
   it("accepts equivalent default and custom-prefix forms for governed root namespaces", async () => {
@@ -433,7 +437,11 @@ describe("Product Import Template V1 workbook", () => {
 
   it("rejects malformed or truncated containers, macro payloads, and extreme dimensions", async () => {
     const valid = await workbook();
-    await expect(parseProductImportWorkbook(valid.slice(0, 80))).rejects.toThrow();
+    await expect(parseProductImportWorkbook(valid.slice(0, 80))).rejects.toMatchObject({
+      name: "ProductImportWorkbookPackageError",
+      code: "invalid_workbook_package",
+      message: "Workbook package could not be validated safely.",
+    } satisfies Partial<ProductImportWorkbookPackageError>);
     await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/vbaProject.bin", "synthetic macro"))).rejects.toThrow(/macros/i);
     await expect(parseProductImportWorkbook(await addPackageEntry(valid, "xl/worksheets/sheet99.xml", '<worksheet><dimension ref="A1:S102"/></worksheet>'))).rejects.toThrow(/unreferenced worksheet part/i);
   });
