@@ -15,8 +15,11 @@ import {
   PRODUCT_IMPORT_LIMITS,
   type ProductImportParseError,
 } from "./contract";
+import {
+  WorkbookXmlResourceBudget,
+  WorkbookXmlResourceMeter,
+} from "./workbook-xml-resource-meter";
 
-const textEncoder = new TextEncoder();
 const xmlnsNamespace = "http://www.w3.org/2000/xmlns/";
 const contentTypesNamespace = "http://schemas.openxmlformats.org/package/2006/content-types";
 const packageRelationshipsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -49,64 +52,6 @@ function fail(message: string): never {
   throw new WorkbookPackageParseError(message);
 }
 
-function utf8Bytes(value: string): number {
-  return textEncoder.encode(value).byteLength;
-}
-
-class WorkbookXmlBudget {
-  depth = 0;
-  nodes = 0;
-  attributes = 0;
-  decodedTextBytes = 0;
-  sourceBytes = 0;
-
-  addSource(bytes: number): void {
-    this.sourceBytes += bytes;
-    if (this.sourceBytes > PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes) {
-      fail("Workbook XML source bytes exceed the Template V1 limit.");
-    }
-  }
-
-  startElement(): void {
-    this.nodes += 1;
-    if (this.nodes > PRODUCT_IMPORT_LIMITS.workbookXmlNodes) {
-      fail("Workbook XML element count exceeds the Template V1 limit.");
-    }
-    if (this.depth + 1 > PRODUCT_IMPORT_LIMITS.workbookXmlDepth) {
-      fail("Workbook XML depth exceeds the Template V1 limit.");
-    }
-  }
-
-  openedElement(): void {
-    this.depth += 1;
-  }
-
-  closedElement(): void {
-    this.depth -= 1;
-    if (this.depth < 0) fail("Workbook package XML topology or namespace is invalid.");
-  }
-
-  addAttribute(value: string, elementAttributes: number): void {
-    if (elementAttributes > PRODUCT_IMPORT_LIMITS.workbookXmlAttributesPerElement) {
-      fail("Workbook XML attributes per element exceed the Template V1 limit.");
-    }
-    this.attributes += 1;
-    if (this.attributes > PRODUCT_IMPORT_LIMITS.workbookXmlAttributes) {
-      fail("Workbook XML attribute count exceeds the Template V1 limit.");
-    }
-    if (utf8Bytes(value) > PRODUCT_IMPORT_LIMITS.workbookXmlAttributeValueBytes) {
-      fail("Workbook XML attribute value exceeds the Template V1 limit.");
-    }
-  }
-
-  addText(bytes: number): void {
-    this.decodedTextBytes += bytes;
-    if (this.decodedTextBytes > PRODUCT_IMPORT_LIMITS.workbookXmlTextBytes) {
-      fail("Workbook XML decoded text exceeds the Template V1 limit.");
-    }
-  }
-}
-
 interface XmlMachine<Result> {
   open(tag: SaxesTagNS): void;
   text(value: string): void;
@@ -115,16 +60,15 @@ interface XmlMachine<Result> {
 }
 
 class BoundedXmlParser<Result> {
-  private readonly decoder = new TextDecoder("utf-8", { fatal: true });
   private readonly parser = new SaxesParser({ xmlns: true });
-  private elementAttributes = 0;
-  private logicalTextRunBytes = 0;
+  private readonly meter: WorkbookXmlResourceMeter;
   private closed = false;
 
   constructor(
-    private readonly budget: WorkbookXmlBudget,
+    budget: WorkbookXmlResourceBudget,
     private readonly machine: XmlMachine<Result>,
   ) {
+    this.meter = new WorkbookXmlResourceMeter(budget, fail);
     this.parser.on("xmldecl", (declaration) => {
       if (
         declaration.version !== "1.0" ||
@@ -139,44 +83,26 @@ class BoundedXmlParser<Result> {
     this.parser.on("comment", () => fail("Workbook package XML contains unsupported markup."));
     this.parser.on("cdata", () => fail("Workbook package XML contains unsupported markup."));
     this.parser.on("error", () => fail("Workbook package XML topology or namespace is invalid."));
-    this.parser.on("opentagstart", () => {
-      this.logicalTextRunBytes = 0;
-      this.elementAttributes = 0;
-      this.budget.startElement();
-    });
-    this.parser.on("attribute", (attribute) => {
-      this.elementAttributes += 1;
-      this.budget.addAttribute(attribute.value, this.elementAttributes);
-    });
     this.parser.on("opentag", (tag) => {
-      this.budget.openedElement();
       this.machine.open(tag);
     });
     this.parser.on("text", (value) => {
-      const bytes = utf8Bytes(value);
-      this.logicalTextRunBytes += bytes;
-      if (this.logicalTextRunBytes > PRODUCT_IMPORT_LIMITS.workbookXmlTextSegmentBytes) {
-        fail("Workbook XML logical text run exceeds the Template V1 limit.");
-      }
-      this.budget.addText(bytes);
       this.machine.text(value);
     });
     this.parser.on("closetag", (tag) => {
       this.machine.close(tag);
-      this.budget.closedElement();
-      this.logicalTextRunBytes = 0;
     });
   }
 
   write(bytes: Uint8Array): void {
     if (this.closed) fail("Workbook package XML parser received data after close.");
-    this.budget.addSource(bytes.byteLength);
     try {
-      const decoded = this.decoder.decode(bytes, { stream: true });
-      if (decoded) this.parser.write(decoded);
+      this.meter.write(bytes, (decoded) => {
+        this.parser.write(decoded);
+      });
     } catch (error) {
       if (error instanceof WorkbookPackageParseError) throw error;
-      fail("Workbook package XML is not valid UTF-8.");
+      fail("Workbook package XML topology or namespace is invalid.");
     }
   }
 
@@ -184,14 +110,14 @@ class BoundedXmlParser<Result> {
     if (this.closed) fail("Workbook package XML parser was closed more than once.");
     this.closed = true;
     try {
-      const decoded = this.decoder.decode();
-      if (decoded) this.parser.write(decoded);
+      this.meter.close((decoded) => {
+        this.parser.write(decoded);
+      });
       this.parser.close();
     } catch (error) {
       if (error instanceof WorkbookPackageParseError) throw error;
       fail("Workbook package XML topology or namespace is invalid.");
     }
-    if (this.budget.depth !== 0) fail("Workbook package XML topology or namespace is invalid.");
     return this.machine.finish();
   }
 }
@@ -200,7 +126,7 @@ class XmlEntryWriter<Result> extends Writer<Result> {
   private readonly bounded: BoundedXmlParser<Result>;
   failure: WorkbookPackageParseError | null = null;
 
-  constructor(budget: WorkbookXmlBudget, machine: XmlMachine<Result>) {
+  constructor(budget: WorkbookXmlResourceBudget, machine: XmlMachine<Result>) {
     super();
     this.bounded = new BoundedXmlParser(budget, machine);
   }
@@ -756,7 +682,7 @@ class ResourceOnlyMachine implements XmlMachine<void> {
 }
 
 export function parseWorkbookXmlResourceFixture(parts: readonly (Uint8Array | readonly Uint8Array[])[]): void {
-  const budget = new WorkbookXmlBudget();
+  const budget = new WorkbookXmlResourceBudget(fail);
   for (const part of parts) {
     const parser = new BoundedXmlParser(budget, new ResourceOnlyMachine());
     const chunks = part instanceof Uint8Array ? [part] : part;
@@ -765,7 +691,7 @@ export function parseWorkbookXmlResourceFixture(parts: readonly (Uint8Array | re
   }
 }
 
-async function parseEntry<Result>(entry: FileEntry, budget: WorkbookXmlBudget, machine: XmlMachine<Result>): Promise<Result> {
+async function parseEntry<Result>(entry: FileEntry, budget: WorkbookXmlResourceBudget, machine: XmlMachine<Result>): Promise<Result> {
   const writer = new XmlEntryWriter(budget, machine);
   try {
     return await entry.getData(writer, { checkSignature: true });
@@ -829,7 +755,7 @@ export async function readResolvedTemplateV1Workbook(bytes: Uint8Array): Promise
     const workbookRelationshipsEntry = entries.get("xl/_rels/workbook.xml.rels");
     if (!contentTypesEntry || !workbookEntry || !workbookRelationshipsEntry) fail("Workbook package topology is incomplete.");
 
-    const budget = new WorkbookXmlBudget();
+    const budget = new WorkbookXmlResourceBudget(fail);
     const contentTypes = await parseEntry(contentTypesEntry, budget, new ContentTypesMachine());
     for (const [extension, contentType] of contentTypes.defaults) {
       if (requiredDefaultContentTypes.get(extension) !== contentType) {
