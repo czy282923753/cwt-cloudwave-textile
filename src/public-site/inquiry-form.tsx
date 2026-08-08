@@ -303,7 +303,7 @@ export function InquiryForm({
   const frozenSummary = hasFrozenResult ? state.attempt : null;
 
   return (
-    <form className="grid gap-4" onSubmit={(event) => void submitDraft(event)}>
+    <form className="inquiry-form grid gap-5" data-inquiry-form="true" onSubmit={(event) => void submitDraft(event)}>
       <fieldset className="contents" disabled={isBusy || hasFrozenResult}>
         <div className={compact ? "grid gap-4 sm:grid-cols-2" : "grid gap-5 sm:grid-cols-2"}>
           <label className="form-field">
@@ -377,7 +377,7 @@ export function InquiryForm({
             ref={fileInput}
             type="file"
           />
-          <span className="text-xs font-normal text-stone-500" id="inquiry-images-help">
+          <span className="text-xs font-normal text-[#586B73]" id="inquiry-images-help">
             JPG, PNG or WebP. Files remain private and use expiring access.
           </span>
         </div>
@@ -396,7 +396,7 @@ export function InquiryForm({
       </fieldset>
 
       {isBusy ? (
-        <p aria-live="polite" className="text-sm text-stone-600" role="status">
+        <p aria-live="polite" className="text-sm text-[#586B73]" role="status">
           {state.kind === "uploading"
             ? "Uploading private images securely…"
             : "Submitting the frozen request…"}
@@ -468,7 +468,7 @@ export function InquiryForm({
           {isBusy ? "Sending securely…" : "Find Your Fabric Solution"}
         </button>
       ) : null}
-      <p className="text-xs leading-5 text-stone-500">
+      <p className="text-xs leading-5 text-[#586B73]">
         Name and Email are required. Add either a description or at least one image.
       </p>
     </form>

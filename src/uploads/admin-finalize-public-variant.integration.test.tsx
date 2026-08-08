@@ -159,7 +159,7 @@ describe("Admin Finalize responsive public Variant contract", () => {
           width={1200}
         />,
       );
-      expect(markup).toContain("<picture>");
+      expect(markup).toContain('<picture class="relative block h-full w-full">');
       expect(markup).toContain("srcSet=\"/api/public-assets/");
       expect(markup).not.toContain(".webp.webp");
       expect(markup).not.toContain(".avif.avif");

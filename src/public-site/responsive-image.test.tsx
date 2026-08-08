@@ -36,7 +36,7 @@ describe("responsive Public Asset rendering", () => {
         sizes="(max-width: 768px) 100vw, 50vw"
       />,
     );
-    expect(html).toContain("<picture>");
+    expect(html).toContain('<picture class="relative block h-full w-full">');
     expect(html).toContain('type="image/avif"');
     expect(html).toContain('type="image/webp"');
     expect(html).toContain('sizes="(max-width: 768px) 100vw, 50vw"');

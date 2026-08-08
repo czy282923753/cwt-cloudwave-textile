@@ -59,14 +59,14 @@ export default async function ProductsPage({
   return (
     <PublicShell>
       <main>
-        <section className="border-b border-stone-200 bg-[#e6eee9] py-20">
-          <div className="site-container"><p className="eyebrow">Product knowledge base</p><h1 className="section-title mt-4 max-w-4xl">Fabric records built around real supply references.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-stone-600">Explore available records across multiple product dimensions. Unknown specifications remain empty rather than being inferred.</p></div>
+        <section className="page-hero page-hero--compact">
+          <div className="site-container py-16"><p className="eyebrow">Product knowledge base</p><h1 className="section-title mt-4 max-w-4xl">Fabric records built around real supply references.</h1><p className="mt-6 max-w-2xl text-lg leading-8 text-[#586B73]">Explore available records across multiple product dimensions. Unknown specifications remain empty rather than being inferred.</p></div>
         </section>
         <section className="site-container py-16">
-          {productPage.items.length ? <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">{productPage.items.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <div className="rounded-3xl border border-dashed border-stone-300 p-10 text-stone-600">No product records have passed publication yet.</div>}
+          {productPage.items.length ? <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">{productPage.items.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <div className="rounded border border-dashed border-[#B8CDD2] p-10 text-[#586B73]">No product records have passed publication yet.</div>}
           {productPage.totalPages > 1 ? <nav aria-label="Product pages" className="mt-12 flex flex-wrap items-center justify-center gap-2">
             {pageNumber > 1 ? <Link className="button-secondary" href={productPageHref(pageNumber - 1)} rel="prev">Previous</Link> : null}
-            {pageLinks.map((page, index) => <span className="contents" key={page}>{index > 0 && page - pageLinks[index - 1]! > 1 ? <span aria-hidden="true" className="px-1 text-stone-400">…</span> : null}<Link aria-current={page === pageNumber ? "page" : undefined} className={page === pageNumber ? "rounded-full bg-[#143f38] px-4 py-2 text-white" : "rounded-full border border-stone-300 px-4 py-2 text-[#143a34]"} href={productPageHref(page)}>{page}</Link></span>)}
+            {pageLinks.map((page, index) => <span className="contents" key={page}>{index > 0 && page - pageLinks[index - 1]! > 1 ? <span aria-hidden="true" className="px-1 text-[#586B73]">…</span> : null}<Link aria-current={page === pageNumber ? "page" : undefined} className={page === pageNumber ? "rounded-full bg-[#087B76] px-4 py-2 text-white" : "rounded-full border border-[#B8CDD2] px-4 py-2 text-[#062E39]"} href={productPageHref(page)}>{page}</Link></span>)}
             {pageNumber < productPage.totalPages ? <Link className="button-secondary" href={productPageHref(pageNumber + 1)} rel="next">Next</Link> : null}
           </nav> : null}
         </section>

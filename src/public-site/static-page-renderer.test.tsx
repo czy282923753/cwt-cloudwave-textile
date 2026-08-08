@@ -38,6 +38,9 @@ describe("fixed Home/About public renderer", () => {
     const positions = titles.map((title) => html.indexOf(title));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect([...positions].sort((left, right) => left - right)).toEqual(positions);
+    expect(html).toContain('data-brand-wave="true"');
+    expect(html).toContain('data-scheme4-zone="home-applications"');
+    expect(html).not.toContain("weave-placeholder");
 
     const disabled = {
       ...DEFAULT_STATIC_PAGE_CONFIGS.home,

@@ -119,6 +119,59 @@ test("@desktop primary public surfaces return successful responses", async ({ pa
   }
 });
 
+test("@all Version B uses the official Logo-only header and accessible responsive navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/");
+  const header = page.locator("[data-public-header]");
+  const logoLink = header.locator('[data-navigation-logo-only="true"]');
+  await expect(logoLink).toHaveCount(1);
+  await expect(logoLink.locator('[data-cwt-official-logo="true"]')).toHaveAttribute("src", /CWTLOGO\.svg/);
+  expect((await logoLink.textContent())?.trim()).toBe("");
+  const desktopLogo = await logoLink.locator("img").boundingBox();
+  expect(desktopLogo?.height).toBeGreaterThanOrEqual(28);
+  expect(desktopLogo?.height).toBeLessThanOrEqual(34);
+  expect((desktopLogo?.width ?? 0) / (desktopLogo?.height ?? 1)).toBeCloseTo(1929 / 555, 1);
+
+  const resourcesLink = header.getByRole("link", { name: "Fabric & Sourcing", exact: true }).first();
+  await resourcesLink.focus();
+  await expect(header.getByRole("navigation", { name: "Fabric and sourcing resources" })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const mobileLogo = await header.locator('[data-cwt-official-logo="true"]').boundingBox();
+  expect(mobileLogo?.height).toBeGreaterThanOrEqual(22);
+  expect(mobileLogo?.height).toBeLessThanOrEqual(27);
+  const mobileNavigation = header.locator("details.mobile-navigation");
+  await expect(mobileNavigation).not.toHaveAttribute("open", "");
+  await mobileNavigation.locator("summary").click();
+  await expect(mobileNavigation).toHaveAttribute("open", "");
+  await expect(header.getByRole("navigation", { name: "Mobile" })).toBeVisible();
+  await expect(header.getByRole("link", { name: "Get a Quote", exact: true })).toBeVisible();
+});
+
+test("@all Version B key surfaces keep selective deep zones, accessibility, and width integrity", async ({ page }) => {
+  const fixtures = [
+    { path: "/", zone: "home-applications" },
+    { path: "/fabric-knowledge/", zone: "content-index-cta" },
+    { path: blockProjectionFixtures.contentPath, zone: "article-consultation" },
+    { path: "/get-quote/", zone: "inquiry-guidance" },
+  ] as const;
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: width < 800 ? 844 : 1000 });
+    for (const fixture of fixtures) {
+      const response = await page.goto(fixture.path);
+      expect(response?.status(), `${fixture.path} at ${width}px`).toBe(200);
+      await expect(page.locator(`[data-scheme4-zone="${fixture.zone}"]`)).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth), `${fixture.path} overflow at ${width}px`)
+        .toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+      const accessibility = await new AxeBuilder({ page }).analyze();
+      expect(accessibility.violations.filter((violation) =>
+        ["critical", "serious"].includes(violation.impact ?? ""),
+      ), `${fixture.path} Axe at ${width}px`).toEqual([]);
+    }
+  }
+});
+
 test("@desktop synthetic fixture Product is not publicly accessible before explicit gate review", async ({
   page,
 }) => {
@@ -304,7 +357,7 @@ test("@all Static, Product, and Content public media use the authoritative Block
   await expect(page.locator('img[alt="Synthetic Content inline"]')).toHaveCount(2);
   await expect(page.locator('img[alt="Synthetic Content gallery A"]')).toHaveCount(1);
   const authorByline = page.getByText("By TEST E2E Block Author", { exact: true });
-  await expect(authorByline).toHaveClass(/text-stone-600/);
+  await expect(authorByline).toHaveCSS("color", "rgb(88, 107, 115)");
   const contentAccessibility = await new AxeBuilder({ page }).analyze();
   expect(contentAccessibility.violations.filter((violation) => ["critical", "serious"].includes(violation.impact ?? ""))).toEqual([]);
 
@@ -397,7 +450,7 @@ test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or
     await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Find Your Fabric Solution", exact: true })).toBeVisible();
     await page.goto("/");
-    if (width < 1024) await expect(page.locator("summary").filter({ hasText: "Menu" })).toBeVisible();
+    if (width < 1024) await expect(page.locator("details.mobile-navigation > summary")).toBeVisible();
   }
 });
 
@@ -606,7 +659,7 @@ test("@desktop six-width Admin and Public-context Preview matrix has no serious 
       if (path.includes("/admin/preview/")) {
         await expect(page.getByText(/Authenticated .* Preview/)).toBeVisible();
         await expect(page.getByText(/CWT Operations/)).toHaveCount(0);
-        await expect(page.getByRole("link", { name: "CloudWave Textile" })).toBeVisible();
+        await expect(page.getByRole("banner").getByRole("link", { name: "CloudWave Textile home", exact: true })).toBeVisible();
       }
     }
   }
@@ -944,7 +997,7 @@ test("@desktop a Published Product edit stays pending until approval", async ({ 
   );
   await page.goto(fixtureProductPath);
   await expect(page.getByText(replacement)).toBeVisible();
-  const image = page.locator("img").first();
+  const image = page.locator("[data-product-detail] img").first();
   await expect(image).toHaveAttribute("src", /^\/api\/public-assets\/[0-9a-f-]{36}\/$/i);
   const imagePath = await image.getAttribute("src");
   if (!imagePath) throw new Error("Published test Product image is missing its governed media path.");

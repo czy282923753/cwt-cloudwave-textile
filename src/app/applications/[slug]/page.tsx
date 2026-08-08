@@ -46,9 +46,9 @@ export default async function ApplicationPage({ params }: Readonly<{ params: Pro
   return (
     <PublicShell>
       <main>
-        <section className="border-b border-stone-200 bg-[#e6eee9] py-20"><div className="site-container"><p className="eyebrow">Fabric Application</p><h1 className="section-title mt-4">{application.name}</h1>{application.shortDescription ? <p className="mt-6 max-w-3xl text-lg leading-8 text-stone-600">{application.shortDescription}</p> : null}<TrackedLink className="button-primary mt-8" eventName="quote_cta_click" href="/get-quote/" placement="application_hero">Find a Fabric for This Use</TrackedLink></div></section>
+        <section className="page-hero py-20"><div className="site-container"><p className="eyebrow">Fabric Application</p><h1 className="section-title mt-4">{application.name}</h1>{application.shortDescription ? <p className="mt-6 max-w-3xl text-lg leading-8 text-[#586B73]">{application.shortDescription}</p> : null}<TrackedLink className="button-primary mt-8" eventName="quote_cta_click" href="/get-quote/" placement="application_hero">Find a Fabric for This Use</TrackedLink></div></section>
         {application.body ? <section className="site-container py-16"><div className="prose-cwt max-w-3xl whitespace-pre-line">{application.body}</div></section> : null}
-        <section className="site-container pb-20"><h2 className="section-title">Related fabric records</h2>{products.length ? <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">{products.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <p className="mt-6 text-stone-600">Contact CWT to match a fabric to this application.</p>}</section>
+        <section className="site-container pb-20"><h2 className="section-title">Related fabric records</h2>{products.length ? <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">{products.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <p className="mt-6 text-[#586B73]">Contact CWT to match a fabric to this application.</p>}</section>
       </main>
       <script dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb).replaceAll("<", "\\u003c") }} type="application/ld+json" />
     </PublicShell>

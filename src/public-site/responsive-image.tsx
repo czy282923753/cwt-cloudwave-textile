@@ -34,7 +34,7 @@ export function ResponsivePublicImage({
   const avif = publicAssetSrcSet(asset, "avif");
   const webp = publicAssetSrcSet(asset, "webp");
   return (
-    <picture>
+    <picture className="relative block h-full w-full">
       {avif ? <source sizes={imageProps.sizes} srcSet={avif} type="image/avif" /> : null}
       {webp ? <source sizes={imageProps.sizes} srcSet={webp} type="image/webp" /> : null}
       <Image
