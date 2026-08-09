@@ -1,4 +1,5 @@
 export * from "./analytics";
+export * from "./ai";
 export * from "./assets";
 export * from "./catalog";
 export * from "./content";

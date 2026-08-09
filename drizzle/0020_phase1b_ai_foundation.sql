@@ -1,0 +1,192 @@
+CREATE TABLE "ai_model_config" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"capability" text DEFAULT 'text' NOT NULL,
+	"use_case" text NOT NULL,
+	"provider" text NOT NULL,
+	"model" text NOT NULL,
+	"parameters_json" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"max_input_tokens" integer DEFAULT 16000 NOT NULL,
+	"max_output_tokens" integer DEFAULT 4000 NOT NULL,
+	"max_attempts" integer DEFAULT 3 NOT NULL,
+	"run_cost_limit_microusd" bigint DEFAULT 20000 NOT NULL,
+	"prompt_id" text NOT NULL,
+	"prompt_version" integer NOT NULL,
+	"prompt_hash" text NOT NULL,
+	"enabled" boolean DEFAULT false NOT NULL,
+	"is_default" boolean DEFAULT false NOT NULL,
+	"fallback_config_id" uuid,
+	"record_version" bigint DEFAULT 1 NOT NULL,
+	"created_by_user_id" uuid NOT NULL,
+	"updated_by_user_id" uuid NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ai_model_config_capability_check" CHECK ("ai_model_config"."capability" = 'text'),
+	CONSTRAINT "ai_model_config_use_case_check" CHECK ("ai_model_config"."use_case" in ('seo_content_draft', 'fabric_knowledge_draft', 'product_description_draft', 'sourcing_guide_draft')),
+	CONSTRAINT "ai_model_config_provider_check" CHECK (length("ai_model_config"."provider") between 1 and 64 and "ai_model_config"."provider" = btrim("ai_model_config"."provider") and "ai_model_config"."provider" ~ '^[a-z][a-z0-9_-]{0,63}$'),
+	CONSTRAINT "ai_model_config_model_check" CHECK (length("ai_model_config"."model") between 1 and 128 and "ai_model_config"."model" = btrim("ai_model_config"."model") and "ai_model_config"."model" !~ '[[:cntrl:]]'),
+	CONSTRAINT "ai_model_config_parameters_check" CHECK (jsonb_typeof("ai_model_config"."parameters_json") = 'object' and octet_length("ai_model_config"."parameters_json"::text) <= 8192),
+	CONSTRAINT "ai_model_config_limits_check" CHECK ("ai_model_config"."max_input_tokens" between 1 and 16000 and "ai_model_config"."max_output_tokens" between 1 and 4000 and "ai_model_config"."max_attempts" between 1 and 3 and "ai_model_config"."run_cost_limit_microusd" between 0 and 20000),
+	CONSTRAINT "ai_model_config_prompt_id_check" CHECK ("ai_model_config"."prompt_id" ~ '^[a-z][a-z0-9-]{0,63}$'),
+	CONSTRAINT "ai_model_config_prompt_version_check" CHECK ("ai_model_config"."prompt_version" > 0),
+	CONSTRAINT "ai_model_config_prompt_hash_check" CHECK ("ai_model_config"."prompt_hash" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "ai_model_config_fallback_disabled_check" CHECK ("ai_model_config"."fallback_config_id" is null),
+	CONSTRAINT "ai_model_config_record_version_check" CHECK ("ai_model_config"."record_version" > 0),
+	CONSTRAINT "ai_model_config_timestamps_check" CHECK ("ai_model_config"."updated_at" >= "ai_model_config"."created_at")
+);
+--> statement-breakpoint
+CREATE TABLE "ai_runs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"application_class" text DEFAULT 'draft_assistance' NOT NULL,
+	"capability" text DEFAULT 'text' NOT NULL,
+	"use_case" text NOT NULL,
+	"requested_by_user_id" uuid NOT NULL,
+	"idempotency_key" uuid NOT NULL,
+	"request_fingerprint_version" integer DEFAULT 1 NOT NULL,
+	"request_fingerprint" text NOT NULL,
+	"target_type" text NOT NULL,
+	"target_product_id" uuid,
+	"target_content_id" uuid,
+	"target_revision_id" uuid,
+	"target_locale" text,
+	"expected_target_version" integer NOT NULL,
+	"target_snapshot_hash" text NOT NULL,
+	"model_config_id" uuid NOT NULL,
+	"model_config_version" bigint NOT NULL,
+	"resolved_config_hash" text NOT NULL,
+	"requested_provider" text NOT NULL,
+	"actual_provider" text,
+	"requested_model" text NOT NULL,
+	"returned_model" text,
+	"parameters_snapshot_json" jsonb NOT NULL,
+	"max_input_tokens" integer NOT NULL,
+	"max_output_tokens" integer NOT NULL,
+	"max_attempts" integer NOT NULL,
+	"prompt_id" text NOT NULL,
+	"prompt_version" integer NOT NULL,
+	"prompt_hash" text NOT NULL,
+	"provider_envelope_version" integer NOT NULL,
+	"provider_envelope_hash" text NOT NULL,
+	"input_schema_version" integer NOT NULL,
+	"output_schema_version" integer NOT NULL,
+	"policy_version" text NOT NULL,
+	"input_sources_json" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"input_context_json" jsonb NOT NULL,
+	"input_hash" text NOT NULL,
+	"attempt_history_json" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"candidate_json" jsonb,
+	"candidate_hash" text,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"retry_state" text DEFAULT 'none' NOT NULL,
+	"attempt_count" integer DEFAULT 0 NOT NULL,
+	"next_attempt_at" timestamp with time zone DEFAULT now(),
+	"lease_owner" text,
+	"lease_token" uuid,
+	"lease_acquired_at" timestamp with time zone,
+	"lease_expires_at" timestamp with time zone,
+	"active_attempt_dispatched_at" timestamp with time zone,
+	"state_version" bigint DEFAULT 1 NOT NULL,
+	"cancelled_lease_token" uuid,
+	"cancelled_by_user_id" uuid,
+	"cancellation_reason" text,
+	"cancelled_at" timestamp with time zone,
+	"queued_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"provider_dispatched_at" timestamp with time zone,
+	"generated_at" timestamp with time zone,
+	"completed_at" timestamp with time zone,
+	"generation_duration_ms" bigint DEFAULT 0 NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"input_tokens" integer,
+	"output_tokens" integer,
+	"total_tokens" integer,
+	"provider_response_status" text DEFAULT 'not_dispatched' NOT NULL,
+	"provider_http_status" integer,
+	"provider_error_code" text,
+	"provider_request_id" text,
+	"failure_code" text,
+	"failure_detail" text,
+	"execution_environment" "app_environment" NOT NULL,
+	"budget_policy_version" text NOT NULL,
+	"budget_timezone" text DEFAULT 'Asia/Shanghai' NOT NULL,
+	"budget_currency" text DEFAULT 'USD' NOT NULL,
+	"text_concurrency_limit" integer DEFAULT 2 NOT NULL,
+	"budget_charge_day" date,
+	"budget_charge_month" date,
+	"run_cost_limit_microusd" bigint NOT NULL,
+	"daily_hard_limit_microusd" bigint NOT NULL,
+	"monthly_warning_limit_microusd" bigint NOT NULL,
+	"monthly_hard_limit_microusd" bigint NOT NULL,
+	"estimated_max_cost_microusd" bigint NOT NULL,
+	"actual_cost_microusd" bigint DEFAULT 0 NOT NULL,
+	"actual_cost_complete" boolean DEFAULT true NOT NULL,
+	"budget_accounted_cost_microusd" bigint DEFAULT 0 NOT NULL,
+	"budget_reserved_cost_microusd" bigint DEFAULT 0 NOT NULL,
+	"cost_accounting_state" text DEFAULT 'preflight' NOT NULL,
+	"pricing_snapshot_json" jsonb NOT NULL,
+	"human_disposition" text DEFAULT 'not_evaluated' NOT NULL,
+	"quality_rating" smallint,
+	"quality_labels" text[] DEFAULT '{}'::text[] NOT NULL,
+	"quality_comment" text,
+	"evaluated_by_user_id" uuid,
+	"evaluated_at" timestamp with time zone,
+	"applied_target_version" integer,
+	"applied_revision_id" uuid,
+	"applied_revision_version" integer,
+	CONSTRAINT "ai_runs_application_scope_check" CHECK ("ai_runs"."application_class" = 'draft_assistance' and "ai_runs"."capability" = 'text' and "ai_runs"."use_case" in ('seo_content_draft', 'fabric_knowledge_draft', 'product_description_draft', 'sourcing_guide_draft')),
+	CONSTRAINT "ai_runs_target_shape_check" CHECK (("ai_runs"."target_type" = 'product_draft' and "ai_runs"."target_product_id" is not null and "ai_runs"."target_content_id" is null and "ai_runs"."target_revision_id" is null and "ai_runs"."target_locale" = 'en') or ("ai_runs"."target_type" = 'content_draft' and "ai_runs"."target_product_id" is null and "ai_runs"."target_content_id" is not null and "ai_runs"."target_revision_id" is null and "ai_runs"."target_locale" = 'en') or ("ai_runs"."target_type" = 'editorial_revision' and "ai_runs"."target_product_id" is null and "ai_runs"."target_content_id" is null and "ai_runs"."target_revision_id" is not null and "ai_runs"."target_locale" is null)),
+	CONSTRAINT "ai_runs_target_use_case_check" CHECK (("ai_runs"."target_type" = 'product_draft' and "ai_runs"."use_case" in ('seo_content_draft', 'product_description_draft')) or ("ai_runs"."target_type" = 'content_draft' and "ai_runs"."use_case" in ('seo_content_draft', 'fabric_knowledge_draft', 'sourcing_guide_draft')) or ("ai_runs"."target_type" = 'editorial_revision' and "ai_runs"."use_case" in ('seo_content_draft', 'fabric_knowledge_draft', 'product_description_draft', 'sourcing_guide_draft'))),
+	CONSTRAINT "ai_runs_target_version_check" CHECK ("ai_runs"."expected_target_version" > 0 and "ai_runs"."target_snapshot_hash" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "ai_runs_request_identity_check" CHECK ("ai_runs"."request_fingerprint_version" = 1 and "ai_runs"."request_fingerprint" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "ai_runs_config_identity_check" CHECK ("ai_runs"."model_config_version" > 0 and "ai_runs"."resolved_config_hash" ~ '^[0-9a-f]{64}$' and length("ai_runs"."requested_provider") between 1 and 64 and "ai_runs"."requested_provider" = btrim("ai_runs"."requested_provider") and "ai_runs"."requested_provider" ~ '^[a-z][a-z0-9_-]{0,63}$' and ("ai_runs"."actual_provider" is null or (length("ai_runs"."actual_provider") between 1 and 64 and "ai_runs"."actual_provider" = btrim("ai_runs"."actual_provider") and "ai_runs"."actual_provider" ~ '^[a-z][a-z0-9_-]{0,63}$')) and length("ai_runs"."requested_model") between 1 and 128 and "ai_runs"."requested_model" = btrim("ai_runs"."requested_model") and "ai_runs"."requested_model" !~ '[[:cntrl:]]' and ("ai_runs"."returned_model" is null or (length("ai_runs"."returned_model") between 1 and 128 and "ai_runs"."returned_model" = btrim("ai_runs"."returned_model") and "ai_runs"."returned_model" !~ '[[:cntrl:]]'))),
+	CONSTRAINT "ai_runs_config_snapshot_check" CHECK (jsonb_typeof("ai_runs"."parameters_snapshot_json") = 'object' and octet_length("ai_runs"."parameters_snapshot_json"::text) <= 8192 and "ai_runs"."max_input_tokens" between 1 and 16000 and "ai_runs"."max_output_tokens" between 1 and 4000 and "ai_runs"."max_attempts" between 1 and 3),
+	CONSTRAINT "ai_runs_prompt_policy_check" CHECK ("ai_runs"."prompt_id" ~ '^[a-z][a-z0-9-]{0,63}$' and "ai_runs"."prompt_version" > 0 and "ai_runs"."prompt_hash" ~ '^[0-9a-f]{64}$' and "ai_runs"."provider_envelope_version" > 0 and "ai_runs"."provider_envelope_hash" ~ '^[0-9a-f]{64}$' and "ai_runs"."input_schema_version" > 0 and "ai_runs"."output_schema_version" > 0 and length("ai_runs"."policy_version") between 1 and 80 and "ai_runs"."policy_version" = btrim("ai_runs"."policy_version") and "ai_runs"."policy_version" !~ '[[:cntrl:]]' and "ai_runs"."policy_version" ~ '^[a-z0-9][a-z0-9._-]{0,79}$'),
+	CONSTRAINT "ai_runs_input_attempt_json_check" CHECK (jsonb_typeof("ai_runs"."input_sources_json") = 'array' and octet_length("ai_runs"."input_sources_json"::text) <= 65536 and jsonb_typeof("ai_runs"."attempt_history_json") = 'array' and octet_length("ai_runs"."attempt_history_json"::text) <= 65536 and jsonb_typeof("ai_runs"."input_context_json") = 'object' and octet_length("ai_runs"."input_context_json"::text) <= 131072 and jsonb_array_length("ai_runs"."attempt_history_json") <= "ai_runs"."max_attempts" and jsonb_array_length("ai_runs"."attempt_history_json") <= "ai_runs"."attempt_count" and "ai_runs"."input_hash" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "ai_runs_candidate_check" CHECK (("ai_runs"."status" = 'draft_ready' and "ai_runs"."candidate_json" is not null and "ai_runs"."candidate_hash" is not null and jsonb_typeof("ai_runs"."candidate_json") = 'object' and octet_length("ai_runs"."candidate_json"::text) <= 262144 and "ai_runs"."candidate_hash" ~ '^[0-9a-f]{64}$') or ("ai_runs"."status" <> 'draft_ready' and "ai_runs"."candidate_json" is null and "ai_runs"."candidate_hash" is null)),
+	CONSTRAINT "ai_runs_status_check" CHECK ("ai_runs"."status" in ('pending', 'processing', 'draft_ready', 'failed', 'cancelled')),
+	CONSTRAINT "ai_runs_retry_state_check" CHECK (("ai_runs"."status" = 'pending' and "ai_runs"."retry_state" in ('none', 'scheduled')) or ("ai_runs"."status" in ('processing', 'draft_ready', 'cancelled') and "ai_runs"."retry_state" = 'none') or ("ai_runs"."status" = 'failed' and "ai_runs"."retry_state" in ('exhausted', 'not_retryable'))),
+	CONSTRAINT "ai_runs_attempt_check" CHECK ("ai_runs"."attempt_count" between 0 and "ai_runs"."max_attempts" and ("ai_runs"."status" not in ('processing', 'draft_ready', 'failed') or "ai_runs"."attempt_count" >= 1) and ("ai_runs"."retry_state" <> 'scheduled' or "ai_runs"."attempt_count" >= 1) and ("ai_runs"."attempt_count" <> 0 or "ai_runs"."status" in ('pending', 'cancelled'))),
+	CONSTRAINT "ai_runs_next_attempt_check" CHECK (("ai_runs"."status" = 'pending') = ("ai_runs"."next_attempt_at" is not null)),
+	CONSTRAINT "ai_runs_lease_shape_check" CHECK (("ai_runs"."status" = 'processing' and "ai_runs"."lease_owner" is not null and length("ai_runs"."lease_owner") between 1 and 128 and "ai_runs"."lease_owner" = btrim("ai_runs"."lease_owner") and "ai_runs"."lease_owner" !~ '[[:cntrl:]]' and "ai_runs"."lease_token" is not null and "ai_runs"."lease_acquired_at" is not null and "ai_runs"."lease_expires_at" is not null and "ai_runs"."lease_expires_at" > "ai_runs"."lease_acquired_at") or ("ai_runs"."status" <> 'processing' and "ai_runs"."lease_owner" is null and "ai_runs"."lease_token" is null and "ai_runs"."lease_acquired_at" is null and "ai_runs"."lease_expires_at" is null)),
+	CONSTRAINT "ai_runs_active_attempt_dispatch_check" CHECK (("ai_runs"."active_attempt_dispatched_at" is null or ("ai_runs"."status" = 'processing' and "ai_runs"."lease_acquired_at" is not null and "ai_runs"."lease_expires_at" is not null and "ai_runs"."active_attempt_dispatched_at" >= "ai_runs"."lease_acquired_at" and "ai_runs"."active_attempt_dispatched_at" < "ai_runs"."lease_expires_at" and "ai_runs"."provider_dispatched_at" is not null and "ai_runs"."provider_dispatched_at" <= "ai_runs"."active_attempt_dispatched_at")) and (("ai_runs"."provider_dispatched_at" is null) = ("ai_runs"."actual_provider" is null)) and ("ai_runs"."provider_dispatched_at" is null or "ai_runs"."provider_dispatched_at" >= "ai_runs"."queued_at")),
+	CONSTRAINT "ai_runs_state_version_check" CHECK ("ai_runs"."state_version" > 0),
+	CONSTRAINT "ai_runs_cancellation_check" CHECK ((("ai_runs"."status" = 'cancelled' and "ai_runs"."cancelled_by_user_id" is not null and "ai_runs"."cancellation_reason" is not null and length("ai_runs"."cancellation_reason") between 1 and 500 and "ai_runs"."cancellation_reason" !~ '[[:cntrl:]]' and "ai_runs"."cancelled_at" is not null) or ("ai_runs"."status" <> 'cancelled' and "ai_runs"."cancelled_by_user_id" is null and "ai_runs"."cancellation_reason" is null and "ai_runs"."cancelled_at" is null)) and ("ai_runs"."cancelled_lease_token" is null or "ai_runs"."status" = 'cancelled')),
+	CONSTRAINT "ai_runs_terminal_time_check" CHECK ((("ai_runs"."status" in ('draft_ready', 'failed', 'cancelled')) = ("ai_runs"."completed_at" is not null)) and ("ai_runs"."provider_dispatched_at" is null or "ai_runs"."provider_dispatched_at" >= "ai_runs"."queued_at") and ("ai_runs"."generated_at" is null or ("ai_runs"."provider_dispatched_at" is not null and "ai_runs"."generated_at" >= "ai_runs"."provider_dispatched_at")) and ("ai_runs"."completed_at" is null or "ai_runs"."completed_at" >= "ai_runs"."queued_at") and ("ai_runs"."status" <> 'draft_ready' or "ai_runs"."generated_at" is not null) and ("ai_runs"."status" not in ('draft_ready', 'failed') or "ai_runs"."generated_at" is null or "ai_runs"."completed_at" >= "ai_runs"."generated_at") and ("ai_runs"."status" <> 'cancelled' or "ai_runs"."generated_at" is null or "ai_runs"."completed_at" >= "ai_runs"."generated_at" or "ai_runs"."provider_response_status" = 'cancelled_late_response') and "ai_runs"."updated_at" >= "ai_runs"."queued_at" and ("ai_runs"."generated_at" is null or "ai_runs"."updated_at" >= "ai_runs"."generated_at") and ("ai_runs"."completed_at" is null or "ai_runs"."updated_at" >= "ai_runs"."completed_at") and "ai_runs"."generation_duration_ms" >= 0),
+	CONSTRAINT "ai_runs_token_check" CHECK (("ai_runs"."input_tokens" is null or "ai_runs"."input_tokens" >= 0) and ("ai_runs"."output_tokens" is null or "ai_runs"."output_tokens" >= 0) and ("ai_runs"."total_tokens" is null or "ai_runs"."total_tokens" >= 0) and ("ai_runs"."input_tokens" is null or "ai_runs"."output_tokens" is null or "ai_runs"."total_tokens" is null or "ai_runs"."total_tokens" = "ai_runs"."input_tokens" + "ai_runs"."output_tokens")),
+	CONSTRAINT "ai_runs_provider_response_check" CHECK ("ai_runs"."provider_response_status" in ('not_dispatched', 'success', 'timeout', 'transport_error', 'rate_limited', 'quota_exceeded', 'client_error', 'server_error', 'safety_rejected', 'invalid_response', 'model_drift', 'cancelled_no_response', 'cancelled_late_response', 'unknown') and ("ai_runs"."provider_http_status" is null or "ai_runs"."provider_http_status" between 100 and 599) and ("ai_runs"."provider_error_code" is null or (length("ai_runs"."provider_error_code") <= 80 and "ai_runs"."provider_error_code" !~ '[[:cntrl:]]')) and ("ai_runs"."provider_request_id" is null or (length("ai_runs"."provider_request_id") <= 200 and "ai_runs"."provider_request_id" !~ '[[:cntrl:]]')) and ("ai_runs"."provider_response_status" <> 'cancelled_no_response' or ("ai_runs"."status" = 'cancelled' and "ai_runs"."cancelled_lease_token" is not null and "ai_runs"."provider_dispatched_at" is not null)) and ("ai_runs"."provider_response_status" <> 'cancelled_late_response' or ("ai_runs"."status" = 'cancelled' and "ai_runs"."cancelled_lease_token" is not null and "ai_runs"."provider_dispatched_at" is not null and "ai_runs"."generated_at" is not null)) and ("ai_runs"."status" <> 'draft_ready' or ("ai_runs"."provider_response_status" = 'success' and "ai_runs"."actual_provider" = "ai_runs"."requested_provider" and "ai_runs"."returned_model" = "ai_runs"."requested_model" and "ai_runs"."failure_code" is null and "ai_runs"."failure_detail" is null))),
+	CONSTRAINT "ai_runs_failure_check" CHECK (("ai_runs"."failure_code" is null or "ai_runs"."failure_code" ~ '^[a-z0-9_]{1,80}$') and ("ai_runs"."failure_detail" is null or (length("ai_runs"."failure_detail") <= 500 and "ai_runs"."failure_detail" !~ '[[:cntrl:]]')) and ("ai_runs"."status" <> 'failed' or "ai_runs"."failure_code" is not null) and ("ai_runs"."retry_state" <> 'scheduled' or "ai_runs"."failure_code" is not null)),
+	CONSTRAINT "ai_runs_environment_budget_policy_check" CHECK ("ai_runs"."budget_timezone" = 'Asia/Shanghai' and "ai_runs"."budget_currency" = 'USD' and "ai_runs"."text_concurrency_limit" = 2 and (("ai_runs"."execution_environment" = 'staging' and "ai_runs"."budget_policy_version" = 'stage4a-staging-v1' and "ai_runs"."run_cost_limit_microusd" between 1 and 20000 and "ai_runs"."daily_hard_limit_microusd" = 5000000 and "ai_runs"."monthly_warning_limit_microusd" = 50000000 and "ai_runs"."monthly_hard_limit_microusd" = 100000000) or ("ai_runs"."execution_environment" in ('local', 'test') and "ai_runs"."budget_policy_version" = 'nonbillable-v1' and "ai_runs"."run_cost_limit_microusd" between 0 and 20000 and "ai_runs"."daily_hard_limit_microusd" = 0 and "ai_runs"."monthly_warning_limit_microusd" = 0 and "ai_runs"."monthly_hard_limit_microusd" = 0 and "ai_runs"."estimated_max_cost_microusd" = 0 and "ai_runs"."actual_cost_microusd" = 0 and "ai_runs"."budget_accounted_cost_microusd" = 0 and "ai_runs"."budget_reserved_cost_microusd" = 0))),
+	CONSTRAINT "ai_runs_budget_period_check" CHECK ((("ai_runs"."budget_charge_day" is null) = ("ai_runs"."budget_charge_month" is null)) and ("ai_runs"."budget_charge_day" is null or ("ai_runs"."budget_charge_month" = date_trunc('month', "ai_runs"."budget_charge_day")::date and "ai_runs"."budget_charge_month" = date_trunc('month', "ai_runs"."budget_charge_month")::date)) and ("ai_runs"."cost_accounting_state" <> 'preflight' or "ai_runs"."budget_charge_day" is null)),
+	CONSTRAINT "ai_runs_cost_values_check" CHECK ("ai_runs"."estimated_max_cost_microusd" >= 0 and "ai_runs"."actual_cost_microusd" >= 0 and "ai_runs"."budget_accounted_cost_microusd" >= 0 and "ai_runs"."budget_reserved_cost_microusd" >= 0 and ("ai_runs"."execution_environment" <> 'staging' or "ai_runs"."estimated_max_cost_microusd" between 1 and "ai_runs"."run_cost_limit_microusd") and "ai_runs"."actual_cost_microusd" <= "ai_runs"."budget_accounted_cost_microusd" and ("ai_runs"."budget_reserved_cost_microusd" = 0 or "ai_runs"."budget_accounted_cost_microusd" + "ai_runs"."budget_reserved_cost_microusd" <= "ai_runs"."run_cost_limit_microusd") and jsonb_typeof("ai_runs"."pricing_snapshot_json") = 'object' and octet_length("ai_runs"."pricing_snapshot_json"::text) <= 8192 and ("ai_runs"."execution_environment" <> 'staging' or "ai_runs"."pricing_snapshot_json" <> '{}'::jsonb)),
+	CONSTRAINT "ai_runs_cost_state_check" CHECK (("ai_runs"."cost_accounting_state" = 'preflight' and "ai_runs"."status" = 'pending' and "ai_runs"."attempt_count" = 0 and "ai_runs"."budget_charge_day" is null and "ai_runs"."budget_charge_month" is null and "ai_runs"."budget_reserved_cost_microusd" = 0 and "ai_runs"."budget_accounted_cost_microusd" = 0) or ("ai_runs"."cost_accounting_state" = 'reserved' and "ai_runs"."status" in ('pending', 'processing') and "ai_runs"."budget_charge_day" is not null and "ai_runs"."budget_charge_month" is not null) or ("ai_runs"."cost_accounting_state" = 'final' and "ai_runs"."status" in ('draft_ready', 'failed', 'cancelled') and "ai_runs"."budget_reserved_cost_microusd" = 0 and (("ai_runs"."budget_charge_day" is not null and "ai_runs"."budget_charge_month" is not null) or ("ai_runs"."status" = 'cancelled' and "ai_runs"."attempt_count" = 0 and "ai_runs"."provider_dispatched_at" is null and "ai_runs"."actual_cost_microusd" = 0 and "ai_runs"."budget_accounted_cost_microusd" = 0 and "ai_runs"."budget_charge_day" is null and "ai_runs"."budget_charge_month" is null)))),
+	CONSTRAINT "ai_runs_disposition_check" CHECK ("ai_runs"."human_disposition" in ('not_evaluated', 'accepted', 'accepted_with_edits', 'rejected') and (("ai_runs"."human_disposition" = 'not_evaluated' and "ai_runs"."quality_rating" is null and cardinality("ai_runs"."quality_labels") = 0 and "ai_runs"."quality_comment" is null and "ai_runs"."evaluated_by_user_id" is null and "ai_runs"."evaluated_at" is null and "ai_runs"."applied_target_version" is null and "ai_runs"."applied_revision_id" is null and "ai_runs"."applied_revision_version" is null) or ("ai_runs"."human_disposition" <> 'not_evaluated' and "ai_runs"."status" = 'draft_ready' and "ai_runs"."evaluated_by_user_id" is not null and "ai_runs"."evaluated_at" is not null and (("ai_runs"."human_disposition" = 'rejected' and "ai_runs"."applied_target_version" is null and "ai_runs"."applied_revision_id" is null and "ai_runs"."applied_revision_version" is null) or ("ai_runs"."human_disposition" in ('accepted', 'accepted_with_edits') and (("ai_runs"."applied_target_version" is not null and "ai_runs"."applied_target_version" > "ai_runs"."expected_target_version" and "ai_runs"."applied_revision_id" is null and "ai_runs"."applied_revision_version" is null) or ("ai_runs"."applied_target_version" is null and "ai_runs"."applied_revision_id" is not null and "ai_runs"."applied_revision_version" is not null and "ai_runs"."applied_revision_version" > 0 and ("ai_runs"."target_type" <> 'editorial_revision' or ("ai_runs"."applied_revision_id" = "ai_runs"."target_revision_id" and "ai_runs"."applied_revision_version" > "ai_runs"."expected_target_version"))))))))),
+	CONSTRAINT "ai_runs_quality_check" CHECK (("ai_runs"."quality_rating" is null or "ai_runs"."quality_rating" between 1 and 5) and array_position("ai_runs"."quality_labels", null) is null and "ai_runs"."quality_labels" <@ array['factual_issue', 'relevance', 'clarity', 'tone', 'format', 'duplication', 'unsafe_claim']::text[] and cardinality("ai_runs"."quality_labels") <= 7 and cardinality("ai_runs"."quality_labels") = (("ai_runs"."quality_labels" @> array['factual_issue']::text[])::integer + ("ai_runs"."quality_labels" @> array['relevance']::text[])::integer + ("ai_runs"."quality_labels" @> array['clarity']::text[])::integer + ("ai_runs"."quality_labels" @> array['tone']::text[])::integer + ("ai_runs"."quality_labels" @> array['format']::text[])::integer + ("ai_runs"."quality_labels" @> array['duplication']::text[])::integer + ("ai_runs"."quality_labels" @> array['unsafe_claim']::text[])::integer) and ("ai_runs"."quality_comment" is null or (length("ai_runs"."quality_comment") <= 1000 and "ai_runs"."quality_comment" !~ '[[:cntrl:]]')) and ("ai_runs"."applied_target_version" is null or "ai_runs"."target_type" in ('product_draft', 'content_draft')))
+);
+--> statement-breakpoint
+ALTER TABLE "ai_model_config" ADD CONSTRAINT "ai_model_config_created_by_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_model_config" ADD CONSTRAINT "ai_model_config_updated_by_fk" FOREIGN KEY ("updated_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_model_config" ADD CONSTRAINT "ai_model_config_fallback_fk" FOREIGN KEY ("fallback_config_id") REFERENCES "public"."ai_model_config"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_requested_by_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_model_config_fk" FOREIGN KEY ("model_config_id") REFERENCES "public"."ai_model_config"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_target_product_localization_fk" FOREIGN KEY ("target_product_id","target_locale") REFERENCES "public"."product_localizations"("product_id","locale") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_target_content_localization_fk" FOREIGN KEY ("target_content_id","target_locale") REFERENCES "public"."content_localizations"("content_id","locale") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_target_revision_fk" FOREIGN KEY ("target_revision_id") REFERENCES "public"."editorial_revisions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_cancelled_by_fk" FOREIGN KEY ("cancelled_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_evaluated_by_fk" FOREIGN KEY ("evaluated_by_user_id") REFERENCES "public"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_runs" ADD CONSTRAINT "ai_runs_applied_revision_fk" FOREIGN KEY ("applied_revision_id") REFERENCES "public"."editorial_revisions"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "ai_model_config_enabled_default_unique" ON "ai_model_config" USING btree ("capability","use_case") WHERE "ai_model_config"."enabled" = true and "ai_model_config"."is_default" = true;--> statement-breakpoint
+CREATE INDEX "ai_model_config_created_by_idx" ON "ai_model_config" USING btree ("created_by_user_id");--> statement-breakpoint
+CREATE INDEX "ai_model_config_updated_by_idx" ON "ai_model_config" USING btree ("updated_by_user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "ai_runs_idempotency_key_unique" ON "ai_runs" USING btree ("idempotency_key");--> statement-breakpoint
+CREATE UNIQUE INDEX "ai_runs_active_lease_token_unique" ON "ai_runs" USING btree ("lease_token") WHERE "ai_runs"."lease_token" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_claimable_idx" ON "ai_runs" USING btree ("execution_environment","next_attempt_at","queued_at","id") WHERE "ai_runs"."status" = 'pending';--> statement-breakpoint
+CREATE INDEX "ai_runs_active_lease_idx" ON "ai_runs" USING btree ("execution_environment","lease_expires_at","id") WHERE "ai_runs"."status" = 'processing';--> statement-breakpoint
+CREATE INDEX "ai_runs_budget_day_idx" ON "ai_runs" USING btree ("budget_charge_day") INCLUDE ("budget_accounted_cost_microusd","budget_reserved_cost_microusd") WHERE "ai_runs"."execution_environment" = 'staging' and "ai_runs"."budget_charge_day" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_budget_month_idx" ON "ai_runs" USING btree ("budget_charge_month") INCLUDE ("budget_accounted_cost_microusd","budget_reserved_cost_microusd") WHERE "ai_runs"."execution_environment" = 'staging' and "ai_runs"."budget_charge_month" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_model_config_idx" ON "ai_runs" USING btree ("model_config_id","queued_at" DESC);--> statement-breakpoint
+CREATE INDEX "ai_runs_requester_history_idx" ON "ai_runs" USING btree ("requested_by_user_id","queued_at" DESC,"id");--> statement-breakpoint
+CREATE INDEX "ai_runs_admin_status_idx" ON "ai_runs" USING btree ("status","use_case","queued_at" DESC,"id");--> statement-breakpoint
+CREATE INDEX "ai_runs_target_product_idx" ON "ai_runs" USING btree ("target_product_id","queued_at" DESC,"id") WHERE "ai_runs"."target_product_id" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_target_content_idx" ON "ai_runs" USING btree ("target_content_id","queued_at" DESC,"id") WHERE "ai_runs"."target_content_id" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_target_revision_idx" ON "ai_runs" USING btree ("target_revision_id","queued_at" DESC,"id") WHERE "ai_runs"."target_revision_id" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_applied_revision_idx" ON "ai_runs" USING btree ("applied_revision_id") WHERE "ai_runs"."applied_revision_id" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_cancelled_by_idx" ON "ai_runs" USING btree ("cancelled_by_user_id") WHERE "ai_runs"."cancelled_by_user_id" is not null;--> statement-breakpoint
+CREATE INDEX "ai_runs_evaluated_by_idx" ON "ai_runs" USING btree ("evaluated_by_user_id") WHERE "ai_runs"."evaluated_by_user_id" is not null;
