@@ -121,7 +121,7 @@ test("@desktop primary public surfaces return successful responses", async ({ pa
 
 test("@all Version B uses the official Logo-only header and accessible responsive navigation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/");
+  await page.goto("/about/");
   const header = page.locator("[data-public-header]");
   const logoLink = header.locator('[data-navigation-logo-only="true"]');
   await expect(logoLink).toHaveCount(1);
@@ -131,17 +131,54 @@ test("@all Version B uses the official Logo-only header and accessible responsiv
   expect(desktopLogo?.height).toBeGreaterThanOrEqual(28);
   expect(desktopLogo?.height).toBeLessThanOrEqual(34);
   expect((desktopLogo?.width ?? 0) / (desktopLogo?.height ?? 1)).toBeCloseTo(1929 / 555, 1);
+  await expect(header.getByRole("link", { name: "Home", exact: true })).toHaveCount(0);
+
+  await logoLink.focus();
+  await page.keyboard.press("Tab");
+  await expect(header.getByRole("link", { name: "Products", exact: true }).first())
+    .toBeFocused();
+  await logoLink.click();
+  await expect(page).toHaveURL("/");
 
   const resourcesLink = header.getByRole("link", { name: "Fabric & Sourcing", exact: true }).first();
   await resourcesLink.focus();
   await expect(header.getByRole("navigation", { name: "Fabric and sourcing resources" })).toBeVisible();
 
+  for (const width of [1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.reload();
+    const aboutBox = await header.locator('.desktop-navigation > a[href="/about/"]').boundingBox();
+    const ctaBox = await header.locator(".header-cta").boundingBox();
+    if (!aboutBox || !ctaBox) throw new Error(`Desktop Header actions missing at ${width}px.`);
+    expect(Math.abs(ctaBox.x - aboutBox.x - aboutBox.width - 32)).toBeLessThanOrEqual(0.1);
+    const layout = await header.locator(".public-header__inner").evaluate((element) => {
+      const actions = element.querySelector<HTMLElement>(".desktop-actions");
+      const actionRect = actions?.getBoundingClientRect();
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        actionsLeft: actionRect?.left ?? -1,
+        actionsRight: actionRect?.right ?? Number.POSITIVE_INFINITY,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
+    expect(layout.actionsLeft).toBeGreaterThanOrEqual(0);
+    expect(layout.actionsRight).toBeLessThanOrEqual(layout.viewportWidth);
+  }
+
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
+  await page.goto("/about/");
   const mobileLogo = await header.locator('[data-cwt-official-logo="true"]').boundingBox();
   expect(mobileLogo?.height).toBeGreaterThanOrEqual(22);
   expect(mobileLogo?.height).toBeLessThanOrEqual(27);
+  await expect(header.getByRole("link", { name: "Home", exact: true })).toHaveCount(0);
   const mobileNavigation = header.locator("details.mobile-navigation");
+  await logoLink.focus();
+  await page.keyboard.press("Tab");
+  await expect(mobileNavigation.locator("summary")).toBeFocused();
+  await logoLink.click();
+  await expect(page).toHaveURL("/");
   await expect(mobileNavigation).not.toHaveAttribute("open", "");
   await mobileNavigation.locator("summary").click();
   await expect(mobileNavigation).toHaveAttribute("open", "");
@@ -704,6 +741,11 @@ test("@mobile unreviewed synthetic Product remains fail-closed on Pixel 7", asyn
 });
 
 test("@desktop text-only inquiry is accepted", async ({ page }) => {
+  const inquiryBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/inquiries/", async (route) => {
+    inquiryBodies.push(JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>);
+    await route.continue();
+  });
   await page.goto("/get-quote?utm_source=e2e&utm_medium=test&utm_campaign=phase1a");
   await page.getByLabel("Name", { exact: true }).fill("E2E Text Buyer");
   await page
@@ -712,10 +754,25 @@ test("@desktop text-only inquiry is accepted", async ({ page }) => {
   await page
     .getByLabel("Describe what you need", { exact: true })
     .fill("Testing the text-only inquiry path.");
+  const country = page.getByLabel("Country", { exact: true });
+  await expect(country).toHaveAttribute("maxlength", "2");
+  await expect(page.locator('#inquiry-country-options option[value="CN"]'))
+    .toHaveAttribute("label", "China (CN)");
+  await country.fill("China");
+  await expect(country).not.toHaveValue("China");
+  await expect(country).toHaveAttribute("aria-invalid", "true");
+  await page
+    .getByRole("button", { name: "Find Your Fabric Solution", exact: true })
+    .click();
+  expect(inquiryBodies).toHaveLength(0);
+  await country.fill("cn");
+  await expect(country).toHaveValue("CN");
   await page
     .getByRole("button", { name: "Find Your Fabric Solution", exact: true })
     .click();
   await expect(page.getByRole("status")).toContainText("Requirement received");
+  expect(inquiryBodies).toHaveLength(1);
+  expect(inquiryBodies[0]).toMatchObject({ countryCode: "CN" });
 });
 
 test("@desktop image-only inquiry is accepted and remains a governed private attachment", async ({
@@ -727,14 +784,35 @@ test("@desktop image-only inquiry is accepted and remains a governed private att
   await page
     .getByLabel("Email", { exact: true })
     .fill(email);
-  await page.getByLabel("Upload fabric images", { exact: true }).setInputFiles({
+  const fileInput = page.getByLabel("Upload fabric images", { exact: true });
+  const chooseFiles = page.getByRole("button", { name: "Choose files", exact: true });
+  await expect(chooseFiles).toBeVisible();
+  await expect(chooseFiles).toHaveAttribute("type", "button");
+  await expect(page.getByText("No files selected", { exact: true })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("选择文件");
+  await expect(page.locator("body")).not.toContainText("未选择任何文件");
+  expect(await fileInput.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.position === "absolute" &&
+      style.clipPath !== "none" &&
+      style.opacity === "0" &&
+      style.pointerEvents === "none";
+  })).toBe(true);
+  const imageBuffer = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVQImWMQCaiAIwbiOABfgw3BWckaWgAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  await fileInput.setInputFiles([
+    { name: "first-reference.png", mimeType: "image/png", buffer: imageBuffer },
+    { name: "second-reference.webp", mimeType: "image/webp", buffer: imageBuffer },
+  ]);
+  await expect(page.getByText("2 files selected", { exact: true })).toBeVisible();
+  await fileInput.setInputFiles({
     name: "fabric-reference.png",
     mimeType: "image/png",
-    buffer: Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEElEQVQImWMQCaiAIwbiOABfgw3BWckaWgAAAABJRU5ErkJggg==",
-      "base64",
-    ),
+    buffer: imageBuffer,
   });
+  await expect(page.getByText("fabric-reference.png", { exact: true })).toBeVisible();
   await page
     .getByRole("button", { name: "Find Your Fabric Solution", exact: true })
     .click();

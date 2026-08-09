@@ -112,6 +112,107 @@ describe("minimal inquiry and CRM workflow", () => {
     await connection.close();
   });
 
+  it("normalizes valid country codes and preserves immutable repeat-Inquiry snapshots without overwriting Contact master data", async () => {
+    const connection = await createTestDatabase();
+    const notifier = new TestNotifier();
+    const firstInput = {
+      idempotencyKey: "country-inquiry-0001",
+      name: "Country Buyer",
+      email: "country-buyer@example.test",
+      countryCode: "cn",
+      description: "First country-code inquiry.",
+      sourcePagePath: "/get-quote/",
+    };
+
+    const first = await createInquiry(connection.db, notifier, firstInput);
+    const replay = await createInquiry(connection.db, notifier, {
+      ...firstInput,
+      countryCode: "CN",
+    });
+    const second = await createInquiry(connection.db, notifier, {
+      ...firstInput,
+      idempotencyKey: "country-inquiry-0002",
+      name: "Country Buyer Updated",
+      countryCode: "us",
+      description: "A later immutable submitted snapshot.",
+    });
+
+    expect(replay).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
+    expect(second.inquiryId).not.toBe(first.inquiryId);
+    expect(await connection.db.select({
+      countryCode: contacts.countryCode,
+      name: contacts.name,
+    }).from(contacts)).toEqual([
+      { countryCode: "CN", name: "Country Buyer" },
+    ]);
+
+    const snapshots = await connection.db
+      .select({
+        id: inquiries.id,
+        submittedCountryCode: inquiries.submittedCountryCode,
+        submittedName: inquiries.submittedName,
+      })
+      .from(inquiries);
+    expect(snapshots.find((row) => row.id === first.inquiryId)).toMatchObject({
+      submittedCountryCode: "CN",
+      submittedName: "Country Buyer",
+    });
+    expect(snapshots.find((row) => row.id === second.inquiryId)).toMatchObject({
+      submittedCountryCode: "US",
+      submittedName: "Country Buyer Updated",
+    });
+
+    const outboxRows = await connection.db
+      .select({ aggregateId: notificationOutbox.aggregateId, payload: notificationOutbox.payload })
+      .from(notificationOutbox);
+    expect(outboxRows.find((row) => row.aggregateId === first.inquiryId)?.payload)
+      .toMatchObject({ countryCode: "CN" });
+    expect(outboxRows.find((row) => row.aggregateId === second.inquiryId)?.payload)
+      .toMatchObject({ countryCode: "US" });
+    expect(notifier.notifications.map((notification) => notification.countryCode))
+      .toEqual(["CN", "US"]);
+    await connection.close();
+  });
+
+  it("allows an empty optional country and rejects invalid country text at the Domain Service boundary", async () => {
+    const connection = await createTestDatabase();
+    const notifier = new TestNotifier();
+    const empty = await createInquiry(connection.db, notifier, {
+      idempotencyKey: "empty-country-inquiry-0001",
+      name: "No Country Buyer",
+      email: "no-country@example.test",
+      countryCode: "   ",
+      description: "Country remains optional.",
+      sourcePagePath: "/get-quote/",
+    });
+
+    const emptyRows = await connection.db
+      .select({ submittedCountryCode: inquiries.submittedCountryCode })
+      .from(inquiries)
+      .where(eq(inquiries.id, empty.inquiryId));
+    expect(emptyRows[0]?.submittedCountryCode).toBeNull();
+
+    for (const [index, countryCode] of ["ZZ", "China", "C"].entries()) {
+      await expect(
+        createInquiry(connection.db, notifier, {
+          idempotencyKey: `invalid-country-inquiry-000${index + 1}`,
+          name: "Invalid Country Buyer",
+          email: `invalid-country-${index}@example.test`,
+          countryCode,
+          description: "This submission must fail before persistence.",
+          sourcePagePath: "/get-quote/",
+        }),
+      ).rejects.toThrow("Country must be a valid ISO 3166-1 alpha-2 code.");
+    }
+    expect(Number((await connection.db.select({ value: count() }).from(inquiries))[0]?.value))
+      .toBe(1);
+    expect(Number((await connection.db.select({ value: count() }).from(contacts))[0]?.value))
+      .toBe(1);
+    expect(Number((await connection.db.select({ value: count() }).from(notificationOutbox))[0]?.value))
+      .toBe(1);
+    await connection.close();
+  });
+
   it("records governed status history, activities, and first response time", async () => {
     const connection = await createTestDatabase();
     const notifier = new TestNotifier();

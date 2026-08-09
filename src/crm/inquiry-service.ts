@@ -23,6 +23,7 @@ import { normalizePath } from "@/seo/path";
 import { reserveInquiryUploadTokensInTransaction } from "@/uploads/upload-intent-service";
 
 import { requireInquiryRecordAccess } from "./authorization";
+import { normalizeOptionalCountryCode } from "./country-codes";
 
 type InquiryStatus = typeof inquiries.$inferSelect.status;
 
@@ -144,7 +145,7 @@ function canonicalInquiryInput(input: CreateInquiryInput) {
   return {
     name,
     email,
-    countryCode: normalizeOptionalText(input.countryCode),
+    countryCode: normalizeOptionalCountryCode(input.countryCode),
     whatsapp: normalizeOptionalText(input.whatsapp),
     description,
     sourcePagePath,

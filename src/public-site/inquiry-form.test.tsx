@@ -60,6 +60,93 @@ describe("Inquiry Form frozen retry identity", () => {
     trackPublicEvent.mockClear();
   });
 
+  it("offers code-valued English country options, uppercases valid codes, and blocks invalid text", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return jsonResponse({ ok: true, reference: "CWT-COUNTRY" }, 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<InquiryForm />);
+    const country = screen.getByLabelText("Country", { exact: true });
+    expect(country).toHaveAttribute("maxlength", "2");
+    expect(country).toHaveAttribute("list", "inquiry-country-options");
+    expect(document.querySelector('#inquiry-country-options option[value="CN"]'))
+      .toHaveAttribute("label", "China (CN)");
+    expect(screen.getByText("Select a country or enter its 2-letter code (optional)."))
+      .toBeVisible();
+
+    fireEvent.change(country, { target: { value: "China" } });
+    await waitFor(() => expect(country).not.toHaveValue("China"));
+    expect(country).toBeInvalid();
+
+    await user.clear(country);
+    await user.type(country, "cn");
+    expect(country).toHaveValue("CN");
+    expect(country).toBeValid();
+
+    await user.clear(country);
+    await user.type(country, "zz");
+    expect(country).toHaveValue("ZZ");
+    expect(country).toBeInvalid();
+    expect(screen.getByText("Country must be a valid ISO 3166-1 alpha-2 code."))
+      .toBeVisible();
+
+    await completeRequiredFields(user);
+    await user.type(
+      screen.getByLabelText("Describe what you need", { exact: true }),
+      "Country validation test.",
+    );
+    await user.click(screen.getByRole("button", { name: "Find Your Fabric Solution" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.clear(country);
+    await user.type(country, "cn");
+    await user.click(screen.getByRole("button", { name: "Find Your Fabric Solution" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Requirement received");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      countryCode: "CN",
+    });
+  });
+
+  it("keeps the custom English file chooser synchronized with the real FileList", async () => {
+    const user = userEvent.setup();
+    render(<InquiryForm />);
+
+    const fileInput = screen.getByLabelText("Upload fabric images", {
+      exact: true,
+    }) as HTMLInputElement;
+    const chooseFiles = screen.getByRole("button", { name: "Choose files" });
+    expect(chooseFiles).toHaveAttribute("type", "button");
+    expect(fileInput).toHaveClass("inquiry-file-input");
+    expect(screen.getByText("No files selected")).toHaveAttribute(
+      "aria-live",
+      "polite",
+    );
+    expect(document.body).not.toHaveTextContent("选择文件");
+    expect(document.body).not.toHaveTextContent("未选择任何文件");
+
+    await user.upload(
+      fileInput,
+      new File(["first"], "first-reference.png", { type: "image/png" }),
+    );
+    expect(fileInput.files).toHaveLength(1);
+    expect(screen.getByText("first-reference.png")).toBeVisible();
+
+    await user.upload(fileInput, [
+      new File(["first"], "first-reference.png", { type: "image/png" }),
+      new File(["second"], "second-reference.webp", { type: "image/webp" }),
+    ]);
+    expect(fileInput.files).toHaveLength(2);
+    expect(screen.getByText("2 files selected")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Clear files" }));
+    expect(fileInput.files).toHaveLength(0);
+    expect(screen.getByText("No files selected")).toBeVisible();
+  });
+
   it("replays the exact attachment request after response loss without another upload", async () => {
     const user = userEvent.setup();
     const inquiryBodies: string[] = [];
@@ -215,6 +302,9 @@ describe("Inquiry Form frozen retry identity", () => {
     );
     await user.click(screen.getByRole("button", { name: "Find Your Fabric Solution" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("could not be prepared");
+    expect(screen.getByText("retry.png")).toBeVisible();
+    expect((screen.getByLabelText("Upload fabric images", { exact: true }) as HTMLInputElement).files)
+      .toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Retry same submission" })).not.toBeInTheDocument();
     expect(inquiryRequests).toBe(0);
 

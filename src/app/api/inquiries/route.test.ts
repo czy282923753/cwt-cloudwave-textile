@@ -47,7 +47,7 @@ import { InquiryIdempotencyConflictError } from "@/crm/inquiry-service";
 
 import { POST } from "./route";
 
-function inquiryRequest() {
+function inquiryRequest(countryCode?: unknown) {
   const idempotencyKey = "11111111-1111-4111-8111-111111111111";
   return new Request("http://localhost:3000/api/inquiries/", {
     method: "POST",
@@ -60,6 +60,7 @@ function inquiryRequest() {
     body: JSON.stringify({
       name: "Test Buyer",
       email: "buyer@example.test",
+      ...(countryCode === undefined ? {} : { countryCode }),
       description: "Please match this fabric.",
       uploadTokens: [],
       sourcePagePath: "/get-quote/",
@@ -73,7 +74,42 @@ function inquiryRequest() {
 describe("public Inquiry Idempotency responses", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createInquiry.mockReset();
   });
+
+  it.each([
+    ["cn", "CN"],
+    ["", null],
+    [null, null],
+  ])("normalizes valid optional country input %j to %j", async (input, expected) => {
+    mocks.createInquiry.mockResolvedValue({
+      inquiryId: "33333333-3333-4333-8333-333333333333",
+      publicReference: "CWT-COUNTRY-CODE",
+      replayed: false,
+    });
+
+    const response = await POST(inquiryRequest(input));
+
+    expect(response.status).toBe(201);
+    expect(mocks.createInquiry).toHaveBeenCalledTimes(1);
+    expect(mocks.createInquiry.mock.calls[0]?.[2]).toMatchObject({
+      countryCode: expected,
+    });
+  });
+
+  it.each(["ZZ", "China", "C"])(
+    "rejects invalid country input %s before the Domain Service",
+    async (countryCode) => {
+      const response = await POST(inquiryRequest(countryCode));
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        error: "Country must be a valid ISO 3166-1 alpha-2 code.",
+      });
+      expect(mocks.createInquiry).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns a stable 409 without exposing the original request", async () => {
     mocks.createInquiry.mockRejectedValue(new InquiryIdempotencyConflictError());

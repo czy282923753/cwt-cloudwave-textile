@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
+import { isIsoAlpha2CountryCode } from "@/crm/country-codes";
 import { notificationOutbox } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 
@@ -12,7 +13,7 @@ export const inquiryNotificationPayloadSchema = z.object({
   inquiryId: z.uuid(),
   name: z.string().min(1),
   email: z.email(),
-  countryCode: z.string().nullable().optional(),
+  countryCode: z.string().refine(isIsoAlpha2CountryCode).nullable().optional(),
   whatsapp: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   attachmentCount: z.number().int().min(0),

@@ -244,6 +244,28 @@ summary {
   color: var(--cwt-body);
 }
 
+.form-field .inquiry-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  opacity: 0;
+  padding: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.inquiry-file-picker {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .form-field input:hover,
 .form-field textarea:hover,
 .form-field select:hover {
@@ -288,6 +310,13 @@ summary {
   display: block;
   width: auto;
   height: 2rem;
+}
+
+.desktop-actions {
+  display: none;
+  min-width: 0;
+  align-items: center;
+  gap: 2rem;
 }
 
 .desktop-navigation {
@@ -605,6 +634,7 @@ summary {
 }
 
 @media (min-width: 1024px) {
+  .desktop-actions,
   .desktop-navigation,
   .header-cta {
     display: flex;

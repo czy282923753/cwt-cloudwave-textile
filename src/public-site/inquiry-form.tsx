@@ -3,9 +3,43 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import {
+  COUNTRY_CODE_ERROR_MESSAGE,
+  COUNTRY_OPTIONS,
+  isIsoAlpha2CountryCode,
+  normalizeOptionalCountryCode,
+} from "@/crm/country-codes";
+
 import { captureAttribution, trackPublicEvent } from "./tracking";
 
 const INQUIRY_SUBMIT_TIMEOUT_MS = 20_000;
+const MAX_VISIBLE_FILE_NAME_LENGTH = 72;
+
+interface FileSelection {
+  count: number;
+  status: string;
+}
+
+const EMPTY_FILE_SELECTION: FileSelection = {
+  count: 0,
+  status: "No files selected",
+};
+
+function safeVisibleFileName(name: string): string {
+  const leafName = name.split(/[\\/]/).at(-1)?.replace(/[\u0000-\u001F\u007F]/g, "").trim();
+  const safeName = leafName || "Selected file";
+  if (safeName.length <= MAX_VISIBLE_FILE_NAME_LENGTH) return safeName;
+  return `${safeName.slice(0, 48)}…${safeName.slice(-20)}`;
+}
+
+function fileSelectionFrom(input: HTMLInputElement): FileSelection {
+  const files = Array.from(input.files ?? []);
+  if (files.length === 0) return EMPTY_FILE_SELECTION;
+  if (files.length === 1) {
+    return { count: 1, status: safeVisibleFileName(files[0]!.name) };
+  }
+  return { count: files.length, status: `${files.length} files selected` };
+}
 
 interface InquiryDraft {
   name: string;
@@ -78,6 +112,8 @@ export function InquiryForm({
   const pathname = usePathname();
   const frozenAttempt = useRef<FrozenInquiryAttempt | null>(null);
   const operationInFlight = useRef(false);
+  const rejectedCountryText = useRef(false);
+  const countryInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<InquiryDraft>({
@@ -89,6 +125,10 @@ export function InquiryForm({
     website: "",
   });
   const [state, setState] = useState<InquiryFormState>({ kind: "draft" });
+  const [countryError, setCountryError] = useState<string | null>(null);
+  const [fileSelection, setFileSelection] = useState<FileSelection>(
+    EMPTY_FILE_SELECTION,
+  );
 
   useEffect(() => {
     if (state.kind === "uncertain" || state.kind === "definitive_error") {
@@ -98,6 +138,32 @@ export function InquiryForm({
 
   const updateDraft = (field: keyof InquiryDraft, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateCountryCode = (input: HTMLInputElement) => {
+    const value = input.value.toUpperCase();
+    const invalid = value.length > 2 || (value !== "" && !isIsoAlpha2CountryCode(value));
+    const message = invalid ? COUNTRY_CODE_ERROR_MESSAGE : "";
+    rejectedCountryText.current = value.length > 2;
+    input.setCustomValidity(message);
+    setCountryError(message || null);
+    if (value.length <= 2) updateDraft("countryCode", value);
+  };
+
+  const rejectCountryText = (input: HTMLInputElement) => {
+    rejectedCountryText.current = true;
+    input.setCustomValidity(COUNTRY_CODE_ERROR_MESSAGE);
+    setCountryError(COUNTRY_CODE_ERROR_MESSAGE);
+  };
+
+  const syncFileSelection = (input: HTMLInputElement) => {
+    setFileSelection(fileSelectionFrom(input));
+  };
+
+  const clearFiles = () => {
+    if (!fileInput.current) return;
+    fileInput.current.value = "";
+    syncFileSelection(fileInput.current);
   };
 
   async function sendFrozenAttempt(attempt: FrozenInquiryAttempt): Promise<void> {
@@ -176,6 +242,21 @@ export function InquiryForm({
   async function submitDraft(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (operationInFlight.current || frozenAttempt.current) return;
+    if (rejectedCountryText.current) {
+      countryInput.current?.setCustomValidity(COUNTRY_CODE_ERROR_MESSAGE);
+      setCountryError(COUNTRY_CODE_ERROR_MESSAGE);
+      countryInput.current?.reportValidity();
+      return;
+    }
+    let countryCode: string | null;
+    try {
+      countryCode = normalizeOptionalCountryCode(draft.countryCode);
+    } catch {
+      countryInput.current?.setCustomValidity(COUNTRY_CODE_ERROR_MESSAGE);
+      setCountryError(COUNTRY_CODE_ERROR_MESSAGE);
+      countryInput.current?.reportValidity();
+      return;
+    }
     operationInFlight.current = true;
     setState({ kind: "uploading" });
     const attribution = captureAttribution();
@@ -223,11 +304,11 @@ export function InquiryForm({
       }
 
       const attempt: FrozenInquiryAttempt = {
-        attachmentNames: files.map((file) => file.name),
+        attachmentNames: files.map((file) => safeVisibleFileName(file.name)),
         payload: {
           name: draft.name,
           email: draft.email,
-          countryCode: draft.countryCode || null,
+          countryCode,
           whatsapp: draft.whatsapp || null,
           description: draft.description || null,
           uploadTokens,
@@ -327,17 +408,65 @@ export function InquiryForm({
               value={draft.email}
             />
           </label>
-          <label className="form-field">
-            Country
+          <div className="form-field">
+            <label htmlFor="inquiry-country">Country</label>
             <input
-              autoComplete="country"
+              aria-describedby={`inquiry-country-help${countryError ? " inquiry-country-error" : ""}`}
+              aria-invalid={countryError ? true : undefined}
+              autoCapitalize="characters"
+              autoComplete="off"
+              id="inquiry-country"
+              list="inquiry-country-options"
               maxLength={2}
               name="countryCode"
-              onChange={(event) => updateDraft("countryCode", event.currentTarget.value)}
-              placeholder="Country code, optional"
+              onBeforeInput={(event) => {
+                const input = event.currentTarget;
+                const inserted = (event.nativeEvent as InputEvent).data ?? "";
+                const selectedLength =
+                  Math.max(0, (input.selectionEnd ?? 0) - (input.selectionStart ?? 0));
+                if (input.value.length - selectedLength + inserted.length > 2) {
+                  event.preventDefault();
+                  rejectCountryText(input);
+                }
+              }}
+              onBlur={(event) => {
+                if (rejectedCountryText.current) {
+                  rejectCountryText(event.currentTarget);
+                  return;
+                }
+                updateCountryCode(event.currentTarget);
+              }}
+              onChange={(event) => updateCountryCode(event.currentTarget)}
+              onPaste={(event) => {
+                if (event.clipboardData.getData("text").trim().length > 2) {
+                  event.preventDefault();
+                  rejectCountryText(event.currentTarget);
+                }
+              }}
+              pattern="[A-Za-z]{2}"
+              placeholder="Select or enter code"
+              ref={countryInput}
+              spellCheck={false}
               value={draft.countryCode}
             />
-          </label>
+            <datalist id="inquiry-country-options">
+              {COUNTRY_OPTIONS.map((country) => (
+                <option
+                  key={country.code}
+                  label={`${country.name} (${country.code})`}
+                  value={country.code}
+                />
+              ))}
+            </datalist>
+            <span className="text-xs font-normal text-[#586B73]" id="inquiry-country-help">
+              Select a country or enter its 2-letter code (optional).
+            </span>
+            {countryError ? (
+              <span className="text-xs font-normal text-red-700" id="inquiry-country-error">
+                {countryError}
+              </span>
+            ) : null}
+          </div>
           <label className="form-field">
             WhatsApp
             <input
@@ -363,11 +492,13 @@ export function InquiryForm({
           <label htmlFor="inquiry-images">Upload fabric images</label>
           <input
             accept="image/jpeg,image/png,image/webp"
-            aria-describedby="inquiry-images-help"
+            aria-describedby="inquiry-images-help inquiry-images-status"
+            className="inquiry-file-input"
             id="inquiry-images"
             multiple
             name="images"
             onChange={(event) => {
+              syncFileSelection(event.currentTarget);
               if (event.currentTarget.files?.length) {
                 trackPublicEvent("upload_started", pathname, {
                   file_count: event.currentTarget.files.length,
@@ -375,8 +506,37 @@ export function InquiryForm({
               }
             }}
             ref={fileInput}
+            tabIndex={-1}
             type="file"
           />
+          <div className="inquiry-file-picker">
+            <button
+              aria-controls="inquiry-images"
+              aria-describedby="inquiry-images-help inquiry-images-status"
+              className="button-secondary"
+              onClick={() => fileInput.current?.click()}
+              type="button"
+            >
+              Choose files
+            </button>
+            <span
+              aria-live="polite"
+              className="min-w-0 text-sm font-normal text-[#586B73]"
+              data-file-selection-status="true"
+              id="inquiry-images-status"
+            >
+              {fileSelection.status}
+            </span>
+            {fileSelection.count > 0 ? (
+              <button
+                className="text-link text-sm"
+                onClick={clearFiles}
+                type="button"
+              >
+                Clear files
+              </button>
+            ) : null}
+          </div>
           <span className="text-xs font-normal text-[#586B73]" id="inquiry-images-help">
             JPG, PNG or WebP. Files remain private and use expiring access.
           </span>

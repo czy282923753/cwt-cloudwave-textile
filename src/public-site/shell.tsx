@@ -13,7 +13,6 @@ const resources = [
 ] as const;
 
 const primaryLinks = [
-  ["Home", "/"],
   ["Products", "/products/"],
   ["Applications", "/applications/"],
   ["Fabric Library", "/fabric-library/"],
@@ -46,40 +45,42 @@ export function PublicHeader() {
           <OfficialLogo />
         </Link>
 
-        <nav aria-label="Primary" className="desktop-navigation">
-          {primaryLinks.map(([label, href]) => (
-            <Link className="desktop-navigation__link" href={href} key={href}>
-              {label}
-            </Link>
-          ))}
-          <div className="desktop-resources">
-            <Link
-              aria-haspopup="true"
-              className="desktop-navigation__link"
-              href="/resources/"
-            >
-              Fabric &amp; Sourcing
-            </Link>
-            <nav
-              aria-label="Fabric and sourcing resources"
-              className="desktop-resources__menu"
-            >
-              {resources.map(([label, href]) => (
-                <Link href={href} key={href}>{label}</Link>
-              ))}
-            </nav>
-          </div>
-          <Link className="desktop-navigation__link" href="/about/">About CWT</Link>
-        </nav>
+        <div className="desktop-actions">
+          <nav aria-label="Primary" className="desktop-navigation">
+            {primaryLinks.map(([label, href]) => (
+              <Link className="desktop-navigation__link" href={href} key={href}>
+                {label}
+              </Link>
+            ))}
+            <div className="desktop-resources">
+              <Link
+                aria-haspopup="true"
+                className="desktop-navigation__link"
+                href="/resources/"
+              >
+                Fabric &amp; Sourcing
+              </Link>
+              <nav
+                aria-label="Fabric and sourcing resources"
+                className="desktop-resources__menu"
+              >
+                {resources.map(([label, href]) => (
+                  <Link href={href} key={href}>{label}</Link>
+                ))}
+              </nav>
+            </div>
+            <Link className="desktop-navigation__link" href="/about/">About CWT</Link>
+          </nav>
 
-        <TrackedLink
-          className="button-primary header-cta"
-          eventName="quote_cta_click"
-          href="/get-quote/"
-          placement="header"
-        >
-          Get a Quote
-        </TrackedLink>
+          <TrackedLink
+            className="button-primary header-cta"
+            eventName="quote_cta_click"
+            href="/get-quote/"
+            placement="header"
+          >
+            Get a Quote
+          </TrackedLink>
+        </div>
 
         <details className="mobile-navigation">
           <summary>

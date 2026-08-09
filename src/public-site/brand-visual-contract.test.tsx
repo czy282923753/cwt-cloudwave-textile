@@ -36,6 +36,18 @@ describe("Version B brand visual contract", () => {
     expect(shell).not.toContain(">CW</span>");
   });
 
+  it("keeps Home on the official Logo and groups desktop navigation with its CTA", () => {
+    const shell = readFileSync(join(root, "src/public-site/shell.tsx"), "utf8");
+    const css = readFileSync(join(root, "src/app/globals.css"), "utf8");
+    const primaryLinks = shell.match(/const primaryLinks = \[([\s\S]*?)\] as const;/)?.[1];
+
+    expect(primaryLinks).toBeDefined();
+    expect(primaryLinks).not.toContain('"Home"');
+    expect(shell).toContain('aria-label="CloudWave Textile home"');
+    expect(shell).toContain('className="desktop-actions"');
+    expect(css).toMatch(/\.desktop-actions\s*\{[^}]*gap:\s*2rem;/s);
+  });
+
   it("uses the frozen palette with accessible normal-text pairings", () => {
     const css = readFileSync(join(root, "src/app/globals.css"), "utf8").toLowerCase();
     for (const color of ["#2f6e97", "#04aaa0", "#062e39", "#eaf4f5", "#586b73", "#087b76"]) {

@@ -14,6 +14,10 @@ import {
   createInquiry,
   InquiryIdempotencyConflictError,
 } from "@/crm/inquiry-service";
+import {
+  COUNTRY_CODE_ERROR_MESSAGE,
+  normalizeOptionalCountryCode,
+} from "@/crm/country-codes";
 import { databaseConnection } from "@/db/client";
 import type { AppDatabase } from "@/db/types";
 import { createEmailNotifier } from "@/integrations/email";
@@ -68,6 +72,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     }
     const input = inputSchema.parse(await request.json());
+    const countryCode = normalizeOptionalCountryCode(input.countryCode);
     const consentSessionId = consentSessionIdFromRequest(request);
     const persistedConsent = await withDatabase((db) =>
       findPersistedConsent(db, consentSessionId),
@@ -96,7 +101,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       createInquiry(db, createEmailNotifier(), {
         name: input.name,
         email: input.email,
-        countryCode: input.countryCode || null,
+        countryCode,
         whatsapp: input.whatsapp || null,
         description: input.description || null,
         uploadTokens: input.uploadTokens,
@@ -161,6 +166,20 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: submission.replayed ? 200 : 201 },
     );
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      const hasCountryIssue = error.issues.some(
+        (issue) => issue.path[0] === "countryCode",
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: hasCountryIssue
+            ? COUNTRY_CODE_ERROR_MESSAGE
+            : "Inquiry details are invalid.",
+        },
+        { status: 400 },
+      );
+    }
     if (error instanceof InquiryIdempotencyConflictError) {
       return NextResponse.json(
         {
@@ -172,7 +191,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
     const raw = error instanceof Error ? error.message : "";
-    const safe = /Name and Email|required|description|upload|Intent|Session|Idempotency|size|limit/i.test(raw)
+    const safe = /Name and Email|required|description|upload|Intent|Session|Idempotency|Country|size|limit/i.test(raw)
       ? raw
       : "Inquiry could not be submitted. Please try again.";
     process.stderr.write(`[inquiry-error] request ${requestId}; details omitted.\n`);
