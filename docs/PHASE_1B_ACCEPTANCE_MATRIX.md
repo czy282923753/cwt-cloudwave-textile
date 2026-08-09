@@ -1,6 +1,6 @@
 # CWT Phase 1B acceptance matrix
 
-Status: **Stage 4A P1-02A development authorized on 2026-08-10; all other Stage and external-action gates remain separate**
+Status: **Stage 4A Phase A accepted / PASS; Phase B entry prepared but not started; all other Stage and external-action gates remain separate**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Matrix date: **2026-08-05**
 
@@ -10,7 +10,7 @@ This matrix translates the approved Phase 1B frozen decisions into testable rele
 
 Current authorization is recorded in the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md). DeepSeek `PD-04` through `PD-07` are non-blocking reference evaluations under that decision; their unresolved evidence is not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized.
 
-The current [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md) is an Integration Candidate only. Phase A final acceptance and Phase B remain pending an independent Phase A Completion Review.
+The exact Integration HEAD `717cbac284350ec23f786ee239a354085ee0d827` passed the [Independent Phase A Completion Review](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md) and is accepted by the Project Coordinator in the [Phase A Acceptance and Phase B Entry record](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md). Phase A is **ACCEPTED / PASS**. Phase B is eligible to begin only through a separate task; the entry baseline does not start or implement it. The complete Stage 4A checkpoint still requires later Owner acceptance.
 
 Execution-state labels in this matrix are separate from the Discovery gap-status labels:
 
@@ -291,4 +291,4 @@ For each future Stage, retain:
 - formal Product/Company/media approval records;
 - known limitations, rollback boundary, and explicit stop/go decision.
 
-This matrix does not itself grant authority. The separate Owner record authorizes bounded Stage 4A P1-02A development and Phase A Migration work only. No row authorizes Provider calls, credentials, external configuration, Staging/Production deployment, Production data, Production AI, Deploy, Publish, Index, formal import, or Push.
+This matrix does not itself grant authority. The separate Owner record authorizes bounded Stage 4A P1-02A development, and the Phase A acceptance record closes only the exact Phase A sub-gate. No row authorizes Provider calls, credentials, external configuration, Staging/Production deployment, Production data, Production AI, Deploy, Publish, Index, formal import, or Push.

@@ -1,12 +1,12 @@
 # ADR-0018: Provider-Agnostic AI Service and Model Configuration
 
-Status: **Accepted by the project owner for Phase 1B Stage 4 architecture on 2026-08-10. P1-02A development is authorized by a separate Owner decision; this ADR alone grants no external-action authority.**
+Status: **Accepted by the project owner for Phase 1B Stage 4 architecture on 2026-08-10. P1-02A development is authorized by a separate Owner decision; Phase A is accepted / PASS and the Phase B entry is prepared but not started. This ADR alone grants no external-action authority.**
 
 Decision source: the project owner's final decisions after review of `CWT Phase 1B Stage 4 AI Entry Decision Package V2.0`, the proposed ADR-0018, the CWT RAG capability audit, and the [Stage 4A Pre-Development Final Review](../PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md).  
 Frozen input baseline: `31c0e405acfdd0d05200d0fb2531e897a541a2c4`  
 Frozen tag preserved: `phase-1b-stage3-approved-2026-08-09`
 
-This is a post-Stage-3 architecture decision. It does not move or rewrite the frozen commit or tag. ADR acceptance originally approved architecture and planning only. The later [Stage 4A Owner Development Authorization](../PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) authorizes bounded P1-02A development and `0020` Phase A work without changing this ADR. Provider configuration/calls, credentials, Staging/Production deployment, Production AI, Deploy, formal data import, Publish, and Index remain separately unauthorized.
+This is a post-Stage-3 architecture decision. It does not move or rewrite the frozen commit or tag. ADR acceptance originally approved architecture and planning only. The later [Stage 4A Owner Development Authorization](../PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) authorizes bounded P1-02A development without changing this ADR. Exact `0020` Phase A later passed independent Completion Review and was accepted by the Project Coordinator in the [Phase A Acceptance and Phase B Entry record](../PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md). Phase B is eligible only through a separate task and is not started by that entry record. Provider configuration/calls, credentials, Staging/Production deployment, Production AI, Deploy, formal data import, Publish, and Index remain separately unauthorized.
 
 ## Context
 
@@ -413,7 +413,7 @@ There is no public URL, Sitemap, Canonical, Redirect, or Index change. Model con
 
 1. Record ADR-0018 and the Stage 4A design freeze as accepted.
 2. Record the separate Owner decision that accepts the current supplier-information risk, makes `PD-04` through `PD-07` non-blocking references, and authorizes P1-02A development.
-3. Implement each sequential phase only after its preceding independent gate; Phase A covers the disabled-first `0020` foundation and has no Provider call.
+3. Preserve the accepted disabled-first `0020` Phase A foundation; begin Phase B only through a separate Provider-neutral Foundation design/Complex Task Analysis task, then implement each later sequential phase only after its preceding independent gate.
 4. Keep DeepSeek enterprise evidence as reference material without treating it as an automatic implementation/release blocker.
 5. Require a separate authorization before any Provider credential, API call, spend, or protected Staging deployment.
 6. Complete the applicable independent review, Fresh Acceptance, and Version Manager gates before any Stage 4 completion claim.
@@ -478,5 +478,7 @@ Stage 4A design freeze (`DF-01`–`DF-06`): **PASS / CONFIRMED — 2026-08-10**
 `PD-09`: **CLOSED — OWNER-APPROVED STAGING BUDGET DESIGN**  
 `PD-10`: **NO LONGER A PRE-DEVELOPMENT BLOCKING GATE**  
 `PD-11`: **CLOSED — CONTRACT ONLY**  
-Phase A: **INTEGRATION CANDIDATE PREPARED / INDEPENDENT COMPLETION REVIEW PENDING**  
+Phase A: **ACCEPTED / PASS — EXACT INTEGRATION HEAD `717cbac284350ec23f786ee239a354085ee0d827`**<br>
+Phase B: **ENTRY PREPARED / ELIGIBLE THROUGH A SEPARATE TASK / NOT STARTED OR IMPLEMENTED**<br>
+Stage 4A final checkpoint: **NOT YET ACCEPTED BY THE PROJECT OWNER**<br>
 Deploy/Publish/Index/formal import: **NOT AUTHORIZED**

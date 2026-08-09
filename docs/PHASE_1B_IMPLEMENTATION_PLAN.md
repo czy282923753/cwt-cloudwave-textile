@@ -1,6 +1,6 @@
 # CWT Phase 1B implementation plan
 
-Status: **Stage 4A P1-02A development authorized on 2026-08-10; other Stages and external actions remain separately gated**
+Status: **Stage 4A Phase A accepted / PASS; Phase B entry prepared but not started; other Stages and external actions remain separately gated**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Plan date: **2026-08-05**
 
@@ -390,7 +390,7 @@ Rollback boundary: feature flag defaults off; applied Drafts/Assets remain ordin
 
 Current scope: P1-02A text Draft assistance only. P1-02B visual AI and AI Customer Service are deferred outside current Stage 4. Complete RAG is excluded and requires a future ADR.
 
-Inputs: Stage 2 Blocks, accepted ADR-0017/ADR-0018, the owner-confirmed [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), the [Stage 4A Pre-Development Implementation Plan](./PHASE_1B_STAGE4_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN.md), the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md), reviewed `0020`, the closed PD-09 budget, and the Synthetic fixture/quality contract. DeepSeek `PD-04` through `PD-07` remain non-blocking reference evaluations; a Provider API call, credentials, or Staging deployment still requires separate authorization.
+Inputs: Stage 2 Blocks, accepted ADR-0017/ADR-0018, the owner-confirmed [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), the [Stage 4A Pre-Development Implementation Plan](./PHASE_1B_STAGE4_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN.md), the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md), the [Independent Phase A Completion Review](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md), the [Phase A Acceptance and Phase B Entry record](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md), accepted `0020`, the closed PD-09 budget, and the Synthetic fixture/quality contract. DeepSeek `PD-04` through `PD-07` remain non-blocking reference evaluations; a Provider API call, credentials, or Staging deployment still requires separate authorization.
 
 Outputs:
 
@@ -431,7 +431,7 @@ Stop conditions: a Provider response can modify truth fields, Production SEO or 
 
 Provider disposition: DeepSeek is selected but disabled-first, `DF-01`–`DF-06` are frozen, the Synthetic/evaluation contract is complete, the Stage 4A Staging budget is Owner-approved, and the enterprise evidence questionnaire has been submitted. The Owner has accepted the incomplete supplier-information risk and made `PD-04` through `PD-07` non-blocking references. Development is authorized, but Provider/API calls, credentials, spend, Staging deployment, and Production remain separately unauthorized. Any later protected Staging run requires an explicit external-action authorization and does not authorize Production.
 
-Phase A current state: the exact `0020` Candidate is preserved through a non-fast-forward integration merge, its two independent reports and 19-item evidence set are incorporated by exact identity, and Low `L-01` is addressed by a documentation/oracle Erratum. See the [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md). Phase A final acceptance and Phase B remain pending an independent Phase A Completion Review.
+Phase A current state: **ACCEPTED / PASS** for exact Integration HEAD `717cbac284350ec23f786ee239a354085ee0d827`. The exact `0020` Candidate is preserved through the non-fast-forward integration merge; the independent Completion Review reports zero Blocker/High/Medium/Low findings; Low `L-01` is closed by the Erratum; and non-blocking External Validation `EV-01` remains deferred. See the [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md), [Independent Completion Review](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md), and [Phase A Acceptance and Phase B Entry record](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md). Phase B is eligible to begin only through a separate Provider-neutral Foundation design/Complex Task Analysis task; it is not started or implemented by the entry baseline. The complete Stage 4A checkpoint still requires later Owner acceptance.
 
 Complexity: Very High.
 
@@ -577,7 +577,7 @@ Rollback boundary: import batches remain traceable; unpublished/noindex records 
 | [ADR-0015 — Versioned Structured Block Document](./adr/ADR-0015-versioned-structured-block-document.md) | Accepted 2026-08-05; not implemented | One Block writer, deterministic Paragraph backfill, existing Revision, bounded legacy-field exit. |
 | [ADR-0016 — Product Import Durable Authority](./adr/ADR-0016-product-import-durable-authority.md) | Accepted 2026-08-05; not implemented | Two import orchestration tables; existing Upload/Finalize/Product/Asset/Revision authorities. |
 | [ADR-0017 — AI Run Work and Provenance Authority](./adr/ADR-0017-ai-run-work-and-provenance-authority.md) | Accepted 2026-08-05; not implemented | One Run/work authority; cloud-only, Draft-only, no private Inquiry or public-state capability. |
-| [ADR-0018 — Provider-Agnostic AI Service and Model Configuration](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md) | Accepted and Stage 4A design-frozen 2026-08-10; P1-02A development later authorized | One AI Service Layer; configurable Provider/model/use case/Prompt; canonical run lifecycle; Draft/role/data/Staging/quality boundaries; DeepSeek text default; no current fallback, RAG, vision, or Customer Service. |
+| [ADR-0018 — Provider-Agnostic AI Service and Model Configuration](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md) | Accepted and Stage 4A design-frozen 2026-08-10; P1-02A development authorized; Phase A accepted / PASS and Phase B entry prepared | One AI Service Layer; configurable Provider/model/use case/Prompt; canonical run lifecycle; Draft/role/data/Staging/quality boundaries; DeepSeek text default; no current fallback, RAG, vision, or Customer Service. |
 
 Acceptance of an ADR approves architecture and planning only. The separate Stage 4A Owner record now authorizes bounded P1-02A code and `0020` Migration work. Other forward Migrations, Provider configuration/calls, credentials, formal data, deployment, Publish, and Index still require later explicit authorization.
 
@@ -625,4 +625,4 @@ These values follow the approved policy in [Owner Decisions](./PHASE_1B_OWNER_DE
 
 ## 14. Final planning stop
 
-This original plan began as a pre-implementation artifact. The later Stage 4A Owner record supersedes that planning stop only for bounded P1-02A development and the sequential `0020` Phase A work. It does not authorize another Phase 1B Stage, Provider/API calls, credentials, external account mutation, Staging/Production deployment, Production AI, formal data import, Publish, Index, or Push. Each later Stage 4A phase still begins only after its preceding independent gate.
+This original plan began as a pre-implementation artifact. The later Stage 4A Owner record supersedes that planning stop only for bounded P1-02A development. Exact `0020` Phase A is now accepted / PASS, and its Phase B entry baseline is prepared. Phase B still begins only through a separate task, starting with the Provider-neutral Foundation's precise design and Complex Task Analysis. This state does not authorize another Phase 1B Stage, Provider/API calls, credentials, external account mutation, Staging/Production deployment, Production AI, formal data import, Publish, Index, or Push. Each later Stage 4A phase still begins only after its preceding independent gate.
