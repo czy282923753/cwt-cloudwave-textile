@@ -25,6 +25,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:seed:fixtures": "tsx scripts/seed-fixtures.ts",
     "db:verify": "tsx scripts/verify-database.ts",
+    "db:verify:ai-foundation-candidate": "tsx scripts/verify-ai-foundation-candidate.ts",
     "db:validate:postgres": "tsx scripts/verify-postgres-round2.ts",
     "assets:rescan-legacy": "tsx scripts/rescan-legacy-assets.ts",
     "retention:preview": "tsx scripts/enforce-retention.ts",
