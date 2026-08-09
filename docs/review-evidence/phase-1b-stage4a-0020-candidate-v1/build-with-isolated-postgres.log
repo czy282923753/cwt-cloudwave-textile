@@ -1,0 +1,97 @@
+$ next build
+▲ Next.js 16.2.12 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 4.0s
+  Running TypeScript ...
+  Finished TypeScript in 8.7s ...
+  Collecting page data using 9 workers ...
+  Generating static pages using 9 workers (0/43) ...
+  Generating static pages using 9 workers (10/43) 
+  Generating static pages using 9 workers (21/43) 
+  Generating static pages using 9 workers (32/43) 
+✓ Generating static pages using 9 workers (43/43) in 246ms
+  Finalizing page optimization ...
+
+Route (app)                                                      Revalidate  Expire
+┌ ○ /                                                                    1h      1y
+├ ○ /_not-found
+├ ○ /about
+├ ƒ /admin
+├ ƒ /admin/applications
+├ ƒ /admin/applications/[id]
+├ ƒ /admin/assets
+├ ƒ /admin/assets/[id]
+├ ƒ /admin/audit
+├ ƒ /admin/authors
+├ ƒ /admin/company-facts
+├ ƒ /admin/company-facts/[id]
+├ ƒ /admin/contacts
+├ ƒ /admin/contents
+├ ƒ /admin/contents/[id]
+├ ƒ /admin/fabric-library
+├ ƒ /admin/fabric-library/[id]
+├ ƒ /admin/inquiries
+├ ƒ /admin/inquiries/[id]
+├ ƒ /admin/preview/content/[id]
+├ ƒ /admin/preview/product/[id]
+├ ƒ /admin/preview/site/[pageKey]
+├ ƒ /admin/product-imports
+├ ƒ /admin/product-imports/[batchId]
+├ ƒ /admin/products
+├ ƒ /admin/products/[id]
+├ ƒ /admin/products/new
+├ ƒ /admin/refine-check
+├ ƒ /admin/seo
+├ ƒ /admin/settings
+├ ƒ /admin/site/[pageKey]
+├ ƒ /admin/taxonomy
+├ ƒ /api/admin/preview-assets/[entityType]/[entityId]/[assetId]
+├ ƒ /api/admin/product-imports
+├ ƒ /api/admin/product-imports/[batchId]/apply
+├ ƒ /api/admin/product-imports/[batchId]/cancel
+├ ƒ /api/admin/product-imports/[batchId]/errors
+├ ƒ /api/admin/product-imports/[batchId]/items/[itemId]/correct
+├ ƒ /api/admin/product-imports/[batchId]/retry
+├ ƒ /api/admin/product-imports/[batchId]/uploads
+├ ƒ /api/admin/product-imports/[batchId]/validate
+├ ƒ /api/admin/product-imports/template
+├ ƒ /api/admin/upload-batches/[batchId]/finalize
+├ ƒ /api/admin/upload-intents
+├ ƒ /api/admin/upload-intents/[token]
+├ ƒ /api/analytics-consent
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/conversion-events
+├ ƒ /api/inquiries
+├ ƒ /api/inquiry-assets/[assetId]
+├ ƒ /api/public-assets/[assetId]
+├ ƒ /api/storage/[partition]/[...objectKey]
+├ ƒ /api/upload-intents
+├ ƒ /api/upload-intents/[token]
+├ ○ /applications                                                        1h      1y
+├ ƒ /applications/[slug]
+├ ○ /china-sourcing-guide                                                1h      1y
+├ ƒ /china-sourcing-guide/[slug]
+├ ○ /china-textile-guide                                                 1h      1y
+├ ƒ /china-textile-guide/[slug]
+├ ○ /fabric-knowledge                                                    1h      1y
+├ ƒ /fabric-knowledge/[slug]
+├ ƒ /fabric-library
+├ ƒ /fabric-library/[slug]
+├ ƒ /fabric-types/[slug]
+├ ƒ /get-quote
+├ ƒ /operations-login
+├ ○ /privacy
+├ ƒ /products
+├ ƒ /products/[slug]
+├ ○ /resources
+├ ○ /robots.txt
+└ ○ /sitemap.xml                                                         1h      1y
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

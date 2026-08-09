@@ -431,6 +431,8 @@ Stop conditions: a Provider response can modify truth fields, Production SEO or 
 
 Provider disposition: DeepSeek is selected but disabled-first, `DF-01`–`DF-06` are frozen, the Synthetic/evaluation contract is complete, the Stage 4A Staging budget is Owner-approved, and the enterprise evidence questionnaire has been submitted. The Owner has accepted the incomplete supplier-information risk and made `PD-04` through `PD-07` non-blocking references. Development is authorized, but Provider/API calls, credentials, spend, Staging deployment, and Production remain separately unauthorized. Any later protected Staging run requires an explicit external-action authorization and does not authorize Production.
 
+Phase A current state: the exact `0020` Candidate is preserved through a non-fast-forward integration merge, its two independent reports and 19-item evidence set are incorporated by exact identity, and Low `L-01` is addressed by a documentation/oracle Erratum. See the [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md). Phase A final acceptance and Phase B remain pending an independent Phase A Completion Review.
+
 Complexity: Very High.
 
 Rollback boundary: feature flag off leaves manual editor and existing Drafts intact; AI Runs remain historical evidence.

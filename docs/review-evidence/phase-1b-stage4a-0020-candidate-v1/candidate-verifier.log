@@ -1,0 +1,2 @@
+$ tsx scripts/verify-ai-foundation-candidate.ts
+AI foundation candidate verification passed: approved design identity, 40 historical artifacts, journal append, exact columns/defaults/nullability/types, constraints, indexes, and scope.

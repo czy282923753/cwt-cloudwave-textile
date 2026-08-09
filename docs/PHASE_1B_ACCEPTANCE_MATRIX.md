@@ -10,6 +10,8 @@ This matrix translates the approved Phase 1B frozen decisions into testable rele
 
 Current authorization is recorded in the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md). DeepSeek `PD-04` through `PD-07` are non-blocking reference evaluations under that decision; their unresolved evidence is not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized.
 
+The current [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md) is an Integration Candidate only. Phase A final acceptance and Phase B remain pending an independent Phase A Completion Review.
+
 Execution-state labels in this matrix are separate from the Discovery gap-status labels:
 
 - **Existing Baseline** — a Phase 1A automated check exists and must continue to pass.

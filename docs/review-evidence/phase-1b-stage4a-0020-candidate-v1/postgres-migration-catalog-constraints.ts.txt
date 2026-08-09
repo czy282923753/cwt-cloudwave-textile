@@ -1,0 +1,877 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import postgres, { type Sql } from "postgres";
+
+import { migratePostgresWithEnumCompatibility } from "../../../src/db/postgres-enum-migration-compatibility";
+
+type JsonRecord = Record<string, unknown>;
+type Journal = {
+  version: string;
+  dialect: string;
+  entries: Array<{ idx: number; tag: string; when: number; version: string; breakpoints: boolean }>;
+};
+
+const projectRoot = process.cwd();
+const evidencePath = process.env.CWT_REVIEW_EVIDENCE_PATH;
+const adminUrlText = process.env.CWT_REVIEW_DATABASE_URL;
+const hash64 = (character: string) => character.repeat(64);
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as JsonRecord)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stable(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function validateAdminUrl(): URL {
+  assert.ok(adminUrlText, "CWT_REVIEW_DATABASE_URL is required");
+  const url = new URL(adminUrlText);
+  assert.ok(["127.0.0.1", "localhost"].includes(url.hostname), "review PostgreSQL must be localhost-only");
+  assert.equal(url.pathname, "/cwt_review_admin", "unexpected review administrative database");
+  assert.equal(url.username, "cwt_review_admin", "unexpected review administrative role");
+  return url;
+}
+
+function databaseUrl(adminUrl: URL, databaseName: string): string {
+  const url = new URL(adminUrl);
+  url.pathname = `/${databaseName}`;
+  return url.toString();
+}
+
+function databaseName(kind: string): string {
+  return `cwt_s4a_review_${kind}_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+}
+
+function assertReviewDatabaseName(name: string): void {
+  assert.match(name, /^cwt_s4a_review_[a-z0-9_]+$/, "unsafe review database identity");
+}
+
+async function createDatabase(admin: Sql, name: string): Promise<void> {
+  assertReviewDatabaseName(name);
+  await admin.unsafe(`create database "${name}"`);
+}
+
+async function dropDatabase(admin: Sql, name: string): Promise<void> {
+  assertReviewDatabaseName(name);
+  await admin.unsafe(`drop database if exists "${name}" with (force)`);
+}
+
+async function migrationFolderThrough(maxIndex: number): Promise<string> {
+  const folder = await mkdtemp(join(tmpdir(), `cwt-s4a-review-migrations-${maxIndex}-`));
+  await mkdir(join(folder, "meta"));
+  const journal = JSON.parse(
+    await readFile(join(projectRoot, "drizzle/meta/_journal.json"), "utf8"),
+  ) as Journal;
+  const entries = journal.entries.filter((entry) => entry.idx <= maxIndex);
+  for (const entry of entries) {
+    await copyFile(join(projectRoot, `drizzle/${entry.tag}.sql`), join(folder, `${entry.tag}.sql`));
+  }
+  await writeFile(
+    join(folder, "meta/_journal.json"),
+    JSON.stringify({ ...journal, entries }),
+    "utf8",
+  );
+  return folder;
+}
+
+async function journalState(sql: Sql): Promise<JsonRecord> {
+  const [row] = await sql<JsonRecord[]>`
+    select count(*)::int as count,
+           max(id)::int as max_id,
+           max(created_at)::text as latest_created_at
+    from drizzle.__drizzle_migrations
+  `;
+  return row ?? {};
+}
+
+async function aiCatalog(sql: Sql): Promise<JsonRecord> {
+  const columns = await sql<JsonRecord[]>`
+    select table_name, ordinal_position, column_name, data_type, udt_name,
+           is_nullable, column_default, numeric_precision, numeric_scale, datetime_precision
+    from information_schema.columns
+    where table_schema = 'public' and table_name in ('ai_model_config', 'ai_runs')
+    order by table_name, ordinal_position
+  `;
+  const constraints = await sql<JsonRecord[]>`
+    select conrelid::regclass::text as relation,
+           conname,
+           contype::text,
+           confdeltype::text,
+           confupdtype::text,
+           confmatchtype::text,
+           condeferrable,
+           condeferred,
+           convalidated,
+           pg_get_constraintdef(oid, true) as definition
+    from pg_constraint
+    where conrelid in ('ai_model_config'::regclass, 'ai_runs'::regclass)
+    order by relation, conname
+  `;
+  const indexes = await sql<JsonRecord[]>`
+    select tablename, indexname, indexdef
+    from pg_indexes
+    where schemaname = 'public' and tablename in ('ai_model_config', 'ai_runs')
+    order by tablename, indexname
+  `;
+  return {
+    columns,
+    constraints,
+    indexes,
+    signature_sha256: sha256(stable({ columns, constraints, indexes })),
+  };
+}
+
+async function catalogInventory(sql: Sql): Promise<JsonRecord> {
+  const tables = await sql<{ name: string }[]>`
+    select tablename as name from pg_tables where schemaname = 'public' order by tablename
+  `;
+  const enums = await sql<JsonRecord[]>`
+    select n.nspname as schema, t.typname as name,
+           array_agg(e.enumlabel order by e.enumsortorder) as labels
+    from pg_type t
+    join pg_namespace n on n.oid=t.typnamespace
+    join pg_enum e on e.enumtypid=t.oid
+    where n.nspname='public'
+    group by n.nspname,t.typname order by t.typname
+  `;
+  const functions = await sql<{ name: string }[]>`
+    select p.oid::regprocedure::text as name
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' order by name
+  `;
+  const triggers = await sql<JsonRecord[]>`
+    select c.relname as relation, t.tgname as name, pg_get_triggerdef(t.oid, true) as definition
+    from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and not t.tgisinternal order by c.relname,t.tgname
+  `;
+  const extensions = await sql<{ name: string }[]>`
+    select extname as name from pg_extension order by extname
+  `;
+  const sequences = await sql<{ name: string }[]>`
+    select sequencename as name from pg_sequences where schemaname='public' order by sequencename
+  `;
+  return { tables: tables.map((row) => row.name), enums, functions, triggers, extensions, sequences };
+}
+
+type LegacyIds = {
+  actorId: string;
+  sessionId: string;
+  productId: string;
+  contentId: string;
+  revisionId: string;
+  assetId: string;
+};
+
+async function seedRepresentativeLegacy(sql: Sql): Promise<LegacyIds> {
+  const ids: LegacyIds = {
+    actorId: randomUUID(),
+    sessionId: randomUUID(),
+    productId: randomUUID(),
+    contentId: randomUUID(),
+    revisionId: randomUUID(),
+    assetId: randomUUID(),
+  };
+  const taxonomyId = randomUUID();
+  const authorId = randomUUID();
+  const organizationId = randomUUID();
+  const contactId = randomUUID();
+  const inquiryId = randomUUID();
+  const batchId = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into users(id,email,display_name,role,password_hash)
+      values (${ids.actorId},'synthetic-stage4a-upgrade@example.test','Synthetic Stage 4A Upgrade Actor','admin','synthetic')
+    `;
+    await tx`
+      insert into auth_sessions(id,user_id,token_hash,expires_at)
+      values (${ids.sessionId},${ids.actorId},${`synthetic-${ids.sessionId}`},now()+interval '1 day')
+    `;
+    await tx`
+      insert into taxonomy_terms(id,internal_key,product_code_prefix,dimension)
+      values (${taxonomyId},${`synthetic-s4a-${taxonomyId}`},'SYNTH','material_fiber')
+    `;
+    await tx`
+      insert into products(id,product_code,real_product_basis,real_product_evidence_note,created_by_user_id)
+      values (${ids.productId},${`SYNTH-${ids.productId.slice(0, 8).toUpperCase()}`},'physical_sample','Synthetic-only migration fixture',${ids.actorId})
+    `;
+    await tx`
+      insert into product_localizations(product_id,locale,name,short_description)
+      values (${ids.productId},'en','Synthetic Stage 4A Upgrade Product','Synthetic-only')
+    `;
+    await tx`
+      insert into product_taxonomy_terms(product_id,taxonomy_term_id,is_primary)
+      values (${ids.productId},${taxonomyId},true)
+    `;
+    await tx`
+      insert into authors(id,internal_key,display_name,is_organization)
+      values (${authorId},${`synthetic-s4a-${authorId}`},'Synthetic Stage 4A Author',false)
+    `;
+    await tx`
+      insert into contents(id,channel,type,author_id,created_by_user_id)
+      values (${ids.contentId},'fabric_knowledge','article',${authorId},${ids.actorId})
+    `;
+    await tx`
+      insert into content_localizations(content_id,locale,title,body)
+      values (${ids.contentId},'en','Synthetic Stage 4A Upgrade Content','Synthetic-only body')
+    `;
+    await tx`
+      insert into editorial_revisions(id,entity_type,entity_id,locale,version_number,status,snapshot,created_by_user_id)
+      values (${ids.revisionId},'product',${ids.productId},'en',1,'draft',${tx.json({ draftVersion: 1, synthetic: true })},${ids.actorId})
+    `;
+    await tx`
+      insert into assets(id,uploaded_by_user_id,original_file_name,storage_provider,storage_partition,object_key,access,category,status,declared_mime_type,byte_size,sha256)
+      values (${ids.assetId},${ids.actorId},'synthetic-stage4a.txt','local','import',${`synthetic/${ids.assetId}`},'internal','import','ready','text/plain',16,${hash64("a")})
+    `;
+    await tx`
+      insert into routes(locale,path,entity_type,entity_id,is_current)
+      values ('en',${`/synthetic-review/${ids.productId}`},'product',${ids.productId},true)
+    `;
+    await tx`
+      insert into organizations(id,name,country_code)
+      values (${organizationId},'Synthetic Stage 4A Organization','ZZ')
+    `;
+    await tx`
+      insert into contacts(id,organization_id,name,email,normalized_email,country_code)
+      values (${contactId},${organizationId},'Synthetic Contact','synthetic-contact@example.test','synthetic-contact@example.test','ZZ')
+    `;
+    await tx`
+      insert into inquiries(id,public_reference,contact_id,owner_user_id,submitted_name,submitted_email,idempotency_key,source_page_path)
+      values (${inquiryId},${`SYNTH-${inquiryId}`},${contactId},${ids.actorId},'Synthetic Contact','synthetic-contact@example.test',${`synthetic-${inquiryId}`},'/synthetic-review')
+    `;
+    await tx`
+      insert into product_import_batches(id,created_by_user_id,auth_session_id,mode,source_fingerprint,workbook_asset_id,status)
+      values (${batchId},${ids.actorId},${ids.sessionId},'create',${hash64("b")},${ids.assetId},'validated')
+    `;
+    await tx`
+      insert into product_import_items(batch_id,kind,source_key,row_number,status,raw_data,normalized_data,target_product_id,target_asset_id)
+      values (${batchId},'row','row:002',2,'valid',${tx.json({ synthetic: true })},${tx.json({ synthetic: true })},${ids.productId},${ids.assetId})
+    `;
+    await tx`
+      insert into audit_logs(actor_user_id,action,entity_type,entity_id,after_summary)
+      values (${ids.actorId},'synthetic.stage4a.upgrade_fixture','product',${ids.productId},${tx.json({ synthetic: true })})
+    `;
+  });
+  return ids;
+}
+
+const legacyTables = [
+  "users",
+  "auth_sessions",
+  "taxonomy_terms",
+  "products",
+  "product_localizations",
+  "product_taxonomy_terms",
+  "authors",
+  "contents",
+  "content_localizations",
+  "editorial_revisions",
+  "assets",
+  "routes",
+  "organizations",
+  "contacts",
+  "inquiries",
+  "product_import_batches",
+  "product_import_items",
+  "audit_logs",
+] as const;
+
+async function legacySignature(sql: Sql): Promise<JsonRecord> {
+  const rows: JsonRecord = {};
+  for (const table of legacyTables) {
+    assert.match(table, /^[a-z_]+$/);
+    const result = await sql.unsafe<JsonRecord[]>(`select * from "${table}" order by 1`);
+    rows[table] = result;
+  }
+  return {
+    counts: Object.fromEntries(legacyTables.map((table) => [table, (rows[table] as unknown[]).length])),
+    sha256: sha256(stable(rows)),
+  };
+}
+
+type CoreIds = LegacyIds & { modelConfigId: string; secondConfigId: string };
+
+async function addAiConfiguration(sql: Sql, legacy: LegacyIds): Promise<CoreIds> {
+  const modelConfigId = randomUUID();
+  const secondConfigId = randomUUID();
+  const productId = randomUUID();
+  const contentId = randomUUID();
+  const revisionId = randomUUID();
+  const authorId = randomUUID();
+  const [taxonomy] = await sql<{ id: string }[]>`select id from taxonomy_terms order by id limit 1`;
+  assert.ok(taxonomy);
+  await sql.begin(async (tx) => {
+    await tx`
+      insert into products(id,created_by_user_id) values (${productId},${legacy.actorId})
+    `;
+    await tx`
+      insert into product_localizations(product_id,locale,name)
+      values (${productId},'en','Synthetic AI Constraint Target')
+    `;
+    await tx`
+      insert into product_taxonomy_terms(product_id,taxonomy_term_id,is_primary)
+      values (${productId},${taxonomy.id},true)
+    `;
+  });
+  await sql`
+    insert into authors(id,internal_key,display_name)
+    values (${authorId},${`synthetic-ai-${authorId}`},'Synthetic AI Constraint Author')
+  `;
+  await sql`
+    insert into contents(id,channel,type,author_id,created_by_user_id)
+    values (${contentId},'fabric_knowledge','article',${authorId},${legacy.actorId})
+  `;
+  await sql`
+    insert into content_localizations(content_id,locale,title,body)
+    values (${contentId},'en','Synthetic AI Constraint Content','Synthetic-only')
+  `;
+  await sql`
+    insert into editorial_revisions(id,entity_type,entity_id,locale,version_number,status,snapshot,created_by_user_id)
+    values (${revisionId},'product',${productId},'en',1,'draft',${sql.json({ draftVersion: 1, synthetic: true })},${legacy.actorId})
+  `;
+  await sql`
+    insert into ai_model_config(
+      id,use_case,provider,model,prompt_id,prompt_version,prompt_hash,
+      enabled,is_default,created_by_user_id,updated_by_user_id
+    ) values (
+      ${modelConfigId},'product_description_draft','deepseek','deepseek-v4-flash',
+      'product-description-draft',1,${hash64("c")},true,true,${legacy.actorId},${legacy.actorId}
+    )
+  `;
+  await sql`
+    insert into ai_model_config(
+      id,use_case,provider,model,prompt_id,prompt_version,prompt_hash,
+      enabled,is_default,created_by_user_id,updated_by_user_id
+    ) values (
+      ${secondConfigId},'product_description_draft','deepseek','synthetic-alternative',
+      'product-description-draft',2,${hash64("d")},false,false,${legacy.actorId},${legacy.actorId}
+    )
+  `;
+  return { ...legacy, productId, contentId, revisionId, modelConfigId, secondConfigId };
+}
+
+type RunOptions = {
+  target?: "product" | "content" | "revision";
+  useCase?: string;
+  idempotencyKey?: string;
+  requestFingerprint?: string;
+  environment?: "local" | "test" | "staging";
+};
+
+async function insertPendingRun(sql: Sql, core: CoreIds, options: RunOptions = {}): Promise<string> {
+  const id = randomUUID();
+  const target = options.target ?? "product";
+  const useCase = options.useCase ?? (target === "content" ? "fabric_knowledge_draft" : "product_description_draft");
+  const environment = options.environment ?? "test";
+  const staging = environment === "staging";
+  await sql`
+    insert into ai_runs(
+      id,use_case,requested_by_user_id,idempotency_key,request_fingerprint,
+      target_type,target_product_id,target_content_id,target_revision_id,target_locale,
+      expected_target_version,target_snapshot_hash,
+      model_config_id,model_config_version,resolved_config_hash,requested_provider,requested_model,
+      parameters_snapshot_json,max_input_tokens,max_output_tokens,max_attempts,
+      prompt_id,prompt_version,prompt_hash,provider_envelope_version,provider_envelope_hash,
+      input_schema_version,output_schema_version,policy_version,input_context_json,input_hash,
+      execution_environment,budget_policy_version,run_cost_limit_microusd,
+      daily_hard_limit_microusd,monthly_warning_limit_microusd,monthly_hard_limit_microusd,
+      estimated_max_cost_microusd,pricing_snapshot_json
+    ) values (
+      ${id},${useCase},${core.actorId},${options.idempotencyKey ?? randomUUID()},${options.requestFingerprint ?? hash64("e")},
+      ${target === "product" ? "product_draft" : target === "content" ? "content_draft" : "editorial_revision"},
+      ${target === "product" ? core.productId : null},${target === "content" ? core.contentId : null},
+      ${target === "revision" ? core.revisionId : null},${target === "revision" ? null : "en"},
+      1,${hash64("f")},
+      ${core.modelConfigId},1,${hash64("0")},'deepseek','deepseek-v4-flash',
+      ${sql.json({})},16000,4000,3,
+      'product-description-draft',1,${hash64("1")},1,${hash64("2")},
+      1,1,'stage4a-v1',${sql.json({ synthetic: true })},${hash64("3")},
+      ${environment},${staging ? "stage4a-staging-v1" : "nonbillable-v1"},20000,
+      ${staging ? 5000000 : 0},${staging ? 50000000 : 0},${staging ? 100000000 : 0},
+      ${staging ? 20000 : 0},${sql.json(staging ? { source: "synthetic-review" } : {})}
+    )
+  `;
+  return id;
+}
+
+async function toProcessing(sql: Sql, id: string, dispatched = false): Promise<string> {
+  const token = randomUUID();
+  await sql`
+    update ai_runs set
+      status='processing', attempt_count=1, next_attempt_at=null,
+      lease_owner='synthetic-review-worker', lease_token=${token},
+      lease_acquired_at=clock_timestamp(), lease_expires_at=clock_timestamp()+interval '10 minutes',
+      state_version=state_version+1,
+      budget_charge_day=date '2026-08-10', budget_charge_month=date '2026-08-01',
+      budget_reserved_cost_microusd=20000, cost_accounting_state='reserved',
+      updated_at=clock_timestamp()
+    where id=${id}
+  `;
+  if (dispatched) {
+    await sql`
+      update ai_runs set active_attempt_dispatched_at=clock_timestamp(),
+        provider_dispatched_at=clock_timestamp(),actual_provider=requested_provider,
+        state_version=state_version+1,updated_at=clock_timestamp()
+      where id=${id}
+    `;
+  }
+  return token;
+}
+
+async function toDraftReady(sql: Sql, id: string): Promise<void> {
+  await toProcessing(sql, id, true);
+  await sql`
+    update ai_runs set status='draft_ready',candidate_json=${sql.json({ synthetic: true })},candidate_hash=${hash64("4")},
+      returned_model=requested_model,provider_response_status='success',generated_at=clock_timestamp(),
+      completed_at=clock_timestamp(),lease_owner=null,lease_token=null,lease_acquired_at=null,
+      lease_expires_at=null,active_attempt_dispatched_at=null,budget_reserved_cost_microusd=0,
+      actual_cost_microusd=1000,budget_accounted_cost_microusd=1000,cost_accounting_state='final',
+      state_version=state_version+1,updated_at=clock_timestamp()
+    where id=${id}
+  `;
+}
+
+async function toFailed(sql: Sql, id: string): Promise<void> {
+  await toProcessing(sql, id, false);
+  await sql`
+    update ai_runs set status='failed',retry_state='not_retryable',failure_code='synthetic_failure',
+      completed_at=clock_timestamp(),lease_owner=null,lease_token=null,lease_acquired_at=null,
+      lease_expires_at=null,budget_reserved_cost_microusd=0,cost_accounting_state='final',
+      state_version=state_version+1,updated_at=clock_timestamp()
+    where id=${id}
+  `;
+}
+
+async function toCancelledBeforeClaim(sql: Sql, id: string, actorId: string): Promise<void> {
+  await sql`
+    update ai_runs set status='cancelled',next_attempt_at=null,cancelled_by_user_id=${actorId},
+      cancellation_reason='Synthetic cancellation',cancelled_at=clock_timestamp(),completed_at=clock_timestamp(),
+      cost_accounting_state='final',state_version=state_version+1,updated_at=clock_timestamp()
+    where id=${id}
+  `;
+}
+
+async function expectConstraint(
+  sql: Sql,
+  label: string,
+  statement: string,
+  id: string,
+  expectedConstraint: string,
+  expectedCode = "23514",
+): Promise<JsonRecord> {
+  try {
+    await sql.unsafe(statement, [id]);
+  } catch (error) {
+    const detail = error as { code?: string; constraint_name?: string; message?: string };
+    assert.equal(detail.code, expectedCode, `${label}: unexpected SQLSTATE`);
+    assert.equal(detail.constraint_name, expectedConstraint, `${label}: unexpected constraint`);
+    return { label, sqlstate: detail.code, constraint: detail.constraint_name };
+  }
+  assert.fail(`${label}: mutation unexpectedly succeeded`);
+}
+
+async function runConstraintMatrix(sql: Sql, core: CoreIds): Promise<JsonRecord[]> {
+  const results: JsonRecord[] = [];
+  const configMutations: Array<[string, string, string]> = [
+    ["model capability", "update ai_model_config set capability='vision' where id=$1", "ai_model_config_capability_check"],
+    ["model use case", "update ai_model_config set use_case='customer_support' where id=$1", "ai_model_config_use_case_check"],
+    ["model provider", "update ai_model_config set provider='DeepSeek' where id=$1", "ai_model_config_provider_check"],
+    ["model identifier", "update ai_model_config set model=E'bad\\nmodel' where id=$1", "ai_model_config_model_check"],
+    ["model parameters", "update ai_model_config set parameters_json='[]'::jsonb where id=$1", "ai_model_config_parameters_check"],
+    ["model limits", "update ai_model_config set max_attempts=4 where id=$1", "ai_model_config_limits_check"],
+    ["model prompt id", "update ai_model_config set prompt_id='Bad' where id=$1", "ai_model_config_prompt_id_check"],
+    ["model prompt version", "update ai_model_config set prompt_version=0 where id=$1", "ai_model_config_prompt_version_check"],
+    ["model prompt hash", "update ai_model_config set prompt_hash='BAD' where id=$1", "ai_model_config_prompt_hash_check"],
+    ["model fallback", "update ai_model_config set fallback_config_id=id where id=$1", "ai_model_config_fallback_disabled_check"],
+    ["model record version", "update ai_model_config set record_version=0 where id=$1", "ai_model_config_record_version_check"],
+    ["model timestamps", "update ai_model_config set updated_at=created_at-interval '1 second' where id=$1", "ai_model_config_timestamps_check"],
+  ];
+  for (const [label, statement, constraint] of configMutations) {
+    results.push(await expectConstraint(sql, label, statement, core.secondConfigId, constraint));
+  }
+
+  const pendingCases: Array<[string, string, string]> = [
+    ["run application scope", "update ai_runs set application_class='customer_support' where id=$1", "ai_runs_application_scope_check"],
+    ["run target shape", "update ai_runs set target_locale='fr' where id=$1", "ai_runs_target_shape_check"],
+    ["run target use case", "update ai_runs set use_case='fabric_knowledge_draft' where id=$1", "ai_runs_target_use_case_check"],
+    ["run target version", "update ai_runs set expected_target_version=0 where id=$1", "ai_runs_target_version_check"],
+    ["run request identity", "update ai_runs set request_fingerprint_version=2 where id=$1", "ai_runs_request_identity_check"],
+    ["run config identity", "update ai_runs set requested_provider='DeepSeek' where id=$1", "ai_runs_config_identity_check"],
+    ["run config snapshot", "update ai_runs set max_attempts=4 where id=$1", "ai_runs_config_snapshot_check"],
+    ["run prompt policy", "update ai_runs set prompt_id='Bad' where id=$1", "ai_runs_prompt_policy_check"],
+    ["run input JSON", "update ai_runs set input_sources_json='{}'::jsonb where id=$1", "ai_runs_input_attempt_json_check"],
+    ["run candidate", "update ai_runs set candidate_json='{}'::jsonb,candidate_hash=repeat('a',64) where id=$1", "ai_runs_candidate_check"],
+    ["run invalid status rejected (overlapping attempt fence reports first)", "update ai_runs set status='succeeded' where id=$1", "ai_runs_attempt_check"],
+    ["run retry state", "update ai_runs set retry_state='exhausted' where id=$1", "ai_runs_retry_state_check"],
+    ["run attempts", "update ai_runs set attempt_count=4 where id=$1", "ai_runs_attempt_check"],
+    ["run next attempt", "update ai_runs set next_attempt_at=null where id=$1", "ai_runs_next_attempt_check"],
+    ["run state version", "update ai_runs set state_version=0 where id=$1", "ai_runs_state_version_check"],
+    ["run tokens", "update ai_runs set input_tokens=1,output_tokens=1,total_tokens=3 where id=$1", "ai_runs_token_check"],
+    ["run provider response", "update ai_runs set provider_response_status='raw_provider_value' where id=$1", "ai_runs_provider_response_check"],
+    ["run environment budget", "update ai_runs set execution_environment='production' where id=$1", "ai_runs_environment_budget_policy_check"],
+    ["run cost state", "update ai_runs set cost_accounting_state='final' where id=$1", "ai_runs_cost_state_check"],
+  ];
+  for (const [label, statement, constraint] of pendingCases) {
+    const id = await insertPendingRun(sql, core);
+    results.push(await expectConstraint(sql, label, statement, id, constraint));
+  }
+
+  const processingForLease = await insertPendingRun(sql, core, { environment: "staging" });
+  await toProcessing(sql, processingForLease, false);
+  results.push(await expectConstraint(sql, "run lease shape", "update ai_runs set lease_owner='' where id=$1", processingForLease, "ai_runs_lease_shape_check"));
+
+  const processingForDispatch = await insertPendingRun(sql, core, { environment: "staging" });
+  await toProcessing(sql, processingForDispatch, false);
+  results.push(await expectConstraint(sql, "run active dispatch", "update ai_runs set active_attempt_dispatched_at=lease_acquired_at where id=$1", processingForDispatch, "ai_runs_active_attempt_dispatch_check"));
+
+  const cancelled = await insertPendingRun(sql, core);
+  await toCancelledBeforeClaim(sql, cancelled, core.actorId);
+  results.push(await expectConstraint(sql, "run cancellation", "update ai_runs set cancellation_reason=null where id=$1", cancelled, "ai_runs_cancellation_check"));
+
+  const failed = await insertPendingRun(sql, core, { environment: "staging" });
+  await toFailed(sql, failed);
+  results.push(await expectConstraint(sql, "run terminal time", "update ai_runs set completed_at=null where id=$1", failed, "ai_runs_terminal_time_check"));
+  results.push(await expectConstraint(sql, "run failure", "update ai_runs set failure_code=null where id=$1", failed, "ai_runs_failure_check"));
+
+  const processingForPeriod = await insertPendingRun(sql, core, { environment: "staging" });
+  await toProcessing(sql, processingForPeriod, false);
+  results.push(await expectConstraint(sql, "run budget period", "update ai_runs set budget_charge_month=date '2026-07-01' where id=$1", processingForPeriod, "ai_runs_budget_period_check"));
+  results.push(await expectConstraint(sql, "run cost values", "update ai_runs set actual_cost_microusd=1 where id=$1", processingForPeriod, "ai_runs_cost_values_check"));
+
+  const ready = await insertPendingRun(sql, core, { environment: "staging" });
+  await toDraftReady(sql, ready);
+  results.push(await expectConstraint(sql, "run disposition", "update ai_runs set human_disposition='accepted' where id=$1", ready, "ai_runs_disposition_check"));
+  await sql`
+    update ai_runs set human_disposition='rejected',evaluated_by_user_id=${core.actorId},
+      evaluated_at=clock_timestamp(),quality_rating=5,quality_labels=array['clarity']::text[],
+      quality_comment='Synthetic evaluation',state_version=state_version+1,updated_at=clock_timestamp()
+    where id=${ready}
+  `;
+  results.push(await expectConstraint(sql, "run quality", "update ai_runs set quality_rating=6 where id=$1", ready, "ai_runs_quality_check"));
+
+  assert.equal(results.length, 40, "every named Check must have one exact negative proof");
+  return results;
+}
+
+async function expectError(
+  operation: () => Promise<unknown>,
+  expectedCode: string,
+  expectedConstraint: string,
+  label: string,
+): Promise<JsonRecord> {
+  try {
+    await operation();
+  } catch (error) {
+    const detail = error as { code?: string; constraint_name?: string };
+    assert.equal(detail.code, expectedCode, `${label}: unexpected SQLSTATE`);
+    assert.equal(detail.constraint_name, expectedConstraint, `${label}: unexpected constraint`);
+    return { label, sqlstate: detail.code, constraint: detail.constraint_name };
+  }
+  assert.fail(`${label}: operation unexpectedly succeeded`);
+}
+
+function nestedErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === "object"; depth += 1) {
+    const detail = current as { code?: string; cause?: unknown };
+    if (detail.code) return detail.code;
+    current = detail.cause;
+  }
+  return undefined;
+}
+
+async function runUniquenessAndForeignKeys(sql: Sql, core: CoreIds): Promise<JsonRecord[]> {
+  const results: JsonRecord[] = [];
+  results.push(await expectError(
+    () => sql`
+      insert into ai_model_config(use_case,provider,model,prompt_id,prompt_version,prompt_hash,enabled,is_default,created_by_user_id,updated_by_user_id)
+      values ('product_description_draft','deepseek','duplicate-default','product-description-draft',3,${hash64("5")},true,true,${core.actorId},${core.actorId})
+    `,
+    "23505", "ai_model_config_enabled_default_unique", "enabled default uniqueness",
+  ));
+  const first = await insertPendingRun(sql, core);
+  const [{ idempotency_key: key }] = await sql<{ idempotency_key: string }[]>`select idempotency_key from ai_runs where id=${first}`;
+  results.push(await expectError(
+    () => insertPendingRun(sql, core, { idempotencyKey: key }),
+    "23505", "ai_runs_idempotency_key_unique", "run idempotency uniqueness",
+  ));
+  const processingA = await insertPendingRun(sql, core, { environment: "staging" });
+  const token = await toProcessing(sql, processingA, false);
+  const processingB = await insertPendingRun(sql, core, { environment: "staging" });
+  await toProcessing(sql, processingB, false);
+  results.push(await expectError(
+    () => sql`update ai_runs set lease_token=${token} where id=${processingB}`,
+    "23505", "ai_runs_active_lease_token_unique", "active lease token uniqueness",
+  ));
+  results.push(await expectError(
+    () => sql`delete from ai_model_config where id=${core.modelConfigId}`,
+    "23001", "ai_runs_model_config_fk", "used model configuration restrict",
+  ));
+  results.push(await expectError(
+    () => sql`delete from products where id=${core.productId}`,
+    "23001", "ai_runs_target_product_localization_fk", "product target restrict",
+  ));
+  const contentRun = await insertPendingRun(sql, core, { target: "content" });
+  assert.ok(contentRun);
+  results.push(await expectError(
+    () => sql`delete from contents where id=${core.contentId}`,
+    "23001", "ai_runs_target_content_localization_fk", "content target restrict",
+  ));
+  const revisionRun = await insertPendingRun(sql, core, { target: "revision" });
+  assert.ok(revisionRun);
+  results.push(await expectError(
+    () => sql`delete from editorial_revisions where id=${core.revisionId}`,
+    "23001", "ai_runs_target_revision_fk", "revision target restrict",
+  ));
+  return results;
+}
+
+async function childInterrupt(url: string): Promise<never> {
+  const sql = postgres(url, { max: 1, prepare: false });
+  await migratePostgresWithEnumCompatibility(sql, join(projectRoot, "drizzle"), {
+    onEvent(event) {
+      if (event.stage === "migrator_completed") process.exit(86);
+    },
+  });
+  process.exit(87);
+}
+
+async function spawnInterrupt(url: string): Promise<number | null> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", process.argv[1]!, "--interrupt-after-commit", url],
+      { cwd: projectRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.on("error", rejectPromise);
+    child.on("exit", (code) => {
+      if (code !== 86) rejectPromise(new Error(`interrupt child exited ${code}: ${stderr}`));
+      else resolvePromise(code);
+    });
+  });
+}
+
+async function main(): Promise<void> {
+  if (process.argv[2] === "--interrupt-after-commit") {
+    await childInterrupt(process.argv[3]!);
+  }
+  assert.ok(evidencePath, "CWT_REVIEW_EVIDENCE_PATH is required");
+  const adminUrl = validateAdminUrl();
+  const admin = postgres(adminUrl.toString(), { max: 1, prepare: false });
+  const legacyFolder = await migrationFolderThrough(19);
+  const result: JsonRecord = { databases: [], checks: {} };
+  const createdDatabases: string[] = [];
+  try {
+    const [identity] = await admin<JsonRecord[]>`
+      select version() as version, current_setting('server_version') as server_version,
+             current_setting('server_version_num') as server_version_num,
+             current_database() as database, current_user as role,
+             current_setting('server_encoding') as server_encoding,
+             current_setting('TimeZone') as timezone
+    `;
+    assert.equal(identity?.server_version_num, "180004", "exact PostgreSQL 18.4 is required");
+    result.postgresql = identity;
+
+    const freshName = databaseName("fresh");
+    createdDatabases.push(freshName);
+    await createDatabase(admin, freshName);
+    const fresh = postgres(databaseUrl(adminUrl, freshName), { max: 1, prepare: false });
+    const events: JsonRecord[] = [];
+    try {
+      await migratePostgresWithEnumCompatibility(fresh, join(projectRoot, "drizzle"), {
+        onEvent(event) { events.push(event as unknown as JsonRecord); },
+      });
+      const firstJournal = await journalState(fresh);
+      const firstCatalog = await aiCatalog(fresh);
+      const [empty] = await fresh<JsonRecord[]>`
+        select (select count(*)::int from ai_model_config) as model_config_rows,
+               (select count(*)::int from ai_runs) as run_rows
+      `;
+      await migratePostgresWithEnumCompatibility(fresh, join(projectRoot, "drizzle"));
+      const secondJournal = await journalState(fresh);
+      const secondCatalog = await aiCatalog(fresh);
+      assert.deepEqual(firstJournal, { count: 21, max_id: 21, latest_created_at: "1786311287317" });
+      assert.deepEqual(secondJournal, firstJournal, "Fresh repeat changed Journal");
+      assert.deepEqual(secondCatalog, firstCatalog, "Fresh repeat changed AI catalog");
+      assert.deepEqual(empty, { model_config_rows: 0, run_rows: 0 });
+      assert.equal(new Set(events.map((event) => event.backendPid)).size, 1, "migration backend PID changed");
+      result.fresh = { database: freshName, events, firstJournal, secondJournal, empty, catalog: firstCatalog };
+    } finally {
+      await fresh.end();
+    }
+
+    const upgradeName = databaseName("upgrade");
+    createdDatabases.push(upgradeName);
+    await createDatabase(admin, upgradeName);
+    const upgrade = postgres(databaseUrl(adminUrl, upgradeName), { max: 1, prepare: false });
+    let core: CoreIds;
+    try {
+      await migratePostgresWithEnumCompatibility(upgrade, legacyFolder);
+      const legacyIds = await seedRepresentativeLegacy(upgrade);
+      const beforeSignature = await legacySignature(upgrade);
+      const beforeInventory = await catalogInventory(upgrade);
+      const beforeJournal = await journalState(upgrade);
+      await migratePostgresWithEnumCompatibility(upgrade, join(projectRoot, "drizzle"));
+      const afterSignature = await legacySignature(upgrade);
+      const afterInventory = await catalogInventory(upgrade);
+      const afterJournal = await journalState(upgrade);
+      const [empty] = await upgrade<JsonRecord[]>`
+        select (select count(*)::int from ai_model_config) as model_config_rows,
+               (select count(*)::int from ai_runs) as run_rows
+      `;
+      assert.deepEqual(beforeSignature, afterSignature, "0019 rows changed during 0020 upgrade");
+      assert.deepEqual(empty, { model_config_rows: 0, run_rows: 0 });
+      assert.deepEqual(beforeJournal, { count: 20, max_id: 20, latest_created_at: "1786035129318" });
+      assert.deepEqual(afterJournal, { count: 21, max_id: 21, latest_created_at: "1786311287317" });
+      const newTables = (afterInventory.tables as string[]).filter((name) => !(beforeInventory.tables as string[]).includes(name));
+      assert.deepEqual(newTables, ["ai_model_config", "ai_runs"]);
+      for (const key of ["enums", "functions", "triggers", "extensions", "sequences"]) {
+        assert.deepEqual(afterInventory[key], beforeInventory[key], `0020 changed ${key}`);
+      }
+      await upgrade`
+        update product_localizations set editor_document_version=editor_document_version+1
+        where product_id=${legacyIds.productId} and locale='en'
+      `;
+      await upgrade`
+        insert into audit_logs(actor_user_id,action,entity_type,entity_id)
+        values (${legacyIds.actorId},'synthetic.stage4a.post_upgrade_write','product',${legacyIds.productId})
+      `;
+      core = await addAiConfiguration(upgrade, legacyIds);
+      const validRun = await insertPendingRun(upgrade, core);
+      assert.ok(validRun);
+      const freshCatalog = (result.fresh as JsonRecord).catalog;
+      const upgradeCatalog = await aiCatalog(upgrade);
+      assert.deepEqual(upgradeCatalog, freshCatalog, "Fresh and Upgrade AI catalogs differ");
+      result.upgrade = {
+        database: upgradeName,
+        beforeJournal,
+        afterJournal,
+        beforeSignature,
+        afterSignature,
+        newTables,
+        unchangedCatalogKinds: ["enums", "functions", "triggers", "extensions", "sequences"],
+        oldBehaviorPostUpgrade: { localizationVersionIncremented: true, auditWritable: true },
+        validAiRowsPostUpgrade: true,
+        catalog: upgradeCatalog,
+      };
+    } finally {
+      await upgrade.end();
+    }
+
+    const failureName = databaseName("forced_failure");
+    createdDatabases.push(failureName);
+    await createDatabase(admin, failureName);
+    const failure = postgres(databaseUrl(adminUrl, failureName), { max: 1, prepare: false });
+    try {
+      await migratePostgresWithEnumCompatibility(failure, legacyFolder);
+      await failure`create table ai_runs(synthetic_conflict integer)`;
+      const before = await journalState(failure);
+      let errorCode: string | undefined;
+      try {
+        await migratePostgresWithEnumCompatibility(failure, join(projectRoot, "drizzle"));
+      } catch (error) {
+        errorCode = nestedErrorCode(error);
+      }
+      assert.equal(errorCode, "42P07", "forced DDL conflict did not fail as expected");
+      const afterFailure = await journalState(failure);
+      const [{ config_exists: configExists, conflict_exists: conflictExists }] = await failure<{ config_exists: boolean; conflict_exists: boolean }[]>`
+        select to_regclass('public.ai_model_config') is not null as config_exists,
+               to_regclass('public.ai_runs') is not null as conflict_exists
+      `;
+      assert.deepEqual(afterFailure, before, "failed 0020 changed Journal");
+      assert.equal(configExists, false, "failed 0020 left ai_model_config DDL");
+      assert.equal(conflictExists, true, "pre-existing conflict table was lost");
+      await failure`drop table ai_runs`;
+      await migratePostgresWithEnumCompatibility(failure, join(projectRoot, "drizzle"));
+      const resumed = await journalState(failure);
+      assert.deepEqual(resumed, { count: 21, max_id: 21, latest_created_at: "1786311287317" });
+      result.forcedFailure = { database: failureName, sqlstate: errorCode, journalBefore: before, journalAfterFailure: afterFailure, rolledBackDdl: true, resumed };
+    } finally {
+      await failure.end();
+    }
+
+    const interruptName = databaseName("interrupt");
+    createdDatabases.push(interruptName);
+    await createDatabase(admin, interruptName);
+    const interrupt = postgres(databaseUrl(adminUrl, interruptName), { max: 1, prepare: false });
+    try {
+      await migratePostgresWithEnumCompatibility(interrupt, legacyFolder);
+    } finally {
+      await interrupt.end();
+    }
+    const interruptUrl = databaseUrl(adminUrl, interruptName);
+    const exitCode = await spawnInterrupt(interruptUrl);
+    const resume = postgres(interruptUrl, { max: 1, prepare: false });
+    try {
+      const committedJournal = await journalState(resume);
+      await migratePostgresWithEnumCompatibility(resume, join(projectRoot, "drizzle"));
+      const resumedJournal = await journalState(resume);
+      assert.deepEqual(committedJournal, { count: 21, max_id: 21, latest_created_at: "1786311287317" });
+      assert.deepEqual(resumedJournal, committedJournal);
+      result.interruption = { database: interruptName, childExitCode: exitCode, committedJournal, resumedJournal, nextInvocationNoOp: true };
+    } finally {
+      await resume.end();
+    }
+
+    const behaviorName = databaseName("constraints");
+    createdDatabases.push(behaviorName);
+    await createDatabase(admin, behaviorName);
+    const behavior = postgres(databaseUrl(adminUrl, behaviorName), { max: 8, prepare: false });
+    try {
+      const migration = postgres(databaseUrl(adminUrl, behaviorName), { max: 1, prepare: false });
+      try { await migratePostgresWithEnumCompatibility(migration, join(projectRoot, "drizzle")); }
+      finally { await migration.end(); }
+      const legacy = await seedRepresentativeLegacy(behavior);
+      const behaviorCore = await addAiConfiguration(behavior, legacy);
+      const checkResults = await runConstraintMatrix(behavior, behaviorCore);
+      const uniqueAndFk = await runUniquenessAndForeignKeys(behavior, behaviorCore);
+      const [positive] = await behavior<JsonRecord[]>`
+        select count(*)::int as run_count,
+               count(*) filter (where status='pending')::int as pending_count,
+               count(*) filter (where status='processing')::int as processing_count,
+               count(*) filter (where status='draft_ready')::int as draft_ready_count,
+               count(*) filter (where status='failed')::int as failed_count,
+               count(*) filter (where status='cancelled')::int as cancelled_count
+        from ai_runs
+      `;
+      result.constraints = { database: behaviorName, exactCheckFailures: checkResults, uniquenessAndRestrict: uniqueAndFk, positiveStates: positive };
+    } finally {
+      await behavior.end();
+    }
+
+    const [health] = await admin<JsonRecord[]>`
+      select count(*) filter (where state='idle in transaction')::int as idle_in_transaction,
+             (select count(*)::int from pg_locks where locktype='advisory') as advisory_locks
+      from pg_stat_activity where datname like 'cwt_s4a_review_%'
+    `;
+    assert.deepEqual(health, { idle_in_transaction: 0, advisory_locks: 0 });
+    result.lockHealthBeforeCleanup = health;
+    result.databases = createdDatabases;
+  } finally {
+    await rm(legacyFolder, { recursive: true, force: true });
+    for (const name of [...createdDatabases].reverse()) await dropDatabase(admin, name);
+    const remaining = await admin<{ name: string }[]>`
+      select datname as name from pg_database where datname like 'cwt_s4a_review_%' order by datname
+    `;
+    result.cleanup = { droppedDatabases: createdDatabases, remainingReviewDatabases: remaining.map((row) => row.name) };
+    await admin.end();
+  }
+  await writeFile(evidencePath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  process.stdout.write(`PASS migration/catalog/constraint review: ${evidencePath}\n`);
+}
+
+void main();

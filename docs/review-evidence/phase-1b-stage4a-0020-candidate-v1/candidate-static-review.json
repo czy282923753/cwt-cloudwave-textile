@@ -1,0 +1,340 @@
+{
+  "generatedAt": "2026-08-09T22:34:43.620Z",
+  "repository": "/Users/calvin/.codex/worktrees/a301/CWT（CloudWave Textile）项目",
+  "git": {
+    "head": "15bc6462d2e314f50ff238af70ad31fc6502c40f",
+    "parent": "31c0e405acfdd0d05200d0fb2531e897a541a2c4",
+    "branchRef": "15bc6462d2e314f50ff238af70ad31fc6502c40f",
+    "checkedOutBranch": "",
+    "detached": true,
+    "tagObject": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "tagPeeledCommit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4",
+    "statusShort": "?? docs/review-evidence/"
+  },
+  "fixedInputs": {
+    "design": {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_A_0020_AI_FOUNDATION_SCHEMA_DESIGN_V1_0.md",
+      "sha256": "db6ae44d3548e2c0c23ab2b95ee3550fefedb93224f878f5a9ab3070898b60a8"
+    },
+    "independentDesignReview": {
+      "path": "/Users/calvin/.codex/worktrees/900f/CWT（CloudWave Textile）项目/docs/PHASE_1B_STAGE4A_PHASE_A_0020_INDEPENDENT_MIGRATION_REVIEW_V1_0.md",
+      "sha256": "fe17a42990f1b55fca89e1f038cede9c09aff3c418379ff8d4c54d882ff3e6b2"
+    }
+  },
+  "candidate": {
+    "expectedChanged": [
+      "docs/PHASE_1B_STAGE4A_PHASE_A_0020_AI_FOUNDATION_SCHEMA_DESIGN_V1_0.md",
+      "drizzle/0020_phase1b_ai_foundation.sql",
+      "drizzle/meta/0020_snapshot.json",
+      "drizzle/meta/_journal.json",
+      "package.json",
+      "scripts/verify-ai-foundation-candidate.ts",
+      "src/db/schema/ai.integration.test.ts",
+      "src/db/schema/ai.ts",
+      "src/db/schema/index.ts"
+    ],
+    "changedStatus": [
+      "A\tdocs/PHASE_1B_STAGE4A_PHASE_A_0020_AI_FOUNDATION_SCHEMA_DESIGN_V1_0.md",
+      "A\tdrizzle/0020_phase1b_ai_foundation.sql",
+      "A\tdrizzle/meta/0020_snapshot.json",
+      "M\tdrizzle/meta/_journal.json",
+      "M\tpackage.json",
+      "A\tscripts/verify-ai-foundation-candidate.ts",
+      "A\tsrc/db/schema/ai.integration.test.ts",
+      "A\tsrc/db/schema/ai.ts",
+      "M\tsrc/db/schema/index.ts"
+    ],
+    "changedFileCount": 9,
+    "hashes": {
+      "docs/PHASE_1B_STAGE4A_PHASE_A_0020_AI_FOUNDATION_SCHEMA_DESIGN_V1_0.md": "db6ae44d3548e2c0c23ab2b95ee3550fefedb93224f878f5a9ab3070898b60a8",
+      "drizzle/0020_phase1b_ai_foundation.sql": "a7e2192b1dd60f41b66b1f19db1a44e2a35c01d246ae97787ef9aaaec60cac3c",
+      "drizzle/meta/0020_snapshot.json": "274ad623210843981a27d262df2057213230f3943c3faafa16a2f15397792321",
+      "drizzle/meta/_journal.json": "bea61c8329c1dd78d6a1620e8357dfc153e05af46beb47629b4510c9f831eef7",
+      "package.json": "3f288f10bbb11e9a657e038af198bb31f0a471ecacb4f7d9e9ae6848ac241ed4",
+      "scripts/verify-ai-foundation-candidate.ts": "bb5d7f945bd17903b6ff492d5a1927528cc6d1a00aa7bcc8274e0abafdc16be1",
+      "src/db/schema/ai.integration.test.ts": "f87d5765c19cd8ac5f0c3be042f2128578dfd9e1fb61eec18600560d77b572b4",
+      "src/db/schema/ai.ts": "9f09c3a2e4532556384c8527886ec235a8ff9d9f390eb91d09e29712f5287449",
+      "src/db/schema/index.ts": "09badb6cbc33665d85918f1244a140409908518696a49a690c7df7bddc931070"
+    },
+    "trackedCandidateFilesUnmodified": true,
+    "diffStat": "...HASE_A_0020_AI_FOUNDATION_SCHEMA_DESIGN_V1_0.md |  770 ++\n drizzle/0020_phase1b_ai_foundation.sql             |  192 +\n drizzle/meta/0020_snapshot.json                    | 9991 ++++++++++++++++++++\n drizzle/meta/_journal.json                         |    7 +\n package.json                                       |    1 +\n scripts/verify-ai-foundation-candidate.ts          |  383 +\n src/db/schema/ai.integration.test.ts               |  235 +\n src/db/schema/ai.ts                                |  471 +\n src/db/schema/index.ts                             |    1 +\n 9 files changed, 12051 insertions(+)"
+  },
+  "history": {
+    "artifactCount": 40,
+    "allIdentical": true,
+    "artifacts": [
+      {
+        "path": "drizzle/0000_numerous_cargill.sql",
+        "parentSha256": "02d952bd5d6d438bccd9b279aa301f556b0eb8d6c0e8904d254498ba9b9e7539",
+        "candidateSha256": "02d952bd5d6d438bccd9b279aa301f556b0eb8d6c0e8904d254498ba9b9e7539",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0001_wild_mathemanic.sql",
+        "parentSha256": "42bc44b0a5ccd22a8d620555ba25ed83aac8411008466caa1c589b9992bb91f5",
+        "candidateSha256": "42bc44b0a5ccd22a8d620555ba25ed83aac8411008466caa1c589b9992bb91f5",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0002_goofy_johnny_blaze.sql",
+        "parentSha256": "2b4fbe087ec11c9b565438c1738c0871f00620ae5896dfbb6597065ecc360e5f",
+        "candidateSha256": "2b4fbe087ec11c9b565438c1738c0871f00620ae5896dfbb6597065ecc360e5f",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0003_ambitious_diamondback.sql",
+        "parentSha256": "f85da3c9994349a946d5c43af71ad284fd3e3afb0f1157fbc6718ac3f2177c7c",
+        "candidateSha256": "f85da3c9994349a946d5c43af71ad284fd3e3afb0f1157fbc6718ac3f2177c7c",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0004_odd_obadiah_stane.sql",
+        "parentSha256": "f8b624c1844a1cf2149741735a2006d5b370dcb89e5ff25ecf629fcda005c140",
+        "candidateSha256": "f8b624c1844a1cf2149741735a2006d5b370dcb89e5ff25ecf629fcda005c140",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0005_empty_ken_ellis.sql",
+        "parentSha256": "9ad7cdef5b2ea21b5546a8b5ecad7bc8b26ee91996c251fa50e529b7438624bd",
+        "candidateSha256": "9ad7cdef5b2ea21b5546a8b5ecad7bc8b26ee91996c251fa50e529b7438624bd",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0006_phase1a-remediation.sql",
+        "parentSha256": "ae753688600dc8edfe76b2b7f6f0cca871bdc07a531ea735a0553f47272c68eb",
+        "candidateSha256": "ae753688600dc8edfe76b2b7f6f0cca871bdc07a531ea735a0553f47272c68eb",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0007_phase1a-remediation-round2.sql",
+        "parentSha256": "3ac51d822b9188ba438f17f023e68e4447f30913ed2351eec8c02425fe74f5ba",
+        "candidateSha256": "3ac51d822b9188ba438f17f023e68e4447f30913ed2351eec8c02425fe74f5ba",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0008_phase1a-remediation-round3.sql",
+        "parentSha256": "5b17422824edcee68640d14fbe38a4e6e4cd154c707fe0a855fc12dd008b63b2",
+        "candidateSha256": "5b17422824edcee68640d14fbe38a4e6e4cd154c707fe0a855fc12dd008b63b2",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0009_source-declaration-record-version.sql",
+        "parentSha256": "63794fd0c4a0a92de017470cebff9790193da1cede42cfe921df57b10105170d",
+        "candidateSha256": "63794fd0c4a0a92de017470cebff9790193da1cede42cfe921df57b10105170d",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0010_soft_marrow.sql",
+        "parentSha256": "d40bc7294d67eeaa7c5fae9e2b9ae48e1c71b35d75b730f3dea0245c75bea4be",
+        "candidateSha256": "d40bc7294d67eeaa7c5fae9e2b9ae48e1c71b35d75b730f3dea0245c75bea4be",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0011_clever_inertia.sql",
+        "parentSha256": "85fc96870f0fbf2b2dc8fddfce81e28f86996588d4f489a6e59dc2e9962b242f",
+        "candidateSha256": "85fc96870f0fbf2b2dc8fddfce81e28f86996588d4f489a6e59dc2e9962b242f",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0012_nostalgic_calypso.sql",
+        "parentSha256": "0e8ca58207d80ea7a474f8448e556b96cb110ec7d2a7b759970e55392cc617a5",
+        "candidateSha256": "0e8ca58207d80ea7a474f8448e556b96cb110ec7d2a7b759970e55392cc617a5",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0013_lyrical_black_knight.sql",
+        "parentSha256": "d60e77aa4d60a4dffa4f29c7d5dcb77f2f194bdd10b797584d92d2644192f3e5",
+        "candidateSha256": "d60e77aa4d60a4dffa4f29c7d5dcb77f2f194bdd10b797584d92d2644192f3e5",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0014_lumpy_toxin.sql",
+        "parentSha256": "3b4b97c43bc3569f6dc5ebe270802285e5484a1c88f9ac97d059a8bebac554fb",
+        "candidateSha256": "3b4b97c43bc3569f6dc5ebe270802285e5484a1c88f9ac97d059a8bebac554fb",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0015_post-commit-boundary-closure.sql",
+        "parentSha256": "2b5a381a91ae57654861ebed669395f47767100dc131b1384d1eff7ef5171f97",
+        "candidateSha256": "2b5a381a91ae57654861ebed669395f47767100dc131b1384d1eff7ef5171f97",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0016_lumpy_whistler.sql",
+        "parentSha256": "1f468d735e0c6db5d4136fa7710339693bf258861cf51844b7d9acca6613defe",
+        "candidateSha256": "1f468d735e0c6db5d4136fa7710339693bf258861cf51844b7d9acca6613defe",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0017_redirect_graph_final_state.sql",
+        "parentSha256": "1dd3d50d39cfb22c457605da0b820bce5a9323f84ac160f861da6f73d0cb2038",
+        "candidateSha256": "1dd3d50d39cfb22c457605da0b820bce5a9323f84ac160f861da6f73d0cb2038",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0018_phase1b_editorial_media_foundation.sql",
+        "parentSha256": "a7583d03b59d5858cb5e2cb2542dbc43bf6c620e2067ed900fe6d0d1d0257148",
+        "candidateSha256": "a7583d03b59d5858cb5e2cb2542dbc43bf6c620e2067ed900fe6d0d1d0257148",
+        "identical": true
+      },
+      {
+        "path": "drizzle/0019_needy_slyde.sql",
+        "parentSha256": "ea8d51f971fe160bcded1f588645db0e0f6f16d704eff34fa38350fb5d1314ed",
+        "candidateSha256": "ea8d51f971fe160bcded1f588645db0e0f6f16d704eff34fa38350fb5d1314ed",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0000_snapshot.json",
+        "parentSha256": "d2d6b458fe8fc6665de207388be1a67f7a5458e82eaa3f9c2015490f7d71ca0e",
+        "candidateSha256": "d2d6b458fe8fc6665de207388be1a67f7a5458e82eaa3f9c2015490f7d71ca0e",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0001_snapshot.json",
+        "parentSha256": "8d495c6760912e98d2430849e78a3ea84e07ffea924275eb0bfa946183fa7284",
+        "candidateSha256": "8d495c6760912e98d2430849e78a3ea84e07ffea924275eb0bfa946183fa7284",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0002_snapshot.json",
+        "parentSha256": "cac99a2dab09f6c3ab789a61a55e726c2298760505945f05a60f83fb7faad161",
+        "candidateSha256": "cac99a2dab09f6c3ab789a61a55e726c2298760505945f05a60f83fb7faad161",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0003_snapshot.json",
+        "parentSha256": "4857b50967f8fd0e526deb63dfc4a5feeeb5d833dc112d090f57125b187281d2",
+        "candidateSha256": "4857b50967f8fd0e526deb63dfc4a5feeeb5d833dc112d090f57125b187281d2",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0004_snapshot.json",
+        "parentSha256": "2143c33e12eca7bdacb32b6d83e362291e2702aa052a9bac4da9b39e902ab18c",
+        "candidateSha256": "2143c33e12eca7bdacb32b6d83e362291e2702aa052a9bac4da9b39e902ab18c",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0005_snapshot.json",
+        "parentSha256": "d27593d75f97dea9e55aee87431dc557f2fef8861e6cd932d0b571d91ef7d0ce",
+        "candidateSha256": "d27593d75f97dea9e55aee87431dc557f2fef8861e6cd932d0b571d91ef7d0ce",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0006_snapshot.json",
+        "parentSha256": "d80f25639a162ef80f7614384568970787c833e8c510d673f8d9f12613c34bcf",
+        "candidateSha256": "d80f25639a162ef80f7614384568970787c833e8c510d673f8d9f12613c34bcf",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0007_snapshot.json",
+        "parentSha256": "5d0690d6245805033a3c2d3a666e6ef3fa9de66f8abcb319abee4f9cdbf56d44",
+        "candidateSha256": "5d0690d6245805033a3c2d3a666e6ef3fa9de66f8abcb319abee4f9cdbf56d44",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0008_snapshot.json",
+        "parentSha256": "a2eb5faaf62cfe85a19f7b9d215a6cca1f9e9e453bd4ca9852d1e6cdf1590c15",
+        "candidateSha256": "a2eb5faaf62cfe85a19f7b9d215a6cca1f9e9e453bd4ca9852d1e6cdf1590c15",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0009_snapshot.json",
+        "parentSha256": "3c8fb9e0e92a01eb7704bfd7663fb4a9084b9d351b07026c8bf1eb5f23bbad96",
+        "candidateSha256": "3c8fb9e0e92a01eb7704bfd7663fb4a9084b9d351b07026c8bf1eb5f23bbad96",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0010_snapshot.json",
+        "parentSha256": "90cbd0efc079cbea26637517aebe1694e5c5cd4a366d83a66fbf23e4351c47e7",
+        "candidateSha256": "90cbd0efc079cbea26637517aebe1694e5c5cd4a366d83a66fbf23e4351c47e7",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0011_snapshot.json",
+        "parentSha256": "e2caa7666c4fe92d416e0c5e06b03604f1971125c9cf55e5ce9f0369db653ca4",
+        "candidateSha256": "e2caa7666c4fe92d416e0c5e06b03604f1971125c9cf55e5ce9f0369db653ca4",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0012_snapshot.json",
+        "parentSha256": "37e1df0759771ddfec220fff85a5d04f3b2ad84687665d993e938cbe7a03d961",
+        "candidateSha256": "37e1df0759771ddfec220fff85a5d04f3b2ad84687665d993e938cbe7a03d961",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0013_snapshot.json",
+        "parentSha256": "53f869454d50e68ab583957fa995521afd0d3c1eb9676d0cbd9b0c252c16d2f6",
+        "candidateSha256": "53f869454d50e68ab583957fa995521afd0d3c1eb9676d0cbd9b0c252c16d2f6",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0014_snapshot.json",
+        "parentSha256": "867e10f02b9fd2dacae5ee671abb9139684d5ced72f0967a4297dee04fab55d6",
+        "candidateSha256": "867e10f02b9fd2dacae5ee671abb9139684d5ced72f0967a4297dee04fab55d6",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0015_snapshot.json",
+        "parentSha256": "1d7deac5c28a44a741b42bc1db8ce2c8c926bc646f06305b791142e3f19620e3",
+        "candidateSha256": "1d7deac5c28a44a741b42bc1db8ce2c8c926bc646f06305b791142e3f19620e3",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0016_snapshot.json",
+        "parentSha256": "c298b0d379dfc4b1d32f32bf75e3b40e8e52b63ee37ad21348081fca77e99fc2",
+        "candidateSha256": "c298b0d379dfc4b1d32f32bf75e3b40e8e52b63ee37ad21348081fca77e99fc2",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0017_snapshot.json",
+        "parentSha256": "7943f7e58d9887778db0a316737efc325ed6079f2e1563af7268add7ad6c0a90",
+        "candidateSha256": "7943f7e58d9887778db0a316737efc325ed6079f2e1563af7268add7ad6c0a90",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0018_snapshot.json",
+        "parentSha256": "faa9a0819303e82d097874c348d6258533a305da30df00da360055b70dac3073",
+        "candidateSha256": "faa9a0819303e82d097874c348d6258533a305da30df00da360055b70dac3073",
+        "identical": true
+      },
+      {
+        "path": "drizzle/meta/0019_snapshot.json",
+        "parentSha256": "46b68b39c738b03f9f69aee5574a4626c425afa497b1a1d60531f1efed94c5c9",
+        "candidateSha256": "46b68b39c738b03f9f69aee5574a4626c425afa497b1a1d60531f1efed94c5c9",
+        "identical": true
+      }
+    ]
+  },
+  "drizzle": {
+    "journalEntryCount": 21,
+    "latestJournalEntry": {
+      "idx": 20,
+      "version": "7",
+      "when": 1786311287317,
+      "tag": "0020_phase1b_ai_foundation",
+      "breakpoints": true
+    },
+    "snapshotId": "ae9de118-43fa-4bff-b647-c3640e72f709",
+    "previousSnapshotId": "b4f8e486-60ab-4ad8-b6c5-caf8b9425546",
+    "snapshotDialect": "postgresql",
+    "aiSnapshotTables": [
+      "public.ai_model_config",
+      "public.ai_runs"
+    ]
+  },
+  "scope": {
+    "implementationPaths": [
+      "drizzle/0020_phase1b_ai_foundation.sql",
+      "package.json",
+      "scripts/verify-ai-foundation-candidate.ts",
+      "src/db/schema/ai.ts",
+      "src/db/schema/index.ts"
+    ],
+    "forbiddenMechanismMatches": {
+      "providerNetworkCall": [],
+      "credentialEnvironment": [],
+      "ragOrVectorDependency": []
+    },
+    "forbiddenMechanismsAbsent": true
+  }
+}

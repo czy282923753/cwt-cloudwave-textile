@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/a301/CWT（CloudWave Textile）项目
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  06:32:11
+   Duration  1.61s (transform 83ms, setup 11ms, import 347ms, tests 1.17s, environment 0ms)
+

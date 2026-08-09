@@ -1,0 +1,12 @@
+$ vitest run -- src/db/schema/ai.integration.test.ts
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/a301/CWT（CloudWave Textile）项目
+
+[inquiry-error] request 588a52bb-2c91-4e25-8940-e354bd582f06; details omitted.
+[inquiry-error] request 8fd9304d-b2d7-4d1e-b72c-1b607ae1dcdb; details omitted.
+
+ Test Files  98 passed (98)
+      Tests  417 passed (417)
+   Start at  06:27:52
+   Duration  250.12s (transform 1.26s, setup 239ms, import 24.69s, tests 213.07s, environment 3.24s)
+

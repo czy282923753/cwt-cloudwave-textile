@@ -1,0 +1,2 @@
+$ node scripts/check-public-bundle.mjs
+Public bundle boundary verified across 23 public page manifests and 31 manifest/chunk files.

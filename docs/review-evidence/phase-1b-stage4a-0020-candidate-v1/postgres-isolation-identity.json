@@ -1,0 +1,57 @@
+{
+  "container": {
+    "containerId": "6db4921ad88cd269817706dd093a25ceded949d0a54e5ba9be087a15ce21d1ee",
+    "name": "/cwt_stage4a_candidate_review_a301",
+    "imageId": "sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a",
+    "created": "2026-08-09T22:02:00.769996299Z",
+    "state": {
+      "status": "running",
+      "running": true,
+      "startedAt": "2026-08-09T22:02:00.801359757Z"
+    },
+    "networkMode": "bridge",
+    "configuredPortBindings": {
+      "5432/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": ""
+        }
+      ]
+    },
+    "effectivePorts": {
+      "5432/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "56178"
+        }
+      ]
+    },
+    "tmpfs": {
+      "/var/lib/postgresql": "rw,noexec,nosuid,size=2g"
+    },
+    "mounts": []
+  },
+  "image": {
+    "imageId": "sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a",
+    "repoTags": [
+      "postgres:18.4",
+      "postgres:18.4-trixie"
+    ],
+    "repoDigests": [
+      "postgres@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a"
+    ],
+    "architecture": "arm64",
+    "os": "linux",
+    "created": "2026-07-16T22:06:02.0196664Z"
+  },
+  "postgresql": {
+    "version": "PostgreSQL 18.4 (Debian 18.4-1.pgdg13+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+    "server_version": "18.4 (Debian 18.4-1.pgdg13+1)",
+    "server_version_num": "180004",
+    "database": "cwt_review_admin",
+    "role": "cwt_review_admin",
+    "server_address": null,
+    "server_port": null,
+    "review_database_count": 0
+  }
+}

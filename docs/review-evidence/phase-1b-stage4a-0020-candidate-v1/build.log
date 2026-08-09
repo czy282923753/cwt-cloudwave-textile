@@ -1,0 +1,49 @@
+$ next build
+▲ Next.js 16.2.12 (Turbopack)
+- Experiments (use with caution):
+  · cpus: 1
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 4.1s
+  Running TypeScript ...
+  Finished TypeScript in 8.1s ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/43) ...
+Error occurred prerendering page "/about". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Failed query: select "id", "value" from "system_settings" where "system_settings"."key" = $1 limit $2
+params: site_page.about,1
+    at d.queryWithCache (.next/server/chunks/_0z2zvy9._.js:8:40097)
+    at async d.execute (.next/server/chunks/_0z2zvy9._.js:8:43261)
+    at async z (.next/server/chunks/ssr/_0ltp2jh._.js:1:1513)
+    at async B (.next/server/chunks/ssr/_0ltp2jh._.js:1:4994)
+    at async k (.next/server/chunks/ssr/[root-of-the-server]__14ivake._.js:1:8701) {
+  query: 'select "id", "value" from "system_settings" where "system_settings"."key" = $1 limit $2',
+  params: [ 'site_page.about', 1 ],
+  digest: '3594230060',
+  [cause]: error: relation "system_settings" does not exist
+      at ignore-listed frames {
+    length: 114,
+    severity: 'ERROR',
+    code: '42P01',
+    detail: undefined,
+    hint: undefined,
+    position: '27',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '1469',
+    routine: 'parserOpenTable',
+    query: 'select "id", "value" from "system_settings" where "system_settings"."key" = $1 limit $2',
+    params: [ 'site_page.about', 1 ],
+    queryOptions: { rowMode: 'array', parsers: [Object] }
+  }
+}
+Export encountered an error on /about/page: /about, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+[ELIFECYCLE] Command failed with exit code 1.

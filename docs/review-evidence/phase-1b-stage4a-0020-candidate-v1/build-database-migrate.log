@@ -1,0 +1,137 @@
+$ tsx scripts/migrate.ts
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entry_applications_fabric_entry_id_application_id_pk" will be truncated to "fabric_library_entry_applications_fabric_entry_id_application_i"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entry_applications_fabric_entry_id_fabric_library_entries_id_fk" will be truncated to "fabric_library_entry_applications_fabric_entry_id_fabric_librar"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entry_applications_application_id_applications_id_fk" will be truncated to "fabric_library_entry_applications_application_id_applications_i"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entry_assets_fabric_entry_id_fabric_library_entries_id_fk" will be truncated to "fabric_library_entry_assets_fabric_entry_id_fabric_library_entr"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entry_localizations_fabric_entry_id_fabric_library_entries_id_fk" will be truncated to "fabric_library_entry_localizations_fabric_entry_id_fabric_libra"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entry_products_fabric_entry_id_fabric_library_entries_id_fk" will be truncated to "fabric_library_entry_products_fabric_entry_id_fabric_library_en"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "taxonomy_term_localizations_taxonomy_term_id_taxonomy_terms_id_fk" will be truncated to "taxonomy_term_localizations_taxonomy_term_id_taxonomy_terms_id_"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "fabric_library_entries_independent_value_confirmed_by_user_id_users_id_fk" will be truncated to "fabric_library_entries_independent_value_confirmed_by_user_id_u"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "finalize_object_manifest_items_recovery_job_id_upload_recovery_jobs_id_fk" will be truncated to "finalize_object_manifest_items_recovery_job_id_upload_recovery_"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "finalize_object_manifest_items_upload_batch_id_asset_upload_batches_id_fk" will be truncated to "finalize_object_manifest_items_upload_batch_id_asset_upload_bat"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "finalize_object_manifest_items_recovery_job_id_upload_recovery_jobs_id_fk" will be truncated to "finalize_object_manifest_items_recovery_job_id_upload_recovery_"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "object_cleanup_jobs_finalize_recovery_id_upload_recovery_jobs_id_fk" will be truncated to "object_cleanup_jobs_finalize_recovery_id_upload_recovery_jobs_i"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "object_cleanup_jobs_finalize_manifest_item_id_finalize_object_manifest_items_id_fk" will be truncated to "object_cleanup_jobs_finalize_manifest_item_id_finalize_object_m"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "finalize_object_manifest_items_recovery_job_id_upload_recovery_jobs_id_fk" will be truncated to "finalize_object_manifest_items_recovery_job_id_upload_recovery_"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42622',
+  message: 'identifier "product_import_batches_package_upload_batch_id_asset_upload_batches_id_fk" will be truncated to "product_import_batches_package_upload_batch_id_asset_upload_bat"',
+  file: 'scansup.c',
+  line: '99',
+  routine: 'truncate_identifier'
+}
+Database migrations applied.

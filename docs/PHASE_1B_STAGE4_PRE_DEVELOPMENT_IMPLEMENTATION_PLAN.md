@@ -1,12 +1,14 @@
 # CWT Phase 1B Stage 4A Pre-Development Implementation Plan
 
-Status: **ARCHITECTURE APPROVED / DEVELOPMENT AUTHORIZED — PHASE A INTEGRATION CANDIDATE IN PROGRESS**  
+Status: **ARCHITECTURE APPROVED / DEVELOPMENT AUTHORIZED — PHASE A INTEGRATION CANDIDATE PREPARED / COMPLETION REVIEW PENDING**  
 Plan version: `1.4`  
 Prepared: `2026-08-10` (Asia/Shanghai)  
 Planning baseline: `31c0e405acfdd0d05200d0fb2531e897a541a2c4`  
 Frozen tag preserved: `phase-1b-stage3-approved-2026-08-09`  
 Architecture authority: [ADR-0017](./adr/ADR-0017-ai-run-work-and-provenance-authority.md), [ADR-0018](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md), and the [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md)  
 Review evidence: [PD-04–PD-11 Review Report](./PHASE_1B_STAGE4A_PD04_PD11_REVIEW_REPORT.md), [DeepSeek Enterprise Evidence Questionnaire](./PHASE_1B_STAGE4A_DEEPSEEK_ENTERPRISE_EVIDENCE_QUESTIONNAIRE.md), [DeepSeek Submission Record](./PHASE_1B_STAGE4A_DEEPSEEK_EVIDENCE_REQUEST_SUBMISSION_RECORD.md), and [PD-11 Synthetic Evaluation Contract](./PHASE_1B_STAGE4A_PD11_SYNTHETIC_EVALUATION_CONTRACT.md)
+
+Phase A integration evidence: [Completion / Integration Report V1.0](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md), [Acceptance-Oracle Erratum V1.0](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_ORACLE_ERRATUM_V1_0.md), [Independent Migration Design Review V1.0](./PHASE_1B_STAGE4A_PHASE_A_0020_INDEPENDENT_MIGRATION_REVIEW_V1_0.md), and [Independent Migration Candidate Review V1.0](./PHASE_1B_STAGE4A_PHASE_A_0020_INDEPENDENT_CANDIDATE_REVIEW_V1_0.md)
 
 > The design-freeze PASS permitted `PD-04` through `PD-11` evidence collection and independent review only. The completed public-evidence review found unresolved Provider-assurance gates, so `PD-12` is not eligible. Nothing here authorizes Schema changes, Migration generation/execution, product code, Provider credentials, account mutation, real API calls, Stage 4 development, Staging deployment, Production enablement, Deploy, formal data import, Publish, or Index.
 
@@ -294,7 +296,7 @@ The phases below are sequential. No phase starts on plan approval alone.
 3. Define Fresh, Upgrade, repeat/no-op, rollback compatibility, and query-plan evidence.
 4. Receive independent Migration-design approval before generating the Migration.
 
-Current progress: the exact Schema design and exact nine-file `0020` Migration Candidate have passed their independent reviews. Integration management preserves the reviewed Candidate commit and prepares the Phase A Integration Candidate. Exit still requires an independent Phase A Completion Review. No Provider call and no automatic Phase B start.
+Current progress: the exact Schema design and exact nine-file `0020` Migration Candidate passed their independent reviews. Integration management preserved the Candidate through a non-fast-forward merge, incorporated the exact review evidence, issued the L-01 oracle Erratum, and prepared the Phase A Integration Candidate. Exit still requires an independent Phase A Completion Review. No Provider call and no automatic Phase B start.
 
 ### Phase B — Provider-neutral foundation
 
@@ -522,7 +524,7 @@ Current PD-04–PD-07 status: **NON-BLOCKING REFERENCE / PROVIDER RESPONSE PENDI
 Current PD-08/PD-10 status: **REFERENCE / LIVE PROVIDER EVIDENCE AND EXTERNAL ACTION DEFERRED**  
 Current PD-09/PD-11 status: **CLOSED AS BUDGET DESIGN / CONTRACT**  
 Current PD-12 status: **CLOSED — OWNER DEVELOPMENT AUTHORIZATION RECORDED**  
-Current P1-02A status: **DEVELOPMENT AUTHORIZED / PHASE A INTEGRATION CANDIDATE IN PROGRESS**  
+Current P1-02A status: **DEVELOPMENT AUTHORIZED / PHASE A INTEGRATION CANDIDATE PREPARED / COMPLETION REVIEW PENDING**  
 Current P1-02B status: **DEFERRED / OUTSIDE CURRENT STAGE 4**  
 Current complete-RAG status: **NOT AUTHORIZED / FUTURE ADR REQUIRED**  
 Future AI Customer Service status: **EXTENSION BOUNDARY RESERVED / CURRENT DEVELOPMENT NOT AUTHORIZED**

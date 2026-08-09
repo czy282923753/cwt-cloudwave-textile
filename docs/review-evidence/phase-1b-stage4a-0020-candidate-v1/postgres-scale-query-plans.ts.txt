@@ -1,0 +1,418 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import postgres, { type Sql } from "postgres";
+
+import { migratePostgresWithEnumCompatibility } from "../../../src/db/postgres-enum-migration-compatibility";
+
+type JsonRecord = Record<string, unknown>;
+
+const projectRoot = process.cwd();
+const adminUrlText = process.env.CWT_REVIEW_DATABASE_URL;
+const evidencePath = process.env.CWT_REVIEW_EVIDENCE_PATH;
+
+function validateAdminUrl(): URL {
+  assert.ok(adminUrlText);
+  const url = new URL(adminUrlText);
+  assert.ok(["127.0.0.1", "localhost"].includes(url.hostname));
+  assert.equal(url.pathname, "/cwt_review_admin");
+  assert.equal(url.username, "cwt_review_admin");
+  return url;
+}
+
+function dbUrl(adminUrl: URL, name: string): string {
+  const url = new URL(adminUrl);
+  url.pathname = `/${name}`;
+  return url.toString();
+}
+
+function reviewDbName(): string {
+  return `cwt_s4a_review_scale_${process.pid}_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+}
+
+async function seedScale(sql: Sql): Promise<JsonRecord> {
+  const actorId = randomUUID();
+  const taxonomyId = randomUUID();
+  const authorId = randomUUID();
+  await sql`
+    insert into users(id,email,display_name,role,password_hash)
+    values (${actorId},'synthetic-scale@example.test','Synthetic Stage 4A Scale Actor','admin','synthetic')
+  `;
+  await sql`
+    insert into taxonomy_terms(id,internal_key,product_code_prefix,dimension)
+    values (${taxonomyId},${`synthetic-scale-${taxonomyId}`},'SCALE','material_fiber')
+  `;
+  await sql.begin(async (tx) => {
+    await tx`create temp table review_product_targets(n integer primary key,id uuid not null) on commit preserve rows`;
+    await tx`insert into review_product_targets select g,gen_random_uuid() from generate_series(1,100) g`;
+    await tx`insert into products(id,created_by_user_id) select id,${actorId} from review_product_targets`;
+    await tx`
+      insert into product_localizations(product_id,locale,name)
+      select id,'en','Synthetic Scale Product '||n from review_product_targets
+    `;
+    await tx`
+      insert into product_taxonomy_terms(product_id,taxonomy_term_id,is_primary)
+      select id,${taxonomyId},true from review_product_targets
+    `;
+  });
+  await sql`
+    insert into authors(id,internal_key,display_name)
+    values (${authorId},${`synthetic-scale-${authorId}`},'Synthetic Scale Author')
+  `;
+  await sql`create temp table review_content_targets(n integer primary key,id uuid not null) on commit preserve rows`;
+  await sql`insert into review_content_targets select g,gen_random_uuid() from generate_series(1,100) g`;
+  await sql`
+    insert into contents(id,channel,type,author_id,created_by_user_id)
+    select id,'fabric_knowledge','article',${authorId},${actorId} from review_content_targets
+  `;
+  await sql`
+    insert into content_localizations(content_id,locale,title,body)
+    select id,'en','Synthetic Scale Content '||n,'Synthetic-only' from review_content_targets
+  `;
+  await sql`create temp table review_revision_targets(n integer primary key,id uuid not null) on commit preserve rows`;
+  await sql`insert into review_revision_targets select g,gen_random_uuid() from generate_series(1,100) g`;
+  await sql`
+    insert into editorial_revisions(id,entity_type,entity_id,locale,version_number,status,snapshot,created_by_user_id)
+    select r.id,'product',p.id,'en',r.n,'draft',jsonb_build_object('draftVersion',1,'synthetic',true),${actorId}
+    from review_revision_targets r join review_product_targets p on p.n=r.n
+  `;
+
+  await sql`
+    insert into ai_model_config(
+      use_case,provider,model,parameters_json,prompt_id,prompt_version,prompt_hash,
+      enabled,is_default,created_by_user_id,updated_by_user_id
+    )
+    select
+      case (g-1)%4
+        when 0 then 'seo_content_draft'
+        when 1 then 'fabric_knowledge_draft'
+        when 2 then 'product_description_draft'
+        else 'sourcing_guide_draft'
+      end,
+      'deepseek','synthetic-scale-model-'||g,'{}'::jsonb,
+      case (g-1)%4
+        when 0 then 'seo-content-draft'
+        when 1 then 'fabric-knowledge-draft'
+        when 2 then 'product-description-draft'
+        else 'sourcing-guide-draft'
+      end,
+      1,repeat(substr('abcdef0123456789',((g-1)%16)+1,1),64),
+      g between 1 and 4,g between 1 and 4,${actorId},${actorId}
+    from generate_series(1,10000) g
+  `;
+  await sql`
+    create temp table review_config_targets as
+    select distinct on (use_case) use_case,id
+    from ai_model_config order by use_case,enabled desc,is_default desc,id
+  `;
+
+  await sql.unsafe(`
+    with source as (
+      select g,
+        case g%5 when 0 then 'pending' when 1 then 'processing' when 2 then 'draft_ready' when 3 then 'failed' else 'cancelled' end as run_status,
+        case g%3 when 0 then 'product_draft' when 1 then 'content_draft' else 'editorial_revision' end as target_type,
+        case g%3 when 0 then 'product_description_draft' when 1 then 'fabric_knowledge_draft' else 'sourcing_guide_draft' end as use_case,
+        statement_timestamp()-(g::text||' seconds')::interval as queued_time,
+        (date '2025-01-01'+(((g-1)%365)*2))::date as charge_day
+      from generate_series(1,100000) g
+    ), shaped as (
+      select s.*,c.id as config_id,
+        p.id as product_id,ct.id as content_id,r.id as revision_id
+      from source s
+      join review_config_targets c on c.use_case=s.use_case
+      left join review_product_targets p on s.target_type='product_draft' and p.n=((s.g-1)%100)+1
+      left join review_content_targets ct on s.target_type='content_draft' and ct.n=((s.g-1)%100)+1
+      left join review_revision_targets r on s.target_type='editorial_revision' and r.n=((s.g-1)%100)+1
+    )
+    insert into ai_runs(
+      application_class,capability,use_case,requested_by_user_id,idempotency_key,
+      request_fingerprint_version,request_fingerprint,target_type,target_product_id,target_content_id,
+      target_revision_id,target_locale,expected_target_version,target_snapshot_hash,
+      model_config_id,model_config_version,resolved_config_hash,requested_provider,actual_provider,
+      requested_model,returned_model,parameters_snapshot_json,max_input_tokens,max_output_tokens,
+      max_attempts,prompt_id,prompt_version,prompt_hash,provider_envelope_version,
+      provider_envelope_hash,input_schema_version,output_schema_version,policy_version,
+      input_sources_json,input_context_json,input_hash,attempt_history_json,candidate_json,candidate_hash,
+      status,retry_state,attempt_count,next_attempt_at,lease_owner,lease_token,lease_acquired_at,
+      lease_expires_at,active_attempt_dispatched_at,state_version,cancelled_lease_token,
+      cancelled_by_user_id,cancellation_reason,cancelled_at,queued_at,provider_dispatched_at,
+      generated_at,completed_at,generation_duration_ms,updated_at,input_tokens,output_tokens,total_tokens,
+      provider_response_status,provider_http_status,provider_error_code,provider_request_id,
+      failure_code,failure_detail,execution_environment,budget_policy_version,budget_timezone,
+      budget_currency,text_concurrency_limit,budget_charge_day,budget_charge_month,
+      run_cost_limit_microusd,daily_hard_limit_microusd,monthly_warning_limit_microusd,
+      monthly_hard_limit_microusd,estimated_max_cost_microusd,actual_cost_microusd,
+      actual_cost_complete,budget_accounted_cost_microusd,budget_reserved_cost_microusd,
+      cost_accounting_state,pricing_snapshot_json,human_disposition,quality_rating,quality_labels,
+      quality_comment,evaluated_by_user_id,evaluated_at,applied_target_version,applied_revision_id,
+      applied_revision_version
+    )
+    select
+      'draft_assistance','text',s.use_case,$1::uuid,gen_random_uuid(),1,repeat('a',64),s.target_type,
+      s.product_id,s.content_id,s.revision_id,case when s.target_type='editorial_revision' then null else 'en' end,
+      1,repeat('b',64),s.config_id,1,repeat('c',64),'deepseek',
+      case when s.run_status='draft_ready' then 'deepseek' else null end,
+      'deepseek-v4-flash',case when s.run_status='draft_ready' then 'deepseek-v4-flash' else null end,
+      '{}'::jsonb,16000,4000,3,
+      case s.use_case when 'product_description_draft' then 'product-description-draft'
+        when 'fabric_knowledge_draft' then 'fabric-knowledge-draft'
+        when 'sourcing_guide_draft' then 'sourcing-guide-draft' else 'seo-content-draft' end,
+      1,repeat('d',64),1,repeat('e',64),1,1,'stage4a-v1','[]'::jsonb,
+      jsonb_build_object('synthetic',true,'row',s.g),repeat('f',64),'[]'::jsonb,
+      case when s.run_status='draft_ready' then jsonb_build_object('synthetic',true,'row',s.g) else null end,
+      case when s.run_status='draft_ready' then repeat('0',64) else null end,
+      s.run_status,
+      case when s.run_status='pending' then 'scheduled' when s.run_status='failed' then 'not_retryable' else 'none' end,
+      1,case when s.run_status='pending' then s.queued_time else null end,
+      case when s.run_status='processing' then 'synthetic-scale-worker-'||s.g else null end,
+      case when s.run_status='processing' then gen_random_uuid() else null end,
+      case when s.run_status='processing' and s.g in (1,6) then statement_timestamp()
+           when s.run_status='processing' then statement_timestamp()-interval '2 minutes' else null end,
+      case when s.run_status='processing' and s.g in (1,6) then statement_timestamp()+interval '10 minutes'
+           when s.run_status='processing' then statement_timestamp()-interval '1 minute' else null end,
+      null,1,null,
+      case when s.run_status='cancelled' then $1::uuid else null end,
+      case when s.run_status='cancelled' then 'Synthetic scale cancellation' else null end,
+      case when s.run_status='cancelled' then s.queued_time+interval '3 seconds' else null end,
+      s.queued_time,
+      case when s.run_status='draft_ready' then s.queued_time+interval '1 second' else null end,
+      case when s.run_status='draft_ready' then s.queued_time+interval '2 seconds' else null end,
+      case when s.run_status in ('draft_ready','failed','cancelled') then s.queued_time+interval '3 seconds' else null end,
+      case when s.run_status='draft_ready' then 1000 else 0 end,
+      s.queued_time+interval '4 seconds',
+      case when s.run_status='draft_ready' then 100 else null end,
+      case when s.run_status='draft_ready' then 20 else null end,
+      case when s.run_status='draft_ready' then 120 else null end,
+      case when s.run_status='draft_ready' then 'success' else 'not_dispatched' end,
+      null,null,null,
+      case when s.run_status='pending' then 'synthetic_retry'
+           when s.run_status='failed' then 'synthetic_failure' else null end,
+      null,'staging','stage4a-staging-v1','Asia/Shanghai','USD',2,
+      s.charge_day,date_trunc('month',s.charge_day)::date,20000,5000000,50000000,100000000,20000,
+      case when s.run_status='draft_ready' then 500 else 0 end,true,
+      case when s.run_status in ('pending','processing') then 100
+           when s.run_status='draft_ready' then 500 else 0 end,
+      case when s.run_status in ('pending','processing') then 1000 else 0 end,
+      case when s.run_status in ('pending','processing') then 'reserved' else 'final' end,
+      jsonb_build_object('source','synthetic-scale'),'not_evaluated',null,'{}'::text[],null,null,null,null,null,null
+    from shaped s
+  `, [actorId]);
+
+  const [counts] = await sql<JsonRecord[]>`
+    select
+      (select count(*)::int from ai_model_config) as configurations,
+      (select count(*)::int from ai_runs) as runs,
+      (select count(distinct status)::int from ai_runs) as statuses,
+      (select count(distinct target_type)::int from ai_runs) as target_types,
+      (select count(distinct budget_charge_day)::int from ai_runs) as charge_days,
+      (select count(distinct budget_charge_month)::int from ai_runs) as charge_months,
+      (select count(*)::int from ai_runs where status='processing' and lease_expires_at>clock_timestamp()) as active_processing
+  `;
+  assert.deepEqual(counts, {
+    configurations: 10000,
+    runs: 100000,
+    statuses: 5,
+    target_types: 3,
+    charge_days: 365,
+    charge_months: 24,
+    active_processing: 2,
+  });
+  const [sample] = await sql<{ actor: string; product: string; content: string; revision: string; idempotency: string }[]>`
+    select ${actorId}::uuid::text as actor,
+      (select id::text from review_product_targets order by n limit 1) as product,
+      (select id::text from review_content_targets order by n limit 1) as content,
+      (select id::text from review_revision_targets order by n limit 1) as revision,
+      (select idempotency_key::text from ai_runs order by id limit 1) as idempotency
+  `;
+  assert.ok(sample);
+  return { actorId, counts, sample };
+}
+
+function summarizePlan(planValue: unknown): JsonRecord {
+  const planArray = planValue as Array<{ Plan: JsonRecord; Settings?: JsonRecord; "Planning Time"?: number; "Execution Time"?: number }>;
+  const document = planArray[0]!;
+  const nodes: JsonRecord[] = [];
+  const visit = (node: JsonRecord): void => {
+    nodes.push({
+      nodeType: node["Node Type"],
+      relation: node["Relation Name"],
+      index: node["Index Name"],
+      scanDirection: node["Scan Direction"],
+      sortMethod: node["Sort Method"],
+      actualRows: node["Actual Rows"],
+      actualLoops: node["Actual Loops"],
+      sharedHitBlocks: node["Shared Hit Blocks"],
+      sharedReadBlocks: node["Shared Read Blocks"],
+    });
+    for (const child of (node.Plans as JsonRecord[] | undefined) ?? []) visit(child);
+  };
+  visit(document.Plan);
+  return {
+    rootNode: document.Plan["Node Type"],
+    nodes,
+    settings: document.Settings ?? {},
+    planningTimeMs: document["Planning Time"],
+    executionTimeMs: document["Execution Time"],
+    raw: planValue,
+  };
+}
+
+async function explain(sql: Sql, query: string, parameters: unknown[] = []): Promise<JsonRecord> {
+  const rows = await sql.unsafe<JsonRecord[]>(
+    `explain (analyze, buffers, settings, format json) ${query}`,
+    parameters,
+  );
+  return summarizePlan(rows[0]?.["QUERY PLAN"]);
+}
+
+function planUses(plan: JsonRecord, indexName: string): boolean {
+  return (plan.nodes as JsonRecord[]).some((node) => node.index === indexName);
+}
+
+async function capturePlans(sql: Sql, fixture: JsonRecord): Promise<JsonRecord> {
+  const sample = fixture.sample as { actor: string; product: string; content: string; revision: string; idempotency: string };
+  const plans: Record<string, JsonRecord> = {};
+  plans.resolveConfig = await explain(sql, `
+    select id from ai_model_config
+    where capability='text' and use_case='product_description_draft' and enabled and is_default
+  `);
+  plans.claimDue = await explain(sql, `
+    select id from ai_runs
+    where execution_environment='staging' and status='pending' and next_attempt_at<=clock_timestamp()
+    order by next_attempt_at,queued_at,id for update skip locked limit 1
+  `);
+  plans.activeClock = await explain(sql, `
+    select count(*) from ai_runs
+    where execution_environment='staging' and status='processing' and lease_expires_at>clock_timestamp()
+  `);
+  plans.activeTransactionTimestamp = await explain(sql, `
+    select count(*) from ai_runs
+    where execution_environment='staging' and status='processing' and lease_expires_at>transaction_timestamp()
+  `);
+  plans.expiredLeases = await explain(sql, `
+    select id from ai_runs
+    where execution_environment='staging' and status='processing' and lease_expires_at<=clock_timestamp()
+    order by lease_expires_at,id limit 50
+  `);
+  plans.budgetDay = await explain(sql, `
+    select sum(budget_accounted_cost_microusd+budget_reserved_cost_microusd)
+    from ai_runs where execution_environment='staging' and budget_charge_day=date '2025-01-01'
+  `);
+  plans.budgetMonth = await explain(sql, `
+    select sum(budget_accounted_cost_microusd+budget_reserved_cost_microusd)
+    from ai_runs where execution_environment='staging' and budget_charge_month=date '2025-01-01'
+  `);
+  plans.productHistory = await explain(sql, `
+    select id from ai_runs where target_product_id=$1::uuid order by queued_at desc,id limit 50
+  `, [sample.product]);
+  plans.contentHistory = await explain(sql, `
+    select id from ai_runs where target_content_id=$1::uuid order by queued_at desc,id limit 50
+  `, [sample.content]);
+  plans.revisionHistory = await explain(sql, `
+    select id from ai_runs where target_revision_id=$1::uuid order by queued_at desc,id limit 50
+  `, [sample.revision]);
+  plans.requesterHistory = await explain(sql, `
+    select id from ai_runs where requested_by_user_id=$1::uuid order by queued_at desc,id limit 50
+  `, [sample.actor]);
+  plans.adminList = await explain(sql, `
+    select id from ai_runs where status='draft_ready' and use_case='product_description_draft'
+    order by queued_at desc,id limit 50
+  `);
+  plans.idempotency = await explain(sql, `
+    select id from ai_runs where idempotency_key=$1::uuid
+  `, [sample.idempotency]);
+
+  const expectations: Record<string, { index: string; passed: boolean }> = {
+    resolveConfig: { index: "ai_model_config_enabled_default_unique", passed: planUses(plans.resolveConfig, "ai_model_config_enabled_default_unique") },
+    claimDue: { index: "ai_runs_claimable_idx", passed: planUses(plans.claimDue, "ai_runs_claimable_idx") },
+    activeClock: { index: "ai_runs_active_lease_idx", passed: planUses(plans.activeClock, "ai_runs_active_lease_idx") },
+    activeTransactionTimestamp: { index: "ai_runs_active_lease_idx", passed: planUses(plans.activeTransactionTimestamp, "ai_runs_active_lease_idx") },
+    expiredLeases: { index: "ai_runs_active_lease_idx", passed: planUses(plans.expiredLeases, "ai_runs_active_lease_idx") },
+    budgetDay: { index: "ai_runs_budget_day_idx", passed: planUses(plans.budgetDay, "ai_runs_budget_day_idx") },
+    budgetMonth: { index: "ai_runs_budget_month_idx", passed: planUses(plans.budgetMonth, "ai_runs_budget_month_idx") },
+    productHistory: { index: "ai_runs_target_product_idx", passed: planUses(plans.productHistory, "ai_runs_target_product_idx") },
+    contentHistory: { index: "ai_runs_target_content_idx", passed: planUses(plans.contentHistory, "ai_runs_target_content_idx") },
+    revisionHistory: { index: "ai_runs_target_revision_idx", passed: planUses(plans.revisionHistory, "ai_runs_target_revision_idx") },
+    requesterHistory: { index: "ai_runs_requester_history_idx", passed: planUses(plans.requesterHistory, "ai_runs_requester_history_idx") },
+    adminList: { index: "ai_runs_admin_status_idx", passed: planUses(plans.adminList, "ai_runs_admin_status_idx") },
+    idempotency: { index: "ai_runs_idempotency_key_unique", passed: planUses(plans.idempotency, "ai_runs_idempotency_key_unique") },
+  };
+  return {
+    plans,
+    expectations,
+    passed: Object.values(expectations).filter((expectation) => expectation.passed).length,
+    total: Object.keys(expectations).length,
+    failed: Object.entries(expectations).filter(([, expectation]) => !expectation.passed).map(([name]) => name),
+  };
+}
+
+async function main(): Promise<void> {
+  assert.ok(evidencePath);
+  const adminUrl = validateAdminUrl();
+  const admin = postgres(adminUrl.toString(), { max: 1, prepare: false, onnotice() {} });
+  const name = reviewDbName();
+  assert.match(name, /^cwt_s4a_review_[a-z0-9_]+$/);
+  const result: JsonRecord = { database: name };
+  try {
+    await admin.unsafe(`create database "${name}"`);
+    const url = dbUrl(adminUrl, name);
+    const migrator = postgres(url, { max: 1, prepare: false, onnotice() {} });
+    try { await migratePostgresWithEnumCompatibility(migrator, join(projectRoot, "drizzle")); }
+    finally { await migrator.end(); }
+    const sql = postgres(url, { max: 4, prepare: false, onnotice() {} });
+    try {
+      const [identity] = await sql<JsonRecord[]>`
+        select version() as version,current_setting('server_version_num') as server_version_num,
+          current_database() as database,current_user as role
+      `;
+      assert.equal(identity?.server_version_num, "180004");
+      result.postgresql = identity;
+      result.fixture = await seedScale(sql);
+      await sql.unsafe(`vacuum (analyze) ai_model_config`);
+      await sql.unsafe(`vacuum (analyze) ai_runs`);
+      const settings: JsonRecord = {};
+      for (const setting of ["enable_seqscan", "enable_indexscan", "enable_bitmapscan", "enable_indexonlyscan", "random_page_cost", "seq_page_cost", "effective_cache_size", "work_mem", "max_parallel_workers_per_gather"]) {
+        const [row] = await sql.unsafe<JsonRecord[]>(`show ${setting}`);
+        settings[setting] = row ? Object.values(row)[0] : null;
+      }
+      result.plannerSettings = settings;
+      assert.equal(settings.enable_seqscan, "on", "default planner must retain sequential scans");
+      result.sizes = await sql<JsonRecord[]>`
+        select c.relname as relation,c.reltuples::bigint::text as estimated_rows,
+          pg_relation_size(c.oid)::text as relation_bytes,pg_total_relation_size(c.oid)::text as total_bytes
+        from pg_class c join pg_namespace n on n.oid=c.relnamespace
+        where n.nspname='public' and (c.relname in ('ai_model_config','ai_runs') or c.relname like 'ai_runs_%' or c.relname like 'ai_model_config_%')
+        order by c.relname
+      `;
+      result.analyzeState = await sql<JsonRecord[]>`
+        select relname,n_live_tup,last_vacuum,last_analyze
+        from pg_stat_user_tables where relname in ('ai_model_config','ai_runs') order by relname
+      `;
+      result.queryPlans = await capturePlans(sql, result.fixture as JsonRecord);
+      const [health] = await sql<JsonRecord[]>`
+        select
+          (select count(*)::int from pg_stat_activity where datname=current_database() and state='idle in transaction') as idle_in_transaction,
+          (select count(*)::int from pg_locks l join pg_database d on d.oid=l.database where d.datname=current_database() and l.locktype='advisory') as advisory_locks,
+          (select count(*)::int from pg_locks l join pg_database d on d.oid=l.database where d.datname=current_database() and l.locktype='tuple') as tuple_locks
+      `;
+      result.lockHealth = health;
+      assert.deepEqual(health, { idle_in_transaction: 0, advisory_locks: 0, tuple_locks: 0 });
+    } finally {
+      await sql.end();
+    }
+  } finally {
+    await admin.unsafe(`drop database if exists "${name}" with (force)`);
+    const remaining = await admin<{ name: string }[]>`
+      select datname as name from pg_database where datname like 'cwt_s4a_review_%' order by datname
+    `;
+    result.cleanup = { dropped: name, remainingReviewDatabases: remaining.map((row) => row.name) };
+    await admin.end();
+  }
+  await writeFile(evidencePath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+  const planResult = result.queryPlans as { passed: number; total: number; failed: string[] };
+  process.stdout.write(`Scale query-plan review complete: ${planResult.passed}/${planResult.total}; failed=${planResult.failed.join(",") || "none"}\n`);
+}
+
+void main();

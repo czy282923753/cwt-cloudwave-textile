@@ -64,7 +64,7 @@ ADR-0018 SHA-256 at review entry:
 | Owner decision | Evidence is prepared, but the owner must explicitly accept or reject the proposed boundary. |
 | Independent review | Must be performed by a reviewer independent from development and project coordination; this report is not that PASS. |
 
-## 3. Gate status
+## 3. Evidence-time gate status
 
 | Gate | Result | Decision |
 |---|---|---|
@@ -77,9 +77,9 @@ ADR-0018 SHA-256 at review entry:
 | `PD-10` independent Security/Privacy review | **BLOCKED** | `PD-04`–`PD-08` are not closed, and no independent reviewer PASS exists. |
 | `PD-11` Synthetic fixture/evaluation contract | **CLOSED — CONTRACT ONLY** | The required manifest and acceptance contract are complete; execution remains a post-`PD-12` offline/Staging activity. |
 
-Overall `PD-04`–`PD-11`: **BLOCKED**  
-`PD-12` eligibility: **NO**  
-P1-02A development: **NOT AUTHORIZED**
+Evidence-time overall `PD-04`–`PD-11`: **BLOCKED**  
+Evidence-time `PD-12` eligibility: **NO**  
+Evidence-time P1-02A development: **NOT AUTHORIZED**
 
 ## 4. PD-04 — API Input/Output training and service-improvement use
 

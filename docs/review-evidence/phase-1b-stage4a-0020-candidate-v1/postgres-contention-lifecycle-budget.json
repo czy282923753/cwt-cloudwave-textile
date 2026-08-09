@@ -1,0 +1,249 @@
+{
+  "database": "cwt_s4a_review_contention_46832_ef3e6b75584d",
+  "postgresql": {
+    "version": "PostgreSQL 18.4 (Debian 18.4-1.pgdg13+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+    "server_version_num": "180004",
+    "database": "cwt_s4a_review_contention_46832_ef3e6b75584d",
+    "role": "cwt_review_admin"
+  },
+  "idempotency": {
+    "sameKey": {
+      "callers": [
+        {
+          "kind": "inserted",
+          "id": "33dbe046-9cc4-4132-8494-bb9eeb3006af"
+        },
+        {
+          "kind": "replay",
+          "id": "33dbe046-9cc4-4132-8494-bb9eeb3006af"
+        }
+      ],
+      "counts": {
+        "runs": 1,
+        "audits": 1
+      }
+    },
+    "differentFingerprint": {
+      "callers": [
+        {
+          "kind": "conflict",
+          "id": "58a281d5-d3f5-4301-8375-86db9126a131"
+        },
+        {
+          "kind": "inserted",
+          "id": "58a281d5-d3f5-4301-8375-86db9126a131"
+        }
+      ],
+      "counts": {
+        "runs": 1,
+        "audits": 1
+      },
+      "priorPayloadReturned": false
+    }
+  },
+  "claimAndConcurrency": {
+    "skipLocked": {
+      "held": "4fa3b357-376e-475d-bf15-3250f8cce2ec",
+      "skipped": "f7d435a4-109d-4435-8210-cd59b613be3a"
+    },
+    "singleRun": {
+      "run": "0887e2d8-bb25-4062-a02c-9ec319d115c1",
+      "results": [
+        {
+          "kind": "claimed",
+          "id": "0887e2d8-bb25-4062-a02c-9ec319d115c1",
+          "token": "183d691e-ec7d-4452-87c9-6538591ae09f"
+        },
+        {
+          "kind": "empty"
+        }
+      ],
+      "state": {
+        "id": "0887e2d8-bb25-4062-a02c-9ec319d115c1",
+        "status": "processing",
+        "attempt_count": 1,
+        "has_token": true
+      }
+    },
+    "concurrencyTwo": {
+      "runs": [
+        "aa246d06-c0ec-4cc1-b729-04ccde8dfdee",
+        "14ac662f-6dc0-424b-bb2b-f3b2c078a8f6",
+        "1b7164d9-e8cb-4cec-aa33-c7ee8536229c"
+      ],
+      "results": [
+        {
+          "kind": "concurrency"
+        },
+        {
+          "kind": "claimed",
+          "id": "aa246d06-c0ec-4cc1-b729-04ccde8dfdee",
+          "token": "2e2240ac-e798-4c9a-80d7-a559d2db334a"
+        },
+        {
+          "kind": "claimed",
+          "id": "14ac662f-6dc0-424b-bb2b-f3b2c078a8f6",
+          "token": "4d9bf76f-275c-45cc-b88c-0203681dac96"
+        }
+      ],
+      "active": 2
+    }
+  },
+  "retryRecoveryDispatch": {
+    "sameRunRetry": {
+      "firstClaim": {
+        "kind": "claimed",
+        "id": "ee19dd76-8798-4848-82ff-87eb8050c0cb",
+        "token": "1c3dc5bd-3381-4da5-8b5c-ab7138d9670b"
+      },
+      "secondClaim": {
+        "kind": "claimed",
+        "id": "ee19dd76-8798-4848-82ff-87eb8050c0cb",
+        "token": "87ca0766-f5c6-4ff8-96ee-cea3e227b951"
+      },
+      "secondState": {
+        "id": "ee19dd76-8798-4848-82ff-87eb8050c0cb",
+        "attempt_count": 2,
+        "budget_accounted_cost_microusd": "5000",
+        "budget_reserved_cost_microusd": "15000",
+        "historical_dispatch": true,
+        "current_undispatched": true
+      },
+      "recoveredUndispatched": {
+        "id": "ee19dd76-8798-4848-82ff-87eb8050c0cb",
+        "status": "pending",
+        "retry_state": "scheduled",
+        "attempt_count": 2,
+        "historical_dispatch": true,
+        "active_attempt_dispatched_at": null,
+        "budget_accounted_cost_microusd": "5000",
+        "budget_reserved_cost_microusd": "15000",
+        "history_length": 2
+      }
+    },
+    "dispatchMarker": {
+      "failedMarkerProviderCalls": 0,
+      "successfulMarkerProviderCalls": 1,
+      "recoveredDispatched": {
+        "id": "069f421b-e842-4aed-8ce1-808f47391e97",
+        "status": "pending",
+        "retry_state": "scheduled",
+        "budget_accounted_cost_microusd": "5000",
+        "budget_reserved_cost_microusd": "15000",
+        "actual_cost_complete": false,
+        "candidate_json": null,
+        "history_length": 1
+      }
+    }
+  },
+  "cancellation": {
+    "cancellationFence": {
+      "staleCandidateRows": 0,
+      "lateRows": 1,
+      "final": {
+        "status": "cancelled",
+        "candidate_json": null,
+        "candidate_hash": null,
+        "provider_response_status": "cancelled_late_response",
+        "actual_cost_microusd": "3000",
+        "budget_accounted_cost_microusd": "3000",
+        "budget_reserved_cost_microusd": "0"
+      }
+    },
+    "heartbeatCancellationCas": {
+      "heartbeatRows": 1,
+      "cancellationRows": 0
+    }
+  },
+  "budgets": {
+    "hardAdmission": {
+      "fillers": [
+        "e60b8075-b132-4e5c-830d-69e4bcf5a423",
+        "aa4414e3-a27a-4c4e-9bf1-49866ccb19c7"
+      ],
+      "contenders": [
+        "6719ba41-0a43-40d0-86a8-673ae12d5263",
+        "60ca4b4c-7f89-4c1a-aff0-ee6441fb4bc0"
+      ],
+      "admissions": [
+        {
+          "kind": "claimed",
+          "id": "6719ba41-0a43-40d0-86a8-673ae12d5263",
+          "token": "8d42a143-fe05-419c-8f6d-dffe03e7c825"
+        },
+        {
+          "kind": "budget"
+        }
+      ],
+      "totals": {
+        "day_total": "5000000",
+        "month_total": "100000000"
+      }
+    },
+    "monthlyWarningCrossing": {
+      "run": "517d1c63-ddda-4b10-b782-9f4b7a5b5224",
+      "claim": {
+        "kind": "claimed",
+        "id": "517d1c63-ddda-4b10-b782-9f4b7a5b5224",
+        "token": "bab84923-cbb6-4815-98ab-ac8c05f574e7"
+      },
+      "total": "50010000",
+      "threshold": "50000000"
+    },
+    "actualOverrun": {
+      "run": "84b51841-6179-4b59-8d58-f9ed1521de06",
+      "state": {
+        "status": "failed",
+        "retry_state": "not_retryable",
+        "failure_code": "run_cost_limit_exceeded",
+        "candidate_json": null,
+        "actual_cost_microusd": "25000",
+        "budget_accounted_cost_microusd": "25000",
+        "budget_reserved_cost_microusd": "0"
+      },
+      "sameRunReclaimRows": 0
+    }
+  },
+  "defaultSwitchAndAudit": {
+    "concurrentResults": [
+      "conflict",
+      "switched"
+    ],
+    "enabledDefaultCount": 1,
+    "auditCount": 1,
+    "auditFailureSqlstate": "P0001",
+    "rollbackPreservedSignature": true
+  },
+  "acceptanceFencing": {
+    "concurrentAcceptance": {
+      "results": [
+        "accepted",
+        "conflict"
+      ],
+      "state": {
+        "human_disposition": "accepted",
+        "applied_target_version": 2,
+        "editor_document_version": 2,
+        "audit_count": 1
+      }
+    },
+    "requiredAuditRollback": {
+      "sqlstate": "P0001",
+      "state": {
+        "human_disposition": "not_evaluated",
+        "applied_target_version": null,
+        "editor_document_version": 1,
+        "audit_count": 0
+      }
+    }
+  },
+  "lockHealth": {
+    "idle_in_transaction": 0,
+    "advisory_locks": 0,
+    "tuple_locks": 0
+  },
+  "cleanup": {
+    "dropped": "cwt_s4a_review_contention_46832_ef3e6b75584d",
+    "remainingReviewDatabases": []
+  }
+}
