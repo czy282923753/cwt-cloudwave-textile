@@ -74,7 +74,6 @@ const environmentSchema = z.object({
   SMTP_SECURE: booleanString,
   SMTP_USER: z.string().default(""),
   SMTP_PASSWORD: z.string().default(""),
-  WHATSAPP_NUMBER: z.string().default(""),
   ANALYTICS_DRIVER: z.enum(["disabled", "ga4"]).default("disabled"),
   NEXT_PUBLIC_GA4_MEASUREMENT_ID: z.string().default(""),
   GSC_SITE_URL: z.string().default(""),
@@ -129,9 +128,6 @@ function assertProductionConfiguration(environment: AppEnvironment): void {
     !environment.SMTP_HOST
   ) {
     failures.push("a production inquiry email path is required");
-  }
-  if (!environment.WHATSAPP_NUMBER) {
-    failures.push("the confirmed public WhatsApp number is required");
   }
   if (
     !environment.INQUIRY_FILE_RETENTION_DAYS ||

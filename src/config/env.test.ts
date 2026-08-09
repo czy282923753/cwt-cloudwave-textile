@@ -21,7 +21,6 @@ const productionEnvironment = {
   EMAIL_FROM: "sales@example.test",
   INQUIRY_NOTIFICATION_TO: "test@example.test",
   SMTP_HOST: "smtp.example.test",
-  WHATSAPP_NUMBER: "0000000000",
   INQUIRY_FILE_RETENTION_DAYS: "30",
   CUSTOMER_DATA_RETENTION_DAYS: "365",
   AUDIT_LOG_RETENTION_DAYS: "365",

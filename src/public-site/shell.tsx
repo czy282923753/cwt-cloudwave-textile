@@ -1,9 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { env } from "@/config/env";
+import { PUBLIC_CONTACT_INFORMATION } from "@/config/public-contact-information";
 import { getVerifiedPublicCompanyFacts } from "./data";
 
+import { PublicContactInformation } from "./public-contact-information";
 import { TrackedLink } from "./tracking";
 
 const resources = [
@@ -158,6 +159,10 @@ export async function PublicFooter() {
             {resources.map(([label, href]) => <Link href={href} key={href}>{label}</Link>)}
           </div>
         </div>
+        <div className="min-w-0">
+          <p className="font-semibold text-white">Contact</p>
+          <PublicContactInformation variant="footer" />
+        </div>
       </div>
       <div className="border-t border-white/15">
         <div className="site-container flex flex-wrap justify-between gap-3 py-5 text-xs text-white/65">
@@ -170,20 +175,18 @@ export async function PublicFooter() {
 }
 
 export function FloatingInquiryActions() {
-  const digits = env.WHATSAPP_NUMBER.replace(/\D/g, "");
+  const whatsappHref = PUBLIC_CONTACT_INFORMATION.whatsapp.href;
   return (
     <>
       <aside className="fixed bottom-8 right-6 z-30 hidden flex-col gap-2 md:flex" aria-label="Quick inquiry">
-        {digits ? (
-          <TrackedLink
-            className="rounded-full bg-[#2F6E97] px-5 py-3 text-sm font-semibold text-white shadow-lg"
-            eventName="whatsapp_click"
-            href={`https://wa.me/${digits}`}
-            placement="desktop_float"
-          >
-            WhatsApp
-          </TrackedLink>
-        ) : null}
+        <TrackedLink
+          className="rounded-full bg-[#2F6E97] px-5 py-3 text-sm font-semibold text-white shadow-lg"
+          eventName="whatsapp_click"
+          href={whatsappHref}
+          placement="desktop_float"
+        >
+          WhatsApp
+        </TrackedLink>
         <TrackedLink
           className="button-primary rounded-full"
           eventName="quote_cta_click"
@@ -194,18 +197,14 @@ export function FloatingInquiryActions() {
         </TrackedLink>
       </aside>
       <aside className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-2 border-t border-[#CCDDE1] bg-white p-2 md:hidden" aria-label="Mobile quick inquiry">
-        {digits ? (
-          <TrackedLink
-            className="rounded px-3 py-3 text-center text-sm font-semibold text-[#2F6E97]"
-            eventName="whatsapp_click"
-            href={`https://wa.me/${digits}`}
-            placement="mobile_bar"
-          >
-            WhatsApp
-          </TrackedLink>
-        ) : (
-          <span className="px-3 py-3 text-center text-sm text-[#586B73]">CWT Sourcing</span>
-        )}
+        <TrackedLink
+          className="rounded px-3 py-3 text-center text-sm font-semibold text-[#2F6E97]"
+          eventName="whatsapp_click"
+          href={whatsappHref}
+          placement="mobile_bar"
+        >
+          WhatsApp
+        </TrackedLink>
         <TrackedLink
           className="rounded bg-[#087B76] px-3 py-3 text-center text-sm font-semibold text-white"
           eventName="quote_cta_click"

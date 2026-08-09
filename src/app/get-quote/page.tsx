@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { BrandWaveMotif } from "@/public-site/brand-wave-motif";
 import { InquiryForm } from "@/public-site/inquiry-form";
+import { PublicContactInformation } from "@/public-site/public-contact-information";
 import { PublicShell } from "@/public-site/shell";
 
 export const metadata: Metadata = {
@@ -65,6 +66,13 @@ export default async function GetQuotePage({
                 <span>Uploaded customer files remain separate from public Assets.</span>
               </li>
             </ul>
+            <div className="mt-8 border-t border-white/15 pt-6">
+              <h2 className="text-lg font-semibold text-white">Contact us directly</h2>
+              <p className="mt-2 text-sm leading-6 text-white/75">
+                Use email or WhatsApp as an alternative to the inquiry form.
+              </p>
+              <PublicContactInformation variant="direct" />
+            </div>
             <Link className="mt-7 inline-flex border border-[#04AAA0] px-4 py-2 text-sm font-semibold text-[#8EE2DC]" href="/privacy/">
               Privacy &amp; uploads
             </Link>

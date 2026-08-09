@@ -282,6 +282,10 @@ summary {
   margin-top: 1.2rem;
 }
 
+.public-contact-link {
+  overflow-wrap: anywhere;
+}
+
 /* Official logo and public navigation */
 .public-header {
   position: sticky;
@@ -629,11 +633,19 @@ summary {
   }
 
   .public-footer__grid {
-    grid-template-columns: 1.4fr 0.8fr 0.8fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 1024px) {
+  .public-footer__grid {
+    grid-template-columns:
+      minmax(0, 1.35fr)
+      minmax(7rem, 0.65fr)
+      minmax(9rem, 0.85fr)
+      minmax(13rem, 1.15fr);
+  }
+
   .desktop-actions,
   .desktop-navigation,
   .header-cta {

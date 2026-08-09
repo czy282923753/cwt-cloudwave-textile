@@ -466,6 +466,55 @@ test("@desktop independent Product modules and Revision approval remain projecti
   await expect(page.getByText("Narrative before final approved Revision.", { exact: true })).toHaveCount(0);
 });
 
+test("@all approved public contact information is accurate, accessible, and width-safe", async ({ page }) => {
+  for (const width of [320, 390, 1024, 1440]) {
+    await page.setViewportSize({ width, height: width < 800 ? 900 : 1000 });
+    const response = await page.goto("/get-quote/");
+    expect(response?.status(), `Get Quote at ${width}px`).toBe(200);
+
+    const direct = page.locator('[data-public-contact-information="direct"]');
+    await expect(page.getByRole("heading", { name: "Contact us directly", exact: true }))
+      .toBeVisible();
+    await expect(direct.getByRole("link", { name: "sales@cwtextile.com", exact: true }))
+      .toHaveAttribute("href", "mailto:sales@cwtextile.com");
+    await expect(direct.getByRole("link", { name: "+86 133 8000 7688", exact: true }))
+      .toHaveAttribute("href", "https://wa.me/8613380007688");
+    await expect(direct).not.toContainText("Location");
+    await expect(direct).not.toContainText("Business Hours");
+
+    const footer = page.locator('[data-public-contact-information="footer"]');
+    await expect(footer.getByRole("link", { name: "sales@cwtextile.com", exact: true }))
+      .toHaveAttribute("href", "mailto:sales@cwtextile.com");
+    await expect(footer.getByRole("link", { name: "+86 133 8000 7688", exact: true }))
+      .toHaveAttribute("href", "https://wa.me/8613380007688");
+    await expect(footer).toContainText("Guangzhou, Guangdong, China");
+    await expect(footer).toContainText("Monday–Friday, 9:00–18:00 (UTC+8)");
+
+    const header = page.locator("[data-public-header]");
+    await expect(header.getByRole("link", { name: "Home", exact: true })).toHaveCount(0);
+    await expect(header.getByRole("link", { name: /Contact(?: Us)?/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Find Your Fabric Solution", exact: true }))
+      .toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), `contact overflow at ${width}px`)
+      .toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+
+    const accessibility = await new AxeBuilder({ page }).analyze();
+    expect(accessibility.violations.filter((violation) =>
+      ["critical", "serious"].includes(violation.impact ?? ""),
+    ), `contact Axe at ${width}px`).toEqual([]);
+  }
+
+  const direct = page.locator('[data-public-contact-information="direct"]');
+  const email = direct.getByRole("link", { name: "sales@cwtextile.com", exact: true });
+  await email.focus();
+  await expect(email).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(direct.getByRole("link", { name: "+86 133 8000 7688", exact: true }))
+    .toBeFocused();
+  expect((await page.request.get("/contact/")).status()).toBe(404);
+  expect((await page.request.get("/contact-us/")).status()).toBe(404);
+});
+
 test("@desktop fixed responsive widths have no blocked navigation, CTA, form, or horizontal overflow", async ({ page }) => {
   const fixture = blockProjectionFixtures;
   for (const width of [320, 375, 390, 768, 1024, 1440]) {
