@@ -1,12 +1,14 @@
 # CWT Phase 1B acceptance matrix
 
-Status: **Discovery artifact only; no Phase 1B implementation is authorized**
+Status: **Stage 4A P1-02A development authorized on 2026-08-10; all other Stage and external-action gates remain separate**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Matrix date: **2026-08-05**
 
 ## 1. Purpose and use
 
 This matrix translates the approved Phase 1B frozen decisions into testable release gates. It does not mark Phase 1B as implemented or Production Ready. Each future Stage must attach reproducible evidence to the applicable rows and must stop when a required gate fails.
+
+Current authorization is recorded in the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md). DeepSeek `PD-04` through `PD-07` are non-blocking reference evaluations under that decision; their unresolved evidence is not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized.
 
 Execution-state labels in this matrix are separate from the Discovery gap-status labels:
 
@@ -15,6 +17,7 @@ Execution-state labels in this matrix are separate from the Discovery gap-status
 - **Planned Manual** — deterministic UI or operational verification is required.
 - **External Validation** — evidence must come from the authorized target/provider environment.
 - **Formal Data Acceptance** — the project owner must approve real facts or licensed media.
+- **Deferred by Owner** — explicitly outside the current Stage and not required for that Stage's exit; future work needs its own approval.
 
 When a row says one state “plus” another, both named evidence gates are mandatory; the combination is not a weaker intermediate status.
 
@@ -55,9 +58,9 @@ No row may pass using Production data in local or CI environments. Synthetic fix
 | U-18 | Image filename matcher | Exact Product Code and approved role suffix map deterministically; ambiguity, unsupported role, or duplicate Primary is an error. | Planned Automated | 3 |
 | U-19 | Archive safety | Traversal paths, links, hidden executable content, unsupported signatures, file-count bombs, expanded-size bombs, and duplicate entries are rejected. | Planned Automated | 3 |
 | U-20 | AI factual-field denylist | AI patches touching Product Code, category, composition, GSM, Width, MOQ, Company Facts, Publish, Index, routes, rights, or private Inquiry data are rejected. | Planned Automated | 4 |
-| U-21 | AI output schema and Diff | Invalid provider output cannot alter Draft; valid output becomes a Block-level Diff with individual accept/reject. | Planned Automated | 4 |
-| U-22 | AI cost and token accounting | Provider, Model, input/output token counts, estimated/actual cost, template/version, failure, and retry classification are normalized without secrets. | Planned Automated | 4 |
-| U-23 | AI image-template constraints | Only approved template fields and public/import-safe Assets are accepted; arbitrary prompts cannot bypass rights or factual boundaries. | Planned Automated | 4 |
+| U-21 | AI output schema, Draft state, and Diff | Invalid Provider output cannot alter Draft; valid output becomes `draft_ready` only and is presented as a Block-level Diff with individual accept/reject/edit before the existing Draft/review workflow. | Planned Automated | 4 |
+| U-22 | AI provenance and human quality evidence | Task, operator, Provider, requested/returned Model, Prompt version/hash, generation time, tokens/cost, Provider status, output association, disposition, optional bounded rating/labels/comment, failure, and retry classification are normalized without Secrets. | Planned Automated | 4 |
+| U-23 | AI configuration, Prompt, roles, and scope | One enabled default and reviewed immutable Prompt version per text use case; Admin can manage configuration/Prompt selection/logs; Editors cannot; fallback remains null; knowledge-base/chunk/embedding/vector/retrieval/vision/Customer-Service paths are absent. | Planned Automated | 4 |
 | U-24 | Email template schema | Approved variables render and escape correctly; unknown variables, private Asset URLs, attachments, scripts, and unsafe markup fail. | Planned Automated | 5 |
 | U-25 | Email recipient policy | Production and Staging policies resolve From, Reply-To, To/CC/BCC independently; Staging always replaces every recipient with `test@cwtextile.com`. | Planned Automated | 5 |
 | U-26 | Two email job identities | Internal notification and customer confirmation have stable, distinct idempotency keys derived from one Inquiry. | Planned Automated | 5 |
@@ -98,12 +101,12 @@ For each limit, automated evidence must cover below, exactly-at, and above. Belo
 | I-20 | Image match and Finalize | Only unambiguous files attach to the matching Product Code and approved role; each file completes existing scan/finalize before eligibility. | Planned Automated | 3 |
 | I-21 | Import crash recovery | A crash after byte upload, Product create, or relation create resumes from durable state; existing recovery/cleanup converges orphaned objects without duplicates. | Planned Automated | 3 |
 | I-22 | Import row correction | An operator can correct/retry only rejected items; successful items are immutable batch evidence and are not replayed. | Planned Automated | 3 |
-| I-23 | AI enqueue and claim | Only authorized editor actions enqueue one durable run; worker claim is atomic; bounded concurrency and idempotent retry prevent duplicate Draft changes. | Planned Automated | 4 |
-| I-24 | AI provider failure | Timeout, malformed output, quota, safety rejection, and unavailable provider retain the original Draft and record a typed failure without Publish/Index change. | Planned Automated | 4 |
-| I-25 | AI retry | Retry creates or advances the approved run attempt without duplicate accepted Blocks, Assets, or factual changes; cost/provenance are retained. | Planned Automated | 4 |
-| I-26 | AI Block accept/reject/undo/lock | Each action requires authorization, affects Draft only, records provenance/Audit, respects locks, and never mutates an approved revision. | Planned Automated | 4 |
+| I-23 | AI enqueue, lifecycle, configuration, and claim | Only authorized resource-scoped Editor/Admin actions enqueue one durable run; configuration resolves by use case; Worker claim is atomic; only pending/processing/draft-ready/failed/cancelled statuses are valid; bounded concurrency and idempotent retry prevent duplicate Draft changes. | Planned Automated | 4 |
+| I-24 | AI Provider failure and cancellation | Timeout, malformed output, quota, safety rejection, unavailable Provider, and cancellation retain the original Draft; typed error/retry/Provider response evidence is durable; a late cancelled response cannot become Draft-ready or change Publish/Index. | Planned Automated | 4 |
+| I-25 | AI retry | Retry advances the same approved run without duplicate accepted Blocks or factual changes; exhaustion is failed plus separate retry state; no fallback Provider/model is invoked; token/cost/generation-time/provenance are retained. | Planned Automated | 4 |
+| I-26 | AI Block accept/reject/undo/lock/review | Each action requires authorization, affects Draft only, records provenance/Audit and human evaluation, respects locks, and never mutates an approved revision; Editor submits review but cannot Publish. | Planned Automated | 4 |
 | I-27 | AI disabled degradation | Missing/disabled provider hides or disables AI actions with a clear safe message; manual editing, Publish, and public reads remain healthy. | Planned Automated | 4 |
-| I-28 | AI private-data isolation | Inquiry attachments, Contact/Organization data, Private Assets, secrets, and customer identifiers cannot be selected or serialized into an AI request. | Planned Automated | 4 |
+| I-28 | AI explicit-context and private-data isolation | Only deliberately selected approved company content, authorized allowlisted Product/Fabric data, or bounded operator input is serialized; Inquiry/customer/CRM/PII, sensitive or unauthorized internal data, unreviewed files, Secrets, arbitrary documents/URLs, and automatic retrieval remain unavailable. | Planned Automated | 4 |
 | I-29 | Inquiry authority | Anonymous retry remains idempotent, never overwrites Contact master data, and creates the two intended Outbox jobs transactionally with the Inquiry. | Existing Baseline plus extension | 5 |
 | I-30 | Internal notification job | One job sends the approved internal template from `sales@cwtextile.com` with `info@cwtextile.com` Reply-To and no private-file attachment. | Planned Automated | 5 |
 | I-31 | Customer confirmation job | A distinct job sends the approved confirmation once; failure/retry is independent of internal notification and Inquiry success is not reversed. | Planned Automated | 5 |
@@ -228,8 +231,8 @@ For each limit, automated evidence must cover below, exactly-at, and above. Belo
 | --- | --- | --- | --- | --- |
 | X-01 | Zoho DNS and sender | SPF/DKIM/DMARC and required Zoho records remain DNS Only; approved From/Reply-To authenticate with separate Production/Staging app passwords. | External Validation | 7 |
 | X-02 | Zoho delivery and retry | Internal/customer templates deliver with expected headers; provider outage, timeout, duplicate response, and rejection map to safe Outbox retry/dead behavior. | External Validation | 7 |
-| X-03 | Cloud AI provider | Approved cloud model/API, region, retention/training terms, schema, timeout, quota, token/cost, content policy, and failure behavior match governance; local model is absent in Production. | External Validation | 7 |
-| X-04 | AI image provenance | Approved template output has provider/model/template/source Asset provenance and rights review before any public relationship or Revision approval. | External Validation plus Formal Data | 7–8 |
+| X-03 | Cloud AI protected Staging | After separate Provider-call and Staging authorization, isolated Synthetic-only Staging proves the configured cloud model/API, schema, timeout, quota, token/cost, roles, redacted logs/provenance, canonical lifecycle/cancellation, and Draft→review→Publish behavior; the accepted supplier-evidence risk remains documented as non-blocking, and no Production data/access or automatic Index exists. | External Validation | 7 |
+| X-04 | Future AI image provenance | Reserved for a separately approved P1-02B: any future output must retain Provider/model/template/source Asset provenance and rights review before public relation or Revision approval. | Deferred by Owner | Future P1-02B |
 | X-05 | Malware scanner | Actual malicious/test signatures are quarantined, unavailable scanner fails closed, clean media releases only after result persistence, and resource use fits target host. | External Validation | 7 |
 | X-06 | Shared rate limiter | Multiple Web/Worker instances share authority; provider outage follows approved fail-closed behavior and cannot be bypassed with spoofed forwarding headers. | External Validation | 7 |
 | X-07 | Sentry and monitoring privacy | Events arrive with release/environment context, source maps policy, redaction, sampling, and no PII/private Asset/secret leakage. | External Validation | 7 |
@@ -249,7 +252,7 @@ Until X-08 through X-10 pass, the correct status is **Waiting for Real Product D
 | 1 — editorial/product/media foundation | U/I/P/S/E rows for Product facts, Product Code, static-page settings, media relations, Blocks, Revision, authorization, Audit, routes, and public eligibility pass. |
 | 2 — Home/About and editor UX | Public/admin desktop/mobile, Block Editor compatibility, autosave/conflict, Preview, accessibility, Home/About and navigation rows pass. |
 | 3 — Product import | Excel partial success, duplicate/retry, image matching, Upload/Finalize, recovery, archive safety, permission and PostgreSQL contention rows pass. |
-| 4 — AI Draft assistance | Provider-disabled path and all AI factual-denylist, Draft-only, private-data, Diff/lock/undo, failure/retry, cost/provenance and concurrency rows pass. |
+| 4 — text AI Draft assistance | Provider-agnostic dependency, application-neutral use-case registration, Admin/Editor/Reviewer permission matrix, configuration, immutable Prompt selection, Provider-disabled, factual-denylist, explicit-context/no-RAG, canonical lifecycle/cancellation, Draft-ready→review→Publish, no automatic Production SEO/Index, quality evaluation, no-fallback, failure/retry, token/cost/generation-time/provenance and concurrency rows pass. Visual AI and AI Customer Service are not part of this exit. |
 | 5 — email and CRM | Two independent Outbox tasks, templates, rollback/test, Staging forced recipient, attribution, outcomes, analytics privacy and provider-fake rows pass. |
 | 6 — deployment and operations artifacts | Environment isolation, trusted proxy, health, disk protection, backup manifest, alert, Compose and runbook automated/static checks pass without external mutation. |
 | 7 — protected Staging validation | All applicable External Validation rows pass on approved isolated topology; full restore rehearsal is complete; no unresolved critical/high risk remains. |
@@ -286,4 +289,4 @@ For each future Stage, retain:
 - formal Product/Company/media approval records;
 - known limitations, rollback boundary, and explicit stop/go decision.
 
-This Discovery matrix ends at planning. No row in this document authorizes implementation, Migration execution, external configuration, Production data use, deployment, Commit, or Push.
+This matrix does not itself grant authority. The separate Owner record authorizes bounded Stage 4A P1-02A development and Phase A Migration work only. No row authorizes Provider calls, credentials, external configuration, Staging/Production deployment, Production data, Production AI, Deploy, Publish, Index, formal import, or Push.

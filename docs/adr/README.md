@@ -19,3 +19,4 @@ ADRs explain decisions that affect architecture or the frozen baseline. A propos
 - [ADR-0015: Versioned Structured Block Document](./ADR-0015-versioned-structured-block-document.md) — Accepted for Phase 1B Stage 0 on 2026-08-05; not implemented.
 - [ADR-0016: Product Import Durable Authority](./ADR-0016-product-import-durable-authority.md) — Accepted for Phase 1B Stage 0 on 2026-08-05; not implemented.
 - [ADR-0017: AI Run Work and Provenance Authority](./ADR-0017-ai-run-work-and-provenance-authority.md) — Accepted for Phase 1B Stage 0 on 2026-08-05; not implemented.
+- [ADR-0018: Provider-Agnostic AI Service and Model Configuration](./ADR-0018-provider-agnostic-ai-service-and-model-configuration.md) — Accepted for Phase 1B Stage 4A architecture and supplemented by the 2026-08-10 design freeze; P1-02A development later authorized by the independent Owner authorization record, while Provider/API and deployment actions remain separate.

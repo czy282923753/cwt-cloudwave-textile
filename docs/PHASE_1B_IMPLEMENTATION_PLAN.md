@@ -1,10 +1,10 @@
 # CWT Phase 1B implementation plan
 
-Status: **Planning only; implementation and Migrations are not authorized**
+Status: **Stage 4A P1-02A development authorized on 2026-08-10; other Stages and external actions remain separately gated**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Plan date: **2026-08-05**
 
-Stage 0 approval: [Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md), [Product Import Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [Email Template Contract](./EMAIL_TEMPLATE_CONTRACT.md), and accepted ADR-0013 through ADR-0017. Stage 1 remains unauthorized.
+Stage 0 approval: [Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md), [Product Import Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [Email Template Contract](./EMAIL_TEMPLATE_CONTRACT.md), and accepted ADR-0013 through ADR-0017. Post-Stage-3 AI architecture is supplemented by accepted ADR-0018, the owner-confirmed [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), and the Stage 4A Pre-Development Implementation Plan. The later [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) authorizes bounded P1-02A development while preserving every architecture and external-action boundary.
 
 ## 1. Recommendation
 
@@ -138,22 +138,30 @@ Unique Batch/kind/source-key and persisted target IDs make same-batch retry idem
 
 Why two import tables are necessary: partial row success, exact retry, crash recovery, error export, and separate create/update modes cannot be represented truthfully by the Asset upload Batch alone. The Asset Batch owns bytes; the Product Import Batch owns row interpretation. No other import batch system may exist.
 
-### 5.4 `ai_runs`
+### 5.4 `ai_model_config`
+
+Purpose: one auditable model-configuration authority for Provider, model, text use case, bounded parameters, reviewed immutable Prompt selection, enabled/default state, optimistic concurrency, and a disabled future fallback reference.
+
+Current Stage 4 use cases are `seo_content_draft`, `fabric_knowledge_draft`, `product_description_draft`, and `sourcing_guide_draft`. Every initial default is DeepSeek / `deepseek-v4-flash`, defaults disabled, and has no fallback.
+
+Why necessary: environment variables and generic `system_settings` cannot safely provide one constrained default per use case, stable configuration identity, optimistic concurrent updates, and immutable `ai_runs` provenance. This table is configuration only and never becomes a second work, Prompt, Draft, or content authority.
+
+### 5.5 `ai_runs`
 
 Purpose: one durable authority for AI request provenance, work claim/retry, candidates, token/cost records, safe failures, and human disposition.
 
 Minimum draft fields:
 
 - UUID ID, actor, target entity/type, operation kind;
-- provider/model/template version and input hash;
-- status `pending`, `processing`, `succeeded`, `failed`, or `dead`;
-- attempt, next attempt, lease owner/expiry/version;
+- Provider/Model/Prompt ID/version/hash and input hash;
+- status `pending`, `processing`, `draft_ready`, `failed`, or `cancelled`;
+- attempt, separate retry state/next attempt, cancellation evidence, lease owner/expiry/version;
 - sanitized request metadata and typed candidate JSON;
 - input/output token counts and cost in integer micros or provider currency micros;
-- safe failure code/detail and timestamps;
-- accepted/rejected disposition summary and linked Editorial Revision if saved.
+- safe failure code/detail, normalized Provider response status, operator, generation timestamps and duration;
+- accepted/accepted-with-edits/rejected disposition, optional bounded human rating/labels/comment/evaluator/time, and linked Editorial Revision if saved.
 
-Why necessary: provider latency, retries, the frozen concurrency limits, provenance, cost, and image work exceed a synchronous best-effort request. The table is simultaneously the run record and work authority; a separate AI queue is prohibited.
+Why necessary: Provider latency, retries, cancellation/late-response safety, the frozen text-concurrency limit, provenance, cost, and quality evaluation exceed a synchronous best-effort request. The table is simultaneously the run record and work authority; a separate AI queue or evaluation history is prohibited.
 
 Old mechanism replaced: none—AI does not exist. The design does not reuse the email Outbox for unrelated AI semantics.
 
@@ -206,11 +214,12 @@ No Migration is generated or executed in Discovery. Names and numbers are provis
 - Extend the existing Upload Intent/Batch metadata only as needed for internal Import package ownership; do not create a second upload Batch.
 - Backfill nothing; existing data is not an import.
 
-### `0020_phase1b_ai_runs`
+### `0020_phase1b_ai_foundation`
 
-- Create the single AI Run/work table with lease, retry, provenance, cost, failure, and typed-output JSON fields.
+- Create `ai_model_config` with use-case defaults, bounded configuration, default-off enablement, optimistic concurrency, atomic required Audit, and nullable-but-disabled fallback reference.
+- Create the single `ai_runs` AI Run/work table with lease, retry, model-config and Prompt snapshots, provenance, token/cost/timing, failure, output association, and typed-output JSON fields.
 - Add unique request/idempotency constraints as approved.
-- No AI knowledge base, prompt corpus, private file relation, or publish/index field.
+- No AI knowledge base, chunk, embedding, vector, retrieval, visual-AI, live Prompt-corpus, private-file relation, fallback execution, or Publish/Index field.
 
 ### `0021_phase1b_attribution`
 
@@ -234,7 +243,7 @@ Inputs:
 Outputs:
 
 - approved scope sequence;
-- accepted ADR-0013 through ADR-0017 for local Production storage, Staging identity, structured Block compatibility, Product Import durable state, and AI Run durable state;
+- accepted ADR-0013 through ADR-0018 for local Production storage, Staging identity, structured Block compatibility, Product Import durable state, AI Run durable state, and Provider-agnostic AI configuration;
 - frozen Product Code prefix rules, [Excel Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [email contract](./EMAIL_TEMPLATE_CONTRACT.md), AI/privacy boundary, and host directory contract.
 
 Files/modules: documentation and ADRs only.
@@ -379,19 +388,25 @@ Rollback boundary: feature flag defaults off; applied Drafts/Assets remain ordin
 
 ### Stage 4 — Cloud AI Draft assistance
 
-Inputs: Stage 2 Blocks, reviewed `0020`, and owner approval of the concrete cloud Provider/Model, processing region, retention/training terms, token/cost ceilings, and image-template set. This is a hard Stage 4 entry gate and does not block Stages 1–3.
+Current scope: P1-02A text Draft assistance only. P1-02B visual AI and AI Customer Service are deferred outside current Stage 4. Complete RAG is excluded and requires a future ADR.
+
+Inputs: Stage 2 Blocks, accepted ADR-0017/ADR-0018, the owner-confirmed [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), the [Stage 4A Pre-Development Implementation Plan](./PHASE_1B_STAGE4_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN.md), the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md), reviewed `0020`, the closed PD-09 budget, and the Synthetic fixture/quality contract. DeepSeek `PD-04` through `PD-07` remain non-blocking reference evaluations; a Provider API call, credentials, or Staging deployment still requires separate authorization.
 
 Outputs:
 
-- cloud-only adapter and production env checks;
+- one Provider-agnostic AI Service Layer and cloud-only text adapter boundary;
+- application-neutral orchestration plus a compiled use-case registry so future reviewed `customer_support` applications do not require an AI Service Layer refactor;
+- `ai_model_config` for Provider/model/use-case/parameters/reviewed-Prompt/default-off state;
+- versioned Prompt Registry with run-to-Prompt provenance;
 - typed copy/layout candidates, Diff, Block accept/reject/lock/Undo;
-- AI image template flow through existing Asset pipeline;
-- provenance/token/cost/failure/retry/dead records;
-- text concurrency 2 and image concurrency 1.
+- one `ai_runs` work/provenance authority with canonical lifecycle, Provider/model/Prompt/operator/token/cost/generation-time/output association/failure/retry/cancellation/Provider-status/human-evaluation records;
+- four text use cases: SEO content, Fabric Knowledge, Product description, and sourcing-guide Draft assistance;
+- explicit/structured/operator-selected context only, with no automatic retrieval; and
+- text concurrency 2.
 
 Primary modules:
 
-- new `src/ai/*` service/adapter/worker;
+- new Provider-neutral `src/ai/*` contracts/service/config/Prompt/worker boundary and isolated DeepSeek adapter;
 - Block editor integrations;
 - existing Product/Content/Asset/Revision services.
 
@@ -403,13 +418,18 @@ Security/release invariants:
 - no private Inquiry files;
 - forbidden factual fields absent/rejected;
 - no Publish/Index/route capability;
-- prompts/results/cost logs protected and redacted.
+- prompts/results/cost logs protected and redacted;
+- Admin-only model/Prompt configuration; resource-scoped Editor generation/edit/submit; Editor cannot Publish;
+- `draft_ready` remains protected and cannot change Production SEO/public state;
+- no direct Provider call or model name in business-feature code;
+- fallback disabled; and
+- no RAG, knowledge base, chunk, embedding, vector retrieval, automatic retrieval, visual AI, or AI Customer Service.
 
-Tests: provider contract, malformed/prompt-injected output, lease/retry/dead, cost accounting, stale/locked Block, no-public-write, AI image provenance/cleanup, 2 vCPU/4 GB bounded pressure.
+Tests: architecture dependency, configuration switching, Prompt versioning/permissions, role matrix, canonical pending/processing/draft-ready/failed/cancelled lifecycle, no-fallback, no-RAG/no-vision, Provider contract, malformed/prompt-injected output, lease/retry/cancel/late-response, token/cost/generation-time/provenance/human-evaluation, stale/locked Block, no-public-write, protected Synthetic Staging, and 2 vCPU/4 GB bounded text pressure.
 
-Stop conditions: a provider response can modify truth fields or public state, private files enter context, cost/provenance is missing, or worker concurrency is unbounded.
+Stop conditions: a Provider response can modify truth fields, Production SEO or public state; private/customer/sensitive/unreviewed data enters context; role enforcement or Provider/model/Prompt/operator/generation-time/output provenance is missing; lifecycle, retry/cancellation, Provider-status or quality-evaluation evidence diverges from the design freeze; business code binds to a Provider/model; fallback/RAG/vision/AI Customer Service enters scope; Staging is bypassed; or Worker concurrency is unbounded.
 
-Provider gate: absence of an approved Provider/Model/budget stops Stage 4 before implementation. It remains a Production-readiness blocker but is not a reason to delay or weaken Stages 1–3.
+Provider disposition: DeepSeek is selected but disabled-first, `DF-01`–`DF-06` are frozen, the Synthetic/evaluation contract is complete, the Stage 4A Staging budget is Owner-approved, and the enterprise evidence questionnaire has been submitted. The Owner has accepted the incomplete supplier-information risk and made `PD-04` through `PD-07` non-blocking references. Development is authorized, but Provider/API calls, credentials, spend, Staging deployment, and Production remain separately unauthorized. Any later protected Staging run requires an explicit external-action authorization and does not authorize Production.
 
 Complexity: Very High.
 
@@ -555,8 +575,9 @@ Rollback boundary: import batches remain traceable; unpublished/noindex records 
 | [ADR-0015 — Versioned Structured Block Document](./adr/ADR-0015-versioned-structured-block-document.md) | Accepted 2026-08-05; not implemented | One Block writer, deterministic Paragraph backfill, existing Revision, bounded legacy-field exit. |
 | [ADR-0016 — Product Import Durable Authority](./adr/ADR-0016-product-import-durable-authority.md) | Accepted 2026-08-05; not implemented | Two import orchestration tables; existing Upload/Finalize/Product/Asset/Revision authorities. |
 | [ADR-0017 — AI Run Work and Provenance Authority](./adr/ADR-0017-ai-run-work-and-provenance-authority.md) | Accepted 2026-08-05; not implemented | One Run/work authority; cloud-only, Draft-only, no private Inquiry or public-state capability. |
+| [ADR-0018 — Provider-Agnostic AI Service and Model Configuration](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md) | Accepted and Stage 4A design-frozen 2026-08-10; P1-02A development later authorized | One AI Service Layer; configurable Provider/model/use case/Prompt; canonical run lifecycle; Draft/role/data/Staging/quality boundaries; DeepSeek text default; no current fallback, RAG, vision, or Customer Service. |
 
-Acceptance of an ADR approves architecture and planning only. Forward Migrations `0018`–`0021`, code, provider configuration, credentials, formal data, and deployment require later explicit Stage authorization.
+Acceptance of an ADR approves architecture and planning only. The separate Stage 4A Owner record now authorizes bounded P1-02A code and `0020` Migration work. Other forward Migrations, Provider configuration/calls, credentials, formal data, deployment, Publish, and Index still require later explicit authorization.
 
 ## 11. Stage-gated owner selections
 
@@ -564,7 +585,7 @@ All 15 architecture/policy decisions are recorded in [Phase 1B Stage 0 Owner Dec
 
 | Gate | Must be approved before | Does not block | Required decision/evidence | Production Ready impact |
 | --- | --- | --- | --- | --- |
-| AI Provider gate | Stage 4 starts | Stages 1–3 | Cloud Provider/Model, region, retention/training terms, token/cost ceilings, endpoint policy, image templates | Mandatory blocker until approved and externally validated |
+| AI development authorization | Stage 4A text development starts | Stages 1–3 | **Closed 2026-08-10:** design freeze, Owner-accepted supplier-information risk, non-blocking `PD-04`–`PD-07`, token/cost ceilings, Synthetic fixture/quality contract, and explicit P1-02A authorization | Development gate closed; Provider-call/Staging and Production decisions remain separate |
 | Scanner and shared Rate Limiter gate | Stage 6 starts | Stages 1–5 | Concrete providers, service/failure contracts, credentials plan, 2 vCPU/4 GB behavior | Mandatory blocker until approved and externally validated |
 | External account and Secret gate | Any authorized Stage 6/7 external deployment/configuration | Stages 1–5 | Monitoring accounts, Sentry project, uptime/independent alert route, Cloudflare/Zoho/COS identities, named Admins, environment-specific real Secrets and custody | Mandatory blocker until provisioned and validated |
 | Formal data gate | Stage 8 formal import/public acceptance | Stages 1–7 with Synthetic data | Verified Product/Company facts, managed Category prefixes used by formal Products, licensed media and rights evidence | Mandatory blocker until owner acceptance |
@@ -602,4 +623,4 @@ These values follow the approved policy in [Owner Decisions](./PHASE_1B_OWNER_DE
 
 ## 14. Final planning stop
 
-This plan stops before business implementation. Stage 0 authorization permits only its local documentation Checkpoint Commit. It authorizes no Schema edit, Migration generation/execution, dependency change, business code change, production configuration, external account mutation, credential use, deployment, formal data import, or Push. Stage 1 work begins only after project-owner review and explicit Phase 1B Stage 1 development authorization.
+This original plan began as a pre-implementation artifact. The later Stage 4A Owner record supersedes that planning stop only for bounded P1-02A development and the sequential `0020` Phase A work. It does not authorize another Phase 1B Stage, Provider/API calls, credentials, external account mutation, Staging/Production deployment, Production AI, formal data import, Publish, Index, or Push. Each later Stage 4A phase still begins only after its preceding independent gate.

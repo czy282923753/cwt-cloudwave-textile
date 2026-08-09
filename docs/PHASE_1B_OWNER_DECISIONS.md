@@ -1,12 +1,12 @@
 # CWT Phase 1B Stage 0 owner decisions
 
-Status: **Approved by the project owner on 2026-08-05**
+Status: **Approved by the project owner; Stage 4A Architecture Approved / Development Authorized on 2026-08-10**
 
 Authority: CWT Phase 1B Pre-Development Frozen Decision Baseline V1.1 — Final, owner-supplied SHA-256 `28503506cbc2ca4f3ae8bb35e590766fa7e37a82aefcc528c73a713e1cbccda6`
 
 Discovery checkpoint: `7278c936b267c97e44d411d38dbbdd2bed104359`
 
-This document closes the 15 Stage 0 decisions identified by Discovery. It authorizes documentation and architecture approval only. It does not authorize Stage 1 implementation, Schema edits, Migrations, provider configuration, credentials, formal data, deployment, or Push.
+This document closes the 15 Stage 0 decisions identified by Discovery. Stage 0 itself authorized documentation and architecture approval only. The later [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) separately authorizes bounded P1-02A development and `0020` Phase A work; it does not authorize Provider calls, credentials, Staging/Production deployment, Production AI, formal data, Publish, Index, or Push.
 
 ## 1. Local Production and Staging absolute roots
 
@@ -164,9 +164,52 @@ Stage 0 freezes these boundaries:
 - AI has no Publish, Index, route, factual-field, private Inquiry file, Contact, Organization, credential, or customer-data capability;
 - manual editing remains available when AI is disabled or fails.
 
-The specific Provider, Model, processing region, retention/training terms, pricing/budget, and approved image templates are a mandatory Stage 4 entry gate. They do not block Stages 1–3. They remain mandatory before AI implementation or Production readiness.
+The owner approved the following Stage 4 architecture on 2026-08-10:
 
-Decision record: [ADR-0017](./adr/ADR-0017-ai-run-work-and-provenance-authority.md).
+- one Provider-agnostic AI Service Layer is the only AI call boundary;
+- business-feature code never calls or names a concrete Provider/model;
+- `ai_model_config` controls Provider, model, use case, bounded parameters, reviewed immutable Prompt selection, and enabled/default state;
+- the versioned Prompt Registry is independent from business-code strings and every `ai_run` records the exact Prompt version;
+- `ai_runs` remains the single AI work and call-provenance authority;
+- fallback is reserved for future extension but is disabled and unimplemented in current Stage 4;
+- DeepSeek API / `deepseek-v4-flash` is the initial default for `seo_content_draft`, `fabric_knowledge_draft`, `product_description_draft`, and `sourcing_guide_draft`;
+- current Stage 4 is P1-02A text AI only;
+- P1-02B visual AI is deferred for separate future evaluation; and
+- the audited RAG state is Level 0, complete RAG is excluded, and any future RAG work requires a separate ADR.
+
+The owner additionally requires the AI Service Layer to remain application-neutral. A future `customer_support` application class must be addable through reviewed use-case registration, application policies/schemas/configuration, and a Customer Service integration without refactoring the core AI Service Layer. Current Stage 4 does not register or develop AI Customer Service, conversation state, customer-message sending, CRM/Inquiry actions, or customer-data access. Any future Customer Service capability requires separate architecture and security/privacy approval.
+
+Current Stage 4 context is limited to explicit input, allowlisted structured business data, and data deliberately selected by an authorized operator. It performs no automatic knowledge retrieval.
+
+The owner completed the Stage 4A pre-development design freeze on 2026-08-10:
+
+- AI results become protected `draft_ready` candidates only, then require Editor Diff/edit into Draft, human review, and the existing Reviewer/Publisher or Admin Publish workflow; Publish and Index remain independent;
+- AI cannot automatically change Production SEO/public content, facts, routes, Canonical, Publish, Index, or eligibility;
+- every run retains task, operator, Provider, requested/returned Model, Prompt version/hash, generation timing, output association, Provider status, and human disposition/quality evidence;
+- current context is limited to deliberately selected verified/approved company content, authorized allowlisted Product/Fabric data, and bounded explicit operator input; customer/private/CRM/PII, sensitive or unauthorized internal data, unreviewed files, arbitrary URLs, and automatic retrieval remain prohibited;
+- Admin manages model configuration, reviewed Prompt-version activation/rollback, redacted AI logs, and governed review/Publish; Product Editor and Content Editor may generate/edit/submit within their existing scope but cannot manage model/Prompt configuration or Publish;
+- the only AI Run statuses are `pending`, `processing`, `draft_ready`, `failed`, and `cancelled`; retry state, typed errors, cancellation, and Provider response evidence are separate; and
+- protected Synthetic-only Staging must validate API, roles, logs/provenance, lifecycle, and Draft→review→Publish behavior before any separate Production decision.
+
+The generic earlier `succeeded/dead` planning terminology is superseded for Stage 4A: success is `draft_ready`, while terminal retry exhaustion is `failed` plus separate retry state. Live free-form Prompt editing remains excluded; Admin Prompt management operates only on reviewed immutable versions.
+
+The Owner closed `PD-09` on 2026-08-10 with this Stage 4A Staging-only AI budget:
+
+- `USD 0.02` maximum per logical AI run across all permitted attempts;
+- `USD 5.00` daily hard stop;
+- `USD 50.00` monthly warning;
+- `USD 100.00` monthly hard stop; and
+- `USD 0.00` Production budget.
+
+This budget is limited to Stage 4A Staging AI-flow, Prompt, output-quality, and cost evaluation. It does not authorize credentials, a Provider call, Staging deployment, or development. A Production budget must be redesigned after `PD-12` against approved use cases and actual Staging evidence; `PD-12` alone does not authorize Production AI, spend, deployment, or enablement.
+
+The Owner separately authorized submission of the prepared DeepSeek enterprise evidence questionnaire for supplier capability, security, data-processing, service-term, stability/support, account/model/quota, and suitability assessment only. The official DeepSeek portal returned successful submission on 2026-08-10. This external inquiry does not authorize API integration, credentials, a model call, Production use, formal/private/customer data, development, deployment, `PD-12`, Publish, Index, or formal import. The immutable [Questionnaire](./PHASE_1B_STAGE4A_DEEPSEEK_ENTERPRISE_EVIDENCE_QUESTIONNAIRE.md) and [Submission Record](./PHASE_1B_STAGE4A_DEEPSEEK_EVIDENCE_REQUEST_SUBMISSION_RECORD.md) preserve the exact scope and evidence.
+
+The Owner's later development decision cancels DeepSeek enterprise-evidence review as a Stage 4A development, testing, or later release prerequisite. `PD-04` through `PD-07` are non-blocking reference evaluations, and the Owner accepts the current supplier-information gap for the approved public-company, Product-structured, Fabric Knowledge, and explicit-human-input Draft-assistance scope. The earlier evidence conclusions remain historical facts; their blocking disposition is superseded. The approved `PD-09` budget remains a fixed fail-closed design input.
+
+Current Stage 4A status is **Architecture Approved / Development Authorized**. Provider-agnostic design, the four text use cases, explicit-context/no-RAG boundary, disabled fallback, no visual AI, no AI Customer Service, and Draft/review/Publish/Index separation remain unchanged. No Provider API call, credential use, Staging/Production deployment, Production AI, Deploy, Publish, Index, or formal data import is authorized.
+
+Decision records: [ADR-0017](./adr/ADR-0017-ai-run-work-and-provenance-authority.md), [ADR-0018](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md), the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md), the [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), the [Stage 4A Pre-Development Implementation Plan](./PHASE_1B_STAGE4_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN.md), the [DeepSeek Questionnaire](./PHASE_1B_STAGE4A_DEEPSEEK_ENTERPRISE_EVIDENCE_QUESTIONNAIRE.md), and the [DeepSeek Submission Record](./PHASE_1B_STAGE4A_DEEPSEEK_EVIDENCE_REQUEST_SUBMISSION_RECORD.md).
 
 ## 10. Scanner and shared Rate Limiter gate
 
@@ -249,4 +292,4 @@ External account identities and actual Secret values are deliberately not select
 
 All 15 owner-decision categories are closed at the architecture/policy level. Remaining provider names, external accounts, named administrators, and Secret values are deliberate later Stage gates, not unresolved blockers for Stages 1–3 or, where stated, Stages 1–5.
 
-No Stage 1 business development is authorized by this approval.
+No Stage 1 business development is authorized by this Stage 0 approval. The separate Stage 4A Owner record authorizes P1-02A development only and does not broaden any other Stage or external-action authority.
