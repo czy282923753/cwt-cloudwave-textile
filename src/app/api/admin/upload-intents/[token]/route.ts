@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/auth/current-user";
 import { adminActionHttpFailure } from "@/admin/action-result";
 import { assertSameOrigin } from "@/auth/request-security";
+import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
+import { PRODUCT_IMPORT_LIMITS } from "@/imports/contract";
 import { createObjectStorage } from "@/storage";
 import {
   completeAdminUploadIntent,
@@ -14,9 +16,15 @@ import {
 import { assertRequestLength, readRequestBodyWithLimit } from "@/uploads/request-guard";
 import { createFileScanner } from "@/uploads/scanner";
 
+const ADMIN_BINARY_UPLOAD_MAXIMUM_BYTES = Math.max(
+  env.MAX_PUBLIC_FILE_BYTES,
+  PRODUCT_IMPORT_LIMITS.archiveBytes,
+);
+
 export async function PUT(request: Request, context: { params: Promise<{ token: string }> }): Promise<NextResponse> {
   try {
     assertSameOrigin(request);
+    assertRequestLength(request, ADMIN_BINARY_UPLOAD_MAXIMUM_BYTES);
     const user = await requireCurrentUser("assets.write");
     const actor = { userId: user.id, role: user.role, authSessionId: user.sessionId } as const;
     const { token } = await context.params;
