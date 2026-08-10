@@ -56,6 +56,7 @@
         "session_analytics_identity",
         "prompt_override",
         "provider_override",
+        "markup_syntax",
         "tool_network_action",
         "public_state_action"
       ]

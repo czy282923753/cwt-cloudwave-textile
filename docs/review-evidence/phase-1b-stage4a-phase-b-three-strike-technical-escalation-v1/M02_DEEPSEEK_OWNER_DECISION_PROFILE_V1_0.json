@@ -4,6 +4,18 @@
   "status": "owner-decision-candidate-pending-independent-escalation-review",
   "ownerSelection": null,
   "recommendation": "M02-D1-INCLUDE",
+  "commonAuthorityProfile": {
+    "profileId": "cwt.phase1b.stage4a.phaseb.m02-protected-data-authority.v2",
+    "profileVersion": "2.0.0",
+    "path": "M02_PROTECTED_DATA_AUTHORITY_PROFILE_V2_0.json",
+    "sha256": "eb293c61667831ad4c4a105e98e2603bd53628dbdb88802026926feed5046a33"
+  },
+  "mandatoryCorpus": {
+    "corpusId": "cwt.phase1b.stage4a.phaseb.m02-false-positive-security-corpus.v1",
+    "corpusVersion": "1.0.0",
+    "path": "M02_FALSE_POSITIVE_AND_SECURITY_CORPUS_V1_0.json",
+    "sha256": "0fba5e628a74975faa9f332446a023800b8fb9af3683c6cfa54c7530f7c3a1aa"
+  },
   "commonNonDecisions": {
     "implementationAuthorized": false,
     "correctedDesignApproved": false,

@@ -1,0 +1,6 @@
+command: node_modules/.bin/tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-positive.json
+typescript: 5.9.3
+exit: 0
+stdout: <empty>
+stderr: <empty>
+interpretation: PASS; the two exhaustively narrowed branches compile with the real AppDatabase/Pglite/Postgres types and no type erasure.

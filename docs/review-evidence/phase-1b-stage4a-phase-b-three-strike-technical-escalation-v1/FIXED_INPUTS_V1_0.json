@@ -1,0 +1,98 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.three-strike-technical-escalation.fixed-inputs.v1",
+  "profileVersion": "1.0.0",
+  "status": "verified-input-identity-not-implementation-authority",
+  "technicalEscalation": {
+    "branch": "codex/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1",
+    "startCommit": "6bc26cf035608a21a057d6f4e87da8d4f7f23d40",
+    "firstRollbackCheckpoint": "f854c3e1f52c5a323efcd40de8c9dafcce0965f4",
+    "worktree": "/Users/calvin/.codex/worktrees/263d/CWT（CloudWave Textile）项目"
+  },
+  "acceptedDesign": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-design-v1",
+    "commit": "6bc26cf035608a21a057d6f4e87da8d4f7f23d40",
+    "file": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_EXACT_DESIGN_V1_4.md",
+    "sha256": "48e6afebfba53f65c03077a1ca27522f0245f17cbd0b3b46ff492929cf1e0c07"
+  },
+  "frozenBaseline": {
+    "commit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4",
+    "tag": "phase-1b-stage3-approved-2026-08-09",
+    "tagObject": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "peeledCommit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4",
+    "immutable": true
+  },
+  "diagnosticV12Candidate": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-three-strike-root-cause-remediation-v2",
+    "commit": "f27cadf97a1b3187bdc9655a7411ce7aac1ebc4b",
+    "role": "historical diagnostic evidence only; not code parent"
+  },
+  "failedImplementationEvidenceOnly": [
+    "755e514540351ed53ee96bedd5ea12f3e934387e",
+    "a696325fa2608c77e526bb7403bb911d34200064",
+    "b1a73bb8aae87f7c862117b32ce5c2a051f21b84",
+    "d8a24d48592a8c5e112d20edd24505e9e34d83c9"
+  ],
+  "pausedFreshReviewV11": {
+    "worktree": "/Users/calvin/.codex/worktrees/e6ca/CWT（CloudWave Textile）项目",
+    "readOnly": true,
+    "trackedHead": "f27cadf97a1b3187bdc9655a7411ce7aac1ebc4b",
+    "artifacts": [
+      {
+        "role": "report",
+        "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_INDEPENDENT_DIAGNOSTIC_REREVIEW_V1_1.md",
+        "sha256": "84760b11d10780483fff185099a25e6874f749af9f126461539c9b48065d8a1f"
+      },
+      {
+        "role": "evidence",
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-independent-diagnostic-rereview-v1-1/INDEPENDENT_DIAGNOSTIC_REREVIEW_EVIDENCE_V1_1.md",
+        "sha256": "395e00da31b7201ea5ec3ef8a437ae4bc9288487d9533fbab40059f44aa671a9"
+      },
+      {
+        "role": "manifest",
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-independent-diagnostic-rereview-v1-1/SHA256SUMS.txt",
+        "sha256": "0d3148d10c8a706f1f8b314a78642ad75c66904b1d60d0f5dd875b88f2a436a2"
+      }
+    ],
+    "mutationProhibited": [
+      "modify",
+      "delete",
+      "stage",
+      "commit"
+    ]
+  },
+  "authorityFiles": {
+    "AGENTS.md": "f7ccb8a2ccc9f5171804511ef4b2c969a546a5ecc50b81c9d68e9ff5100a6a5f",
+    "docs/ENGINEERING_GOVERNANCE.md": "6c27a0075229ebb131643460897e49b891c8fb534cfc6a3026216da6e0028647",
+    "docs/REVIEW_POLICY.md": "97a8f4fc8dfa13ee2e748cc5c14c61346b4c539345225ea6662c86a8f94829e2",
+    "docs/adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md": "c60d71f293da6fe082c94927650e731d26abcdb238ba94863655053e22ab1f2f"
+  },
+  "typeBoundaryFiles": {
+    "src/db/types.ts": "ad027049e357a5aeb429cd9136c9a0e561f56bb492b3ebebd46f21e5b0c81817",
+    "src/db/client.ts": "fda8e496113f7d7658e94942d6f93c392fcaf403fcfd77a888852d0f18207800",
+    "src/config/env.ts": "822cfc5690bd2a6b658e9642dd9800a1bea998a27c89f013578e4516ee87d056",
+    "tsconfig.json": "096a305991cc6ee011630e877fc571eba979baa77aab5995328f3e67688c8a9e",
+    "package.json": "3f288f10bbb11e9a657e038af198bb31f0a471ecacb4f7d9e9ae6848ac241ed4",
+    "pnpm-lock.yaml": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb"
+  },
+  "runtimeTuple": {
+    "node": "24.14.0",
+    "v8": "13.6.233.17-node.41",
+    "icu": "78.2",
+    "unicode": "17.0",
+    "cldr": "48.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "typescript": "5.9.3"
+  },
+  "prohibitedScopeChanges": [
+    "src/**",
+    "scripts/**",
+    "test-fixtures/**",
+    "Schema",
+    "Migration",
+    "package.json",
+    "pnpm-lock.yaml",
+    "ADR",
+    "accepted Design"
+  ]
+}

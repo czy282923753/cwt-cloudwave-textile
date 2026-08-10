@@ -1,0 +1,16 @@
+command: node docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/VERIFY_TECHNICAL_ESCALATION_V1_0.mjs --capture
+exit: 0
+PASS runtime Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; CLDR 48.0; darwin/arm64; TypeScript 5.9.3
+PASS fixed Git refs, frozen tag, clean restart ancestry, diagnostic isolation and failed-ref identities
+PASS authority, accepted Design, database type boundary, package and lock hashes
+PASS paused Fresh Review V1.1 report/evidence/manifest hashes (read-only)
+PASS M02 closed AST registries include=31/direct:72f817000c8c4b80b98e701cb07b8cace69e344163f87413540cb7fbda30f2be/IR:ca3b7615d77788695b41ed6f004e11ad18b6d616542fc2e3d481d4e6cccb198d; exclude=30/direct:e1743e3382eef5c312bb780f57b2e864dd3d371ccb9b807db2e11c4fb46fc0d1/IR:ae0a1e667d4a7745d6808fb9ab6a67e6da3d5ff4e4cb5065f17c192557845558; structured=9 each
+PASS M02 alternatives differ only by explicit DeepSeek provider token/model prefix and later priority shift
+PASS M02 corpus 25/25 include/exclude/security/false-positive/Unicode/byte-identity cases plus structural limits
+PASS M03 complete root classes, exact five-edge Phase B root, Phase D/adapter absence and empty Provider registry
+PASS M03 strict positive exit=0; union projection exit=2/TS2375; cross-driver handoff exit=2/TS2375
+PASS M03 positive seam has one exhaustive kind switch, two mutually exclusive .db reads, one runtime factory authority and zero type erasure
+PASS Markdown links and final-LF checks for escalation report, Owner package and evidence README
+PASS scope guard 12 committed paths, docs/evidence only
+PASS capture mode: SHA-256 manifest and final clean-state checks deferred
+SUMMARY TECHNICAL_ESCALATION_PROBE=PASS

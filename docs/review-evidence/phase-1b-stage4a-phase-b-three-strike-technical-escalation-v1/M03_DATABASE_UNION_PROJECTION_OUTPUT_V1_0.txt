@@ -1,0 +1,6 @@
+command: node_modules/.bin/tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-union-negative.json
+typescript: 5.9.3
+exit: 2
+diagnostic: M03_DATABASE_UNION_PROJECTION_NEGATIVE_V1_0.ts(29,3): error TS2375: Type 'PgliteAppDatabase | PostgresAppDatabase' is not assignable to type 'AppDatabase<PgliteQueryResultHKT>' with 'exactOptionalPropertyTypes: true'.
+root cause: PostgresJsQueryResultHKT is not assignable to PgliteQueryResultHKT through the invariant Drizzle session/result shape.
+interpretation: PASS; the expected-invalid unnarrowed union handoff is rejected.
