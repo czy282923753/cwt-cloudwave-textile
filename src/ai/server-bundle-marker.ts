@@ -1,0 +1,4 @@
+import "server-only";
+
+export const CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A =
+  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A";
