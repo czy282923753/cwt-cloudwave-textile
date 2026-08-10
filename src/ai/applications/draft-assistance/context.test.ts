@@ -154,6 +154,7 @@ describe("Draft reconstructible context", () => {
             sourceClass: "product_structured",
             productId: "11111111-1111-4111-8111-111111111111",
             recordVersion: 7,
+            authoritativeRecordVersion: 7,
             targetBinding: {
               targetType: "product_draft",
               targetProductId: "11111111-1111-4111-8111-111111111111",
@@ -216,6 +217,7 @@ describe("Draft reconstructible context", () => {
         sourceClass: "product_structured",
         productId: "33333333-3333-4333-8333-333333333333",
         recordVersion: 99,
+        authoritativeRecordVersion: 7,
         targetBinding: {
           targetType: "product_draft",
           targetProductId: "11111111-1111-4111-8111-111111111111",
@@ -239,6 +241,7 @@ describe("Draft reconstructible context", () => {
       sourceClass: "product_structured",
       productId: "22222222-2222-4222-8222-222222222222",
       recordVersion: 7,
+      authoritativeRecordVersion: 7,
       targetBinding: {
         targetType: "product_draft",
         targetProductId: "11111111-1111-4111-8111-111111111111",
@@ -250,6 +253,7 @@ describe("Draft reconstructible context", () => {
       sourceClass: "product_structured",
       productId: "11111111-1111-4111-8111-111111111111",
       recordVersion: 6,
+      authoritativeRecordVersion: 7,
       targetBinding: {
         targetType: "product_draft",
         targetProductId: "11111111-1111-4111-8111-111111111111",
@@ -261,6 +265,7 @@ describe("Draft reconstructible context", () => {
       sourceClass: "product_structured",
       productId: "11111111-1111-4111-8111-111111111111",
       recordVersion: 7,
+      authoritativeRecordVersion: 7,
       targetBinding: {
         targetType: "product_draft",
         targetProductId: "44444444-4444-4444-8444-444444444444",
@@ -311,6 +316,7 @@ describe("Draft reconstructible context", () => {
         sourceClass: "fabric_knowledge",
         contentId: "33333333-3333-4333-8333-333333333333",
         recordVersion: 4,
+        authoritativeRecordVersion: 4,
         targetBinding: {
           targetType: "product_draft",
           targetProductId: productTarget.productId,
@@ -336,6 +342,7 @@ describe("Draft reconstructible context", () => {
         sourceClass: "fabric_knowledge",
         contentId: "33333333-3333-4333-8333-333333333333",
         recordVersion: 4,
+        authoritativeRecordVersion: 5,
         targetBinding: {
           targetType: "content_draft",
           targetContentId: "33333333-3333-4333-8333-333333333333",
@@ -356,6 +363,7 @@ describe("Draft reconstructible context", () => {
         sourceClass: "public_company_fact",
         companyFactId: "66666666-6666-4666-8666-666666666666",
         recordUpdatedAt: "2026-08-11T00:00:00.000Z",
+        authoritativeRecordUpdatedAt: "2026-08-11T00:00:00.000Z",
         targetBinding: {
           targetType: "product_draft",
           targetProductId: productTarget.productId,
@@ -368,7 +376,7 @@ describe("Draft reconstructible context", () => {
         }],
       },
     });
-    const companyTargetVersion = await buildContextWithSource({
+    const companyStaleVersion = await buildContextWithSource({
       useCase: "sourcing_guide_draft",
       target: productTarget,
       selection: {
@@ -379,11 +387,12 @@ describe("Draft reconstructible context", () => {
       source: {
         sourceClass: "public_company_fact",
         companyFactId: "55555555-5555-4555-8555-555555555555",
-        recordUpdatedAt: "2026-08-11T00:00:00.000Z",
+        recordUpdatedAt: "2026-08-10T00:00:00.000Z",
+        authoritativeRecordUpdatedAt: "2026-08-11T00:00:00.000Z",
         targetBinding: {
           targetType: "product_draft",
           targetProductId: productTarget.productId,
-          expectedTargetVersion: 6,
+          expectedTargetVersion: 7,
         },
         fields: [{
           field: "statement",
@@ -396,7 +405,7 @@ describe("Draft reconstructible context", () => {
       fabricSelectorMismatch,
       fabricTargetVersion,
       companySelectorMismatch,
-      companyTargetVersion,
+      companyStaleVersion,
     ]) {
       expect(result).toMatchObject({
         ok: false,
@@ -423,6 +432,7 @@ describe("Draft reconstructible context", () => {
               sourceClass: "fabric_knowledge",
               contentId: fabricId,
               recordVersion: 4,
+              authoritativeRecordVersion: 4,
               targetBinding,
               fields: [{
                 field: "title",
@@ -438,6 +448,7 @@ describe("Draft reconstructible context", () => {
             sourceClass: "public_company_fact",
             companyFactId,
             recordUpdatedAt: "2026-08-11T00:00:00.000Z",
+            authoritativeRecordUpdatedAt: "2026-08-11T00:00:00.000Z",
             targetBinding,
             fields: [{
               field: "statement",
@@ -506,6 +517,7 @@ describe("Draft reconstructible context", () => {
             sourceClass: "product_structured",
             productId: sourceIdentity.productId,
             recordVersion: sourceIdentity.recordVersion,
+            authoritativeRecordVersion: sourceIdentity.recordVersion,
             targetBinding: {
               targetType: "product_draft",
               targetProductId: sourceIdentity.productId,

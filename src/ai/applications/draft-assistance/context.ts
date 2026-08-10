@@ -138,6 +138,7 @@ const draftContextSourceDtoSchema = z.discriminatedUnion("sourceClass", [
     sourceClass: z.literal("product_structured"),
     productId: z.string().uuid(),
     recordVersion: z.number().int().min(1).max(2_147_483_647),
+    authoritativeRecordVersion: z.number().int().min(1).max(2_147_483_647),
     targetBinding: sourceTargetBindingSchema,
     fields: z.array(sourceDtoFieldSchema).min(1).max(32),
   }).strict(),
@@ -145,6 +146,7 @@ const draftContextSourceDtoSchema = z.discriminatedUnion("sourceClass", [
     sourceClass: z.literal("fabric_knowledge"),
     contentId: z.string().uuid(),
     recordVersion: z.number().int().min(1).max(2_147_483_647),
+    authoritativeRecordVersion: z.number().int().min(1).max(2_147_483_647),
     targetBinding: sourceTargetBindingSchema,
     fields: z.array(sourceDtoFieldSchema).min(1).max(3),
   }).strict(),
@@ -152,6 +154,7 @@ const draftContextSourceDtoSchema = z.discriminatedUnion("sourceClass", [
     sourceClass: z.literal("public_company_fact"),
     companyFactId: z.string().uuid(),
     recordUpdatedAt: z.string().datetime({ offset: true }),
+    authoritativeRecordUpdatedAt: z.string().datetime({ offset: true }),
     targetBinding: sourceTargetBindingSchema,
     fields: z.array(sourceDtoFieldSchema).min(1).max(4),
   }).strict(),
@@ -265,16 +268,19 @@ function sourceIdentityMatchesSelectionAndTarget(
   switch (source.sourceClass) {
     case "product_structured":
       return source.productId === selection.sourceId &&
+        source.recordVersion === source.authoritativeRecordVersion &&
         (association.targetType !== "product_draft" ||
           (source.productId === association.targetProductId &&
-            source.recordVersion === association.expectedTargetVersion));
+            source.authoritativeRecordVersion === association.expectedTargetVersion));
     case "fabric_knowledge":
       return source.contentId === selection.sourceId &&
+        source.recordVersion === source.authoritativeRecordVersion &&
         (association.targetType !== "content_draft" ||
           source.contentId !== association.targetContentId ||
-          source.recordVersion === association.expectedTargetVersion);
+          source.authoritativeRecordVersion === association.expectedTargetVersion);
     case "public_company_fact":
-      return source.companyFactId === selection.sourceId;
+      return source.companyFactId === selection.sourceId &&
+        source.recordUpdatedAt === source.authoritativeRecordUpdatedAt;
   }
 }
 
