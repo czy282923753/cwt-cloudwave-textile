@@ -8,8 +8,8 @@
 - Byte-identical FAIL import checkpoint: `b55fe1a7bcda91bce685392f2b4092e226bf560f`
 - Technical-escalation ancestor: `377181cd76e5427f344ff0c259fc9bd32ec7b670`
 - Accepted rollback: `6bc26cf035608a21a057d6f4e87da8d4f7f23d40`
-- Exact V1.6 Candidate commit: `V1_6_COMMIT_TO_BE_SEALED`
-- Exact V1.6 Candidate parent: `V1_6_PARENT_TO_BE_SEALED`
+- Contract/profile/verifier checkpoint: `8e24c049fd833e37c4b058230a7a037b45d1db80`
+- Exact final Candidate commit/parent: reported from Git after the manifest commit in the Coordinator callback and Fresh Review request; not self-embedded because the commit identity covers this file
 
 ## 1. Outcome and authority boundary
 
@@ -94,11 +94,11 @@ Executable/protected-resource verifier/profile/probe files under `docs/review-ev
 Final sealed proof values:
 
 ```text
-total candidates       ACTUAL_TOTAL_CANDIDATES_TO_BE_SEALED
-total executables      ACTUAL_TOTAL_EXECUTABLES_TO_BE_SEALED
-inventory SHA-256      ACTUAL_INVENTORY_SHA256_TO_BE_SEALED
-content SHA-256        ACTUAL_CONTENT_SHA256_TO_BE_SEALED
-classification SHA-256 ACTUAL_CLASSIFICATION_SHA256_TO_BE_SEALED
+total candidates       402
+total executables      362
+inventory SHA-256      79285d21fd75b1a64b5d6bd3f3917bf3a25dd051dea850c6c6f0abd666b19a86
+content SHA-256        e0b4f10ee3d21915a3f74b5a4e9280fd36abdb2c5d2b03eb275c1fe694fc052e
+classification SHA-256 964fb51dad53c886ead8c5506a78cd59014b38fdb5239e3ab821612e150cda6e
 zeroClass              []
 ambiguous              []
 ```
@@ -171,12 +171,12 @@ This is a bounded correction because it retains the approved 12-class total grap
 
 | Artifact | SHA-256 |
 |---|---|
-| Corrected Exact Design V1.6 | `V1_6_DESIGN_SHA256_TO_BE_SEALED` |
+| Corrected Exact Design V1.6 | `06fb0795cc05e6651f63f46226c67290e108103cb567e5aa5e80a8b09a33eec2` |
 | this remediation audit | `self hash is carried by SHA256SUMS; not self-embedded` |
-| M03 graph/classification profile V2.1 | `M03_PROFILE_SHA256_TO_BE_SEALED` |
-| offline V1.6 verifier | `V1_6_VERIFIER_SHA256_TO_BE_SEALED` |
-| actual-tree inventory output | `ACTUAL_TREE_OUTPUT_SHA256_TO_BE_SEALED` |
-| verifier capture | `VERIFIER_OUTPUT_SHA256_TO_BE_SEALED` |
+| M03 graph/classification profile V2.1 | `12860f30803c14bda5aac2c40cc0dbbf7176093037180ccb2bb50e26addc6702` |
+| offline V1.6 verifier | `e735ef027ec4bc2fd049269d950195dc94123500a9e557da611ff31426ceea46` |
+| actual-tree inventory output | `682593fb6075ac17119b71baac3e436391aa4317848afed52c1222d90b202658` |
+| verifier capture | `f27e0bfd5c23ed6325a97433aeae0d3ae736698500e9f633fec0b0dca230dc6c` |
 | V1.6 SHA256SUMS | `manifest hash is reported outside itself and in callback` |
 
 All paths are under `docs/` or `docs/review-evidence/`. The final worktree must be clean and the V1.6 manifest must verify every V1.6-owned and imported FAIL artifact it declares.

@@ -1,0 +1,44 @@
+PASS runtime Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; CLDR 48.0; darwin/arm64
+PASS branch, V1.5 HEAD/parent, authoring parent, escalation/rollback/tag ancestry and failed-code isolation
+PASS V1.5 bytes and 22/22 manifest unchanged; imported V1.5 FAIL bytes and 17/17 manifest unchanged; technical escalation PASS 5/5
+PASS M03 V2.1 one sealed selector authority classes=12 integrity=c42d7eb2a3c7f578a10caaf0f5678068e8d228aec688882b3d444b9f0b8b6fb6
+PASS actual tree candidates=402 executable=362 protectedResource=37 rootControl=9
+PASS class phase-b-outer-composition members=0
+PASS class phase-d-outer-composition-reserved members=0
+PASS class future-provider-adapter-zone-reserved members=0
+PASS class synthetic-ai-test-code members=0
+PASS class protected-ai members=0
+PASS class business-consumer members=144
+PASS class other-production-src members=64
+PASS class ai-proof-tooling members=0
+PASS class other-project-tooling members=25
+PASS class other-test-fixtures members=104
+PASS class diagnostic-documentation members=56
+PASS class root-control-file members=9
+PASS zeroClass=0 ambiguous=0 inventory=79285d21fd75b1a64b5d6bd3f3917bf3a25dd051dea850c6c6f0abd666b19a86 content=e0b4f10ee3d21915a3f74b5a4e9280fd36abdb2c5d2b03eb275c1fe694fc052e classification=964fb51dad53c886ead8c5506a78cd59014b38fdb5239e3ab821612e150cda6e
+PASS six V15-M01 paths uniquely classified; src/test/** test-only; test/control capability ceilings and Production incoming-edge rule pass
+PASS mutation negatives=17 all fail closed with exact reasons
+PASS mutation new-unclassified-executable=EXPECTED_FAIL_CLOSED
+PASS mutation same-path-two-classes=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:drizzle.config.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:playwright.config.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:tests/e2e/global-teardown.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:tests/e2e/product-import.spec.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:tests/e2e/public.spec.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:vitest.config.mts=EXPECTED_FAIL_CLOSED
+PASS mutation silent-exclusion=EXPECTED_FAIL_CLOSED
+PASS mutation symlink-bypass=EXPECTED_FAIL_CLOSED
+PASS mutation canonical-hardlink-alias=EXPECTED_FAIL_CLOSED
+PASS mutation alias-import-bypass=EXPECTED_FAIL_CLOSED
+PASS mutation generated-resource-bypass=EXPECTED_FAIL_CLOSED
+PASS mutation early-phase-d=EXPECTED_FAIL_CLOSED
+PASS mutation early-adapter=EXPECTED_FAIL_CLOSED
+PASS mutation second-composition-root=EXPECTED_FAIL_CLOSED
+PASS mutation sealed-exclusion-table=EXPECTED_FAIL_CLOSED
+PASS Phase B/protected implementation absent in design mode; Phase D root=0 adapter=0 second composition=0 Provider registry implementation absent
+PASS M02 selected INCLUDE full Unicode transitions/runtime mismatch/persisted bytes non-regression
+PASS M03 branch-local positives exit=0; union/cross-driver/destructured negatives=TS2375; no selected seam change
+PASS accepted mapping V1.6=V1.5=Drizzle=0020: ai_model_config 21/21, ai_runs 96/96
+PASS all 13 historical closures, 26 sections, frozen four use cases/Draft-only/phase boundaries retained
+PASS Schema/Migration/ADR/dependency/package/lock/persistent-complexity impact none; docs/evidence-only scope
+SUMMARY CORRECTED_EXACT_DESIGN_V1_6=PASS V15_M01=CLOSED_CANDIDATE_ONLY INDEPENDENT_APPROVAL=FALSE IMPLEMENTATION_AUTHORIZED=FALSE
