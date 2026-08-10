@@ -67,6 +67,7 @@ const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
   return (
     name.endsWith("page_client-reference-manifest.js") &&
     !name.startsWith("admin/") &&
+    !name.startsWith("(admin-preview)/") &&
     !name.startsWith("operations-login/")
   );
 });
@@ -77,15 +78,52 @@ if (manifests.length === 0) {
 
 const checked = new Set();
 const leaks = [];
+const buildManifest = JSON.parse(await readFile(join(buildRoot, "build-manifest.json"), "utf8"));
+const rootChunks = [
+  ...(buildManifest.polyfillFiles ?? []),
+  ...(buildManifest.rootMainFiles ?? []),
+].filter((path) => typeof path === "string" && path.endsWith(".js"));
+for (const chunkPath of rootChunks) {
+  const localPath = join(buildRoot, chunkPath);
+  checked.add(localPath);
+  const chunk = await readFile(localPath, "utf8");
+  for (const needle of forbidden) {
+    if (chunk.includes(needle)) leaks.push(`${localPath}: ${needle}`);
+  }
+}
 for (const manifestPath of manifests) {
   const manifest = await readFile(manifestPath, "utf8");
   checked.add(manifestPath);
-  for (const needle of forbidden) {
-    if (manifest.includes(needle)) leaks.push(`${manifestPath}: ${needle}`);
+  const assignmentAt = manifest.lastIndexOf("]=");
+  if (assignmentAt < 0 || !manifest.endsWith(";")) {
+    throw new Error(`Unrecognized client-reference manifest framing: ${manifestPath}`);
   }
-  const chunkPaths = manifest.match(/static\/chunks\/[^"'\\]+\.js/g) ?? [];
+  const parsed = JSON.parse(manifest.slice(assignmentAt + 2, -1));
+  if (typeof parsed.clientModules !== "object" || parsed.clientModules === null) {
+    throw new Error(`Client-reference manifest has no clientModules object: ${manifestPath}`);
+  }
+  const chunkPaths = new Set();
+  for (const [modulePath, descriptor] of Object.entries(parsed.clientModules)) {
+    if (typeof descriptor !== "object" || descriptor === null || !Array.isArray(descriptor.chunks)) {
+      throw new Error(`Invalid client module descriptor in ${manifestPath}`);
+    }
+    const activeChunks = descriptor.chunks.filter(
+      (value) => typeof value === "string" && value.startsWith("static/chunks/") && value.endsWith(".js"),
+    );
+    if (activeChunks.length === 0) continue;
+    for (const needle of forbidden) {
+      if (modulePath.includes(needle)) leaks.push(`${manifestPath}: active module ${needle}`);
+    }
+    for (const chunkPath of activeChunks) chunkPaths.add(chunkPath);
+  }
   for (const chunkPath of chunkPaths) {
-    const localPath = join(buildRoot, chunkPath);
+    let decodedChunkPath;
+    try {
+      decodedChunkPath = decodeURIComponent(chunkPath);
+    } catch {
+      throw new Error(`Public bundle manifest contains a malformed chunk path: ${chunkPath}`);
+    }
+    const localPath = join(buildRoot, decodedChunkPath);
     if (checked.has(localPath)) continue;
     checked.add(localPath);
     const chunk = await readFile(localPath, "utf8");
