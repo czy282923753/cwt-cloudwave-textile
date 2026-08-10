@@ -60,6 +60,7 @@ interface ArchitectureProfile {
     readonly productionGeneratedFiles: readonly string[];
     readonly generatedRoots: readonly string[];
     readonly generatedExecutableSuffixes: readonly string[];
+    readonly syntheticResourceRoots: readonly string[];
     readonly frameworkControlGeneratedContract: {
       readonly presentPath: string;
       readonly presentLengthBytes: number;
@@ -207,8 +208,11 @@ for (const path of candidates) {
   const generated = authority.resourceAndGeneratedPolicy.generatedRoots.some((root) => path.startsWith(root)) ||
     authority.resourceAndGeneratedPolicy.generatedExecutableSuffixes.some((suffix) => path.endsWith(suffix)) ||
     path === authority.resourceAndGeneratedPolicy.frameworkControlGeneratedContract.presentPath;
+  const exactSyntheticGenerated = path ===
+    "src/ai/testing/synthetic-prompts/synthetic-prompt-bundle.generated.ts" &&
+    authority.resourceAndGeneratedPolicy.syntheticResourceRoots.some((root) => path.startsWith(root));
   if (generated && path !== "next-env.d.ts" &&
-    !authority.resourceAndGeneratedPolicy.productionGeneratedFiles.includes(path)) {
+    !exactSyntheticGenerated && !authority.resourceAndGeneratedPolicy.productionGeneratedFiles.includes(path)) {
     fail(`unmanifested generated candidate ${path}`);
   }
   const sourceState = tracked.has(path)

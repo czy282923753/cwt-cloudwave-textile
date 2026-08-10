@@ -19,6 +19,10 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "generate:ai-prompts": "tsx scripts/generate-ai-prompt-bundle.ts --scope production && tsx scripts/generate-ai-prompt-bundle.ts --scope synthetic-test",
+    "check:ai-prompts": "tsx scripts/verify-ai-prompt-bundle.ts --include-synthetic-test",
+    "check:ai-architecture": "tsx scripts/verify-ai-architecture.ts",
+    "test:ai-foundation": "vitest run src/ai",
     "check:bundle": "node scripts/check-public-bundle.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
@@ -32,7 +36,7 @@
     "retention:execute": "tsx scripts/enforce-retention.ts --execute",
     "outbox:process": "tsx scripts/process-notification-outbox.ts",
     "cleanup:objects": "tsx scripts/process-object-cleanup.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle",
+    "check": "pnpm check:ai-prompts && pnpm check:ai-architecture && pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle",
     "check:all": "pnpm check && pnpm audit --prod && pnpm test:e2e"
   },
   "dependencies": {

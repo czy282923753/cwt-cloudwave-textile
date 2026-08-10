@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 type Scope = "production" | "synthetic-test";
 
@@ -144,7 +145,8 @@ async function main(): Promise<void> {
   await writeFile(resolve(locations[scopeValue].output), await generatePromptBundleText(scopeValue), "utf8");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const invokedPath = process.argv[1];
+if (invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href) {
   void main().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : "Prompt generation failed.");
     process.exitCode = 1;

@@ -3,7 +3,16 @@ import { join, relative } from "node:path";
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
 const serverAppRoot = join(buildRoot, "server/app");
-const forbidden = ["@refinedev", "/src/admin/", "RefineAdminProvider"];
+const forbidden = [
+  "@refinedev",
+  "/src/admin/",
+  "RefineAdminProvider",
+  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
+  "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
+  "CWT_SYNTHETIC_TEST_DATA_NOT_A_CWT_FACT_V1",
+  "synthetic_test_application",
+  "synthetic_case_association",
+];
 
 async function filesUnder(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
