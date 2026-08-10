@@ -36,6 +36,7 @@
   "exclude": [
     "node_modules",
     "docs/review-evidence/**/*.ts",
+    "docs/review-evidence/**/*.mts",
     "test-fixtures/**/*.ts"
   ]
 }
