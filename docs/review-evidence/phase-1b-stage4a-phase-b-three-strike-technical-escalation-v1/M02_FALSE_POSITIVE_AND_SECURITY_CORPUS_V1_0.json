@@ -1,0 +1,212 @@
+{
+  "corpusId": "cwt.phase1b.stage4a.phaseb.m02-false-positive-security-corpus.v1",
+  "corpusVersion": "1.0.0",
+  "status": "technical-escalation-test-evidence-not-grammar-authority",
+  "semantics": {
+    "domain": "value unless targetDomain is key",
+    "expectedValues": [
+      "allow",
+      "invalid_control",
+      "unsupported_value",
+      "customer_private_data",
+      "personal_identity",
+      "network_location",
+      "private_storage",
+      "credential_secret",
+      "session_analytics_identity",
+      "prompt_override",
+      "provider_override",
+      "tool_network_action",
+      "public_state_action"
+    ],
+    "persistedInputMustRemainCodePointAndUtf8Identical": true
+  },
+  "cases": [
+    {
+      "id": "deepseek-provider-direct",
+      "input": "DeepSeek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "whole provider token"
+    },
+    {
+      "id": "deepseek-model-direct",
+      "input": "deepseek-v4-flash",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "selected model-family prefix"
+    },
+    {
+      "id": "deepseek-fullwidth-nfkc",
+      "input": "ｄｅｅｐｓｅｅｋ",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "detection-only NFKC"
+    },
+    {
+      "id": "deepseek-ignorable-insertion",
+      "input": "d​eepseek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "bounded Default_Ignorable insertion"
+    },
+    {
+      "id": "deepseek-mark-before-hyphen",
+      "input": "deepseek͏-v4-flash",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "bounded Mark insertion"
+    },
+    {
+      "id": "deepseek-lf-insertion",
+      "input": "deep\nseek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "LF is sole admitted C0 and an eligible gap"
+    },
+    {
+      "id": "deepseek-cr-invalid",
+      "input": "deep\rseek",
+      "include": "invalid_control",
+      "exclude": "invalid_control",
+      "reason": "CR precedence"
+    },
+    {
+      "id": "key-provider-override",
+      "targetDomain": "key",
+      "input": "providerOverride",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "key projection authority"
+    },
+    {
+      "id": "other-model-prefix-insertion",
+      "input": "g​pt-4",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "unchanged registered family"
+    },
+    {
+      "id": "structured-email-insertion",
+      "input": "alice@͏example.test",
+      "include": "personal_identity",
+      "exclude": "personal_identity",
+      "reason": "same-AST structured recognizer"
+    },
+    {
+      "id": "structured-phone",
+      "input": "+1 415 555 2671",
+      "include": "personal_identity",
+      "exclude": "personal_identity",
+      "reason": "Unicode-number structured recognizer"
+    },
+    {
+      "id": "structured-uri",
+      "input": "https://example.test",
+      "include": "network_location",
+      "exclude": "network_location",
+      "reason": "scheme structured recognizer"
+    },
+    {
+      "id": "private-path",
+      "input": "../private",
+      "include": "private_storage",
+      "exclude": "private_storage",
+      "reason": "path structured recognizer"
+    },
+    {
+      "id": "safe-deep-hyphen-seek",
+      "input": "deep-seek textile research",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "not exact provider token or model prefix"
+    },
+    {
+      "id": "safe-deep-space-seeker",
+      "input": "a deep seeker of durable textiles",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "word boundary false-positive control"
+    },
+    {
+      "id": "safe-deepseeking",
+      "input": "deepseeking fabric study",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "no trailing provider-token boundary"
+    },
+    {
+      "id": "safe-deepseekers",
+      "input": "deepseekers compare fabric hand feel",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "no trailing provider-token boundary"
+    },
+    {
+      "id": "safe-separated-words",
+      "input": "The analysis is deep; seek durable textiles.",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "ordinary prose"
+    },
+    {
+      "id": "safe-cjk",
+      "input": "台灣布料",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "legitimate Unicode"
+    },
+    {
+      "id": "safe-precomposed-accent",
+      "input": "café textile",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "legitimate Unicode"
+    },
+    {
+      "id": "safe-persian-zwnj",
+      "input": "می‌خواهم پارچه",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "ZWNJ alone is not protected"
+    },
+    {
+      "id": "safe-devanagari-marks",
+      "input": "हिंदी कपड़ा",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "marks alone are not protected"
+    },
+    {
+      "id": "safe-emoji-zwj",
+      "input": "textile 👩‍💻 note",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "ZWJ sequence alone is not protected"
+    },
+    {
+      "id": "safe-decomposed-mark",
+      "input": "Å textile",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "decomposed mark alone is not protected"
+    },
+    {
+      "id": "safe-fullwidth-space",
+      "input": "fabric　library",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "fullwidth space alone is not protected"
+    }
+  ],
+  "generatedLimitCases": [
+    "depth 17 -> unsupported_value",
+    "visited node 4097 -> unsupported_value",
+    "raw UTF-8 byte 131073 -> unsupported_value",
+    "NFKC UTF-8 byte 131073 -> unsupported_value",
+    "five inserted code points in one otherwise complete grammar gap -> unsupported_value",
+    "65 inserted code points in one otherwise complete matched candidate -> unsupported_value",
+    "lone UTF-16 surrogate -> unsupported_value",
+    "cycle or repeated object identity -> unsupported_value"
+  ]
+}

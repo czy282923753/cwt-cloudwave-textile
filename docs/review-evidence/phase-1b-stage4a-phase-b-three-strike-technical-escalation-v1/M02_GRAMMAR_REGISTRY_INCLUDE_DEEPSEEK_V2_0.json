@@ -1,0 +1,2565 @@
+{
+  "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2",
+  "registryVersion": "2.0.0",
+  "status": "technical-escalation-recommended-owner-option-not-approved-not-implementation",
+  "authority": {
+    "soleGrammarAuthorityWhenSelected": true,
+    "directInsertionAndStructuredRecognizersGeneratedFromThisAstOnly": true,
+    "decisionAlternativeNotParallelRuntimeAuthority": true,
+    "acceptedArchitectureBasis": [
+      "ADR-0018 sections 1-3, 7-10: Provider-agnostic service, DeepSeek/deepseek-v4-flash initial disabled default, explicit-context-only boundary",
+      "Accepted Design V1.4 sections 13.6, 14.3 A-07, 19.5: reject Provider/model/endpoint override and include deepseek in the Provider literal boundary"
+    ],
+    "historicalFailureEvidenceOnly": {
+      "commit": "d8a24d48592a8c5e112d20edd24505e9e34d83c9",
+      "path": "src/ai/context/protected-data.ts",
+      "role": "regression mapping only; never architecture or implementation authority"
+    },
+    "replacesOnAnyFutureAuthorizedImplementation": [
+      "keyRules",
+      "valueRules",
+      "PROTECTED_AI_SECURITY_SHADOW_POLICY_V1",
+      "securityShadowRules"
+    ],
+    "ownerApproved": false,
+    "correctedDesign": false,
+    "implementationAuthorized": false
+  },
+  "canonicalization": {
+    "serialization": "RFC 8785 JSON Canonicalization Scheme semantics over this parsed JSON document",
+    "collisionOrder": "globally unique ascending integer priority 1..31; lower number wins",
+    "profileLink": "registryId+registryVersion+SHA-256 must equal the sole Owner-selected registry tuple in the corrected Design; absent, multiple or mismatched selections fail closed",
+    "unsupportedAstNodeBehavior": "fail_closed_unsupported_value",
+    "recursiveReferenceBehavior": "fail_closed_unsupported_value",
+    "resourceOverflowBehavior": "fail_closed_unsupported_value"
+  },
+  "astSchema": {
+    "closedNodeTypes": [
+      "literal",
+      "charClass",
+      "unicodeProperty",
+      "shorthand",
+      "sequence",
+      "alternation",
+      "group",
+      "repeat",
+      "reference",
+      "wordBoundary",
+      "startAnchor",
+      "negativeLookbehind",
+      "negativeLookahead"
+    ],
+    "characterClassGrammar": "optional leading ^, then only literal ASCII characters, ASCII ranges x-y, \\\\s, \\\\d or \\\\p{N}; dangling escapes, reverse/overlapping ranges and all other property/class forms fail closed",
+    "repetitionGrammar": "integer min >= 0; max is null or integer >= min; repetitions preserve historical unbounded maxima only where max is null",
+    "referenceGrammar": "references resolve only to the exact definitions map; missing, recursive or unused definitions fail closed",
+    "boundaryGrammar": "wordBoundary and startAnchor are zero-width; lookbehind/lookahead operands must be one unicodeProperty, shorthand or charClass atom",
+    "ruleSchema": {
+      "requiredCommonFields": [
+        "regressionEvidenceId",
+        "ruleId",
+        "targetDomain",
+        "category",
+        "priority",
+        "kind",
+        "flags",
+        "inputProjectionId",
+        "ast",
+        "insertion"
+      ],
+      "allowedTargetDomains": [
+        "key",
+        "value",
+        "both"
+      ],
+      "allowedKinds": [
+        "lexical",
+        "prefix",
+        "structured"
+      ],
+      "extraFieldsFailClosed": true
+    }
+  },
+  "definitions": {
+    "ipv4-octet-v1": [
+      "group",
+      [
+        "alternation",
+        [
+          "sequence",
+          [
+            "literal",
+            "25"
+          ],
+          [
+            "charClass",
+            "0-5"
+          ]
+        ],
+        [
+          "sequence",
+          [
+            "literal",
+            "2"
+          ],
+          [
+            "charClass",
+            "0-4"
+          ],
+          [
+            "shorthand",
+            "d"
+          ]
+        ],
+        [
+          "sequence",
+          [
+            "repeat",
+            0,
+            1,
+            [
+              "literal",
+              "1"
+            ]
+          ],
+          [
+            "repeat",
+            0,
+            1,
+            [
+              "shorthand",
+              "d"
+            ]
+          ],
+          [
+            "shorthand",
+            "d"
+          ]
+        ]
+      ]
+    ]
+  },
+  "insertionTransform": {
+    "transformId": "m02-grammar-adjacency-insertion-v1",
+    "admittedAtom": "one Unicode 17.0 code point in the admitted insertion set after invalid-control precedence",
+    "perDeclaredGap": {
+      "minimum": 0,
+      "maximum": 4
+    },
+    "totalPerMatchedCandidateMaximum": 64,
+    "pathSemantics": "expand literals to Unicode code-point atoms; alternation selects one branch; sequence concatenates; repetition contributes atom adjacencies inside and between iterations; groups are transparent; zero-width assertions never consume or create a gap",
+    "directForm": "compile the same AST without admitted insertion transitions",
+    "insertionAwareForm": "compile the same AST language IR with the declared gap transition on exactly the eligible consuming-atom adjacencies",
+    "overflowSemantics": "a complete skeleton with a run >4, total >64, forbidden-position insertion, unsupported node/reference or profile mismatch returns unsupported_value; unrelated nonmatching text remains allow",
+    "compilerContract": "validate and inline the closed AST once; lower it to one canonical transition IR; instantiate direct mode with zero inserted transitions and insertion-aware mode with the declared bounded transitions; structuredRecognizerId is metadata on the same rule, never a matcher table",
+    "overflowRecognizer": "the same transition IR also records complete skeleton matches whose per-gap or total insertion counters exceed policy; those return unsupported_value rather than allow"
+  },
+  "structuredRecognizerIds": [
+    "structured.email-ascii-v1",
+    "structured.phone-unicode-decimal-v1",
+    "structured.ipv4-v1",
+    "structured.ipv6-v1",
+    "structured.uri-scheme-v1",
+    "structured.www-prefix-v1",
+    "structured.hostname-ascii-v1",
+    "structured.html-tag-v1",
+    "structured.filesystem-path-v1"
+  ],
+  "rules": [
+    {
+      "ruleId": "key.customer-private.v2",
+      "targetDomain": "key",
+      "category": "customer_private_data",
+      "priority": 1,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "inquiry"
+          ],
+          [
+            "literal",
+            "contact"
+          ],
+          [
+            "literal",
+            "organization"
+          ],
+          [
+            "literal",
+            "crm"
+          ],
+          [
+            "literal",
+            "customer"
+          ],
+          [
+            "literal",
+            "client"
+          ],
+          [
+            "literal",
+            "private"
+          ],
+          [
+            "literal",
+            "sensitive"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[0]"
+    },
+    {
+      "ruleId": "key.personal-identity.v2",
+      "targetDomain": "key",
+      "category": "personal_identity",
+      "priority": 2,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "email"
+          ],
+          [
+            "literal",
+            "phone"
+          ],
+          [
+            "literal",
+            "telephone"
+          ],
+          [
+            "literal",
+            "whatsapp"
+          ],
+          [
+            "literal",
+            "wechat"
+          ],
+          [
+            "literal",
+            "ipaddress"
+          ],
+          [
+            "literal",
+            "ip_address"
+          ],
+          [
+            "literal",
+            "personallyidentifiable"
+          ],
+          [
+            "literal",
+            "pii"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[1]"
+    },
+    {
+      "ruleId": "key.network-location.v2",
+      "targetDomain": "key",
+      "category": "network_location",
+      "priority": 3,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "url"
+          ],
+          [
+            "literal",
+            "uri"
+          ],
+          [
+            "literal",
+            "domain"
+          ],
+          [
+            "literal",
+            "hostname"
+          ],
+          [
+            "literal",
+            "endpoint"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[2]"
+    },
+    {
+      "ruleId": "key.private-storage.v2",
+      "targetDomain": "key",
+      "category": "private_storage",
+      "priority": 4,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "attachment"
+          ],
+          [
+            "literal",
+            "document"
+          ],
+          [
+            "literal",
+            "filepath"
+          ],
+          [
+            "literal",
+            "file_path"
+          ],
+          [
+            "literal",
+            "objectkey"
+          ],
+          [
+            "literal",
+            "object_key"
+          ],
+          [
+            "literal",
+            "bucket"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[3]"
+    },
+    {
+      "ruleId": "key.credential-secret.v2",
+      "targetDomain": "key",
+      "category": "credential_secret",
+      "priority": 5,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "credential"
+          ],
+          [
+            "literal",
+            "secret"
+          ],
+          [
+            "literal",
+            "password"
+          ],
+          [
+            "literal",
+            "authorization"
+          ],
+          [
+            "literal",
+            "bearer"
+          ],
+          [
+            "literal",
+            "accesstoken"
+          ],
+          [
+            "literal",
+            "access_token"
+          ],
+          [
+            "literal",
+            "apikey"
+          ],
+          [
+            "literal",
+            "api_key"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[4]"
+    },
+    {
+      "ruleId": "key.session-analytics.v2",
+      "targetDomain": "key",
+      "category": "session_analytics_identity",
+      "priority": 6,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "cookie"
+          ],
+          [
+            "literal",
+            "session"
+          ],
+          [
+            "literal",
+            "analytics"
+          ],
+          [
+            "literal",
+            "measurementid"
+          ],
+          [
+            "literal",
+            "measurement_id"
+          ],
+          [
+            "literal",
+            "clientid"
+          ],
+          [
+            "literal",
+            "client_id"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[5]"
+    },
+    {
+      "ruleId": "key.prompt-override.v2",
+      "targetDomain": "key",
+      "category": "prompt_override",
+      "priority": 7,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "systemprompt"
+          ],
+          [
+            "literal",
+            "system_prompt"
+          ],
+          [
+            "literal",
+            "promptoverride"
+          ],
+          [
+            "literal",
+            "prompt_override"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[6]"
+    },
+    {
+      "ruleId": "key.provider-override.v2",
+      "targetDomain": "key",
+      "category": "provider_override",
+      "priority": 8,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "provideroverride"
+          ],
+          [
+            "literal",
+            "provider_override"
+          ],
+          [
+            "literal",
+            "modeloverride"
+          ],
+          [
+            "literal",
+            "model_override"
+          ],
+          [
+            "literal",
+            "endpointoverride"
+          ],
+          [
+            "literal",
+            "endpoint_override"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[7]"
+    },
+    {
+      "ruleId": "key.tool-network.v2",
+      "targetDomain": "key",
+      "category": "tool_network_action",
+      "priority": 9,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "toolcall"
+          ],
+          [
+            "literal",
+            "tool_call"
+          ],
+          [
+            "literal",
+            "functioncall"
+          ],
+          [
+            "literal",
+            "function_call"
+          ],
+          [
+            "literal",
+            "retrieval"
+          ],
+          [
+            "literal",
+            "knowledgebase"
+          ],
+          [
+            "literal",
+            "knowledge_base"
+          ],
+          [
+            "literal",
+            "embedding"
+          ],
+          [
+            "literal",
+            "vector"
+          ],
+          [
+            "literal",
+            "networkinstruction"
+          ],
+          [
+            "literal",
+            "network_instruction"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[8]"
+    },
+    {
+      "ruleId": "key.public-state.v2",
+      "targetDomain": "key",
+      "category": "public_state_action",
+      "priority": 10,
+      "kind": "lexical",
+      "flags": "i",
+      "inputProjectionId": "key-nfkc-ascii-fold-strip-v3",
+      "ast": [
+        "group",
+        [
+          "alternation",
+          [
+            "literal",
+            "publish"
+          ],
+          [
+            "literal",
+            "indexing"
+          ],
+          [
+            "literal",
+            "routechange"
+          ],
+          [
+            "literal",
+            "route_change"
+          ],
+          [
+            "literal",
+            "redirect"
+          ],
+          [
+            "literal",
+            "canonicalurl"
+          ],
+          [
+            "literal",
+            "canonical_url"
+          ],
+          [
+            "literal",
+            "sitemap"
+          ],
+          [
+            "literal",
+            "publicstate"
+          ],
+          [
+            "literal",
+            "public_state"
+          ],
+          [
+            "literal",
+            "rightscommand"
+          ],
+          [
+            "literal",
+            "rights_command"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "projection-equivalent-no-extra-gap",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "no additional gaps: key projection is part of the direct language and removes every non-ASCII-alphanumeric/non-U+005F code point before this AST",
+        "forbiddenPositions": [
+          "before matched span",
+          "after matched span",
+          "inside an ASCII grammar atom"
+        ]
+      },
+      "regressionEvidenceId": "keyRules[9]"
+    },
+    {
+      "ruleId": "value.personal-email.structured.v2",
+      "targetDomain": "value",
+      "category": "personal_identity",
+      "priority": 11,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.email-ascii-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "repeat",
+          1,
+          null,
+          [
+            "charClass",
+            "a-z0-9._%+-"
+          ]
+        ],
+        [
+          "literal",
+          "@"
+        ],
+        [
+          "repeat",
+          1,
+          null,
+          [
+            "charClass",
+            "a-z0-9.-"
+          ]
+        ],
+        [
+          "literal",
+          "."
+        ],
+        [
+          "repeat",
+          2,
+          24,
+          [
+            "charClass",
+            "a-z"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[0]"
+    },
+    {
+      "ruleId": "value.personal-phone.structured.v2",
+      "targetDomain": "value",
+      "category": "personal_identity",
+      "priority": 12,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.phone-unicode-decimal-v1",
+      "flags": "u",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "negativeLookbehind",
+          [
+            "unicodeProperty",
+            "N"
+          ]
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "literal",
+            "+"
+          ]
+        ],
+        [
+          "unicodeProperty",
+          "N"
+        ],
+        [
+          "repeat",
+          5,
+          null,
+          [
+            "charClass",
+            "\\p{N} ()-"
+          ]
+        ],
+        [
+          "unicodeProperty",
+          "N"
+        ],
+        [
+          "negativeLookahead",
+          [
+            "unicodeProperty",
+            "N"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[1]"
+    },
+    {
+      "ruleId": "value.personal-ipv4.structured.v2",
+      "targetDomain": "value",
+      "category": "personal_identity",
+      "priority": 13,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.ipv4-v1",
+      "flags": "u",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "reference",
+          "ipv4-octet-v1"
+        ],
+        [
+          "repeat",
+          3,
+          3,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "literal",
+                "."
+              ],
+              [
+                "reference",
+                "ipv4-octet-v1"
+              ]
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[2]"
+    },
+    {
+      "ruleId": "value.personal-ipv6.structured.v2",
+      "targetDomain": "value",
+      "category": "personal_identity",
+      "priority": 14,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.ipv6-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "repeat",
+          2,
+          7,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "repeat",
+                0,
+                4,
+                [
+                  "charClass",
+                  "0-9a-f"
+                ]
+              ],
+              [
+                "literal",
+                ":"
+              ]
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          0,
+          4,
+          [
+            "charClass",
+            "0-9a-f"
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[3]"
+    },
+    {
+      "ruleId": "value.network-uri-scheme.structured.v2",
+      "targetDomain": "value",
+      "category": "network_location",
+      "priority": 15,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.uri-scheme-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "sequence",
+              [
+                "literal",
+                "http"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "literal",
+                  "s"
+                ]
+              ]
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "ws"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "literal",
+                  "s"
+                ]
+              ]
+            ],
+            [
+              "literal",
+              "ftp"
+            ],
+            [
+              "literal",
+              "s3"
+            ],
+            [
+              "literal",
+              "r2"
+            ]
+          ]
+        ],
+        [
+          "literal",
+          "://"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[4]"
+    },
+    {
+      "ruleId": "value.network-www.structured.v2",
+      "targetDomain": "value",
+      "category": "network_location",
+      "priority": 16,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.www-prefix-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "literal",
+          "www."
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[5]"
+    },
+    {
+      "ruleId": "value.network-hostname.structured.v2",
+      "targetDomain": "value",
+      "category": "network_location",
+      "priority": 17,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.hostname-ascii-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "charClass",
+          "a-z0-9"
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "repeat",
+                0,
+                61,
+                [
+                  "charClass",
+                  "a-z0-9-"
+                ]
+              ],
+              [
+                "charClass",
+                "a-z0-9"
+              ]
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          1,
+          null,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "literal",
+                "."
+              ],
+              [
+                "repeat",
+                2,
+                24,
+                [
+                  "charClass",
+                  "a-z"
+                ]
+              ]
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[6]"
+    },
+    {
+      "ruleId": "value.markup-html.structured.v2",
+      "targetDomain": "value",
+      "category": "markup_syntax",
+      "priority": 18,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.html-tag-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "literal",
+          "<"
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "literal",
+            "/"
+          ]
+        ],
+        [
+          "charClass",
+          "a-z"
+        ],
+        [
+          "repeat",
+          0,
+          500,
+          [
+            "charClass",
+            "^>"
+          ]
+        ],
+        [
+          "literal",
+          ">"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[7]"
+    },
+    {
+      "ruleId": "value.storage-path.structured.v2",
+      "targetDomain": "value",
+      "category": "private_storage",
+      "priority": 19,
+      "kind": "structured",
+      "structuredRecognizerId": "structured.filesystem-path-v1",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "startAnchor"
+            ],
+            [
+              "charClass",
+              "\\s\"'("
+            ]
+          ]
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "/"
+            ],
+            [
+              "sequence",
+              [
+                "repeat",
+                1,
+                2,
+                [
+                  "literal",
+                  "."
+                ]
+              ],
+              [
+                "literal",
+                "/"
+              ]
+            ],
+            [
+              "sequence",
+              [
+                "charClass",
+                "a-z"
+              ],
+              [
+                "literal",
+                ":\\"
+              ]
+            ]
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[8]"
+    },
+    {
+      "ruleId": "value.storage-private.lexical.v2",
+      "targetDomain": "value",
+      "category": "private_storage",
+      "priority": 20,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "sequence",
+              [
+                "literal",
+                "private "
+              ],
+              [
+                "group",
+                [
+                  "alternation",
+                  [
+                    "literal",
+                    "file"
+                  ],
+                  [
+                    "literal",
+                    "attachment"
+                  ],
+                  [
+                    "literal",
+                    "document"
+                  ]
+                ]
+              ]
+            ],
+            [
+              "literal",
+              "object key"
+            ],
+            [
+              "literal",
+              "storage bucket"
+            ],
+            [
+              "literal",
+              "bucket key"
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[9]"
+    },
+    {
+      "ruleId": "value.credential.lexical.v2",
+      "targetDomain": "value",
+      "category": "credential_secret",
+      "priority": 21,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "sequence",
+              [
+                "literal",
+                "api"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "charClass",
+                  " _-"
+                ]
+              ],
+              [
+                "literal",
+                "key"
+              ]
+            ],
+            [
+              "literal",
+              "authorization"
+            ],
+            [
+              "literal",
+              "bearer"
+            ],
+            [
+              "literal",
+              "credential"
+            ],
+            [
+              "literal",
+              "password"
+            ],
+            [
+              "literal",
+              "secret"
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "access"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "charClass",
+                  " _-"
+                ]
+              ],
+              [
+                "literal",
+                "token"
+              ]
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "auth"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "charClass",
+                  " _-"
+                ]
+              ],
+              [
+                "literal",
+                "token"
+              ]
+            ],
+            [
+              "literal",
+              "environment variable"
+            ],
+            [
+              "literal",
+              "process.env"
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[10]"
+    },
+    {
+      "ruleId": "value.session-analytics.lexical.v2",
+      "targetDomain": "value",
+      "category": "session_analytics_identity",
+      "priority": 22,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "cookie"
+            ],
+            [
+              "literal",
+              "session"
+            ],
+            [
+              "literal",
+              "analytics"
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "repeat",
+                0,
+                null,
+                [
+                  "charClass",
+                  " _-"
+                ]
+              ],
+              [
+                "group",
+                [
+                  "alternation",
+                  [
+                    "literal",
+                    "id"
+                  ],
+                  [
+                    "literal",
+                    "identity"
+                  ],
+                  [
+                    "literal",
+                    "token"
+                  ],
+                  [
+                    "literal",
+                    "key"
+                  ],
+                  [
+                    "literal",
+                    "client"
+                  ],
+                  [
+                    "literal",
+                    "user"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[11]"
+    },
+    {
+      "ruleId": "value.prompt-override.lexical.v2",
+      "targetDomain": "value",
+      "category": "prompt_override",
+      "priority": 23,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "system prompt"
+            ],
+            [
+              "literal",
+              "developer prompt"
+            ],
+            [
+              "literal",
+              "prompt override"
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "ignore "
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "group",
+                  [
+                    "alternation",
+                    [
+                      "literal",
+                      "all "
+                    ],
+                    [
+                      "literal",
+                      "the "
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "literal",
+                "previous"
+              ]
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "override "
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "literal",
+                  "the "
+                ]
+              ],
+              [
+                "group",
+                [
+                  "alternation",
+                  [
+                    "literal",
+                    "system"
+                  ],
+                  [
+                    "sequence",
+                    [
+                      "literal",
+                      "instruction"
+                    ],
+                    [
+                      "repeat",
+                      0,
+                      1,
+                      [
+                        "literal",
+                        "s"
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[12]"
+    },
+    {
+      "ruleId": "value.provider-action.lexical.v2",
+      "targetDomain": "value",
+      "category": "provider_override",
+      "priority": 24,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "use"
+            ],
+            [
+              "literal",
+              "switch"
+            ],
+            [
+              "literal",
+              "select"
+            ],
+            [
+              "literal",
+              "set"
+            ],
+            [
+              "literal",
+              "override"
+            ],
+            [
+              "literal",
+              "substitute"
+            ],
+            [
+              "literal",
+              "replace"
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "repeat",
+                1,
+                null,
+                [
+                  "shorthand",
+                  "s"
+                ]
+              ],
+              [
+                "literal",
+                "the"
+              ]
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          1,
+          null,
+          [
+            "shorthand",
+            "s"
+          ]
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "provider"
+            ],
+            [
+              "literal",
+              "model"
+            ],
+            [
+              "literal",
+              "endpoint"
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[13]"
+    },
+    {
+      "ruleId": "value.provider-noun.lexical.v2",
+      "targetDomain": "value",
+      "category": "provider_override",
+      "priority": 25,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "provider"
+            ],
+            [
+              "literal",
+              "model"
+            ],
+            [
+              "literal",
+              "endpoint"
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "charClass",
+            " _-"
+          ]
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "override"
+            ],
+            [
+              "literal",
+              "substitution"
+            ],
+            [
+              "literal",
+              "selection"
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[14]"
+    },
+    {
+      "ruleId": "value.provider-model-prefix.v3",
+      "targetDomain": "value",
+      "category": "provider_override",
+      "priority": 26,
+      "kind": "prefix",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "gpt-"
+            ],
+            [
+              "literal",
+              "claude-"
+            ],
+            [
+              "literal",
+              "gemini-"
+            ],
+            [
+              "literal",
+              "qwen-"
+            ],
+            [
+              "literal",
+              "llama-"
+            ],
+            [
+              "literal",
+              "mistral-"
+            ],
+            [
+              "literal",
+              "command-r"
+            ],
+            [
+              "literal",
+              "deepseek-"
+            ]
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[15]",
+      "architectureBasis": "accepted Design V1.4 Provider/model override boundary plus ADR-0018 initial DeepSeek/deepseek-v4-flash selection"
+    },
+    {
+      "regressionEvidenceId": "none:new-accepted-architecture-coverage",
+      "ruleId": "value.provider-selected-name.lexical.v1",
+      "targetDomain": "value",
+      "category": "provider_override",
+      "priority": 27,
+      "kind": "lexical",
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "architectureBasis": "accepted Design V1.4 Provider literal boundary and ADR-0018 initial Provider selection",
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "literal",
+          "deepseek"
+        ],
+        [
+          "wordBoundary"
+        ]
+      ]
+    },
+    {
+      "ruleId": "value.tool-action.lexical.v2",
+      "targetDomain": "value",
+      "category": "tool_network_action",
+      "priority": 28,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "call"
+            ],
+            [
+              "literal",
+              "invoke"
+            ],
+            [
+              "literal",
+              "execute"
+            ],
+            [
+              "literal",
+              "run"
+            ],
+            [
+              "literal",
+              "use"
+            ]
+          ]
+        ],
+        [
+          "repeat",
+          1,
+          null,
+          [
+            "shorthand",
+            "s"
+          ]
+        ],
+        [
+          "repeat",
+          0,
+          1,
+          [
+            "group",
+            [
+              "sequence",
+              [
+                "literal",
+                "a"
+              ],
+              [
+                "repeat",
+                1,
+                null,
+                [
+                  "shorthand",
+                  "s"
+                ]
+              ]
+            ]
+          ]
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "tool"
+            ],
+            [
+              "literal",
+              "function"
+            ],
+            [
+              "literal",
+              "network"
+            ],
+            [
+              "literal",
+              "retrieval"
+            ],
+            [
+              "literal",
+              "search"
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[16]"
+    },
+    {
+      "ruleId": "value.tool-noun.lexical.v2",
+      "targetDomain": "value",
+      "category": "tool_network_action",
+      "priority": 29,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "alternation",
+        [
+          "sequence",
+          [
+            "wordBoundary"
+          ],
+          [
+            "group",
+            [
+              "alternation",
+              [
+                "literal",
+                "tool"
+              ],
+              [
+                "literal",
+                "function"
+              ]
+            ]
+          ],
+          [
+            "repeat",
+            0,
+            1,
+            [
+              "charClass",
+              " _-"
+            ]
+          ],
+          [
+            "group",
+            [
+              "alternation",
+              [
+                "literal",
+                "call"
+              ],
+              [
+                "literal",
+                "invocation"
+              ]
+            ]
+          ]
+        ],
+        [
+          "literal",
+          "retrieval query"
+        ],
+        [
+          "sequence",
+          [
+            "literal",
+            "knowledge"
+          ],
+          [
+            "repeat",
+            0,
+            1,
+            [
+              "charClass",
+              " -"
+            ]
+          ],
+          [
+            "literal",
+            "base"
+          ]
+        ],
+        [
+          "literal",
+          "embedding"
+        ],
+        [
+          "literal",
+          "vector search"
+        ],
+        [
+          "sequence",
+          [
+            "literal",
+            "search "
+          ],
+          [
+            "repeat",
+            0,
+            1,
+            [
+              "literal",
+              "the "
+            ]
+          ],
+          [
+            "literal",
+            "web"
+          ]
+        ],
+        [
+          "sequence",
+          [
+            "literal",
+            "open "
+          ],
+          [
+            "repeat",
+            0,
+            1,
+            [
+              "literal",
+              "a "
+            ]
+          ],
+          [
+            "group",
+            [
+              "alternation",
+              [
+                "literal",
+                "file"
+              ],
+              [
+                "literal",
+                "url"
+              ]
+            ]
+          ]
+        ],
+        [
+          "sequence",
+          [
+            "literal",
+            "network request"
+          ],
+          [
+            "wordBoundary"
+          ]
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[17]"
+    },
+    {
+      "ruleId": "value.public-state.lexical.v2",
+      "targetDomain": "value",
+      "category": "public_state_action",
+      "priority": 30,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "publish"
+            ],
+            [
+              "literal",
+              "index"
+            ],
+            [
+              "literal",
+              "noindex"
+            ],
+            [
+              "literal",
+              "route"
+            ],
+            [
+              "literal",
+              "redirect"
+            ],
+            [
+              "literal",
+              "canonical"
+            ],
+            [
+              "literal",
+              "sitemap"
+            ],
+            [
+              "literal",
+              "deploy"
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "public"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "charClass",
+                  " -"
+                ]
+              ],
+              [
+                "literal",
+                "state"
+              ]
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "public"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "charClass",
+                  " -"
+                ]
+              ],
+              [
+                "literal",
+                "right"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "literal",
+                  "s"
+                ]
+              ]
+            ],
+            [
+              "sequence",
+              [
+                "literal",
+                "right"
+              ],
+              [
+                "repeat",
+                0,
+                1,
+                [
+                  "literal",
+                  "s"
+                ]
+              ],
+              [
+                "literal",
+                " "
+              ],
+              [
+                "group",
+                [
+                  "alternation",
+                  [
+                    "literal",
+                    "granted"
+                  ],
+                  [
+                    "literal",
+                    "command"
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[18]"
+    },
+    {
+      "ruleId": "value.customer-private.lexical.v2",
+      "targetDomain": "value",
+      "category": "customer_private_data",
+      "priority": 31,
+      "kind": "lexical",
+      "structuredRecognizerId": null,
+      "flags": "iu",
+      "inputProjectionId": "value-nfkc-v3",
+      "ast": [
+        "sequence",
+        [
+          "wordBoundary"
+        ],
+        [
+          "group",
+          [
+            "alternation",
+            [
+              "literal",
+              "inquiry"
+            ],
+            [
+              "literal",
+              "contact"
+            ],
+            [
+              "literal",
+              "organization"
+            ],
+            [
+              "literal",
+              "crm"
+            ],
+            [
+              "literal",
+              "customer record"
+            ],
+            [
+              "literal",
+              "client record"
+            ],
+            [
+              "literal",
+              "private data"
+            ],
+            [
+              "literal",
+              "sensitive data"
+            ]
+          ]
+        ],
+        [
+          "wordBoundary"
+        ]
+      ],
+      "insertion": {
+        "mode": "grammar-adjacency-v1",
+        "leadingGapAllowed": false,
+        "trailingGapAllowed": false,
+        "eligibleGapDefinition": "between every two consecutive consuming atom transitions in a successful AST path; zero-width assertions, absent optional branches and the outside of the matched span never create a gap",
+        "forbiddenPositions": [
+          "before first consumed atom",
+          "after final consumed atom",
+          "inside a single character-class/property/shorthand atom",
+          "across a failed alternative"
+        ]
+      },
+      "regressionEvidenceId": "valueRules[19]"
+    }
+  ],
+  "deepSeekDecision": {
+    "optionId": "M02-D1-INCLUDE",
+    "securitySemantics": "DeepSeek as a whole provider token and deepseek- as a model-family prefix are category provider_override in direct and insertion-aware modes; deepseek-v4-flash is therefore rejected",
+    "providerLiteral": "deepseek",
+    "modelFamilyPrefix": "deepseek-",
+    "adrRequired": false,
+    "rationale": "preserves the accepted Provider/model override boundary and ADR-0018 initial Provider/model decision"
+  },
+  "providerModelRegistrationClosure": {
+    "rule": "before any future Provider/model adapter or configuration can be approved, every normalized provider token and model-family prefix in that approved registry must be covered by the selected grammar with category provider_override; otherwise configuration resolution and the architecture gate fail closed",
+    "automaticRuntimeTermInjectionForbidden": true,
+    "profileChangeRequiresOwnerReviewedCorrectedDesign": true
+  }
+}
