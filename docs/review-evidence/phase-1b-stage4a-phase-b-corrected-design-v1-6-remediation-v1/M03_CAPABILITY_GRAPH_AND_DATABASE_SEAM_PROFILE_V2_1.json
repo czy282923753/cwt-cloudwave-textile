@@ -912,7 +912,7 @@
       "inventorySha256, contentSha256 and classificationSha256"
     ],
     "hashDomains": {
-      "inventorySha256": "SHA-256 over UTF-8 JCS of sorted objects {path,nodeKind,realpath,device,inode,sourceState,contentSha256,isExecutable,isProtectedResource,isRootControl,isGenerated}",
+      "inventorySha256": "SHA-256 over UTF-8 JCS of sorted objects {path,nodeKind,realpath,sourceState,contentSha256,isExecutable,isProtectedResource,isRootControl,isGenerated,hardLinkAlias}; physical device/inode values are used only during collision detection and are never emitted or hashed, so a clean checkout reproduces the digest",
       "contentSha256": "SHA-256 over domain cwt-v16-content-v1 plus sorted UTF-8 path NUL raw-content-SHA-256 LF records",
       "classificationSha256": "SHA-256 over domain cwt-v16-classification-v1 plus sorted UTF-8 path NUL classId NUL stageStatus NUL comma-joined-bundleZones LF records"
     },
@@ -1365,6 +1365,6 @@
       "/literalTypeSafeSeam",
       "/unsupportedSyntaxFailClosed"
     ],
-    "sha256": "e85d860a8ca013c483b59df8bba2b79376fec46d9fa10522cd9e61ea8c07e310"
+    "sha256": "c42d7eb2a3c7f578a10caaf0f5678068e8d228aec688882b3d444b9f0b8b6fb6"
   }
 }

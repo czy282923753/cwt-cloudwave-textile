@@ -313,14 +313,13 @@ function actualTreeInventory() {
         path,
         nodeKind: "regular_file",
         realpath: realRelative,
-        device: String(stat.dev),
-        inode: String(stat.ino),
         sourceState,
         contentSha256: sha256(bytes),
         isExecutable: executableExtensions.has(extname(path)),
         isProtectedResource: isProtectedResource(path),
         isRootControl: rootControlFiles.has(path),
         isGenerated: isGenerated(path),
+        hardLinkAlias: false,
       });
     }
   }

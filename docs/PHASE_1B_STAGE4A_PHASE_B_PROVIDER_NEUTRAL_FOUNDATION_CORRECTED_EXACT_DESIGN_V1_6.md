@@ -236,7 +236,7 @@ The sole normative machine graph is:
 path       docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-6-remediation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_1.json
 profile    cwt.phase1b.stage4a.phaseb.m03-protected-graph.v2_1
 version    2.1.0
-SHA-256    8c7c3f792f9f99de94f29bec5271974477b21f72c47bd2bf5a0d8227a7fbc6d3
+SHA-256    12860f30803c14bda5aac2c40cc0dbbf7176093037180ccb2bb50e26addc6702
 ```
 
 V2.1 is a standalone successor to immutable V2.0. It preserves the Owner-selected discriminated seam, protected/excluded roots, future adapter edge, acquisition bans, bundle zones and type shapes; it replaces only V2.0's incomplete filesystem/classification sub-contract. V2.0 and every V1.5 artifact remain immutable evidence. V2.1 records the Owner selection as approved, this V1.6 design as an unapproved Candidate, and implementation as unauthorized.
