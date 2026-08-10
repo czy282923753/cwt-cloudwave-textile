@@ -1,5 +1,7 @@
 import selectedRegistry from "./protected-data-registry.v2_1.json";
 
+const selectedRegistrySemanticTransport = JSON.stringify(selectedRegistry);
+
 export const selectedProtectedDataRegistryIdentityV1 = Object.freeze({
   registryId: "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2_1",
   registryVersion: "2.1.0",
@@ -668,7 +670,9 @@ export function compileProtectedDataRegistryV1(
   registry: unknown,
   runtime: RuntimeTupleV1 = currentRuntime(),
 ): CompiledProtectedDataClassifierV1 | undefined {
-  if (!runtimeMatches(runtime)) return undefined;
+  if (!runtimeMatches(runtime) || JSON.stringify(registry) !== selectedRegistrySemanticTransport) {
+    return undefined;
+  }
   try {
     const rules = parseRegistry(registry);
     if (!isRecord(registry) || !isRecord(registry.definitions) || !isRecord(registry.gapSetDefinitions)) return undefined;

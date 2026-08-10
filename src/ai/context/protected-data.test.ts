@@ -64,5 +64,67 @@ describe("selected M02 protected-data authority", () => {
     const missingRule = structuredClone(selectedRegistry);
     missingRule.rules.pop();
     expect(compileProtectedDataRegistryV1(missingRule)).toBeUndefined();
+
+    const changedGap = structuredClone(selectedRegistry);
+    changedGap.rules[30]!.insertion.maximumCodePointsPerGap = 5;
+    expect(compileProtectedDataRegistryV1(changedGap)).toBeUndefined();
+  });
+
+  it("enforces the exact structural and byte ceilings before classification", () => {
+    let overDepth: unknown = "safe";
+    for (let depth = 0; depth < 17; depth += 1) overDepth = [overDepth];
+
+    const shared = { text: "safe" };
+    const cases: readonly unknown[] = [
+      overDepth,
+      Array.from({ length: 4_096 }, () => null),
+      "a".repeat(131_073),
+      "\ufdfa".repeat(7_000),
+      "\ud800",
+      { one: shared, two: shared },
+    ];
+    for (const value of cases) {
+      expect(protectedDataClassifierV1.classify(value).kind).toBe("unsupported_value");
+    }
+  });
+
+  it("distinguishes the total inserted-scalar boundary at 64/65", () => {
+    const gap = "\u200b";
+    const literal = Array.from("environment variable");
+    const withInsertedGaps = (extraAtSeventeenthTransition: boolean) => literal
+      .map((character, index) => {
+        if (index < 16) return `${character}${gap.repeat(4)}`;
+        if (index === 16 && extraAtSeventeenthTransition) return `${character}${gap}`;
+        return character;
+      })
+      .join("");
+
+    expect(protectedDataClassifierV1.classify({ text: withInsertedGaps(false) }).kind)
+      .toBe("protected_match");
+    expect(protectedDataClassifierV1.classify({ text: withInsertedGaps(true) }).kind)
+      .toBe("unsupported_value");
+  });
+
+  it("executes every declared mutation witness against the selected classifier", () => {
+    const casesById = new Map(corpus.cases.map((testCase) => [testCase.id, testCase]));
+    for (const mutation of corpus.mutationNegativeCases) {
+      const witnessIds = "mustBeKilledByCaseIds" in mutation
+        ? mutation.mustBeKilledByCaseIds
+        : mutation.mustBeKilledByCompilerCaseIds;
+      expect(witnessIds.length).toBeGreaterThan(0);
+      for (const id of witnessIds) {
+        if (!casesById.has(id)) {
+          expect(corpus.compilerConformanceCases.some((testCase) => testCase.id === id)).toBe(true);
+          continue;
+        }
+        const witness = casesById.get(id)!;
+        const value = witness.targetDomain === "key"
+          ? { [witness.input]: "safe fixture text" }
+          : { text: witness.input };
+        const result = protectedDataClassifierV1.classify(value);
+        const actual = result.kind === "protected_match" ? result.category : result.kind;
+        expect(actual).toBe(witness.include);
+      }
+    }
   });
 });
