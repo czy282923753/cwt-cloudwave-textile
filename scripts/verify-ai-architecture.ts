@@ -339,14 +339,14 @@ const negativeTypeConfigs = [
   { path: "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json", code: "TS2345" },
 ];
 for (const config of positiveTypeConfigs) {
-  const compiled = spawnSync("pnpm", ["exec", "tsc", "-p", config], {
+  const compiled = spawnSync("tsc", ["-p", config], {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
   if (compiled.status !== 0) fail(`positive type fixture failed: ${config}`);
 }
 for (const config of negativeTypeConfigs) {
-  const compiled = spawnSync("pnpm", ["exec", "tsc", "-p", config.path], {
+  const compiled = spawnSync("tsc", ["-p", config.path], {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
