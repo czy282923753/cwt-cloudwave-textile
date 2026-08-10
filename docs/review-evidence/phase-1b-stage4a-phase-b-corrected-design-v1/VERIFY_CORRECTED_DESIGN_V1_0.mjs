@@ -311,6 +311,7 @@ for (const path of ownedPaths) {
   if (!existsSync(absolute) || !statSync(absolute).isFile()) continue;
   const bytes = readFileSync(absolute);
   assert.equal(bytes.at(-1), 0x0a, `missing final LF: ${path}`);
+  assert.notEqual(bytes.at(-2), 0x0a, `extra blank line at EOF: ${path}`);
   const text = bytes.toString("utf8");
   assert.ok(!/[ \t]+$/gmu.test(text), `owned trailing whitespace: ${path}`);
   if ([".md", ".mjs", ".ts", ".json", ".txt"].includes(extname(path))) {

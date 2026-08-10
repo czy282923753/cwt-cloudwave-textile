@@ -23,4 +23,3 @@ docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/M03_CROSS_DRIV
         Types of property 'type' are incompatible.
           Type 'Results<{ [key: string]: any; }>' is not assignable to type 'RowList<Row[]>'.
             Type 'Results<{ [key: string]: any; }>' is missing the following properties from type 'Row[]': length, pop, push, concat, and 35 more.
-
