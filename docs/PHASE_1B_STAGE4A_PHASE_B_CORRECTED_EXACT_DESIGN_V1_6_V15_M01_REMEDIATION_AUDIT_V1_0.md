@@ -96,8 +96,8 @@ Final sealed proof values:
 ```text
 total candidates       402
 total executables      362
-inventory SHA-256      79285d21fd75b1a64b5d6bd3f3917bf3a25dd051dea850c6c6f0abd666b19a86
-content SHA-256        e0b4f10ee3d21915a3f74b5a4e9280fd36abdb2c5d2b03eb275c1fe694fc052e
+inventory SHA-256      af98fecfd5963207855478301dea528dee220057ddb3abbb85379c81f8d49e5d
+content SHA-256        29a1c9d740ae99b491c57412d75c7d68f9f8f6f6fe73b246ea0e70b86030996a
 classification SHA-256 964fb51dad53c886ead8c5506a78cd59014b38fdb5239e3ab821612e150cda6e
 zeroClass              []
 ambiguous              []
@@ -174,9 +174,9 @@ This is a bounded correction because it retains the approved 12-class total grap
 | Corrected Exact Design V1.6 | `06fb0795cc05e6651f63f46226c67290e108103cb567e5aa5e80a8b09a33eec2` |
 | this remediation audit | `self hash is carried by SHA256SUMS; not self-embedded` |
 | M03 graph/classification profile V2.1 | `12860f30803c14bda5aac2c40cc0dbbf7176093037180ccb2bb50e26addc6702` |
-| offline V1.6 verifier | `e735ef027ec4bc2fd049269d950195dc94123500a9e557da611ff31426ceea46` |
-| actual-tree inventory output | `682593fb6075ac17119b71baac3e436391aa4317848afed52c1222d90b202658` |
-| verifier capture | `f27e0bfd5c23ed6325a97433aeae0d3ae736698500e9f633fec0b0dca230dc6c` |
+| offline V1.6 verifier | `7cd0f74dfc25d0d5cf9f7a46e556457028d37e36ef52529846b041336fad6ff8` |
+| actual-tree inventory output | `a33cd1e9d0becd92d380911aab4bc325469f1544445ee620749a1acf231c1f2b` |
+| verifier capture | `0ffcb97f8fe46a4708fdd8f8d6e5763fc57691530f8c334c6b36531ce2e54aa9` |
 | V1.6 SHA256SUMS | `manifest hash is reported outside itself and in callback` |
 
 All paths are under `docs/` or `docs/review-evidence/`. The final worktree must be clean and the V1.6 manifest must verify every V1.6-owned and imported FAIL artifact it declares.
