@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
     "playwright-report/**",
     "test-results/**",
     "next-env.d.ts",
+    // Immutable diagnostic and expected-negative evidence is hash/architecture
+    // verified and compiled by its dedicated probes, not product lint.
+    "docs/review-evidence/**",
   ]),
 ]);
 
