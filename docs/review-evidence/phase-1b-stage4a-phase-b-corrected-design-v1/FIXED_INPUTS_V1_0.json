@@ -1,0 +1,124 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.corrected-design.fixed-inputs.v1",
+  "profileVersion": "1.0.0",
+  "date": "2026-08-10",
+  "branch": "codex/phase-1b-stage4a-phase-b-corrected-design-v1",
+  "branchParent": "377181cd76e5427f344ff0c259fc9bd32ec7b670",
+  "acceptedDesignCheckpoint": "6bc26cf035608a21a057d6f4e87da8d4f7f23d40",
+  "frozenBaseline": "31c0e405acfdd0d05200d0fb2531e897a541a2c4",
+  "frozenTag": "phase-1b-stage3-approved-2026-08-09",
+  "ownerInstruction": "批准 M02-D1-INCLUDE；批准 M03-D1-DISCRIMINATED-SEAM。",
+  "ownerInstructionDate": "2026-08-10",
+  "selectedOptions": [
+    "M02-D1-INCLUDE",
+    "M03-D1-DISCRIMINATED-SEAM"
+  ],
+  "fixedArtifacts": [
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_EXACT_DESIGN_V1_4.md",
+      "sha256": "48e6afebfba53f65c03077a1ca27522f0245f17cbd0b3b46ff492929cf1e0c07",
+      "role": "accepted complete design authority and rollback content"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_DESIGN_REMEDIATION_V1_3.md",
+      "sha256": "6f3868e860a5951951750d7b2e07a4ab7c777b8c9c772db0563348ea0ed7d0a7",
+      "role": "accepted V1.4 derivation evidence"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_V1_1.md",
+      "sha256": "ab561395788756a285e54b91486124e8c2bda830a4c38ae8692a94dcba85b2bf",
+      "role": "technical escalation remediation authority"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_OWNER_DECISION_PACKAGE_V1_1.md",
+      "sha256": "342e88e61292e2e25fce21ddaf5e769402f5086e8195d02a5fbe8b083f08e7ea",
+      "role": "Owner option consequences"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/SHA256SUMS.txt",
+      "sha256": "7613959e9dadded7261f68e9b2dfbc5c51d5969a0435f87a3cb2187c62bb9c34",
+      "role": "technical escalation remediation 22-item manifest"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_INDEPENDENT_REREVIEW_V1_0.md",
+      "sha256": "62089f2891049b3362876491b07e5ee22006629c905cf7d9d3360821414310d4",
+      "role": "Fresh Independent Technical Escalation PASS"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-rereview-v1/INDEPENDENT_TECHNICAL_ESCALATION_REREVIEW_EVIDENCE_V1_0.md",
+      "sha256": "309f4bb31aa88316c1738cdaf011043443c7e8179fa4917d7b30f0385b88eb40",
+      "role": "Fresh PASS evidence"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-rereview-v1/SHA256SUMS.txt",
+      "sha256": "82a56ac807804f0765a6b3d30bd7dca77022d9e412f67838ba601ee3b0d834a8",
+      "role": "Fresh PASS five-item manifest"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+      "sha256": "264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66",
+      "role": "sole selected M02 grammar authority"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_FALSE_POSITIVE_AND_SECURITY_CORPUS_V1_1.json",
+      "sha256": "d40912e09360d1537238bdee1425bbee19bbb378bcd6d321de0a8b197decc820",
+      "role": "mandatory M02 evidence corpus, not authority"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_0.json",
+      "sha256": "ce5bdd54c7924e86fcf36e89f10c96a039814366862382c2df81e0a15cf13141",
+      "role": "sole selected M03 graph and type seam profile"
+    },
+    {
+      "path": "docs/adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md",
+      "sha256": "c60d71f293da6fe082c94927650e731d26abcdb238ba94863655053e22ab1f2f",
+      "role": "accepted architecture authority"
+    },
+    {
+      "path": "src/db/types.ts",
+      "sha256": "ad027049e357a5aeb429cd9136c9a0e561f56bb492b3ebebd46f21e5b0c81817",
+      "role": "actual AppDatabase type authority"
+    },
+    {
+      "path": "src/db/client.ts",
+      "sha256": "fda8e496113f7d7658e94942d6f93c392fcaf403fcfd77a888852d0f18207800",
+      "role": "actual DatabaseConnection union authority"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "096a305991cc6ee011630e877fc571eba979baa77aab5995328f3e67688c8a9e",
+      "role": "strict TypeScript configuration"
+    },
+    {
+      "path": "package.json",
+      "sha256": "3f288f10bbb11e9a657e038af198bb31f0a471ecacb4f7d9e9ae6848ac241ed4",
+      "role": "dependency identity"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "sha256": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb",
+      "role": "lockfile identity"
+    }
+  ],
+  "failedImplementationRefs": [
+    "755e514",
+    "a696325",
+    "b1a73bb",
+    "d8a24d"
+  ],
+  "failedImplementationRole": "counterexample evidence only; never parent, cherry-pick, source, compatibility target or implementation base",
+  "prohibitedScope": [
+    "src/",
+    "scripts/",
+    "test-fixtures/",
+    "drizzle/",
+    "package.json",
+    "pnpm-lock.yaml",
+    "docs/adr/",
+    "accepted Design V1.4",
+    "Technical Escalation V1.1",
+    "imported independent PASS artifacts"
+  ],
+  "implementationAuthorized": false,
+  "freshIndependentDesignReviewStarted": false
+}

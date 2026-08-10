@@ -1,0 +1,26 @@
+probe: positive
+command: ./node_modules/.bin/tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-positive.json
+exit: 0
+
+probe: unnarrowed-union-negative
+command: ./node_modules/.bin/tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-union-negative.json
+exit: 2
+docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/M03_UNNARROWED_UNION_NEGATIVE_V1_0.ts(29,3): error TS2375: Type 'PgliteAppDatabase | PostgresAppDatabase' is not assignable to type 'AppDatabase<PgliteQueryResultHKT>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Type 'PostgresAppDatabase' is not assignable to type 'PgDatabase<PgliteQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+    The types of '_.session' are incompatible between these types.
+      Type 'PgSession<PostgresJsQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>' is not assignable to type 'PgSession<PgliteQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>'.
+        Type 'PostgresJsQueryResultHKT' is not assignable to type 'PgliteQueryResultHKT'.
+          Types of property 'type' are incompatible.
+            Type 'Row[] & Iterable<Row> & ResultQueryMeta<number, string | number>' is missing the following properties from type 'Results<{ [key: string]: any; }>': rows, fields
+
+probe: cross-driver-negative
+command: ./node_modules/.bin/tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-cross-driver-negative.json
+exit: 2
+docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/M03_CROSS_DRIVER_NEGATIVE_V1_0.ts(31,5): error TS2375: Type 'PgliteAppDatabase' is not assignable to type 'AppDatabase<PostgresJsQueryResultHKT>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  The types of '_.session' are incompatible between these types.
+    Type 'PgSession<PgliteQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>' is not assignable to type 'PgSession<PostgresJsQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/263d/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>'.
+      Type 'PgliteQueryResultHKT' is not assignable to type 'PostgresJsQueryResultHKT'.
+        Types of property 'type' are incompatible.
+          Type 'Results<{ [key: string]: any; }>' is not assignable to type 'RowList<Row[]>'.
+            Type 'Results<{ [key: string]: any; }>' is missing the following properties from type 'Row[]': length, pop, push, concat, and 35 more.
+

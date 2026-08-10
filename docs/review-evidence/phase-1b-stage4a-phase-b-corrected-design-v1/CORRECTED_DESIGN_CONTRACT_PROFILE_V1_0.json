@@ -1,0 +1,207 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.corrected-exact-design.v1_5",
+  "profileVersion": "1.0.0",
+  "designVersion": "1.5",
+  "status": "owner-selected-corrected-design-candidate-not-self-approved-not-implementation",
+  "standaloneDesignPath": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_CORRECTED_EXACT_DESIGN_V1_5.md",
+  "derivationReportPath": "docs/PHASE_1B_STAGE4A_PHASE_B_CORRECTED_EXACT_DESIGN_V1_5_DERIVATION_REPORT_V1_0.md",
+  "ownerSelectionRecordPath": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_OWNER_SELECTION_RECORD_V1_0.md",
+  "derivation": {
+    "sourceDesignPath": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_EXACT_DESIGN_V1_4.md",
+    "sourceDesignSha256": "48e6afebfba53f65c03077a1ca27522f0245f17cbd0b3b46ff492929cf1e0c07",
+    "standalone": true,
+    "retainedTopLevelSections": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26
+    ],
+    "replacedProofBoundaries": [
+      {
+        "id": "M02-D1-INCLUDE",
+        "designLocations": [
+          "2.2",
+          "6",
+          "7",
+          "13.6",
+          "14.3 A-07",
+          "19.3-19.5",
+          "20",
+          "23",
+          "25"
+        ],
+        "otherV1_4SemanticsChanged": false
+      },
+      {
+        "id": "M03-D1-DISCRIMINATED-SEAM",
+        "designLocations": [
+          "2.3",
+          "6",
+          "7",
+          "8",
+          "18",
+          "19.3-19.5",
+          "20",
+          "23",
+          "25"
+        ],
+        "otherV1_4SemanticsChanged": false
+      }
+    ],
+    "failedImplementationsReused": false,
+    "compatibilityLayerAdded": false
+  },
+  "selectedOptions": {
+    "m02": {
+      "optionId": "M02-D1-INCLUDE",
+      "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2_1",
+      "registryVersion": "2.1.0",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+      "sha256": "264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66",
+      "ruleCount": 32,
+      "commonRuleCount": 30,
+      "deepSeekOnlyRuleCount": 2,
+      "securityExceptionAdrRequired": false,
+      "exclusiveAlternativeRuntimeAuthority": false,
+      "immutablePreSelectionMetadataDisposition": "registry ownerApproved/correctedDesign/implementationAuthorized fields remain historical false; this profile plus Owner Selection Record selects exact hash; implementation remains false",
+      "consumers": [
+        "Section 13.6 context scanner",
+        "Section 14.3 A-07 output scanner"
+      ],
+      "deepSeekGapSet": [
+        "Default_Ignorable_Code_Point",
+        "Mark",
+        "U+000A"
+      ],
+      "deepSeekExcludedGapClasses": [
+        "visible Punctuation",
+        "Separator",
+        "ordinary White_Space"
+      ],
+      "perGapMaximum": 4,
+      "totalInsertedMaximum": 64,
+      "fixedRuntime": {
+        "node": "24.14.0",
+        "v8": "13.6.233.17-node.41",
+        "icu": "78.2",
+        "unicode": "17.0",
+        "cldr": "48.0",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "mismatchBehavior": "fail_closed_before_profile_or_classifier_acceptance",
+      "singleAuthorityRules": [
+        "rule.insertion.gapSetAst and inline counters are sole gap authority",
+        "direct, insertion-aware, structured and overflow modes lower from one graph",
+        "gapPolicyId is metadata only",
+        "no direct regex table, shadow table, deletion shortcut, global gap fallback, consumer-local classifier or compatibility path"
+      ]
+    },
+    "m03": {
+      "optionId": "M03-D1-DISCRIMINATED-SEAM",
+      "profileId": "cwt.phase1b.stage4a.phaseb.m03-protected-graph.v2",
+      "profileVersion": "2.0.0",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_0.json",
+      "sha256": "ce5bdd54c7924e86fcf36e89f10c96a039814366862382c2df81e0a15cf13141",
+      "outerRoot": "src/server/ai/phase-b-composition.ts",
+      "outerRootCount": 1,
+      "allowedImportCount": 5,
+      "databaseBranches": [
+        "pglite",
+        "postgres"
+      ],
+      "sameGenericFactory": "createPhaseBAvailabilityServiceV1",
+      "runtimeFactoryCallsPerInvocation": 1,
+      "rootClassCount": 12,
+      "phaseDCompositionPresent": false,
+      "providerAdapterZonePresent": false,
+      "productionProviderRegistryEntries": 0,
+      "immutablePreSelectionMetadataDisposition": "graph ownerApproved/correctedDesign/implementationAuthorized fields remain historical false; this profile plus Owner Selection Record selects exact hash; implementation remains false",
+      "prohibited": [
+        "cast or assertion",
+        "any",
+        "unknown round trip",
+        "union projection before narrowing",
+        "wrapper, proxy or visitor",
+        "second database connection or authority",
+        "second composition root or factory",
+        "broad environment or connection crossing",
+        "Provider, adapter, credential, endpoint or network crossing"
+      ],
+      "unsupportedSyntaxBehavior": "fail_closed_typecheck_or_architecture_gate"
+    }
+  },
+  "preservedClosedContracts": [
+    "H-01",
+    "H-02",
+    "M-01",
+    "M-02",
+    "M-03",
+    "M-04",
+    "M-05",
+    "M-06",
+    "L-01",
+    "N-M01",
+    "N-M02",
+    "N-M03",
+    "N-M04"
+  ],
+  "phaseAFieldMappings": {
+    "aiModelConfigExpected": 21,
+    "aiRunsExpected": 96,
+    "source": "Corrected Exact Design V1.5 Section 11",
+    "mutationFromV1_4": "none"
+  },
+  "productionUseCases": [
+    "seo_content_draft",
+    "fabric_knowledge_draft",
+    "product_description_draft",
+    "sourcing_guide_draft"
+  ],
+  "frozenAbsences": [
+    "fallback",
+    "complete RAG",
+    "retrieval/tool execution",
+    "vision/media input",
+    "customer_support",
+    "private Inquiry/CRM/customer/file data",
+    "Production Prompt bodies",
+    "real Provider adapter/SDK/API/credential/network",
+    "Phase C durable runtime",
+    "Phase D composition",
+    "Phase E business integration"
+  ],
+  "impact": {
+    "schemaMigration": "none",
+    "adr": "none",
+    "dependencyPackageLock": "none",
+    "newPersistentCoordination": "none",
+    "seoUrlRedirect": "none",
+    "dataReconciliation": "none"
+  },
+  "nextGate": "Fresh Independent Design Review by original Reviewer against exact corrected-design commit",
+  "implementationAuthorized": false,
+  "selfApproved": false
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "noEmit": true,
+    "pretty": false
+  },
+  "include": [],
+  "exclude": [],
+  "files": ["M03_CROSS_DRIVER_NEGATIVE_V1_0.ts"]
+}
