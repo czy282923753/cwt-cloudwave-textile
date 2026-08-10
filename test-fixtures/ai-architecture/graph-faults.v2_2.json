@@ -48,6 +48,54 @@
       "sourcePath": "src/public-site/client-fault.tsx",
       "source": "\"use client\";\nimport { inspectDraftAssistanceAvailability } from \"@/ai\";\nvoid inspectDraftAssistanceAvailability;\n",
       "expectedCode": "fail_closed_public_client_to_server"
+    },
+    {
+      "id": "business-conditional-dynamic-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "const reviewerComputedServerEdge = process.env.REVIEWER_AI_EDGE === \"1\"\n  ? \"@/server/ai/phase-b-composition\"\n  : \"@/public-site/data\";\nvoid import(reviewerComputedServerEdge);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "business-conditional-require-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "const selectedModule = process.env.REVIEWER_AI_EDGE === \"1\"\n  ? \"@/server/ai/phase-b-composition\"\n  : \"@/public-site/data\";\nvoid require(selectedModule);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "business-conditional-resource-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "const selectedResource = process.env.REVIEWER_AI_EDGE === \"1\"\n  ? \"../server/ai/phase-b-composition.ts\"\n  : \"../public-site/data.ts\";\nvoid new URL(selectedResource, import.meta.url);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "business-folded-template-dynamic-root",
+      "sourcePath": "src/app/page.tsx",
+      "source": "const rootName = \"phase-b-composition\";\nvoid import(`@/server/ai/${rootName}`);\n",
+      "expectedCode": "fail_closed_composition_incoming_edge"
+    },
+    {
+      "id": "business-runtime-template-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "declare const rootName: string;\nvoid import(`@/server/ai/${rootName}`);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "business-indirect-create-require-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "import { createRequire } from \"node:module\";\nconst loader = createRequire(import.meta.url);\nconst indirectLoader = loader;\nconst selectedModule = process.env.REVIEWER_AI_EDGE === \"1\" ? \"@/server/ai/phase-b-composition\" : \"@/public-site/data\";\nvoid indirectLoader(selectedModule);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "business-computed-require-resolve-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "const selectedModule = process.env.REVIEWER_AI_EDGE === \"1\" ? \"@/server/ai/phase-b-composition\" : \"@/public-site/data\";\nvoid require[\"resolve\"](selectedModule);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "business-resource-base-alias-unsupported",
+      "sourcePath": "src/app/page.tsx",
+      "source": "const resourceBase = import.meta[\"url\"];\nconst selectedResource = process.env.REVIEWER_AI_EDGE === \"1\" ? \"../server/ai/phase-b-composition.ts\" : \"../public-site/data.ts\";\nvoid new URL(selectedResource, resourceBase);\n",
+      "expectedCode": "fail_closed_unsupported_acquisition"
     }
   ],
   "topologyCases": [

@@ -725,11 +725,31 @@ function foldStaticPrimitive(
   return undefined;
 }
 
-function isImportMetaUrl(expression: ts.Expression): boolean {
-  return ts.isPropertyAccessExpression(expression) && expression.name.text === "url" &&
+function isImportMetaUrl(
+  expression: ts.Expression,
+  aliases: ReadonlyMap<string, ts.Expression>,
+  visiting: ReadonlySet<string> = new Set<string>(),
+): boolean {
+  if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression) || ts.isTypeAssertionExpression(expression) ||
+    ts.isNonNullExpression(expression)) {
+    return isImportMetaUrl(expression.expression, aliases, visiting);
+  }
+  if (ts.isPropertyAccessExpression(expression) && expression.name.text === "url" &&
     ts.isMetaProperty(expression.expression) &&
     expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
-    expression.expression.name.text === "meta";
+    expression.expression.name.text === "meta") return true;
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined &&
+    foldStaticPrimitive(expression.argumentExpression, aliases) === "url" &&
+    ts.isMetaProperty(expression.expression) &&
+    expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+    expression.expression.name.text === "meta") return true;
+  if (!ts.isIdentifier(expression) || visiting.has(expression.text)) return false;
+  const initializer = aliases.get(expression.text);
+  if (initializer === undefined) return false;
+  const next = new Set(visiting);
+  next.add(expression.text);
+  return isImportMetaUrl(initializer, aliases, next);
 }
 
 function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
@@ -770,6 +790,25 @@ function collectAcquisitions(path: string, text: string): readonly ParsedAcquisi
     ts.forEachChild(node, collectLoaders);
   }
   collectLoaders(source);
+  let discoveredLoader = true;
+  while (discoveredLoader) {
+    discoveredLoader = false;
+    for (const [name, initializer] of aliases) {
+      if (createRequireLoaders.has(name)) continue;
+      const directAlias = ts.isIdentifier(initializer) &&
+        (initializer.text === "require" || createRequireLoaders.has(initializer.text));
+      const moduleRequireAlias = (ts.isPropertyAccessExpression(initializer) &&
+        ts.isIdentifier(initializer.expression) && initializer.expression.text === "module" &&
+        initializer.name.text === "require") ||
+        (ts.isElementAccessExpression(initializer) && ts.isIdentifier(initializer.expression) &&
+          initializer.expression.text === "module" && initializer.argumentExpression !== undefined &&
+          foldStaticPrimitive(initializer.argumentExpression, aliases) === "require");
+      if (directAlias || moduleRequireAlias) {
+        createRequireLoaders.add(name);
+        discoveredLoader = true;
+      }
+    }
+  }
   const acquisitions: ParsedAcquisitionV1[] = [];
   function add(
     form: GraphEdgeForm,
@@ -819,11 +858,20 @@ function collectAcquisitions(path: string, text: string): readonly ParsedAcquisi
           owner.text === "module") {
           add("module-require", "runtime", node.arguments[0], node);
         }
+      } else if (ts.isElementAccessExpression(node.expression) &&
+        node.expression.argumentExpression !== undefined) {
+        const owner = node.expression.expression;
+        const member = foldStaticPrimitive(node.expression.argumentExpression, aliases);
+        if (member === "resolve" && ts.isIdentifier(owner) && owner.text === "require") {
+          add("require-resolve", "runtime", node.arguments[0], node);
+        } else if (member === "require" && ts.isIdentifier(owner) && owner.text === "module") {
+          add("module-require", "runtime", node.arguments[0], node);
+        }
       }
     } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) &&
       node.expression.text === "URL" && node.arguments !== undefined &&
       node.arguments.length === 2 && node.arguments[1] !== undefined &&
-      isImportMetaUrl(node.arguments[1])) {
+      isImportMetaUrl(node.arguments[1], aliases)) {
       add("resource-url", "resource", node.arguments[0], node);
     }
     ts.forEachChild(node, visit);
@@ -926,8 +974,21 @@ function enforceCapabilityEdge(
   publicClient = false,
 ): void {
   if (edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved") {
-    if (sourceClass === "protected-ai" || sourceClass === "phase-b-outer-composition" || publicClient) {
-      rejectGraph("fail_closed_unsupported_acquisition", `${edge.from}:${edge.position}`);
+    if (productionClasses.has(sourceClass) || publicClient) {
+      rejectGraph("fail_closed_unsupported_acquisition", JSON.stringify({
+        path: edge.from,
+        rule: "production-acquisition-must-resolve-uniquely",
+        ast: {
+          form: edge.form,
+          edgeKind: edge.edgeKind,
+          position: edge.position,
+        },
+        acquisition: {
+          resolutionKind: edge.resolutionKind,
+          reason: edge.unsupportedReason ?? "unresolved_specifier",
+          specifier: edge.specifier ?? null,
+        },
+      }));
     }
     return;
   }
@@ -1203,7 +1264,11 @@ const graphFaultFixture = parseGraphFaultFixture(JSON.parse(readFileSync(
   resolve(repositoryRoot, "test-fixtures/ai-architecture/graph-faults.v2_2.json"),
   "utf8",
 )));
-const graphFaultResults: { readonly id: string; readonly code: string }[] = [];
+const graphFaultResults: {
+  readonly id: string;
+  readonly code: string;
+  readonly detail: string;
+}[] = [];
 for (const fault of graphFaultFixture.cases) {
   let observed: ArchitectureGraphFailure | undefined;
   try {
@@ -1219,7 +1284,13 @@ for (const fault of graphFaultFixture.cases) {
   if (observed?.code !== fault.expectedCode) {
     fail(`graph fault ${fault.id} expected ${fault.expectedCode}, got ${observed?.code ?? "pass"}`);
   }
-  graphFaultResults.push({ id: fault.id, code: observed.code });
+  if (observed.code === "fail_closed_unsupported_acquisition" &&
+    (!observed.detail.includes(`"path":"${fault.sourcePath}"`) ||
+      !observed.detail.includes('"rule":"production-acquisition-must-resolve-uniquely"') ||
+      !observed.detail.includes('"ast":{') || !observed.detail.includes('"acquisition":{'))) {
+    fail(`graph fault ${fault.id} lacks exact acquisition diagnostics`);
+  }
+  graphFaultResults.push({ id: fault.id, code: observed.code, detail: observed.detail });
 }
 
 function enforceTopology(paths: readonly string[]): void {
@@ -1244,7 +1315,7 @@ for (const fault of graphFaultFixture.topologyCases) {
   if (observed?.code !== fault.expectedCode) {
     fail(`topology fault ${fault.id} expected ${fault.expectedCode}, got ${observed?.code ?? "pass"}`);
   }
-  graphFaultResults.push({ id: fault.id, code: observed.code });
+  graphFaultResults.push({ id: fault.id, code: observed.code, detail: observed.detail });
 }
 
 const commonReadAuthorityPaths = [
