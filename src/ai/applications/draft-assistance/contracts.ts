@@ -147,3 +147,8 @@ export interface DraftAssistanceService {
     command: DraftAssistanceCommandV1,
   ): Promise<AiServiceResult<AiRunSummaryV1>>;
 }
+
+export type DraftAssistanceAvailabilityService = Pick<
+  DraftAssistanceService,
+  "inspectDraftAssistanceAvailability"
+>;

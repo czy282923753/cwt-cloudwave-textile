@@ -3,6 +3,7 @@ import "server-only";
 export type {
   AiAvailabilityV1,
   AiRunSummaryV1,
+  DraftAssistanceAvailabilityService,
   DraftAssistanceAvailabilityQueryV1,
   DraftAssistanceCommandV1,
   DraftAssistanceService,

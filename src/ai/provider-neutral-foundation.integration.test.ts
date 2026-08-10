@@ -63,6 +63,8 @@ describe("Phase B Provider-neutral Production foundation", () => {
       database: database.db,
       trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
     });
+    expect(Object.keys(service)).toEqual(["inspectDraftAssistanceAvailability"]);
+    expect("requestDraftAssistance" in service).toBe(false);
     const before = await database.db.select({ value: count() }).from(aiRuns);
     const result = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",

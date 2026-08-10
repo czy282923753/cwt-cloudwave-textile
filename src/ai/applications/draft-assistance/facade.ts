@@ -8,10 +8,9 @@ import type { TypedApplicationRegistry } from "@/ai/applications/contracts";
 import type { ReconstructibleDraftContextV1 } from "./context";
 import type {
   AiAvailabilityV1,
-  AiRunSummaryV1,
+  DraftAssistanceAvailabilityService,
   DraftAssistanceAvailabilityQueryV1,
   DraftAssistanceCommandV1,
-  DraftAssistanceService,
   DraftDurableAssociationWithoutHashV1,
 } from "./contracts";
 import type {
@@ -90,13 +89,13 @@ function availabilityCommand(
     : { ok: true, value: { ...base, explicitInput: input.explicitInput } };
 }
 
-export function createDraftAssistanceFacadeV1<
+export function createDraftAssistanceAvailabilityFacadeV1<
   TQueryResult extends PgQueryResultHKT,
 >(dependencies: {
   readonly database: AppDatabase<TQueryResult>;
   readonly registry: ProductionRegistryV1<TQueryResult>;
   readonly orchestrator: GenericAiOrchestratorV1;
-}): DraftAssistanceService {
+}): DraftAssistanceAvailabilityService {
   return {
     async inspectDraftAssistanceAvailability(query) {
       const command = availabilityCommand(query);
@@ -117,24 +116,6 @@ export function createDraftAssistanceFacadeV1<
         if (!invocation.ok) return availabilityFailure(invocation);
         return dependencies.orchestrator.inspect(invocation.value);
       });
-    },
-    async requestDraftAssistance(command): Promise<AiServiceResult<AiRunSummaryV1>> {
-      const actor = actorSchema.safeParse(command.actor);
-      if (!actor.success || !coarseRoleAllowed(actor.data.role)) {
-        return aiFailure("authorization_denied");
-      }
-      if (!uuid.safeParse(command.idempotencyKey).success) {
-        return aiFailure("idempotency_conflict");
-      }
-      const prepared = dependencies.registry.prepareInvocation({
-        applicationClass: "draft_assistance",
-        capability: "text",
-        useCase: command.useCase,
-        actor: { principalId: actor.data.userId, roleKey: actor.data.role },
-        applicationPayload: command,
-      });
-      if (!prepared.ok) return prepared;
-      return aiFailure("integration_not_ready");
     },
   };
 }

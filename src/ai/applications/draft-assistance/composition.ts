@@ -25,8 +25,11 @@ import {
   type DraftTargetReadRepository,
 } from "./authorization";
 import { createDraftContextPolicy, type DraftContextReadRepository } from "./context";
-import type { DraftAssistanceCommandV1, DraftAssistanceService } from "./contracts";
-import { createDraftAssistanceFacadeV1 } from "./facade";
+import type {
+  DraftAssistanceAvailabilityService,
+  DraftAssistanceCommandV1,
+} from "./contracts";
+import { createDraftAssistanceAvailabilityFacadeV1 } from "./facade";
 import { withDraftReadExecutor } from "./read-scopes";
 
 function actorCanEdit(command: DraftAssistanceCommandV1): boolean {
@@ -125,7 +128,7 @@ export function createPhaseBAvailabilityServiceV1<
 >(dependencies: {
   readonly database: AppDatabase<TQueryResult>;
   readonly trustedEnvironment: TrustedPhaseBEnvironmentV1;
-}): DraftAssistanceService {
+}): DraftAssistanceAvailabilityService {
   const contextPolicy = createDraftContextPolicy(contextRepository<TQueryResult>());
   const registry = createProductionApplicationRegistryV1({
     availabilityAuthorization: createDraftAvailabilityAuthorization(targetRepository<TQueryResult>()),
@@ -142,7 +145,7 @@ export function createPhaseBAvailabilityServiceV1<
       return aiFailure("integration_not_ready");
     },
   });
-  return createDraftAssistanceFacadeV1({
+  return createDraftAssistanceAvailabilityFacadeV1({
     database: dependencies.database,
     registry,
     orchestrator,
