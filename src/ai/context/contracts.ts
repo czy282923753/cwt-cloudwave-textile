@@ -49,7 +49,17 @@ export type ExplicitContextSelector =
       readonly origin: "typed_brief" | "operator_selected_target_text";
     };
 
-export interface ReconstructibleSourceEntryV1 {
+export interface ReconstructibleSourceFieldV1 extends ReadonlyJsonObject {
+  readonly field: string;
+  readonly ref: string;
+  readonly provenance: SourceProvenanceV1;
+  readonly value:
+    | JsonPrimitive
+    | readonly JsonPrimitive[]
+    | ReadonlyJsonObject;
+}
+
+export interface ReconstructibleSourceEntryV1 extends ReadonlyJsonObject {
   readonly alias: string;
   readonly sourceClass:
     | "public_company_fact"
@@ -57,13 +67,5 @@ export interface ReconstructibleSourceEntryV1 {
     | "fabric_knowledge"
     | "explicit_human_input";
   readonly selectedBy: "request_actor";
-  readonly fields: readonly {
-    readonly field: string;
-    readonly ref: string;
-    readonly provenance: SourceProvenanceV1;
-    readonly value:
-      | JsonPrimitive
-      | readonly JsonPrimitive[]
-      | ReadonlyJsonObject;
-  }[];
+  readonly fields: readonly ReconstructibleSourceFieldV1[];
 }
