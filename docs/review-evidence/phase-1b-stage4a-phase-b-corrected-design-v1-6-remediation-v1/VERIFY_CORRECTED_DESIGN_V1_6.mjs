@@ -269,6 +269,14 @@ function sourceStates() {
   };
 }
 
+function validatePhysicalFileMetadata(entry, inodeOwners) {
+  if (entry.nodeKind === "symlink") throw new GraphFailure("fail_closed_symlink", entry.path);
+  if (entry.nodeKind !== "regular_file") throw new GraphFailure("fail_closed_special_file", entry.path);
+  if (entry.realpath !== entry.path) throw new GraphFailure("fail_closed_canonical_alias", `${entry.path}->${entry.realpath}`);
+  if (inodeOwners.has(entry.inodeKey)) throw new GraphFailure("fail_closed_hard_link_alias", `${inodeOwners.get(entry.inodeKey)},${entry.path}`);
+  inodeOwners.set(entry.inodeKey, entry.path);
+}
+
 function actualTreeInventory() {
   const states = sourceStates();
   const candidates = [];
@@ -291,20 +299,18 @@ function actualTreeInventory() {
       }
 
       const stat = lstatSync(absolute, { bigint: true });
-      if (stat.isSymbolicLink()) throw new GraphFailure("fail_closed_symlink", path);
+      if (stat.isSymbolicLink()) validatePhysicalFileMetadata({ path, nodeKind: "symlink", realpath: path, inodeKey: `${stat.dev}:${stat.ino}` }, inodeOwners);
       if (stat.isDirectory()) {
         walk(absolute, path);
         continue;
       }
-      if (!stat.isFile()) throw new GraphFailure("fail_closed_special_file", path);
+      if (!stat.isFile()) validatePhysicalFileMetadata({ path, nodeKind: "special", realpath: path, inodeKey: `${stat.dev}:${stat.ino}` }, inodeOwners);
 
       const real = realpathSync.native(absolute);
       if (!(real === rootReal || real.startsWith(`${rootReal}/`))) throw new GraphFailure("fail_closed_realpath_escape", path);
       const realRelative = real.slice(rootReal.length + 1).split("\\").join("/");
-      if (realRelative !== path) throw new GraphFailure("fail_closed_canonical_alias", `${path}->${realRelative}`);
       const inode = `${stat.dev}:${stat.ino}`;
-      if (inodeOwners.has(inode)) throw new GraphFailure("fail_closed_hard_link_alias", `${inodeOwners.get(inode)},${path}`);
-      inodeOwners.set(inode, path);
+      validatePhysicalFileMetadata({ path, nodeKind: "regular_file", realpath: realRelative, inodeKey: inode }, inodeOwners);
 
       if (!isCandidatePath(path)) continue;
       const bytes = readFileSync(absolute);
@@ -519,10 +525,12 @@ function mutationSuite(actual) {
   }));
 
   passed.push(expectGraphFailure("symlink-bypass", "fail_closed_symlink", () => {
-    throw new GraphFailure("fail_closed_symlink", "virtual/symlink.ts");
+    validatePhysicalFileMetadata({ path: "virtual/symlink.ts", nodeKind: "symlink", realpath: "virtual/target.ts", inodeKey: "1:1" }, new Map());
   }));
   passed.push(expectGraphFailure("canonical-hardlink-alias", "fail_closed_hard_link_alias", () => {
-    throw new GraphFailure("fail_closed_hard_link_alias", "virtual/a.ts,virtual/b.ts");
+    const owners = new Map();
+    validatePhysicalFileMetadata({ path: "virtual/a.ts", nodeKind: "regular_file", realpath: "virtual/a.ts", inodeKey: "1:2" }, owners);
+    validatePhysicalFileMetadata({ path: "virtual/b.ts", nodeKind: "regular_file", realpath: "virtual/b.ts", inodeKey: "1:2" }, owners);
   }));
   passed.push(expectGraphFailure("alias-import-bypass", "fail_closed_capability_ceiling", () => {
     assertCapabilityEdge("tests/e2e/alias.spec.ts", "other-test-fixtures", "@/server/ai/phase-b-composition");
