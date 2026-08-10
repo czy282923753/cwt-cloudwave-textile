@@ -184,9 +184,42 @@ export interface AiApplicationDefinition<
   readonly policyVersion: string;
 }
 
+type RegistryDefinitionContract<
+  TCommand,
+  TAssociation,
+  TContext,
+  TOutput extends ReadonlyJsonObject,
+  TCommonReadScope extends ApplicationReadScope,
+  TAvailabilityScope extends TCommonReadScope,
+  TRequestScope extends TCommonReadScope,
+> = AiApplicationDefinition<
+  TCommand,
+  TAssociation,
+  TContext,
+  TOutput,
+  TCommonReadScope,
+  TAvailabilityScope,
+  TRequestScope
+> extends AiApplicationDefinition<
+  TCommand,
+  TAssociation,
+  TContext,
+  TOutput,
+  TCommonReadScope,
+  TAvailabilityScope,
+  TRequestScope
+>
+  ? object
+  : never;
+
 export interface TypedApplicationRegistry<
-  TAvailabilityScope extends ApplicationReadScope,
-  TRequestScope extends ApplicationReadScope,
+  TCommand,
+  TAssociation,
+  TContext,
+  TOutput extends ReadonlyJsonObject,
+  TCommonReadScope extends ApplicationReadScope,
+  TAvailabilityScope extends TCommonReadScope,
+  TRequestScope extends TCommonReadScope,
 > {
   prepareInvocation(input: {
     readonly applicationClass: string;
@@ -194,7 +227,15 @@ export interface TypedApplicationRegistry<
     readonly useCase: string;
     readonly actor: CoreAiActorV1;
     readonly applicationPayload: unknown;
-  }): AiServiceResult<
+  } & RegistryDefinitionContract<
+    TCommand,
+    TAssociation,
+    TContext,
+    TOutput,
+    TCommonReadScope,
+    TAvailabilityScope,
+    TRequestScope
+  >): AiServiceResult<
     PreparedApplicationInvocationBinding<TAvailabilityScope, TRequestScope>
   >;
 }
