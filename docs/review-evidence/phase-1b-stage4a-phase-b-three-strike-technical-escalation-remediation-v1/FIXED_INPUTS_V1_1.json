@@ -1,0 +1,118 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.three-strike-technical-escalation-remediation.fixed-inputs.v1",
+  "profileVersion": "1.0.0",
+  "task": "Three-Strike Technical Escalation Remediation V1 / TECH-M01",
+  "authorityState": {
+    "ownerApproved": false,
+    "independentReReviewPassed": false,
+    "correctedDesign": false,
+    "implementationAuthorized": false,
+    "attempt4": false
+  },
+  "git": {
+    "branch": "codex/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1",
+    "remediationParent": "87bf5025587b223aef3929172411cfeeb6fb1ca7",
+    "remediationParentDirectParent": "6bf81cbebbe9c17aff668049fbc6f3c43a44bf80",
+    "cleanRestartCheckpoint": "6bc26cf035608a21a057d6f4e87da8d4f7f23d40",
+    "independentFailImportCheckpoint": "f1af1f8736dfa2d55017444d2dfce75598796779",
+    "diagnosticEvidenceOnly": "f27cadf97a1b3187bdc9655a7411ce7aac1ebc4b",
+    "failedImplementationEvidenceOnly": [
+      "755e514540351ed53ee96bedd5ea12f3e934387e",
+      "a696325fa2608c77e526bb7403bb911d34200064",
+      "b1a73bb8aae87f7c862117b32ce5c2a051f21b84",
+      "d8a24d48592a8c5e112d20edd24505e9e34d83c9"
+    ]
+  },
+  "frozenBaseline": {
+    "tag": "phase-1b-stage3-approved-2026-08-09",
+    "tagObject": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "peeledCommit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4"
+  },
+  "immutableV10": {
+    "rule": "every V1.0 report/package/evidence byte is historical and must match the remediation parent",
+    "mainReport": {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_V1_0.md",
+      "sha256": "417d52671ba1348407c8daf90005c9c8054694d7e5a8da943eb8d26162d55014"
+    },
+    "ownerPackage": {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_OWNER_DECISION_PACKAGE_V1_0.md",
+      "sha256": "e331f16b86c0f35122fbfa550b5af60d063861756f9dcb11a80dd406e534222e"
+    },
+    "evidenceDirectory": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1",
+    "manifest": {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/SHA256SUMS.txt",
+      "sha256": "8eee38478e3d652520fbc1363b66a0edd47d989c25f7e0e1b15fa2c7d9797908",
+      "entries": 21
+    }
+  },
+  "independentFailAuthority": {
+    "readOnlySourceRoot": "/private/tmp/cwt-three-strike-technical-escalation-review-v1.xO5nYn",
+    "importedByteIdentical": true,
+    "mainReport": {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_INDEPENDENT_REVIEW_V1_0.md",
+      "sha256": "6d56bb4f3f632e55e3e3668fcfe67901709ad663edf6edd5c5a8074b56c763cf"
+    },
+    "evidence": {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/INDEPENDENT_TECHNICAL_ESCALATION_REVIEW_EVIDENCE_V1_0.md",
+      "sha256": "06bb7ec59a84015e68c925e0921936b2471a42d323bf792b1631b5c87813082f"
+    },
+    "manifest": {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/SHA256SUMS.txt",
+      "sha256": "ab2a9a279288174bd34ce98efef4ef8d3ed948ca7a67647a22146da7f4ab32d5",
+      "entries": 8
+    },
+    "finding": {
+      "id": "TECH-M01",
+      "severity": "Medium",
+      "statusAtReview": "OPEN",
+      "onlyFinding": true
+    }
+  },
+  "immutableAuthorityFiles": {
+    "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_EXACT_DESIGN_V1_4.md": "48e6afebfba53f65c03077a1ca27522f0245f17cbd0b3b46ff492929cf1e0c07",
+    "docs/adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md": "c60d71f293da6fe082c94927650e731d26abcdb238ba94863655053e22ab1f2f",
+    "src/db/types.ts": "ad027049e357a5aeb429cd9136c9a0e561f56bb492b3ebebd46f21e5b0c81817",
+    "src/db/client.ts": "fda8e496113f7d7658e94942d6f93c392fcaf403fcfd77a888852d0f18207800",
+    "src/config/env.ts": "822cfc5690bd2a6b658e9642dd9800a1bea998a27c89f013578e4516ee87d056",
+    "tsconfig.json": "096a305991cc6ee011630e877fc571eba979baa77aab5995328f3e67688c8a9e",
+    "package.json": "3f288f10bbb11e9a657e038af198bb31f0a471ecacb4f7d9e9ae6848ac241ed4",
+    "pnpm-lock.yaml": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb"
+  },
+  "m03NonRegression": {
+    "statusAtIndependentReview": "PASS",
+    "semanticsChanged": false,
+    "artifacts": {
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_0.json": "ce5bdd54c7924e86fcf36e89f10c96a039814366862382c2df81e0a15cf13141",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_DISCRIMINATED_SEAM_POSITIVE_V1_0.ts": "6ca6719f74b145034904ff9efe041daa1d55fe2629c90ffd32caac2b41503b35",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_UNION_PROJECTION_NEGATIVE_V1_0.ts": "06ae5c4ffa5b1ed544a325ad8433563dc1899992ccdf49233424106e62a71d38",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_DRIVER_SWAP_NEGATIVE_V1_0.ts": "189d29387ddc03b893bff7461f35fa1b8ebd8faa9bdda295b3f0250a2c7ffa56",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-positive.json": "0d29e368648c092c40cfa3aed585e1107deff3375ad784b0f3e34d65aee3e178",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-union-negative.json": "ab50f31c1364581f3bf5aec76ef5b5ba8b308992742e065f88a91a528efd1ea3",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-driver-swap-negative.json": "cfdb92af0fe3af6f07b813d518ace5a6fc54d5a1c5dd39620aaa7fc6e826530b",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_DISCRIMINATED_SEAM_OUTPUT_V1_0.txt": "5614f5147a085972aa6478e1b9cf1ef566a98451c4f1d531a3f8c89168558e65",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_UNION_PROJECTION_OUTPUT_V1_0.txt": "7f644932d920b211f5f737f81f46a0c5311abba3b25c1e46efcdaaf3a918dd4e",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_DRIVER_SWAP_OUTPUT_V1_0.txt": "854198e98a63150e52d19f5028745d84cc7ec82db8063e2d2603d2b99f34d0a6"
+    },
+    "requiredProbeResults": {
+      "discriminatedPositive": "exit 0 no diagnostics",
+      "unionProjectionNegative": "exit 2 TS2375",
+      "crossDriverNegative": "exit 2 TS2375"
+    }
+  },
+  "runtimeTuple": {
+    "node": "24.14.0",
+    "v8": "13.6.233.17-node.41",
+    "icu": "78.2",
+    "unicode": "17.0",
+    "cldr": "48.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "typescript": "5.9.3"
+  },
+  "externalActions": {
+    "providerApiCredentialNetworkSpend": false,
+    "stagingProductionDeployPublishIndex": false,
+    "formalDataImport": false,
+    "mergePush": false
+  }
+}

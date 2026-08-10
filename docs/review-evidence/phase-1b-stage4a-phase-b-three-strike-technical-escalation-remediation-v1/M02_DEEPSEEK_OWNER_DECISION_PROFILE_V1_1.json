@@ -1,0 +1,138 @@
+{
+  "decisionProfileId": "cwt.phase1b.stage4a.phaseb.m02-deepseek-owner-decision.v1_1",
+  "decisionProfileVersion": "1.1.0",
+  "status": "technical-escalation-remediation-v1-owner-decision-candidate-pending-fresh-independent-re-review",
+  "ownerSelection": null,
+  "recommendation": "M02-D1-INCLUDE",
+  "techM01": {
+    "finding": "TECH-M01",
+    "priorIndependentConclusion": "FAIL",
+    "priorCandidateHead": "87bf5025587b223aef3929172411cfeeb6fb1ca7",
+    "disposition": "root-corrected by rule-specific inline gap-set AST plus full transition-machine verification; not self-approved",
+    "reviewReportSha256": "6d56bb4f3f632e55e3e3668fcfe67901709ad663edf6edd5c5a8074b56c763cf",
+    "reviewEvidenceSha256": "06bb7ec59a84015e68c925e0921936b2471a42d323bf792b1631b5c87813082f",
+    "reviewManifestSha256": "ab2a9a279288174bd34ce98efef4ef8d3ed948ca7a67647a22146da7f4ab32d5"
+  },
+  "commonAuthorityProfile": {
+    "profileId": "cwt.phase1b.stage4a.phaseb.m02-protected-data-authority.v2_1",
+    "profileVersion": "2.1.0",
+    "path": "M02_PROTECTED_DATA_AUTHORITY_PROFILE_V2_1.json",
+    "sha256": "5435d258f98952440466e352c23e9d041070d4ded7e81cbb55e1265d739af0c2"
+  },
+  "mandatoryCorpus": {
+    "corpusId": "cwt.phase1b.stage4a.phaseb.m02-false-positive-security-corpus.v1_1",
+    "corpusVersion": "1.1.0",
+    "path": "M02_FALSE_POSITIVE_AND_SECURITY_CORPUS_V1_1.json",
+    "sha256": "d40912e09360d1537238bdee1425bbee19bbb378bcd6d321de0a8b197decc820"
+  },
+  "commonNonDecisions": {
+    "independentReReviewPassed": false,
+    "implementationAuthorized": false,
+    "correctedDesignApproved": false,
+    "providerApiCredentialNetworkSpendAuthorized": false,
+    "phaseBProductionProviderRegistry": "exact-empty",
+    "schemaMigrationChange": "none",
+    "dependencyPackageLockChange": "none",
+    "m03OwnerSelection": null
+  },
+  "options": [
+    {
+      "optionId": "M02-D1-INCLUDE",
+      "label": "include direct DeepSeek/provider-model literals plus bounded stealth-format gaps",
+      "registry": {
+        "path": "M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+        "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2_1",
+        "registryVersion": "2.1.0",
+        "sha256": "264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66",
+        "ruleCount": 32
+      },
+      "exactSemanticDeltaFromExclude": [
+        "add one whole-token deepseek rule",
+        "add one deepseek- model-family prefix rule",
+        "both added rules carry the identical inline union(Default_Ignorable_Code_Point, Mark, U+000A) minus invalid-control-set-v1 gapSetAst with per-gap 0..4 and total 64",
+        "shift later priorities by two while preserving their relative order",
+        "all 30 common rules, grammar ASTs, inline gapSetAst values and counters remain identical apart from those priority shifts"
+      ],
+      "directResults": {
+        "DeepSeek": "provider_override",
+        "deepseek-": "provider_override",
+        "deepseek-v4-flash": "provider_override"
+      },
+      "boundedInsertionResults": {
+        "d<U+200B>eepseek": "provider_override",
+        "deep<U+2060>seek": "provider_override",
+        "deep<U+20DD>seek": "provider_override",
+        "deep<LF>seek": "provider_override",
+        "deepseek<U+034F>-v4-flash": "provider_override",
+        "five admitted scalars in one complete gap": "unsupported_value",
+        "65 admitted scalars across one complete transition path": "unsupported_value"
+      },
+      "visibleSeparatorResults": {
+        "deep-seek": "allow unless another independent rule matches",
+        "deep; seek": "allow unless another independent rule matches",
+        "deep seek": "allow unless another independent rule matches",
+        "deep—seek": "allow unless another independent rule matches",
+        "deep<U+2028>seek": "allow unless another independent rule matches",
+        "deep<TAB>seek": "invalid_control",
+        "deep<CR>seek": "invalid_control"
+      },
+      "securityGuarantee": "the accepted direct DeepSeek/provider-model family and bounded Default-Ignorable/Mark/LF evasions are inside the same Section 13.6/A-07 provider_override authority",
+      "intentionalFalseNegativeBoundary": "visible punctuation, separators and ordinary whitespace are not equivalence gaps for the two DeepSeek rules; an attacker can evade those literal rules by visibly splitting the token unless another generic rule matches",
+      "falsePositiveBoundary": "ordinary prose such as deep-seek and deep; seek stays allowed; isolated Default-Ignorable or Mark characters remain allowed unless they complete a protected grammar skeleton",
+      "commonRuleConsequence": "other existing value rules retain the full five-property gap union; for example g;pt-4 and g pt-4 remain provider_override under both Owner options",
+      "futureProviderRule": "each future Provider/model requires a reviewed inline gap policy in the sole selected registry before activation",
+      "compatibility": "compared with failed V1.0, narrows only the two DeepSeek gap languages; no persisted text or bytes are rewritten",
+      "adrDisposition": "no security-exception ADR: direct accepted Provider/model coverage remains, while V1.0's contradictory all-adjacency extension was never independently accepted",
+      "correctedDesignRequired": true,
+      "rollback": "before implementation, discard this option only through Owner choice after re-review; after later authorized implementation, disable AI and revert classifier/proof artifacts to the independently accepted corrected-Design checkpoint; no data migration"
+    },
+    {
+      "optionId": "M02-D1-EXCLUDE",
+      "label": "exclude DeepSeek/provider-model literals",
+      "registry": {
+        "path": "M02_GRAMMAR_REGISTRY_EXCLUDE_DEEPSEEK_V2_1.json",
+        "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.exclude-deepseek.v2_1",
+        "registryVersion": "2.1.0",
+        "sha256": "1032f188bd5d53875ba87eb830aaf18f858c073ebadb1a3d3d9c6a83336df03b",
+        "ruleCount": 30
+      },
+      "directResults": {
+        "DeepSeek": "allow unless another generic rule matches",
+        "deepseek-": "allow unless another generic rule matches",
+        "deepseek-v4-flash": "allow unless another generic rule matches"
+      },
+      "boundedInsertionResults": {
+        "d<U+200B>eepseek": "allow unless another generic rule matches",
+        "deep<U+2060>seek": "allow unless another generic rule matches",
+        "deep<U+20DD>seek": "allow unless another generic rule matches",
+        "deep<LF>seek": "allow unless another generic rule matches",
+        "deepseek<U+034F>-v4-flash": "allow unless another generic rule matches"
+      },
+      "visibleSeparatorResults": "same allow/invalid-control outcomes as INCLUDE because the two DeepSeek rules are absent",
+      "securityGuaranteeLost": "Section 13.6/A-07 no longer guarantees rejection of the accepted initial Provider/model literal family in runtime context/output text; generic keys/phrases remain protected but do not compensate for a plain literal",
+      "nonCompensatingBoundary": "the static Phase B source-literal architecture gate remains separate and cannot substitute for runtime context/output classification",
+      "futureProviderRule": "an explicit exception decision would govern each later Provider/model, increasing omission and review risk",
+      "compatibility": "no data rewrite; failed V1.0 and earlier failed implementations remain evidence only",
+      "adrDisposition": "Owner-approved security-exception ADR is mandatory because this materially narrows accepted Design V1.4 Section 13.6/A-07 and ADR-0018's initial Provider/model safety envelope",
+      "requiredAdrContents": [
+        "reason and exact accepted risk",
+        "scope limited to runtime DeepSeek/deepseek-v4-flash literal matching",
+        "affected context and A-07 consumers",
+        "no change to Provider-agnostic, Draft-only, no-network Phase B boundaries",
+        "Schema/Migration none",
+        "URL/SEO none",
+        "compatibility and false-positive rationale",
+        "future Provider registration policy",
+        "rollback and expiry/reconsideration trigger"
+      ],
+      "correctedDesignRequired": true,
+      "rollback": "select INCLUDE through a later Owner/ADR/Design change and regenerate both consumers from that one authority; no persisted-text or data migration"
+    }
+  ],
+  "m03NonRegression": {
+    "status": "independent-review-pass-preserved-owner-selection-pending",
+    "profilePath": "../phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_0.json",
+    "profileSha256": "ce5bdd54c7924e86fcf36e89f10c96a039814366862382c2df81e0a15cf13141",
+    "semanticsChangedByThisRemediation": false
+  }
+}

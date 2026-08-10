@@ -1,0 +1,586 @@
+{
+  "corpusId": "cwt.phase1b.stage4a.phaseb.m02-false-positive-security-corpus.v1_1",
+  "corpusVersion": "1.1.0",
+  "status": "technical-escalation-remediation-v1-test-evidence-not-grammar-authority",
+  "authorityBoundary": {
+    "selectedRegistryIsSoleClassifierAuthority": true,
+    "corpusDefinesExpectedConsequencesButNeverAddsRulesOrGapMembership": true,
+    "ownerApproved": false,
+    "implementationAuthorized": false
+  },
+  "semantics": {
+    "domain": "value unless targetDomain is key",
+    "expectedValues": [
+      "allow",
+      "invalid_control",
+      "unsupported_value",
+      "customer_private_data",
+      "personal_identity",
+      "network_location",
+      "private_storage",
+      "credential_secret",
+      "session_analytics_identity",
+      "prompt_override",
+      "provider_override",
+      "markup_syntax",
+      "tool_network_action",
+      "public_state_action"
+    ],
+    "persistedInputMustRemainCodePointAndUtf8Identical": true,
+    "normalization": "detection-only NFKC; original input is never rewritten"
+  },
+  "propertyWitnessCases": [
+    {
+      "id": "property-default-ignorable",
+      "property": "Default_Ignorable_Code_Point",
+      "scalar": "⁠",
+      "scalarDisplay": "<U+2060>",
+      "fullGap": true,
+      "deepseekGap": true
+    },
+    {
+      "id": "property-mark",
+      "property": "Mark",
+      "scalar": "́",
+      "scalarDisplay": "<U+0301>",
+      "fullGap": true,
+      "deepseekGap": true
+    },
+    {
+      "id": "property-white-space",
+      "property": "White_Space",
+      "scalar": " ",
+      "scalarDisplay": "<U+0020>",
+      "fullGap": true,
+      "deepseekGap": false
+    },
+    {
+      "id": "property-separator",
+      "property": "Separator",
+      "scalar": " ",
+      "scalarDisplay": "<U+2028>",
+      "fullGap": true,
+      "deepseekGap": false
+    },
+    {
+      "id": "property-punctuation",
+      "property": "Punctuation",
+      "scalar": ";",
+      "scalarDisplay": "<U+003B>",
+      "fullGap": true,
+      "deepseekGap": false
+    },
+    {
+      "id": "explicit-lf",
+      "property": "codePoint",
+      "scalar": "\n",
+      "scalarDisplay": "<U+000A>",
+      "fullGap": true,
+      "deepseekGap": true
+    },
+    {
+      "id": "invalid-tab-subtracted",
+      "property": "invalid-control-set-v1",
+      "scalar": "\t",
+      "scalarDisplay": "<U+0009>",
+      "fullGap": false,
+      "deepseekGap": false
+    },
+    {
+      "id": "invalid-cr-subtracted",
+      "property": "invalid-control-set-v1",
+      "scalar": "\r",
+      "scalarDisplay": "<U+000D>",
+      "fullGap": false,
+      "deepseekGap": false
+    }
+  ],
+  "cases": [
+    {
+      "id": "deepseek-provider-direct",
+      "targetDomain": "value",
+      "input": "DeepSeek",
+      "inputDisplay": "DeepSeek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "whole provider token"
+    },
+    {
+      "id": "deepseek-model-direct",
+      "targetDomain": "value",
+      "input": "deepseek-v4-flash",
+      "inputDisplay": "deepseek-v4-flash",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "selected model-family prefix"
+    },
+    {
+      "id": "deepseek-fullwidth-nfkc",
+      "targetDomain": "value",
+      "input": "ｄｅｅｐｓｅｅｋ",
+      "inputDisplay": "<U+FF44><U+FF45><U+FF45><U+FF50><U+FF53><U+FF45><U+FF45><U+FF4B>",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "detection-only NFKC"
+    },
+    {
+      "id": "deepseek-default-ignorable-zwsp",
+      "targetDomain": "value",
+      "input": "d​eepseek",
+      "inputDisplay": "d<U+200B>eepseek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "Default_Ignorable U+200B inside provider name"
+    },
+    {
+      "id": "deepseek-default-ignorable-word-joiner",
+      "targetDomain": "value",
+      "input": "deep⁠seek",
+      "inputDisplay": "deep<U+2060>seek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "Default_Ignorable U+2060 not present in the V1.0 three-character shortcut"
+    },
+    {
+      "id": "deepseek-default-ignorable-zwnj",
+      "targetDomain": "value",
+      "input": "dee‌pseek",
+      "inputDisplay": "dee<U+200C>pseek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "Default_Ignorable U+200C"
+    },
+    {
+      "id": "deepseek-mark-cgj-prefix",
+      "targetDomain": "value",
+      "input": "deepseek͏-v4-flash",
+      "inputDisplay": "deepseek<U+034F>-v4-flash",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "Mark/Default_Ignorable U+034F before the model-prefix hyphen"
+    },
+    {
+      "id": "deepseek-mark-enclosing-circle",
+      "targetDomain": "value",
+      "input": "deep⃝seek",
+      "inputDisplay": "deep<U+20DD>seek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "Mark U+20DD remains a separate scalar after NFKC"
+    },
+    {
+      "id": "deepseek-lf-insertion",
+      "targetDomain": "value",
+      "input": "deep\nseek",
+      "inputDisplay": "deep<U+000A>seek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "LF is the sole explicitly admitted C0 gap for the DeepSeek rules"
+    },
+    {
+      "id": "deepseek-four-in-one-gap",
+      "targetDomain": "value",
+      "input": "deep​​​​seek",
+      "inputDisplay": "deep<U+200B><U+200B><U+200B><U+200B>seek",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "exact per-gap maximum 4"
+    },
+    {
+      "id": "deepseek-five-in-one-gap-overflow",
+      "targetDomain": "value",
+      "input": "deep​​​​​seek",
+      "inputDisplay": "deep<U+200B><U+200B><U+200B><U+200B><U+200B>seek",
+      "include": "unsupported_value",
+      "exclude": "allow",
+      "reason": "complete INCLUDE skeleton exceeds per-gap maximum 4"
+    },
+    {
+      "id": "deepseek-punctuation-hyphen-safe",
+      "targetDomain": "value",
+      "input": "deep-seek",
+      "inputDisplay": "deep-seek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "visible Punctuation is outside the DeepSeek rule-specific gap set"
+    },
+    {
+      "id": "deepseek-punctuation-semicolon-space-safe",
+      "targetDomain": "value",
+      "input": "deep; seek",
+      "inputDisplay": "deep; seek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "visible Punctuation plus ordinary space is outside the DeepSeek rule-specific gap set"
+    },
+    {
+      "id": "deepseek-ascii-space-safe",
+      "targetDomain": "value",
+      "input": "deep seek",
+      "inputDisplay": "deep seek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "ordinary visible whitespace is outside the DeepSeek rule-specific gap set"
+    },
+    {
+      "id": "deepseek-em-dash-safe",
+      "targetDomain": "value",
+      "input": "deep—seek",
+      "inputDisplay": "deep<U+2014>seek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "visible Unicode Punctuation is outside the DeepSeek rule-specific gap set"
+    },
+    {
+      "id": "deepseek-line-separator-safe",
+      "targetDomain": "value",
+      "input": "deep seek",
+      "inputDisplay": "deep<U+2028>seek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "Unicode Separator is outside the DeepSeek rule-specific gap set"
+    },
+    {
+      "id": "deepseek-nbsp-nfkc-space-safe",
+      "targetDomain": "value",
+      "input": "deep seek",
+      "inputDisplay": "deep<U+00A0>seek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "NFKC maps NBSP to ordinary space, which remains outside the DeepSeek gap set"
+    },
+    {
+      "id": "deepseek-visible-model-split-safe",
+      "targetDomain": "value",
+      "input": "deep-seek-v4-flash",
+      "inputDisplay": "deep-seek-v4-flash",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "visible split is neither provider token nor model-family prefix"
+    },
+    {
+      "id": "deepseeking-boundary-safe",
+      "targetDomain": "value",
+      "input": "deepseeking",
+      "inputDisplay": "deepseeking",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "no trailing whole-token boundary"
+    },
+    {
+      "id": "deepseekers-boundary-safe",
+      "targetDomain": "value",
+      "input": "deepseekers",
+      "inputDisplay": "deepseekers",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "no trailing whole-token boundary"
+    },
+    {
+      "id": "deepseek-underscore-boundary-safe",
+      "targetDomain": "value",
+      "input": "_deepseek_",
+      "inputDisplay": "_deepseek_",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "underscore is an ECMAScript word character on both boundaries"
+    },
+    {
+      "id": "deepseek-leading-word-boundary-safe",
+      "targetDomain": "value",
+      "input": "xdeepseek",
+      "inputDisplay": "xdeepseek",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "no leading whole-token boundary"
+    },
+    {
+      "id": "deepseek-trailing-digit-boundary-safe",
+      "targetDomain": "value",
+      "input": "deepseek4",
+      "inputDisplay": "deepseek4",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "no trailing whole-token boundary"
+    },
+    {
+      "id": "deepseek-token-in-prose",
+      "targetDomain": "value",
+      "input": "Use DeepSeek, please.",
+      "inputDisplay": "Use DeepSeek, please.",
+      "include": "provider_override",
+      "exclude": "allow",
+      "reason": "whole provider token remains protected in ordinary prose"
+    },
+    {
+      "id": "deepseek-cr-invalid",
+      "targetDomain": "value",
+      "input": "deep\rseek",
+      "inputDisplay": "deep<U+000D>seek",
+      "include": "invalid_control",
+      "exclude": "invalid_control",
+      "reason": "CR invalid-control precedence"
+    },
+    {
+      "id": "deepseek-tab-invalid",
+      "targetDomain": "value",
+      "input": "deep\tseek",
+      "inputDisplay": "deep<U+0009>seek",
+      "include": "invalid_control",
+      "exclude": "invalid_control",
+      "reason": "TAB invalid-control precedence"
+    },
+    {
+      "id": "key-provider-override",
+      "targetDomain": "key",
+      "input": "providerOverride",
+      "inputDisplay": "providerOverride",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "key projection authority"
+    },
+    {
+      "id": "common-model-default-ignorable",
+      "targetDomain": "value",
+      "input": "g⁠pt-4",
+      "inputDisplay": "g<U+2060>pt-4",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "common rule executes Default_Ignorable property"
+    },
+    {
+      "id": "common-model-mark",
+      "targetDomain": "value",
+      "input": "gp⃝t-4",
+      "inputDisplay": "gp<U+20DD>t-4",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "common rule executes Mark property"
+    },
+    {
+      "id": "common-model-visible-space",
+      "targetDomain": "value",
+      "input": "g pt-4",
+      "inputDisplay": "g pt-4",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "common rule executes White_Space property"
+    },
+    {
+      "id": "common-model-separator",
+      "targetDomain": "value",
+      "input": "g pt-4",
+      "inputDisplay": "g<U+2028>pt-4",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "common rule executes Separator property"
+    },
+    {
+      "id": "common-model-punctuation",
+      "targetDomain": "value",
+      "input": "g;pt-4",
+      "inputDisplay": "g;pt-4",
+      "include": "provider_override",
+      "exclude": "provider_override",
+      "reason": "common rule executes Punctuation property"
+    },
+    {
+      "id": "structured-email-mark",
+      "targetDomain": "value",
+      "input": "alice@͏example.test",
+      "inputDisplay": "alice@<U+034F>example.test",
+      "include": "personal_identity",
+      "exclude": "personal_identity",
+      "reason": "structured recognizer uses the same full rule-specific gap AST"
+    },
+    {
+      "id": "structured-phone",
+      "targetDomain": "value",
+      "input": "+1 415 555 2671",
+      "inputDisplay": "+1 415 555 2671",
+      "include": "personal_identity",
+      "exclude": "personal_identity",
+      "reason": "Unicode-number structured recognizer"
+    },
+    {
+      "id": "structured-uri",
+      "targetDomain": "value",
+      "input": "https://example.test",
+      "inputDisplay": "https://example.test",
+      "include": "network_location",
+      "exclude": "network_location",
+      "reason": "scheme structured recognizer"
+    },
+    {
+      "id": "private-path",
+      "targetDomain": "value",
+      "input": "../private",
+      "inputDisplay": "../private",
+      "include": "private_storage",
+      "exclude": "private_storage",
+      "reason": "path structured recognizer"
+    },
+    {
+      "id": "safe-cjk",
+      "targetDomain": "value",
+      "input": "台灣布料",
+      "inputDisplay": "<U+53F0><U+7063><U+5E03><U+6599>",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "legitimate Unicode"
+    },
+    {
+      "id": "safe-persian-zwnj",
+      "targetDomain": "value",
+      "input": "می‌خواهم پارچه",
+      "inputDisplay": "<U+0645><U+06CC><U+200C><U+062E><U+0648><U+0627><U+0647><U+0645> <U+067E><U+0627><U+0631><U+0686><U+0647>",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "a gap character alone is not protected"
+    },
+    {
+      "id": "safe-devanagari-marks",
+      "targetDomain": "value",
+      "input": "हिंदी कपड़ा",
+      "inputDisplay": "<U+0939><U+093F><U+0902><U+0926><U+0940> <U+0915><U+092A><U+0921><U+093C><U+093E>",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "marks alone are not protected"
+    },
+    {
+      "id": "safe-emoji-zwj",
+      "targetDomain": "value",
+      "input": "textile 👩‍💻 note",
+      "inputDisplay": "textile <U+1F469><U+200D><U+1F4BB> note",
+      "include": "allow",
+      "exclude": "allow",
+      "reason": "ZWJ sequence alone is not protected"
+    }
+  ],
+  "compilerConformanceCases": [
+    {
+      "id": "transition-zero-gap-direct",
+      "sourceRuleId": "value.provider-selected-name.lexical.v2_1",
+      "ast": [
+        "literal",
+        "deepseek"
+      ],
+      "input": "deepseek",
+      "inputDisplay": "deepseek",
+      "direct": "match",
+      "boundedInsertion": "match"
+    },
+    {
+      "id": "transition-gap-four",
+      "sourceRuleId": "value.provider-selected-name.lexical.v2_1",
+      "ast": [
+        "literal",
+        "deepseek"
+      ],
+      "input": "deep​​​​seek",
+      "inputDisplay": "deep<U+200B><U+200B><U+200B><U+200B>seek",
+      "direct": "no_match",
+      "boundedInsertion": "match"
+    },
+    {
+      "id": "transition-gap-five-overflow",
+      "sourceRuleId": "value.provider-selected-name.lexical.v2_1",
+      "ast": [
+        "literal",
+        "deepseek"
+      ],
+      "input": "deep​​​​​seek",
+      "inputDisplay": "deep<U+200B><U+200B><U+200B><U+200B><U+200B>seek",
+      "direct": "no_match",
+      "boundedInsertion": "unsupported_value"
+    },
+    {
+      "id": "transition-total-64",
+      "sourceRuleId": "value.provider-selected-name.lexical.v2_1",
+      "ast": [
+        "literal",
+        "abcdefghijklmnopqr"
+      ],
+      "input": "a​​​​b​​​​c​​​​d​​​​e​​​​f​​​​g​​​​h​​​​i​​​​j​​​​k​​​​l​​​​m​​​​n​​​​o​​​​p​​​​qr",
+      "inputDisplay": "a<U+200B><U+200B><U+200B><U+200B>b<U+200B><U+200B><U+200B><U+200B>c<U+200B><U+200B><U+200B><U+200B>d<U+200B><U+200B><U+200B><U+200B>e<U+200B><U+200B><U+200B><U+200B>f<U+200B><U+200B><U+200B><U+200B>g<U+200B><U+200B><U+200B><U+200B>h<U+200B><U+200B><U+200B><U+200B>i<U+200B><U+200B><U+200B><U+200B>j<U+200B><U+200B><U+200B><U+200B>k<U+200B><U+200B><U+200B><U+200B>l<U+200B><U+200B><U+200B><U+200B>m<U+200B><U+200B><U+200B><U+200B>n<U+200B><U+200B><U+200B><U+200B>o<U+200B><U+200B><U+200B><U+200B>p<U+200B><U+200B><U+200B><U+200B>qr",
+      "insertedCodePoints": 64,
+      "direct": "no_match",
+      "boundedInsertion": "match"
+    },
+    {
+      "id": "transition-total-65-overflow",
+      "sourceRuleId": "value.provider-selected-name.lexical.v2_1",
+      "ast": [
+        "literal",
+        "abcdefghijklmnopqr"
+      ],
+      "input": "a​​​​b​​​​c​​​​d​​​​e​​​​f​​​​g​​​​h​​​​i​​​​j​​​​k​​​​l​​​​m​​​​n​​​​o​​​​p​​​​q​r",
+      "inputDisplay": "a<U+200B><U+200B><U+200B><U+200B>b<U+200B><U+200B><U+200B><U+200B>c<U+200B><U+200B><U+200B><U+200B>d<U+200B><U+200B><U+200B><U+200B>e<U+200B><U+200B><U+200B><U+200B>f<U+200B><U+200B><U+200B><U+200B>g<U+200B><U+200B><U+200B><U+200B>h<U+200B><U+200B><U+200B><U+200B>i<U+200B><U+200B><U+200B><U+200B>j<U+200B><U+200B><U+200B><U+200B>k<U+200B><U+200B><U+200B><U+200B>l<U+200B><U+200B><U+200B><U+200B>m<U+200B><U+200B><U+200B><U+200B>n<U+200B><U+200B><U+200B><U+200B>o<U+200B><U+200B><U+200B><U+200B>p<U+200B><U+200B><U+200B><U+200B>q<U+200B>r",
+      "insertedCodePoints": 65,
+      "direct": "no_match",
+      "boundedInsertion": "unsupported_value"
+    }
+  ],
+  "mutationNegativeCases": [
+    {
+      "mutationId": "legacy-three-character-gap-shortcut",
+      "description": "replace every gap predicate with only LF/U+034F/U+200B, reproducing the V1.0 verifier defect",
+      "mustBeKilledByCaseIds": [
+        "deepseek-default-ignorable-word-joiner",
+        "deepseek-mark-enclosing-circle",
+        "common-model-visible-space",
+        "common-model-separator",
+        "common-model-punctuation"
+      ]
+    },
+    {
+      "mutationId": "global-full-gap-on-deepseek",
+      "description": "replace the two DeepSeek inline gapSetAst values with the common full property union",
+      "mustBeKilledByCaseIds": [
+        "deepseek-punctuation-hyphen-safe",
+        "deepseek-punctuation-semicolon-space-safe",
+        "deepseek-ascii-space-safe",
+        "deepseek-em-dash-safe",
+        "deepseek-line-separator-safe"
+      ]
+    },
+    {
+      "mutationId": "drop-default-ignorable-property",
+      "description": "remove Default_Ignorable_Code_Point from gap-set evaluation",
+      "mustBeKilledByCaseIds": [
+        "deepseek-default-ignorable-word-joiner",
+        "common-model-default-ignorable"
+      ]
+    },
+    {
+      "mutationId": "drop-mark-property",
+      "description": "remove Mark from gap-set evaluation",
+      "mustBeKilledByCaseIds": [
+        "deepseek-mark-enclosing-circle",
+        "common-model-mark"
+      ]
+    },
+    {
+      "mutationId": "drop-punctuation-property",
+      "description": "remove Punctuation from common gap-set evaluation",
+      "mustBeKilledByCaseIds": [
+        "common-model-punctuation"
+      ]
+    },
+    {
+      "mutationId": "disable-total-counter",
+      "description": "accept a complete transition path even when total inserted code points exceed 64",
+      "mustBeKilledByCompilerCaseIds": [
+        "transition-total-65-overflow"
+      ]
+    }
+  ],
+  "generatedStructuralLimitCases": [
+    "depth 17 -> unsupported_value",
+    "visited node 4097 -> unsupported_value",
+    "raw UTF-8 byte 131073 -> unsupported_value",
+    "NFKC UTF-8 byte 131073 -> unsupported_value",
+    "lone UTF-16 surrogate -> unsupported_value",
+    "cycle or repeated object identity -> unsupported_value"
+  ]
+}

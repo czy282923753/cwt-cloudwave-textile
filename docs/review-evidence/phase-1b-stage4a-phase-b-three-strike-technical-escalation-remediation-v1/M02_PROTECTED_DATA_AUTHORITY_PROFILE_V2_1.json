@@ -1,0 +1,287 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.m02-protected-data-authority.v2_1",
+  "profileVersion": "2.1.0",
+  "status": "technical-escalation-remediation-v1-owner-decision-candidate-not-approved-not-implementation",
+  "authority": {
+    "purpose": "TECH-M01-corrected Unicode/grammar proof contract for Owner decision and later corrected Design",
+    "architectureAuthority": [
+      "ADR-0018",
+      "accepted Design V1.4 sections 13.6, 14.3 A-07, 19.5"
+    ],
+    "ownerApproved": false,
+    "correctedDesign": false,
+    "implementationAuthorized": false,
+    "phaseBProviderRegistryRemainsEmpty": true,
+    "noProviderApiCredentialNetworkSpendAuthority": true,
+    "techM01Disposition": {
+      "status": "corrected-candidate-pending-fresh-independent-re-review",
+      "independentFailHead": "87bf5025587b223aef3929172411cfeeb6fb1ca7",
+      "rootCause": "V1.0 declared one global five-property adjacency language but its verifier deleted only LF/U+034F/U+200B and its Owner corpus contradicted the declared punctuation/whitespace consequences",
+      "correction": "the selected V2.1 registry alone carries each rule's closed inline gapSetAst and exact counters; the verifier executes that transition graph and mutation-tests the former shortcut",
+      "v10ArtifactsImmutable": true
+    }
+  },
+  "grammarSelection": {
+    "ownerSelection": null,
+    "rule": "exactly one registry tuple may be selected by the Owner after Fresh Independent Technical Escalation Re-review PASS and referenced by hash in a corrected Design; zero, multiple, missing or hash-mismatched selections fail closed",
+    "candidateOptions": [
+      {
+        "optionId": "M02-D1-INCLUDE",
+        "path": "M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+        "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2_1",
+        "registryVersion": "2.1.0",
+        "sha256": "264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66",
+        "recommendation": "recommended"
+      },
+      {
+        "optionId": "M02-D1-EXCLUDE",
+        "path": "M02_GRAMMAR_REGISTRY_EXCLUDE_DEEPSEEK_V2_1.json",
+        "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.exclude-deepseek.v2_1",
+        "registryVersion": "2.1.0",
+        "sha256": "1032f188bd5d53875ba87eb830aaf18f858c073ebadb1a3d3d9c6a83336df03b",
+        "recommendation": "not-recommended-security-exception"
+      }
+    ],
+    "alternativesAreDecisionArtifactsNotParallelRuntimeAuthorities": true,
+    "semanticDelta": "INCLUDE adds exactly two DeepSeek-only rules (whole provider token and model-family prefix) with one identical inline rule-specific gap policy and shifts later priorities; every common rule, AST and inline gap policy remains otherwise identical"
+  },
+  "resultDomain": {
+    "allow": "no registered grammar or structural failure",
+    "protectedMatch": {
+      "fields": [
+        "category",
+        "priority",
+        "ruleId",
+        "targetDomain",
+        "path"
+      ],
+      "categorySet": [
+        "customer_private_data",
+        "personal_identity",
+        "network_location",
+        "private_storage",
+        "credential_secret",
+        "session_analytics_identity",
+        "prompt_override",
+        "provider_override",
+        "markup_syntax",
+        "tool_network_action",
+        "public_state_action"
+      ]
+    },
+    "structuralFailures": [
+      "invalid_control",
+      "unsupported_value"
+    ],
+    "redaction": "never; reject rather than redact",
+    "persistedByteMutation": "never"
+  },
+  "inputDomain": {
+    "acceptedRoot": "ReadonlyJsonValue",
+    "acceptedValues": [
+      "null",
+      "boolean",
+      "finite ECMAScript number including -0",
+      "Unicode-scalar string",
+      "dense readonly array of accepted values",
+      "plain own-enumerable-string-key object with Object.prototype or null prototype and accepted values"
+    ],
+    "rejectedAsUnsupportedValue": [
+      "undefined",
+      "bigint",
+      "symbol",
+      "function",
+      "non-finite number",
+      "sparse array",
+      "accessor property",
+      "symbol key",
+      "non-enumerable own data property",
+      "class instance or non-plain prototype",
+      "Date/Map/Set/RegExp/typed array",
+      "cycle or repeated object identity",
+      "lone UTF-16 surrogate",
+      "input requiring non-fatal UTF-8 replacement"
+    ],
+    "byteIngress": "when bytes exist, decode with fatal UTF-8 before this profile; JavaScript string input is checked for Unicode scalar validity before normalization"
+  },
+  "normalization": {
+    "values": {
+      "form": "NFKC",
+      "scope": "detection-only",
+      "regexCaseBehavior": "registry flags under the exact ECMAScript runtime tuple",
+      "persistedRule": "return paths/categories only; original string/code points and later UTF-8 bytes remain unchanged"
+    },
+    "keys": {
+      "form": "NFKC",
+      "projectionId": "key-nfkc-ascii-fold-strip-v3",
+      "exactProjection": "NFKC, then ASCII-case-insensitive removal of every code point outside [a-z0-9_]",
+      "insertionMode": "projection-equivalent-no-extra-gap",
+      "persistedRule": "original key is never rewritten"
+    },
+    "normalizationFailure": "unsupported_value"
+  },
+  "unicodeRuntime": {
+    "tupleId": "cwt-node24-unicode17-darwin-arm64-v1",
+    "node": "24.14.0",
+    "v8": "13.6.233.17-node.41",
+    "icu": "78.2",
+    "unicode": "17.0",
+    "cldr": "48.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "propertyTruthSource": "ECMAScript RegExp Unicode property escapes under this exact tuple",
+    "mismatchBehavior": "fail closed before profile verification, classifier initialization, architecture gate or build; no runtime fallback table",
+    "dependencyOrGeneratedUnicodeArtifactAdded": false
+  },
+  "controlAndInsertionPolicy": {
+    "soleAuthority": "the one selected registry's rule.insertion object and gapSetDefinitions; this profile defines validation/precedence only and contains no fallback membership table",
+    "invalidControlSet": {
+      "authorityPath": "selectedRegistry.gapSetDefinitions.invalid-control-set-v1",
+      "precedence": "after structural preflight and before grammar/insertion matching",
+      "soleAdmittedC0Exception": "U+000A is outside invalid-control-set-v1 and is admitted only by rules whose inline gapSetAst names it or whose property expression includes it",
+      "carriageReturn": "U+000D is invalid_control even though White_Space matches it"
+    },
+    "closedGapSetAst": {
+      "nodeTypes": [
+        "emptySet",
+        "codePoint",
+        "codePointRange",
+        "unicodeProperty",
+        "union",
+        "subtract",
+        "reference"
+      ],
+      "allowedUnicodeProperties": [
+        "Default_Ignorable_Code_Point",
+        "Mark",
+        "White_Space",
+        "Separator",
+        "Punctuation"
+      ],
+      "truthSource": "ECMAScript RegExp Unicode property escapes under unicodeRuntime; every selected property node is actually executed",
+      "unknownOrMalformedBehavior": "unsupported_value"
+    },
+    "ruleSpecificPolicies": {
+      "keyProjection": "empty gap set and 0/0 counters; key projection remains the direct language",
+      "commonValueRules": "inline union(Default_Ignorable_Code_Point, Mark, White_Space, Separator, Punctuation) minus invalid-control-set-v1; per-gap 0..4; total 64",
+      "deepseekIncludeRules": "inline union(Default_Ignorable_Code_Point, Mark, U+000A) minus invalid-control-set-v1; per-gap 0..4; total 64",
+      "noGlobalDefault": true,
+      "gapPolicyIdIsMetadataOnly": "membership is never resolved from gapPolicyId; the inline gapSetAst is authoritative"
+    },
+    "adjacency": {
+      "eligible": "only between consecutive consuming atom transitions on one successful closed-AST path",
+      "forbidden": [
+        "before the first consumed atom",
+        "after the final consumed atom",
+        "inside one character-class/property/shorthand atom",
+        "between a zero-width assertion and an atom",
+        "across a failed alternative",
+        "inside key projection beyond projection equivalence"
+      ]
+    },
+    "deepseekSecurityAndFalsePositiveBoundary": {
+      "protected": [
+        "direct whole-token DeepSeek",
+        "direct deepseek- model-family prefix including deepseek-v4-flash",
+        "bounded insertion of Unicode Default_Ignorable_Code_Point",
+        "bounded insertion of Unicode Mark",
+        "bounded insertion of U+000A LF"
+      ],
+      "intentionallyNotEquivalent": [
+        "ordinary U+0020 space",
+        "Unicode Separator including U+2028",
+        "Unicode Punctuation including hyphen, semicolon and em dash",
+        "other visible White_Space after NFKC"
+      ],
+      "consequence": "deep-seek, deep; seek, deep seek, deep—seek and deep<U+2028>seek are allowed unless another independent rule matches; visible separator obfuscations can therefore evade the DeepSeek-specific literal rules",
+      "invalidControlsStillReject": "TAB, CR and every scalar in invalid-control-set-v1 return invalid_control before gap evaluation",
+      "admittedCharacterAloneIsNotProtected": true
+    }
+  },
+  "grammarCompiler": {
+    "closedAstNodeTypes": [
+      "literal",
+      "charClass",
+      "unicodeProperty",
+      "shorthand",
+      "sequence",
+      "alternation",
+      "group",
+      "repeat",
+      "reference",
+      "wordBoundary",
+      "startAnchor",
+      "negativeLookbehind",
+      "negativeLookahead"
+    ],
+    "validation": [
+      "reject extra/missing rule or insertion fields, duplicate rule IDs/priorities, invalid flags/domains/kinds/categories",
+      "reject unknown/malformed grammar AST or gap-set AST nodes, invalid character classes/repetitions/lookarounds/code points/ranges",
+      "reject missing, recursive, multiply-defined or unused grammar/gap references",
+      "require priorities to be the exact contiguous range 1..ruleCount",
+      "require every structuredRecognizerId to appear on exactly one structured rule",
+      "require counters to be integers within profile ceilings and key projection counters to be zero",
+      "require every rule to carry its complete inline gapSetAst; no implicit/global fallback"
+    ],
+    "lowering": [
+      "inline validated grammar and gap-set references and expand literal strings to Unicode scalar atoms",
+      "lower once to canonical transition IR carrying category, priority, target domain, inline gap predicate and counters",
+      "direct recognizer is the same IR with inserted-transition budget 0",
+      "insertion-aware recognizer is the same IR with that rule's exact gap predicate/per-gap/total counters",
+      "structured rules use the same IR; structuredRecognizerId is audit metadata, not a matcher",
+      "overflow execution reruns the same IR with relaxed counters only to distinguish complete-skeleton overflow from unrelated text"
+    ],
+    "collision": "evaluate applicable rules in ascending global priority; the first match wins",
+    "forbiddenSecondAuthorities": [
+      "standalone direct regex table",
+      "standalone shadow/insertion term or gap table",
+      "global admitted-insertion fallback",
+      "handwritten deletion list",
+      "standalone structured matcher catalog",
+      "consumer-local A-07 scanner",
+      "compatibility classifier"
+    ],
+    "unsupportedCompilerOrStateBudget": "unsupported_value"
+  },
+  "traversal": {
+    "phase1StructuralPreflight": [
+      "walk the complete value without invoking getters",
+      "validate accepted input domain, Unicode scalars, cycles/repeated identity and exact limits",
+      "compute raw and NFKC-normalized UTF-8 byte totals"
+    ],
+    "phase2Classification": "depth-first preorder; arrays ascending index; objects Object.keys order; classify each key before its value; within one key/string invalid_control precedes grammar; first traversal path wins",
+    "pathEncoding": "RFC 6901 JSON Pointer with ~ and / escaped; root is empty string",
+    "noPartialAllow": "any structural failure discovered in preflight overrides an otherwise earlier protected match"
+  },
+  "limits": {
+    "maximumDepth": 16,
+    "maximumVisitedNodes": 4096,
+    "maximumRawUtf8Bytes": 131072,
+    "maximumNfkcUtf8Bytes": 131072,
+    "maximumUnicodeScalarsPerStringOrKey": 65536,
+    "maximumCompiledAstNodes": 8192,
+    "maximumMatcherStatesPerRuleAndInput": 262144,
+    "maximumRules": 64,
+    "limitFailure": "unsupported_value",
+    "applicationLimitsStillApplyFirst": "accepted Design V1.4 Section 13.6 remains stricter for explicit/context payloads"
+  },
+  "consumers": {
+    "contextScanner": "Section 13.6 uses the one selected compiled classifier tuple",
+    "outputA07": "A-07 calls the same selected compiled classifier tuple; it may add only A-07's separately enumerated non-protected-data syntax checks",
+    "agreementProof": "both consumers expose the same registryId/version/hash and classifier identity; a second instance/profile/hash mismatch fails closed",
+    "noSemanticClaim": "the classifier proves only the exact grammar/control result, not privacy classification, factual entailment or malicious intent"
+  },
+  "futureProviderModelClosure": {
+    "exactRule": "every later approved Provider literal and model-family prefix requires its own reviewed rule or demonstrably identical common rule plus an inline gapSetAst and counters in the selected registry before adapter/configuration activation",
+    "runtimeDynamicTermInjectionForbidden": true,
+    "missingCoverage": "configuration and architecture verification fail closed",
+    "requiredGate": "new reviewed registry/profile plus Owner-approved corrected Design/Phase authorization"
+  },
+  "falsePositiveCorpus": {
+    "path": "M02_FALSE_POSITIVE_AND_SECURITY_CORPUS_V1_1.json",
+    "sha256": "d40912e09360d1537238bdee1425bbee19bbb378bcd6d321de0a8b197decc820",
+    "mandatory": true,
+    "corpusIsTestEvidenceNotGrammarAuthority": true,
+    "requiredCoverage": "direct, all declared Unicode property witnesses, LF, invalid controls, visible punctuation/whitespace/separators, Mark, boundaries, per-gap 0..4/overflow, total 64/65, mutation negatives and persisted-byte identity"
+  }
+}
