@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  existsSync,
   lstatSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
+  writeFileSync,
 } from "node:fs";
-import { extname, relative, resolve, sep } from "node:path";
+import { dirname, extname, posix, relative, resolve, sep } from "node:path";
+import ts from "typescript";
 
 const profilePath = "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-7-remediation-attempt-2-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_2.json";
 const expectedProfileHash = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
@@ -605,30 +609,533 @@ if (nextNode !== undefined) {
 
 const rootPath = "src/server/ai/phase-b-composition.ts";
 const rootSource = readFileSync(resolve(repositoryRoot, rootPath), "utf8");
-const exactSpecifiers = rootSource.split("\n")
-  .filter((line) => line.startsWith("import "))
-  .map((line) => line.match(/"([^"]+)"/)?.[1] ?? fail(`unparsed import in ${rootPath}`));
-if (JSON.stringify(exactSpecifiers) !== JSON.stringify(expectedRootImports)) {
+
+class ArchitectureGraphFailure extends Error {
+  constructor(
+    readonly code: string,
+    readonly detail: string,
+  ) {
+    super(`${code}:${detail}`);
+  }
+}
+
+function rejectGraph(code: string, detail: string): never {
+  throw new ArchitectureGraphFailure(code, detail);
+}
+
+type GraphEdgeKind = "runtime" | "type-only" | "resource";
+type GraphEdgeForm =
+  | "import"
+  | "re-export"
+  | "import-equals"
+  | "import-type"
+  | "dynamic-import"
+  | "require"
+  | "require-resolve"
+  | "module-require"
+  | "create-require"
+  | "resource-url";
+
+interface ParsedAcquisitionV1 {
+  readonly form: GraphEdgeForm;
+  readonly edgeKind: GraphEdgeKind;
+  readonly specifier?: string;
+  readonly position: number;
+  readonly unsupportedReason?: string;
+}
+
+interface GraphEdgeV1 extends ParsedAcquisitionV1 {
+  readonly from: string;
+  readonly resolutionKind: "local" | "external" | "unsupported" | "unresolved";
+  readonly resolvedTarget?: string;
+  readonly externalPackage?: string;
+}
+
+function scriptKind(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx") || path.endsWith(".jsx")) return ts.ScriptKind.TSX;
+  if (path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".cjs")) {
+    return ts.ScriptKind.JS;
+  }
+  return ts.ScriptKind.TS;
+}
+
+function constInitializers(source: ts.SourceFile): ReadonlyMap<string, ts.Expression> {
+  const candidates = new Map<string, ts.Expression>();
+  const duplicated = new Set<string>();
+  function visit(node: ts.Node): void {
+    if (ts.isVariableDeclarationList(node) && (node.flags & ts.NodeFlags.Const) !== 0) {
+      for (const declaration of node.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
+        const name = declaration.name.text;
+        if (candidates.has(name)) duplicated.add(name);
+        else candidates.set(name, declaration.initializer);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  for (const name of duplicated) candidates.delete(name);
+  return candidates;
+}
+
+type FoldedPrimitive = string | number | boolean | null;
+
+function foldStaticPrimitive(
+  expression: ts.Expression,
+  aliases: ReadonlyMap<string, ts.Expression>,
+  visiting: ReadonlySet<string> = new Set<string>(),
+): FoldedPrimitive | undefined {
+  if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression) || ts.isTypeAssertionExpression(expression) ||
+    ts.isNonNullExpression(expression)) {
+    return foldStaticPrimitive(expression.expression, aliases, visiting);
+  }
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+    return expression.text;
+  }
+  if (ts.isNumericLiteral(expression)) return Number(expression.text);
+  if (expression.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (expression.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (expression.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (ts.isTemplateExpression(expression)) {
+    let value = expression.head.text;
+    for (const span of expression.templateSpans) {
+      const folded = foldStaticPrimitive(span.expression, aliases, visiting);
+      if (folded === undefined) return undefined;
+      value += String(folded) + span.literal.text;
+    }
+    return value;
+  }
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = foldStaticPrimitive(expression.left, aliases, visiting);
+    const right = foldStaticPrimitive(expression.right, aliases, visiting);
+    if (left === undefined || right === undefined) return undefined;
+    if (typeof left === "string" || typeof right === "string") return String(left) + String(right);
+    if (typeof left === "number" && typeof right === "number") return left + right;
+    return undefined;
+  }
+  if (ts.isIdentifier(expression)) {
+    if (visiting.has(expression.text)) return undefined;
+    const initializer = aliases.get(expression.text);
+    if (initializer === undefined) return undefined;
+    const next = new Set(visiting);
+    next.add(expression.text);
+    return foldStaticPrimitive(initializer, aliases, next);
+  }
+  return undefined;
+}
+
+function isImportMetaUrl(expression: ts.Expression): boolean {
+  return ts.isPropertyAccessExpression(expression) && expression.name.text === "url" &&
+    ts.isMetaProperty(expression.expression) &&
+    expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+    expression.expression.name.text === "meta";
+}
+
+function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
+  const clause = node.importClause;
+  if (clause === undefined) return false;
+  if (clause.isTypeOnly) return true;
+  if (clause.name !== undefined || clause.namedBindings === undefined) return false;
+  return ts.isNamedImports(clause.namedBindings) && clause.namedBindings.elements.length > 0 &&
+    clause.namedBindings.elements.every((element) => element.isTypeOnly);
+}
+
+function collectAcquisitions(path: string, text: string): readonly ParsedAcquisitionV1[] {
+  const syntaxCheck = ts.transpileModule(text, {
+    fileName: path,
+    reportDiagnostics: true,
+    compilerOptions: {
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      jsx: ts.JsxEmit.ReactJSX,
+      allowJs: true,
+    },
+  });
+  const syntaxFailure = syntaxCheck.diagnostics?.find((diagnostic) =>
+    diagnostic.category === ts.DiagnosticCategory.Error);
+  if (syntaxFailure !== undefined) {
+    rejectGraph("fail_closed_source_parse", `${path}:${syntaxFailure.start ?? 0}`);
+  }
+  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind(path));
+  const aliases = constInitializers(source);
+  const createRequireLoaders = new Set<string>();
+  function collectLoaders(node: ts.Node): void {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) &&
+      node.initializer !== undefined && ts.isCallExpression(node.initializer) &&
+      ts.isIdentifier(node.initializer.expression) &&
+      node.initializer.expression.text === "createRequire") {
+      createRequireLoaders.add(node.name.text);
+    }
+    ts.forEachChild(node, collectLoaders);
+  }
+  collectLoaders(source);
+  const acquisitions: ParsedAcquisitionV1[] = [];
+  function add(
+    form: GraphEdgeForm,
+    edgeKind: GraphEdgeKind,
+    expression: ts.Expression | undefined,
+    node: ts.Node,
+  ): void {
+    const folded = expression === undefined ? undefined : foldStaticPrimitive(expression, aliases);
+    if (typeof folded !== "string") {
+      acquisitions.push({
+        form,
+        edgeKind,
+        position: node.getStart(source),
+        unsupportedReason: expression === undefined ? "missing_specifier" : "non_foldable_specifier",
+      });
+      return;
+    }
+    acquisitions.push({ form, edgeKind, specifier: folded, position: node.getStart(source) });
+  }
+  function visit(node: ts.Node): void {
+    if (ts.isImportDeclaration(node)) {
+      add("import", importDeclarationIsTypeOnly(node) ? "type-only" : "runtime",
+        node.moduleSpecifier, node);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+      add("re-export", node.isTypeOnly ? "type-only" : "runtime",
+        node.moduleSpecifier, node);
+    } else if (ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)) {
+      add("import-equals", node.isTypeOnly ? "type-only" : "runtime",
+        node.moduleReference.expression, node);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      add("import-type", "type-only",
+        node.argument.literal, node);
+    } else if (ts.isCallExpression(node)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        add("dynamic-import", "runtime", node.arguments[0], node);
+      } else if (ts.isIdentifier(node.expression) &&
+        (node.expression.text === "require" || createRequireLoaders.has(node.expression.text))) {
+        add(createRequireLoaders.has(node.expression.text) ? "create-require" : "require",
+          "runtime", node.arguments[0], node);
+      } else if (ts.isPropertyAccessExpression(node.expression)) {
+        const owner = node.expression.expression;
+        if (node.expression.name.text === "resolve" && ts.isIdentifier(owner) &&
+          (owner.text === "require" || createRequireLoaders.has(owner.text))) {
+          add("require-resolve", "runtime", node.arguments[0], node);
+        } else if (node.expression.name.text === "require" && ts.isIdentifier(owner) &&
+          owner.text === "module") {
+          add("module-require", "runtime", node.arguments[0], node);
+        }
+      }
+    } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) &&
+      node.expression.text === "URL" && node.arguments !== undefined &&
+      node.arguments.length === 2 && node.arguments[1] !== undefined &&
+      isImportMetaUrl(node.arguments[1])) {
+      add("resource-url", "resource", node.arguments[0], node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return acquisitions.sort((left, right) => left.position - right.position);
+}
+
+const resolvableExtensions = [
+  "", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
+  ".json", ".md", ".css",
+] as const;
+
+function localSpecifierBase(from: string, specifier: string): string | undefined {
+  if (specifier.startsWith("@/")) return posix.normalize(`src/${specifier.slice(2)}`);
+  if (specifier.startsWith(".")) return posix.normalize(posix.join(posix.dirname(from), specifier));
+  return undefined;
+}
+
+function resolveLocalSpecifier(from: string, specifier: string): string | undefined {
+  const base = localSpecifierBase(from, specifier);
+  if (base === undefined || base.startsWith("../") || base === "..") return undefined;
+  const candidates: string[] = [];
+  for (const extension of resolvableExtensions) candidates.push(`${base}${extension}`);
+  if (/\.m?js$|\.cjs$/.test(base)) {
+    const withoutJs = base.replace(/\.(?:mjs|cjs|js)$/, "");
+    candidates.push(`${withoutJs}.ts`, `${withoutJs}.tsx`, `${withoutJs}.mts`, `${withoutJs}.cts`);
+  }
+  for (const extension of resolvableExtensions.slice(1)) candidates.push(`${base}/index${extension}`);
+  for (const candidate of candidates) {
+    const absolute = resolve(repositoryRoot, candidate);
+    if (!existsSync(absolute)) continue;
+    const stat = lstatSync(absolute);
+    if (!stat.isFile()) continue;
+    const canonical = posixPath(relative(repositoryRoot, realpathSync(absolute)));
+    if (canonical.startsWith("../") || canonical === "..") {
+      rejectGraph("fail_closed_canonical_escape", `${from}->${specifier}`);
+    }
+    return canonical;
+  }
+  const absoluteBase = resolve(repositoryRoot, base);
+  if (existsSync(absoluteBase) && lstatSync(absoluteBase).isDirectory()) return `${base}/`;
+  return undefined;
+}
+
+function externalPackage(specifier: string): string {
+  if (specifier.startsWith("node:")) return specifier;
+  const segments = specifier.split("/");
+  if (specifier.startsWith("@")) return segments.slice(0, 2).join("/");
+  return segments[0] ?? specifier;
+}
+
+function resolveAcquisition(from: string, acquisition: ParsedAcquisitionV1): GraphEdgeV1 {
+  if (acquisition.unsupportedReason !== undefined || acquisition.specifier === undefined) {
+    return {
+      ...acquisition,
+      from,
+      resolutionKind: "unsupported",
+    };
+  }
+  const localBase = localSpecifierBase(from, acquisition.specifier);
+  if (localBase !== undefined) {
+    const target = resolveLocalSpecifier(from, acquisition.specifier);
+    return target === undefined
+      ? { ...acquisition, from, resolutionKind: "unresolved" }
+      : { ...acquisition, from, resolutionKind: "local", resolvedTarget: target };
+  }
+  return {
+    ...acquisition,
+    from,
+    resolutionKind: "external",
+    externalPackage: externalPackage(acquisition.specifier),
+  };
+}
+
+const nodeByPath = new Map(nodes.map((node) => [node.path, node]));
+const executableNodes = nodes.filter((node) => executableExtensions.has(extname(node.path)));
+
+function classForPath(path: string): string {
+  return nodeByPath.get(path)?.classId ?? requireSingleClass(path, classDefinitions);
+}
+
+function protectedExternalAllowed(edge: GraphEdgeV1): boolean {
+  const specifier = edge.specifier ?? "";
+  return specifier === "server-only" || specifier === "zod" ||
+    specifier === "node:crypto" || specifier === "node:buffer" ||
+    specifier === "drizzle-orm" || specifier.startsWith("drizzle-orm/");
+}
+
+const testOrControlClasses = new Set([
+  "synthetic-ai-test-code", "other-test-fixtures", "root-control-file",
+]);
+const productionClasses = new Set([
+  "phase-b-outer-composition", "protected-ai", "business-consumer", "other-production-src",
+]);
+
+function enforceCapabilityEdge(
+  edge: GraphEdgeV1,
+  sourceClass = classForPath(edge.from),
+  publicClient = false,
+): void {
+  if (edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved") {
+    if (sourceClass === "protected-ai" || sourceClass === "phase-b-outer-composition" || publicClient) {
+      rejectGraph("fail_closed_unsupported_acquisition", `${edge.from}:${edge.position}`);
+    }
+    return;
+  }
+  if (edge.resolutionKind === "external") {
+    const specifier = edge.specifier ?? "";
+    if (sourceClass === "protected-ai" && !protectedExternalAllowed(edge)) {
+      rejectGraph("fail_closed_unknown_protected_package", `${edge.from}->${specifier}`);
+    }
+    if (testOrControlClasses.has(sourceClass) && [
+      "node:http", "node:https", "node:net", "node:tls", "openai",
+      "@anthropic-ai/sdk", "@google/generative-ai", "@google/genai",
+      "cohere-ai", "groq-sdk", "ollama",
+    ].some((value) => specifier === value || specifier.startsWith(`${value}/`))) {
+      rejectGraph("fail_closed_capability_ceiling", `${edge.from}->${specifier}`);
+    }
+    if (publicClient && specifier === "server-only") {
+      rejectGraph("fail_closed_public_client_to_server", `${edge.from}->${specifier}`);
+    }
+    return;
+  }
+  const target = edge.resolvedTarget ?? rejectGraph(
+    "fail_closed_unsupported_acquisition", `${edge.from}:${edge.position}`,
+  );
+  if (target === rootPath && edge.from !== rootPath) {
+    rejectGraph("fail_closed_composition_incoming_edge", `${edge.from}->${target}`);
+  }
+  if (target.startsWith("src/server/ai/") && edge.from !== rootPath) {
+    rejectGraph("fail_closed_composition_incoming_edge", `${edge.from}->${target}`);
+  }
+  if (publicClient && (target.startsWith("src/ai/") || target.startsWith("src/server/ai/") ||
+    target.startsWith("src/integrations/ai/providers/"))) {
+    rejectGraph("fail_closed_public_client_to_server", `${edge.from}->${target}`);
+  }
+  if (testOrControlClasses.has(sourceClass) &&
+    (target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/") ||
+      (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
+    rejectGraph("fail_closed_capability_ceiling", `${edge.from}->${target}`);
+  }
+  const targetNode = nodeByPath.get(target);
+  if (productionClasses.has(sourceClass) && targetNode !== undefined &&
+    (targetNode.classId === "synthetic-ai-test-code" || targetNode.classId === "other-test-fixtures")) {
+    rejectGraph("fail_closed_production_to_test", `${edge.from}->${target}`);
+  }
+  if (sourceClass === "business-consumer" && target.startsWith("src/ai/") &&
+    (edge.specifier !== "@/ai" || target !== "src/ai/index.ts")) {
+    rejectGraph("fail_closed_business_ai_boundary", `${edge.from}->${target}`);
+  }
+  if (sourceClass === "protected-ai") {
+    if (target.startsWith("src/ai/testing/") || target.startsWith("src/server/ai/") ||
+      target.startsWith("src/integrations/ai/providers/") || target === "src/db/client.ts" ||
+      target === "src/config/env.ts") {
+      rejectGraph("fail_closed_protected_authority_escape", `${edge.from}->${target}`);
+    }
+    if (!target.startsWith("src/ai/")) {
+      const typeDatabaseEdge = edge.edgeKind === "type-only" && target === "src/db/types.ts" && [
+        "src/ai/applications/draft-assistance/read-scopes.ts",
+        "src/ai/applications/draft-assistance/composition.ts",
+        "src/ai/applications/draft-assistance/facade.ts",
+      ].includes(edge.from);
+      const typeRoleEdge = edge.edgeKind === "type-only" && target === "src/auth/permissions.ts" &&
+        edge.from === "src/ai/applications/draft-assistance/contracts.ts";
+      const schemaEdge = edge.edgeKind === "runtime" && target === "src/db/schema/index.ts" && [
+        "src/ai/applications/draft-assistance/composition.ts",
+        "src/ai/config/feature-gate-repository.ts",
+        "src/ai/config/model-config-repository.ts",
+      ].includes(edge.from);
+      if (!typeDatabaseEdge && !typeRoleEdge && !schemaEdge) {
+        rejectGraph("fail_closed_unapproved_protected_edge", `${edge.from}->${target}`);
+      }
+    }
+  }
+}
+
+const graphEdges: GraphEdgeV1[] = [];
+for (const node of executableNodes) {
+  const text = readFileSync(resolve(repositoryRoot, node.path), "utf8");
+  for (const acquisition of collectAcquisitions(node.path, text)) {
+    const edge = resolveAcquisition(node.path, acquisition);
+    enforceCapabilityEdge(edge);
+    graphEdges.push(edge);
+  }
+}
+
+const edgesBySource = new Map<string, GraphEdgeV1[]>();
+for (const edge of graphEdges) {
+  const list = edgesBySource.get(edge.from) ?? [];
+  list.push(edge);
+  edgesBySource.set(edge.from, list);
+}
+
+function executableClosure(
+  roots: readonly string[],
+  includeTypeOnly: boolean,
+  publicClient = false,
+): readonly string[] {
+  const visited = new Set<string>();
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const current = pending.shift();
+    if (current === undefined || visited.has(current)) continue;
+    visited.add(current);
+    for (const edge of edgesBySource.get(current) ?? []) {
+      if (!includeTypeOnly && edge.edgeKind === "type-only") continue;
+      enforceCapabilityEdge(edge, classForPath(current), publicClient);
+      if (edge.resolutionKind !== "local" || edge.resolvedTarget === undefined) continue;
+      const targetNode = nodeByPath.get(edge.resolvedTarget);
+      if (targetNode !== undefined && executableExtensions.has(extname(targetNode.path))) {
+        pending.push(targetNode.path);
+      }
+    }
+  }
+  return [...visited].sort();
+}
+
+const rootEdges = graphEdges.filter((edge) => edge.from === rootPath);
+const exactSpecifiers = rootEdges
+  .filter((edge) => edge.form === "import")
+  .sort((left, right) => left.position - right.position)
+  .map((edge) => edge.specifier ?? "");
+if (JSON.stringify(exactSpecifiers) !== JSON.stringify(expectedRootImports) ||
+  rootEdges.length !== expectedRootImports.length) {
   fail("Phase B outer composition imports differ from the exact five-edge seam");
 }
-if ((rootSource.match(/createPhaseBAvailabilityServiceV1\(\{/g) ?? []).length !== 2 ||
-  (rootSource.match(/database:\s*databaseConnection\.db/g) ?? []).length !== 2 ||
-  !rootSource.includes("switch (databaseConnection.kind)") ||
+
+const rootAst = ts.createSourceFile(
+  rootPath,
+  rootSource,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TS,
+);
+const rootFacts = {
+  freezeCalls: 0,
+  kindReads: 0,
+  dbReads: 0,
+  factoryCalls: 0,
+  switches: 0,
+  elementAccesses: 0,
+  spreads: 0,
+};
+function inspectRoot(node: ts.Node): void {
+  if (ts.isCallExpression(node)) {
+    if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "Object" && node.expression.name.text === "freeze") {
+      rootFacts.freezeCalls += 1;
+    }
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createPhaseBAvailabilityServiceV1") {
+      rootFacts.factoryCalls += 1;
+    }
+  }
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) &&
+    node.expression.text === "databaseConnection") {
+    if (node.name.text === "kind") rootFacts.kindReads += 1;
+    if (node.name.text === "db") rootFacts.dbReads += 1;
+  }
+  if (ts.isSwitchStatement(node)) rootFacts.switches += 1;
+  if (ts.isElementAccessExpression(node)) rootFacts.elementAccesses += 1;
+  if (ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) rootFacts.spreads += 1;
+  ts.forEachChild(node, inspectRoot);
+}
+inspectRoot(rootAst);
+if (rootFacts.freezeCalls !== 1 || rootFacts.kindReads !== 1 || rootFacts.dbReads !== 2 ||
+  rootFacts.factoryCalls !== 2 || rootFacts.switches !== 1 || rootFacts.elementAccesses !== 0 ||
+  rootFacts.spreads !== 0 || (rootSource.match(/database:\s*databaseConnection\.db/g) ?? []).length !== 2 ||
   !rootSource.includes('case "pglite"') || !rootSource.includes('case "postgres"') ||
-  !rootSource.includes("default:") || /\bas\b|\bany\b|\bunknown\b/.test(rootSource)) {
+  !rootSource.includes("default:") || /\bas\b|\bany\b|\bunknown\b|@ts-/.test(rootSource)) {
   fail("Phase B outer composition does not satisfy the direct discriminated seam");
 }
 
-for (const node of nodes.filter((entry) => entry.classId === "protected-ai")) {
-  const source = readFileSync(resolve(repositoryRoot, node.path), "utf8");
-  if (source.includes("@/db/client") || source.includes("@/config/env") ||
-    source.includes("@/server/ai/") || source.includes("@/integrations/ai/providers/") ||
-    /\bprocess\.env\b|\bglobalThis\.process\b/.test(source)) {
-    fail(`protected authority escape in ${node.path}`);
-  }
-  if (source.includes("@/ai/testing/")) fail(`Production-to-test import in ${node.path}`);
+const protectedPaths = executableNodes
+  .filter((node) => node.classId === "protected-ai")
+  .map((node) => node.path);
+const protectedClosure = executableClosure(protectedPaths, true);
+if (protectedClosure.some((path) => path === "src/config/env.ts" || path === "src/db/client.ts" ||
+  path.startsWith("src/server/ai/") || path.startsWith("src/integrations/ai/providers/") ||
+  path.startsWith("src/ai/testing/"))) {
+  fail("protected graph reaches a prohibited capability origin");
 }
-const generateCallOwners = nodes.filter((entry) => entry.classId === "protected-ai" &&
+
+const coreRoots = protectedPaths.filter((path) => path.startsWith("src/ai/core/"));
+const coreClosure = executableClosure(coreRoots, true);
+if (coreClosure.some((path) => path.startsWith("src/ai/applications/draft-assistance/") ||
+  path.startsWith("src/ai/testing/") || path.startsWith("src/catalog/") ||
+  path.startsWith("src/content/") || path.startsWith("src/seo/") ||
+  path.startsWith("src/admin/") || path.startsWith("src/public-site/"))) {
+  fail("application-neutral core closure reaches Draft/business authority");
+}
+
+const publicEntryPrefixes = ["src/app/", "src/public-site/"];
+const publicEntryExclusions = [
+  "src/app/admin/", "src/app/operations-login/", "src/app/api/", "src/app/(admin-preview)/",
+];
+const publicClientRoots = executableNodes.filter((node) =>
+  node.classId === "business-consumer" &&
+  publicEntryPrefixes.some((prefix) => node.path.startsWith(prefix)) &&
+  !publicEntryExclusions.some((prefix) => node.path.startsWith(prefix)) &&
+  /^\s*["']use client["'];/u.test(readFileSync(resolve(repositoryRoot, node.path), "utf8"))
+).map((node) => node.path);
+const publicClientClosure = executableClosure(publicClientRoots, false, true);
+
+const serverClosure = executableClosure([rootPath], false);
+if (!serverClosure.some((path) => path.startsWith("src/ai/")) ||
+  serverClosure.some((path) => path.startsWith("src/server/ai/phase-d") ||
+    path.startsWith("src/integrations/ai/providers/"))) {
+  fail("Phase B server closure does not satisfy required reachability/absence");
+}
+
+const generateCallOwners = executableNodes.filter((entry) => entry.classId === "protected-ai" &&
   readFileSync(resolve(repositoryRoot, entry.path), "utf8").includes(".generateText("));
 if (generateCallOwners.length !== 1 || generateCallOwners[0]?.path !== "src/ai/core/orchestrator.ts") {
   fail("Text provider call authority is not unique to core/orchestrator.ts");
@@ -637,6 +1144,108 @@ const providerRegistry = readFileSync(resolve(repositoryRoot, "src/ai/providers/
 if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Production Provider registry is not exact-empty");
 const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
 if (productionManifest !== '{"manifestVersion":1,"entries":[]}\n') fail("Production Prompt manifest is not exact-empty");
+
+interface GraphFaultFixtureV1 {
+  readonly version: 1;
+  readonly cases: readonly {
+    readonly id: string;
+    readonly sourcePath: string;
+    readonly source: string;
+    readonly expectedCode: string;
+  }[];
+  readonly topologyCases: readonly {
+    readonly id: string;
+    readonly path: string;
+    readonly expectedCode: string;
+  }[];
+}
+
+function parseGraphFaultFixture(input: unknown): GraphFaultFixtureV1 {
+  if (typeof input !== "object" || input === null || !("version" in input) ||
+    input.version !== 1 || !("cases" in input) || !Array.isArray(input.cases) ||
+    !("topologyCases" in input) || !Array.isArray(input.topologyCases)) {
+    fail("graph fault fixture is invalid");
+  }
+  const cases: GraphFaultFixtureV1["cases"][number][] = [];
+  for (const candidate of input.cases) {
+    if (typeof candidate !== "object" || candidate === null ||
+      !("id" in candidate) || typeof candidate.id !== "string" ||
+      !("sourcePath" in candidate) || typeof candidate.sourcePath !== "string" ||
+      !("source" in candidate) || typeof candidate.source !== "string" ||
+      !("expectedCode" in candidate) || typeof candidate.expectedCode !== "string") {
+      fail("graph fault case is invalid");
+    }
+    cases.push({
+      id: candidate.id,
+      sourcePath: candidate.sourcePath,
+      source: candidate.source,
+      expectedCode: candidate.expectedCode,
+    });
+  }
+  const topologyCases: GraphFaultFixtureV1["topologyCases"][number][] = [];
+  for (const candidate of input.topologyCases) {
+    if (typeof candidate !== "object" || candidate === null ||
+      !("id" in candidate) || typeof candidate.id !== "string" ||
+      !("path" in candidate) || typeof candidate.path !== "string" ||
+      !("expectedCode" in candidate) || typeof candidate.expectedCode !== "string") {
+      fail("graph topology fault case is invalid");
+    }
+    topologyCases.push({
+      id: candidate.id,
+      path: candidate.path,
+      expectedCode: candidate.expectedCode,
+    });
+  }
+  return { version: 1, cases, topologyCases };
+}
+
+const graphFaultFixture = parseGraphFaultFixture(JSON.parse(readFileSync(
+  resolve(repositoryRoot, "test-fixtures/ai-architecture/graph-faults.v2_2.json"),
+  "utf8",
+)));
+const graphFaultResults: { readonly id: string; readonly code: string }[] = [];
+for (const fault of graphFaultFixture.cases) {
+  let observed: ArchitectureGraphFailure | undefined;
+  try {
+    const sourceClass = classForPath(fault.sourcePath);
+    const publicClient = /^\s*["']use client["'];/u.test(fault.source);
+    for (const acquisition of collectAcquisitions(fault.sourcePath, fault.source)) {
+      enforceCapabilityEdge(resolveAcquisition(fault.sourcePath, acquisition), sourceClass, publicClient);
+    }
+  } catch (error) {
+    if (error instanceof ArchitectureGraphFailure) observed = error;
+    else throw error;
+  }
+  if (observed?.code !== fault.expectedCode) {
+    fail(`graph fault ${fault.id} expected ${fault.expectedCode}, got ${observed?.code ?? "pass"}`);
+  }
+  graphFaultResults.push({ id: fault.id, code: observed.code });
+}
+
+function enforceTopology(paths: readonly string[]): void {
+  const phaseD = paths.find((path) => path === "src/server/ai/phase-d-provider-composition.ts");
+  const adapter = paths.find((path) => path.startsWith("src/integrations/ai/providers/"));
+  const undeclared = paths.find((path) => path.startsWith("src/server/ai/") &&
+    path !== rootPath && path !== "src/server/ai/phase-d-provider-composition.ts");
+  if (phaseD !== undefined || adapter !== undefined) {
+    rejectGraph("fail_closed_future_stage_unauthorized", phaseD ?? adapter ?? "unknown");
+  }
+  if (undeclared !== undefined) rejectGraph("fail_closed_undeclared_composition", undeclared);
+}
+enforceTopology(actualFiles);
+for (const fault of graphFaultFixture.topologyCases) {
+  let observed: ArchitectureGraphFailure | undefined;
+  try {
+    enforceTopology([...actualFiles, fault.path]);
+  } catch (error) {
+    if (error instanceof ArchitectureGraphFailure) observed = error;
+    else throw error;
+  }
+  if (observed?.code !== fault.expectedCode) {
+    fail(`topology fault ${fault.id} expected ${fault.expectedCode}, got ${observed?.code ?? "pass"}`);
+  }
+  graphFaultResults.push({ id: fault.id, code: observed.code });
+}
 
 const commonReadAuthorityPaths = [
   "src/ai/applications/draft-assistance/read-scopes.ts",
@@ -715,11 +1324,148 @@ const sourceStateCounts = {
   untrackedNotIgnored: nodes.filter((node) => node.sourceState === "untracked-not-ignored").length,
   untrackedIgnored: nodes.filter((node) => node.sourceState === "untracked-ignored").length,
 };
+const exactHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const inventorySha256 = sha256(canonical(nodes.map((node) => ({
+  path: node.path,
+  sourceState: node.sourceState,
+  contentSha256: node.contentSha256,
+  generated: node.generated,
+}))));
+const contentSha256 = sha256("cwt-v17-content-v2\n" + nodes
+  .map((node) => `${node.path}\0${node.contentSha256}\n`).join(""));
+const classificationSha256 = sha256("cwt-v17-classification-v2\n" + nodes
+  .map((node) => `${node.path}\0${node.classId}\0${node.stageStatus}\0${node.bundleZones.join(",")}\n`).join(""));
+const graphSha256 = sha256(canonical(graphEdges));
+const graphManifestEntries = nodes.map((node) => ({
+  path: node.path,
+  realpath: posixPath(relative(repositoryRoot, realpathSync(resolve(repositoryRoot, node.path)))),
+  sha256: node.contentSha256,
+  primaryRootClass: node.classId,
+  stageStatus: node.stageStatus,
+  bundleZones: node.bundleZones,
+  sourceState: node.sourceState,
+  generated: node.generated,
+  edges: graphEdges.filter((edge) => edge.from === node.path),
+}));
+const actualTreeProof = {
+  proofId: "cwt.phase1b.stage4a.phaseb.actual-tree-classification.v2_2",
+  profileId: authority.profileId,
+  profileSha256: expectedProfileHash,
+  exactCodeHead: exactHead,
+  lifecycleState: nextNode === undefined ? "source-clean-file-absent" : "official-next-generated-file-present",
+  candidateCount: nodes.length,
+  executableCount: executableNodes.length,
+  classes: Object.fromEntries(classDefinitions.map((definition) => [
+    definition.id,
+    classMembers.get(definition.id) ?? [],
+  ])),
+  zeroClass,
+  ambiguous,
+  sourceStateCounts,
+  excludedPhysicalRoots: excludedStatus,
+  symlinkPolicy: "raw lstat walk; any observed symlink outside sealed physical exclusions fails",
+  hardLinkPolicy: "device/inode ownership unique across every observed non-excluded file",
+  canonicalCollisionPolicy: "NFC lowercase canonical path ownership unique",
+  hashes: { inventorySha256, contentSha256, classificationSha256 },
+};
+const protectedGraphManifest = {
+  proofId: "cwt.phase1b.stage4a.phaseb.protected-graph-manifest.v2_2",
+  profileId: authority.profileId,
+  profileSha256: expectedProfileHash,
+  exactCodeHead: exactHead,
+  graphSha256,
+  nodeCount: nodes.length,
+  edgeCount: graphEdges.length,
+  unsupportedOrUnresolvedEdges: graphEdges.filter((edge) =>
+    edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved"),
+  expectedAbsence: {
+    phaseDComposition: !actualFiles.includes("src/server/ai/phase-d-provider-composition.ts"),
+    providerAdapterZone: !actualFiles.some((path) => path.startsWith("src/integrations/ai/providers/")),
+  },
+  nodes: graphManifestEntries,
+};
+const phaseBCompositionProof = {
+  proofId: "cwt.phase1b.stage4a.phaseb.composition.v2_2",
+  profileId: authority.profileId,
+  profileSha256: expectedProfileHash,
+  exactCodeHead: exactHead,
+  path: rootPath,
+  realpath: posixPath(relative(repositoryRoot, realpathSync(resolve(repositoryRoot, rootPath)))),
+  sha256: sha256(readFileSync(resolve(repositoryRoot, rootPath))),
+  exactImports: rootEdges,
+  rootFacts,
+  discriminatedCases: ["pglite", "postgres"],
+  neverDefaultCount: (rootSource.match(/unsupportedDatabaseConnection\(databaseConnection\)/g) ?? []).length,
+  mutuallyExclusiveFactoryCallSites: 2,
+  runtimeFactoryCallsPerInvocation: 1,
+  wrapperOrDiscriminatorCrossing: false,
+  incomingEdges: graphEdges.filter((edge) => edge.resolvedTarget === rootPath),
+  typeBoundaryProbes: {
+    positive: positiveTypeConfigs,
+    negative: negativeTypeConfigs,
+  },
+  expectedAbsence: {
+    phaseDComposition: true,
+    providerAdapterZone: true,
+  },
+};
+const capabilityOriginProof = {
+  proofId: "cwt.phase1b.stage4a.phaseb.capability-origin.v2_2",
+  profileId: authority.profileId,
+  profileSha256: expectedProfileHash,
+  exactCodeHead: exactHead,
+  graphSha256,
+  protectedClosure,
+  coreClosure,
+  publicClientRoots,
+  publicClientClosure,
+  serverClosure,
+  protectedForbiddenOriginReachability: {
+    environment: protectedClosure.includes("src/config/env.ts"),
+    databaseConnection: protectedClosure.includes("src/db/client.ts"),
+    providerAdapter: protectedClosure.some((path) => path.startsWith("src/integrations/ai/providers/")),
+    testing: protectedClosure.some((path) => path.startsWith("src/ai/testing/")),
+  },
+  exactProtectedCwtEdges: graphEdges.filter((edge) =>
+    classForPath(edge.from) === "protected-ai" && edge.resolutionKind === "local" &&
+    edge.resolvedTarget !== undefined && !edge.resolvedTarget.startsWith("src/ai/")),
+  protectedExternalPackages: [...new Set(graphEdges.filter((edge) =>
+    classForPath(edge.from) === "protected-ai" && edge.resolutionKind === "external")
+    .map((edge) => edge.externalPackage ?? edge.specifier ?? ""))].sort(),
+  outerCapabilityOrigins: ["src/config/env.ts", "src/db/client.ts"],
+  graphFaultResults,
+  providerRegistry: "exact-empty",
+  secondDatabaseAuthority: false,
+};
+
+const proofArtifacts = {
+  "AI_ACTUAL_TREE_CLASSIFICATION_PROOF_V2_2.json": actualTreeProof,
+  "AI_PROTECTED_GRAPH_MANIFEST_V2_2.json": protectedGraphManifest,
+  "AI_PHASE_B_COMPOSITION_PROOF_V2_2.json": phaseBCompositionProof,
+  "AI_CAPABILITY_ORIGIN_PROOF_V2_2.json": capabilityOriginProof,
+};
+const evidenceArgument = process.argv.indexOf("--write-evidence-dir");
+if (evidenceArgument >= 0) {
+  const evidenceDirectory = process.argv[evidenceArgument + 1];
+  if (evidenceDirectory === undefined || evidenceDirectory.length === 0) {
+    fail("--write-evidence-dir requires one exact directory");
+  }
+  mkdirSync(evidenceDirectory, { recursive: true });
+  for (const [name, artifact] of Object.entries(proofArtifacts)) {
+    const path = resolve(evidenceDirectory, name);
+    if (dirname(path) !== resolve(evidenceDirectory)) fail("evidence output path escaped directory");
+    writeFileSync(path, `${JSON.stringify(artifact, null, 2)}\n`, { encoding: "utf8" });
+  }
+}
+const proofArtifactHashes = Object.fromEntries(Object.entries(proofArtifacts).map(([name, artifact]) => [
+  name,
+  sha256(`${JSON.stringify(artifact, null, 2)}\n`),
+]));
 const report = {
   ok: true,
   profileId: authority.profileId,
   profileSha256: expectedProfileHash,
-  head: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+  head: exactHead,
   lifecycleState: nextNode === undefined ? "source-clean-file-absent" : "official-next-generated-file-present",
   candidateCount: nodes.length,
   executableCount: nodes.filter((node) => executableExtensions.has(extname(node.path))).length,
@@ -734,6 +1480,17 @@ const report = {
     positive: positiveTypeConfigs.length,
     negative: negativeTypeConfigs.length,
   },
+  moduleGraph: {
+    edgeCount: graphEdges.length,
+    graphSha256,
+    protectedClosureCount: protectedClosure.length,
+    coreClosureCount: coreClosure.length,
+    publicClientRootCount: publicClientRoots.length,
+    publicClientClosureCount: publicClientClosure.length,
+    serverClosureCount: serverClosure.length,
+    faultProbes: graphFaultResults,
+  },
+  proofArtifactHashes,
   mutationProbes: {
     total: mutationResults.length,
     v16Original: mutationResults.filter((result) => result.id.startsWith("v1.6-")).length,
@@ -747,15 +1504,8 @@ const report = {
     sourceState: nextNode.sourceState,
     sha256: nextNode.contentSha256,
   },
-  inventorySha256: sha256(canonical(nodes.map((node) => ({
-    path: node.path,
-    sourceState: node.sourceState,
-    contentSha256: node.contentSha256,
-    generated: node.generated,
-  })))),
-  contentSha256: sha256("cwt-v17-content-v2\n" + nodes
-    .map((node) => `${node.path}\0${node.contentSha256}\n`).join("")),
-  classificationSha256: sha256("cwt-v17-classification-v2\n" + nodes
-    .map((node) => `${node.path}\0${node.classId}\0${node.stageStatus}\0${node.bundleZones.join(",")}\n`).join("")),
+  inventorySha256,
+  contentSha256,
+  classificationSha256,
 };
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
