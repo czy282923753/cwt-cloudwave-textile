@@ -204,10 +204,17 @@ describe("strict claimed reconstruction and one-call execution", () => {
             outputSchemaVersion: input.outputSchemaVersion,
             policyVersion: input.policyVersion,
             variables: [
-              { name: "context_json", type: "json", maximumUtf8Bytes: 65_536 },
-              { name: "input_hash", type: "string", maximumUtf8Bytes: 64 },
+              { name: "locale", type: "string", maximumUtf8Bytes: 2 },
+              { name: "product_context_json", type: "json", maximumUtf8Bytes: 49_152 },
+              { name: "media_placement_refs_json", type: "json", maximumUtf8Bytes: 8_192 },
+              {
+                name: "requested_tone",
+                type: "enum",
+                maximumUtf8Bytes: 64,
+                values: ["concise_professional_b2b", "neutral_editorial"],
+              },
             ],
-            body: "SYNTHETIC TEST DATA — NOT A CWT FACT\n{{context_json}}\n{{input_hash}}",
+            body: "SYNTHETIC TEST DATA — NOT A CWT FACT\n{{locale}}\n{{product_context_json}}\n{{media_placement_refs_json}}\n{{requested_tone}}",
           },
         };
       },
