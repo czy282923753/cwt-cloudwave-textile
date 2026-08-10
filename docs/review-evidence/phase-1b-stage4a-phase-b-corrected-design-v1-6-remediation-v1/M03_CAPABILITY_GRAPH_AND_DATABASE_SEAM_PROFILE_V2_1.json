@@ -1,0 +1,1370 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.m03-protected-graph.v2_1",
+  "profileVersion": "2.1.0",
+  "status": "corrected-exact-design-v1.6-remediation-candidate-not-independently-approved-not-implementation",
+  "authority": {
+    "purpose": "complete Phase B capability-containment, composition-root and literal AppDatabase handoff contract",
+    "architectureBasis": [
+      "ADR-0018 Provider-agnostic AI Service and capability-specific Provider interface",
+      "accepted Design V1.4 sections 6-8, 18-20",
+      "Owner-selected M03-D1-DISCRIMINATED-SEAM recorded 2026-08-10",
+      "Corrected Exact Design V1.5 plus V15-M01 independent-review evidence"
+    ],
+    "acceptedDesignCheckpoint": "6bc26cf035608a21a057d6f4e87da8d4f7f23d40",
+    "historicalFailedImplementationsRole": "counterexample evidence only; no source reuse or compatibility layer",
+    "ownerSelectedOption": "M03-D1-DISCRIMINATED-SEAM",
+    "ownerSelectionApproved": true,
+    "classificationCorrectionId": "V15-M01",
+    "classificationCorrectionScope": "bounded correction within the same 12 classes; the selected seam and complete fail-closed guarantee are unchanged",
+    "correctedDesignCandidate": "V1.6",
+    "correctedDesignIndependentlyApproved": false,
+    "implementationAuthorized": false,
+    "noSchemaMigrationAdrDependencyChangeProposed": true,
+    "phaseBProviderNetworkCredentialAuthority": false
+  },
+  "soundnessTarget": "for the complete classified Phase B Production/tool/resource graph, every acquisition edge and composition root is manifest-declared; protected src/ai receives only a branch-narrowed AppDatabase<TQueryResult> plus the two-field trusted DTO, has no path to broad environment/connection construction/Provider adapter/credential/endpoint/network authority, and every unsupported or ambiguous syntax/path/type crossing fails closed",
+  "filesystemEnumeration": {
+    "repositoryRoot": ".",
+    "walkAuthority": "raw actual filesystem lstat walk from the repository root; Git index, ignore state and generated status are metadata only and never scope gates",
+    "ordering": "normalized repository-relative POSIX paths sorted by JavaScript UTF-16 code-unit order",
+    "excludedPhysicalRoots": [
+      ".git/",
+      "node_modules/",
+      ".next/",
+      "coverage/",
+      "playwright-report/",
+      "test-results/",
+      ".data/",
+      ".storage/",
+      "dist/",
+      "build/",
+      "tmp/"
+    ],
+    "excludedRootNormalization": "each listed trailing slash denotes one exact top-level entry after removing the slash; nested or prefix-similar names are not excluded",
+    "excludedRootTypeRule": "the exact .git entry may be a physical directory or a regular worktree administrative pointer file; every other present excluded entry must be a physical directory; symlink or other type fails closed; no excluded entry is opened or followed",
+    "executableExtensions": [
+      ".ts",
+      ".tsx",
+      ".mts",
+      ".cts",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs"
+    ],
+    "protectedResourceExtensions": [
+      ".json",
+      ".md"
+    ],
+    "protectedResourceRoots": [
+      "src/ai/prompts/resources/",
+      "src/ai/prompts/generated/",
+      "test-fixtures/ai-architecture/",
+      "test-fixtures/ai-server-bundle/",
+      "test-fixtures/ai-types/",
+      "docs/review-evidence/"
+    ],
+    "rootControlFiles": [
+      "package.json",
+      "pnpm-lock.yaml",
+      "tsconfig.json",
+      "next.config.ts",
+      "eslint.config.mjs",
+      "postcss.config.mjs",
+      "drizzle.config.ts",
+      "playwright.config.ts",
+      "vitest.config.mts"
+    ],
+    "candidateSet": "recursively lstat every actual entry after only the exact top-level physical-root exclusions; include every regular file with an executable extension, every exact rootControlFile, and every protectedResourceExtension below a protectedResourceRoot; tracked, untracked and ignored entries are treated identically",
+    "sourceStateLabels": [
+      "tracked",
+      "untracked-not-ignored",
+      "untracked-ignored"
+    ],
+    "sourceStateRule": "derive labels after candidate inclusion; a missing, undecidable or multiply labelled state fails closed but no label can exclude a candidate",
+    "testDirectoryRoots": [
+      "src/test/",
+      "tests/",
+      "test-fixtures/"
+    ],
+    "testSuffixes": [
+      ".test.ts",
+      ".test.tsx",
+      ".test.mts",
+      ".test.cts",
+      ".test.js",
+      ".test.jsx",
+      ".test.mjs",
+      ".test.cjs",
+      ".integration.test.ts",
+      ".integration.test.tsx",
+      ".integration.test.mts",
+      ".integration.test.cts",
+      ".integration.test.js",
+      ".integration.test.jsx",
+      ".integration.test.mjs",
+      ".integration.test.cjs",
+      ".spec.ts",
+      ".spec.tsx",
+      ".spec.mts",
+      ".spec.cts",
+      ".spec.js",
+      ".spec.jsx",
+      ".spec.mjs",
+      ".spec.cjs"
+    ],
+    "testSemantic": "path begins with a testDirectoryRoot or ends with a testSuffix; this covers src/test setup, tests/e2e setup-teardown and .spec executables without basename allowlists",
+    "ignoredEntryBehavior": "included_then_classified_or_fail_closed",
+    "untrackedEntryBehavior": "included_then_classified_or_fail_closed",
+    "generatedEntryBehavior": "included_then_classified_and_checked_against resourceAndGeneratedPolicy or fail_closed",
+    "unclassifiedNodeBehavior": "fail_closed",
+    "unresolvedFilesystemEntryBehavior": "fail_closed",
+    "symlinkBehavior": "every symlink encountered outside an excluded physical root fails closed before candidate filtering; no symlink is followed",
+    "symlinkOutsideRepositoryBehavior": "fail_closed",
+    "canonicalPathCollisionBehavior": "fail_closed",
+    "excludedRootReentryOrTrackedFileBehavior": "fail_closed",
+    "specialFileBehavior": "FIFO, socket, device, hard-link alias ambiguity or unreadable entry fails closed",
+    "hardLinkBehavior": "two non-excluded paths sharing one device/inode fail closed even when contents are equal"
+  },
+  "classificationModel": {
+    "rule": "every candidate node receives exactly one primaryRootClass, one stageStatus and one or more orthogonal bundleZones; zero/overlap/undeclared composition classification fails closed",
+    "selectorCompiler": {
+      "compilerId": "cwt.closed-primary-root-selector.v1",
+      "closedMatchFields": [
+        "files",
+        "directories",
+        "testSemantic",
+        "excludeFiles",
+        "excludeDirectories",
+        "excludeTestSemantic"
+      ],
+      "positivePredicate": "candidate AND (path is exactly one files value OR path begins with one directories value OR testSemantic=true AND filesystemEnumeration.testSemantic(path))",
+      "negativePredicate": "exclude when path is exactly one excludeFiles value OR begins with one excludeDirectories value OR excludeTestSemantic=true AND filesystemEnumeration.testSemantic(path)",
+      "selectorResult": "positivePredicate AND NOT negativePredicate",
+      "evaluation": "evaluate all 12 selectors independently; exactly one true is required",
+      "priorityRole": "the rootClasses array order is stable report order only; priority never resolves an overlap",
+      "unknownFieldOrOperatorBehavior": "fail_closed_profile_invalid",
+      "zeroMatchBehavior": "fail_closed_unclassified",
+      "multipleMatchBehavior": "fail_closed_ambiguous"
+    },
+    "rootClasses": [
+      {
+        "id": "phase-b-outer-composition",
+        "match": {
+          "files": [
+            "src/server/ai/phase-b-composition.ts"
+          ],
+          "directories": [],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": false
+        },
+        "stageStatus": "phase_b_required",
+        "bundleZones": [
+          "server-only",
+          "composition-root"
+        ]
+      },
+      {
+        "id": "phase-d-outer-composition-reserved",
+        "match": {
+          "files": [
+            "src/server/ai/phase-d-provider-composition.ts"
+          ],
+          "directories": [],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": false
+        },
+        "stageStatus": "phase_d_reserved_absent_in_phase_b",
+        "bundleZones": [
+          "expected-absent"
+        ]
+      },
+      {
+        "id": "future-provider-adapter-zone-reserved",
+        "match": {
+          "files": [],
+          "directories": [
+            "src/integrations/ai/providers/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": false
+        },
+        "stageStatus": "phase_d_reserved_absent_in_phase_b",
+        "bundleZones": [
+          "expected-absent"
+        ]
+      },
+      {
+        "id": "synthetic-ai-test-code",
+        "match": {
+          "files": [],
+          "directories": [
+            "src/ai/testing/",
+            "test-fixtures/ai-architecture/",
+            "test-fixtures/ai-server-bundle/",
+            "test-fixtures/ai-types/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": false
+        },
+        "stageStatus": "test_only_excluded_from_production",
+        "bundleZones": [
+          "test-only"
+        ],
+        "capabilityCeiling": {
+          "productionModuleClosureMember": false,
+          "publicOrServerEntry": false,
+          "providerOrAdapterAuthority": false,
+          "providerCredentialOrEndpointAuthority": false,
+          "externalProviderNetworkAuthority": false,
+          "allowedDirection": "test-only node may exercise Production modules under isolated tests; no Production/public/server node may import or execute the test node",
+          "existingHarnessQualification": "loopback browser/database test activity remains test-only and does not grant external Provider/network/credential or Production runtime authority"
+        }
+      },
+      {
+        "id": "protected-ai",
+        "match": {
+          "files": [
+            "src/ai/index.ts",
+            "src/ai/errors.ts",
+            "src/ai/canonical-json.ts",
+            "src/ai/telemetry.ts",
+            "src/ai/server-bundle-marker.ts"
+          ],
+          "directories": [
+            "src/ai/core/",
+            "src/ai/applications/",
+            "src/ai/config/",
+            "src/ai/context/",
+            "src/ai/prompts/",
+            "src/ai/output/",
+            "src/ai/providers/",
+            "src/ai/registry/",
+            "src/ai/internal/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [
+            "src/ai/testing/"
+          ],
+          "excludeTestSemantic": true
+        },
+        "stageStatus": "phase_b_required",
+        "bundleZones": [
+          "server-only",
+          "protected"
+        ]
+      },
+      {
+        "id": "business-consumer",
+        "match": {
+          "files": [],
+          "directories": [
+            "src/catalog/",
+            "src/content/",
+            "src/seo/",
+            "src/imports/",
+            "src/admin/",
+            "src/app/",
+            "src/public-site/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": true
+        },
+        "stageStatus": "existing_or_future_business",
+        "bundleZones": [
+          "production"
+        ]
+      },
+      {
+        "id": "other-production-src",
+        "match": {
+          "files": [],
+          "directories": [
+            "src/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [
+            "src/server/ai/phase-b-composition.ts",
+            "src/server/ai/phase-d-provider-composition.ts",
+            "src/ai/index.ts",
+            "src/ai/errors.ts",
+            "src/ai/canonical-json.ts",
+            "src/ai/telemetry.ts",
+            "src/ai/server-bundle-marker.ts"
+          ],
+          "excludeDirectories": [
+            "src/integrations/ai/providers/",
+            "src/ai/testing/",
+            "src/ai/core/",
+            "src/ai/applications/",
+            "src/ai/config/",
+            "src/ai/context/",
+            "src/ai/prompts/",
+            "src/ai/output/",
+            "src/ai/providers/",
+            "src/ai/registry/",
+            "src/ai/internal/",
+            "src/catalog/",
+            "src/content/",
+            "src/seo/",
+            "src/imports/",
+            "src/admin/",
+            "src/app/",
+            "src/public-site/"
+          ],
+          "excludeTestSemantic": true
+        },
+        "stageStatus": "existing_non_ai_production",
+        "bundleZones": [
+          "production"
+        ]
+      },
+      {
+        "id": "ai-proof-tooling",
+        "match": {
+          "files": [
+            "scripts/verify-ai-architecture.ts",
+            "scripts/generate-ai-prompt-bundle.ts",
+            "scripts/verify-ai-prompt-bundle.ts",
+            "scripts/verify-ai-prompt-history.ts"
+          ],
+          "directories": [],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": true
+        },
+        "stageStatus": "build_only",
+        "bundleZones": [
+          "tooling-only"
+        ]
+      },
+      {
+        "id": "other-project-tooling",
+        "match": {
+          "files": [],
+          "directories": [
+            "scripts/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [
+            "scripts/verify-ai-architecture.ts",
+            "scripts/generate-ai-prompt-bundle.ts",
+            "scripts/verify-ai-prompt-bundle.ts",
+            "scripts/verify-ai-prompt-history.ts"
+          ],
+          "excludeDirectories": [],
+          "excludeTestSemantic": true
+        },
+        "stageStatus": "existing_or_build_only",
+        "bundleZones": [
+          "tooling-only"
+        ]
+      },
+      {
+        "id": "other-test-fixtures",
+        "match": {
+          "files": [],
+          "directories": [],
+          "testSemantic": true,
+          "excludeFiles": [],
+          "excludeDirectories": [
+            "src/ai/testing/",
+            "src/integrations/ai/providers/",
+            "test-fixtures/ai-architecture/",
+            "test-fixtures/ai-server-bundle/",
+            "test-fixtures/ai-types/"
+          ],
+          "excludeTestSemantic": false
+        },
+        "stageStatus": "test_only_excluded_from_production",
+        "bundleZones": [
+          "test-only"
+        ],
+        "capabilityCeiling": {
+          "productionModuleClosureMember": false,
+          "publicOrServerEntry": false,
+          "providerOrAdapterAuthority": false,
+          "providerCredentialOrEndpointAuthority": false,
+          "externalProviderNetworkAuthority": false,
+          "allowedDirection": "test-only node may exercise Production modules under isolated tests; no Production/public/server node may import or execute the test node",
+          "existingHarnessQualification": "loopback E2E/browser activity and synthetic local credentials remain test-only and do not grant external Provider/network/credential or Production runtime authority"
+        }
+      },
+      {
+        "id": "diagnostic-documentation",
+        "match": {
+          "files": [],
+          "directories": [
+            "docs/"
+          ],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": true
+        },
+        "stageStatus": "evidence_only_not_production",
+        "bundleZones": [
+          "documentation-only"
+        ]
+      },
+      {
+        "id": "root-control-file",
+        "match": {
+          "files": [
+            "package.json",
+            "pnpm-lock.yaml",
+            "tsconfig.json",
+            "next.config.ts",
+            "eslint.config.mjs",
+            "postcss.config.mjs",
+            "drizzle.config.ts",
+            "playwright.config.ts",
+            "vitest.config.mts"
+          ],
+          "directories": [],
+          "testSemantic": false,
+          "excludeFiles": [],
+          "excludeDirectories": [],
+          "excludeTestSemantic": false
+        },
+        "stageStatus": "build_or_dependency_authority",
+        "bundleZones": [
+          "control-file"
+        ],
+        "capabilityCeiling": {
+          "productionModuleClosureMember": false,
+          "publicOrServerEntry": false,
+          "providerOrAdapterAuthority": false,
+          "providerCredentialOrEndpointAuthority": false,
+          "externalProviderNetworkAuthority": false,
+          "allowedPurpose": "finite dependency, compiler, lint, CSS, framework-build, migration-build and isolated-test configuration only",
+          "existingControlQualification": "existing DATABASE_URL migration configuration and loopback E2E configuration remain their pre-existing build/test concerns; classification grants no AI Provider, external network, credential or Production runtime authority"
+        }
+      }
+    ],
+    "precedence": [
+      "phase-b-outer-composition",
+      "phase-d-outer-composition-reserved",
+      "future-provider-adapter-zone-reserved",
+      "synthetic-ai-test-code",
+      "protected-ai",
+      "business-consumer",
+      "other-production-src",
+      "ai-proof-tooling",
+      "other-project-tooling",
+      "other-test-fixtures",
+      "diagnostic-documentation",
+      "root-control-file"
+    ],
+    "overlapRule": "precedence is display order only; exclusion predicates make intended nesting non-overlapping and every remaining multi-match fails closed",
+    "classCountInvariant": 12,
+    "classIdsUnchangedFromV2_0": true,
+    "v15M01ExistingPathDisposition": {
+      "drizzle.config.ts": "root-control-file",
+      "playwright.config.ts": "root-control-file",
+      "tests/e2e/global-teardown.ts": "other-test-fixtures",
+      "tests/e2e/product-import.spec.ts": "other-test-fixtures",
+      "tests/e2e/public.spec.ts": "other-test-fixtures",
+      "vitest.config.mts": "root-control-file"
+    },
+    "noCandidateNodeLeftAmbiguous": true
+  },
+  "protectedAiPolicy": {
+    "productionRoots": [
+      "src/ai/index.ts",
+      "src/ai/errors.ts",
+      "src/ai/canonical-json.ts",
+      "src/ai/telemetry.ts",
+      "src/ai/server-bundle-marker.ts",
+      "src/ai/core/",
+      "src/ai/applications/",
+      "src/ai/config/",
+      "src/ai/context/",
+      "src/ai/prompts/",
+      "src/ai/output/",
+      "src/ai/providers/",
+      "src/ai/registry/",
+      "src/ai/internal/"
+    ],
+    "exactTypeOnlyCwtEdges": [
+      {
+        "from": "src/ai/applications/draft-assistance/contracts.ts",
+        "to": "src/auth/permissions.ts",
+        "symbols": [
+          "UserRole"
+        ],
+        "edgeKind": "type-only",
+        "basis": "accepted Design contracts use existing role type"
+      },
+      {
+        "from": "src/ai/applications/draft-assistance/read-scopes.ts",
+        "to": "src/db/types.ts",
+        "symbols": [
+          "AppDatabase"
+        ],
+        "edgeKind": "type-only",
+        "basis": "private read-scope runner owns generic read capability"
+      },
+      {
+        "from": "src/ai/applications/draft-assistance/composition.ts",
+        "to": "src/db/types.ts",
+        "symbols": [
+          "AppDatabase"
+        ],
+        "edgeKind": "type-only",
+        "basis": "sole protected factory accepts AppDatabase<TQueryResult>"
+      }
+    ],
+    "explicitlyForbiddenCwtEdges": [
+      {
+        "to": "src/db/client.ts",
+        "reason": "outer connection construction/cache authority; never a protected type or runtime edge"
+      },
+      {
+        "to": "src/config/env.ts",
+        "reason": "broad secret-bearing AppEnvironment authority; only outer composition may project exact fields"
+      },
+      {
+        "to": "src/server/ai/",
+        "reason": "dependency direction is outer composition -> protected AI, never protected AI -> outer"
+      },
+      {
+        "to": "src/integrations/ai/providers/",
+        "reason": "future adapter zone is absent and never imported by protected core/business"
+      }
+    ],
+    "typeOnlyEdgeRule": "no protected module imports src/db/client.ts, its DatabaseConnection type, driver-specific database/HKT types, or src/config/env.ts; every non-listed CWT edge fails closed",
+    "productionProviderRegistry": "exact-empty in Phase B; no adapter/Provider package/endpoint/credential/network value exists"
+  },
+  "trustedEnvironmentProjection": {
+    "module": "src/ai/config/trusted-phase-b-environment.ts",
+    "typeName": "TrustedPhaseBEnvironmentV1",
+    "exactFields": [
+      {
+        "name": "appEnvironment",
+        "type": "\"local\" | \"test\" | \"staging\" | \"production\"",
+        "source": "src/config/env.ts#env.APP_ENV"
+      },
+      {
+        "name": "processFeatureAiEnabled",
+        "type": "boolean",
+        "source": "src/config/env.ts#env.FEATURE_AI"
+      }
+    ],
+    "exactConstruction": {
+      "module": "src/server/ai/phase-b-composition.ts",
+      "expressionContract": "const trustedEnvironment = Object.freeze({ appEnvironment: env.APP_ENV, processFeatureAiEnabled: env.FEATURE_AI }) satisfies TrustedPhaseBEnvironmentV1",
+      "constructorCount": 1
+    },
+    "prohibitedFieldsByNameOrMeaning": [
+      "credential",
+      "secret",
+      "token",
+      "key",
+      "url",
+      "uri",
+      "endpoint",
+      "host",
+      "provider",
+      "model",
+      "database",
+      "connection",
+      "bucket",
+      "storage",
+      "smtp",
+      "analytics"
+    ],
+    "protectedRules": [
+      "protected AI cannot import/re-export/dynamically reach src/config/env.ts, AppEnvironment, process, process.env, globalThis.process or an env proxy/closure",
+      "only the two frozen primitive DTO fields cross the outer-to-protected seam",
+      "databaseConnection.kind is outer control flow only and is never a DTO/factory argument",
+      "staging/production and runtime/profile mismatch fail closed",
+      "no credential, endpoint, Provider, connection wrapper or broad environment object crosses"
+    ],
+    "phaseBAllowedValues": {
+      "appEnvironment": [
+        "local",
+        "test"
+      ],
+      "processFeatureAiEnabled": [
+        true
+      ],
+      "otherBehavior": "fail_closed_environment_not_authorized"
+    }
+  },
+  "outerCompositionRoots": [
+    {
+      "rootId": "phase-b-composition-v1",
+      "path": "src/server/ai/phase-b-composition.ts",
+      "rootClass": "phase-b-outer-composition",
+      "stage": "phase_b",
+      "status": "required_in_corrected_phase_b_candidate",
+      "phaseBPresence": {
+        "minimumFiles": 1,
+        "maximumFiles": 1,
+        "missingBehavior": "fail_closed_missing_required_composition",
+        "undeclaredSecondModuleBehavior": "fail_closed_undeclared_composition"
+      },
+      "serverOnly": true,
+      "exactAllowedImports": [
+        {
+          "specifier": "server-only",
+          "resolved": "server-only",
+          "edgeKind": "runtime-side-effect",
+          "symbols": []
+        },
+        {
+          "specifier": "@/config/env",
+          "resolved": "src/config/env.ts",
+          "edgeKind": "runtime",
+          "symbols": [
+            "env"
+          ],
+          "allowedMemberReads": [
+            "APP_ENV",
+            "FEATURE_AI"
+          ]
+        },
+        {
+          "specifier": "@/db/client",
+          "resolved": "src/db/client.ts",
+          "edgeKind": "runtime",
+          "symbols": [
+            "databaseConnection"
+          ],
+          "allowedMemberReads": [
+            "kind",
+            "db"
+          ]
+        },
+        {
+          "specifier": "@/ai/config/trusted-phase-b-environment",
+          "resolved": "src/ai/config/trusted-phase-b-environment.ts",
+          "edgeKind": "type-only",
+          "symbols": [
+            "TrustedPhaseBEnvironmentV1"
+          ]
+        },
+        {
+          "specifier": "@/ai/applications/draft-assistance/composition",
+          "resolved": "src/ai/applications/draft-assistance/composition.ts",
+          "edgeKind": "runtime",
+          "symbols": [
+            "createPhaseBAvailabilityServiceV1"
+          ]
+        }
+      ],
+      "forbiddenImports": [
+        "all imports not in exactAllowedImports",
+        "src/integrations/ai/providers/**",
+        "Provider/SDK/network packages",
+        "any credential/endpoint module",
+        "src/ai/testing/**"
+      ],
+      "incomingEdges": {
+        "phaseBRuntimeEdges": [],
+        "rule": "the file is an explicit build/manifest root in Phase B; no Production business module may import it until a later approved business integration design names that edge"
+      },
+      "outgoingDirection": "outer authorities -> exact primitive/opaque projection -> protected provider-neutral Phase B factory; protected/business code never imports outward",
+      "exactExport": {
+        "symbol": "createPhaseBServerAiAvailabilityV1",
+        "kind": "function",
+        "syntacticDefinitionCount": 1,
+        "runtimeServiceConstructionCountPerInvocation": 1,
+        "returnType": "inferred DraftAssistanceService independent of TQueryResult"
+      },
+      "exactConstructionSeam": "construct one trusted DTO; switch directly on databaseConnection.kind; in explicit pglite and postgres cases call the same generic protected factory with that branch-narrowed databaseConnection.db; default calls the exact local never helper; two mutually exclusive call sites, exactly one runtime call",
+      "crossingValues": [
+        {
+          "value": "env.APP_ENV",
+          "crossesAs": "TrustedPhaseBEnvironmentV1.appEnvironment",
+          "kind": "primitive string"
+        },
+        {
+          "value": "env.FEATURE_AI",
+          "crossesAs": "TrustedPhaseBEnvironmentV1.processFeatureAiEnabled",
+          "kind": "primitive boolean"
+        },
+        {
+          "value": "databaseConnection.db in the pglite case",
+          "crossesAs": "AppDatabase<PgliteQueryResultHKT> inferred by the protected generic factory",
+          "kind": "branch-narrowed opaque database executor"
+        },
+        {
+          "value": "databaseConnection.db in the postgres case",
+          "crossesAs": "AppDatabase<PostgresJsQueryResultHKT> inferred by the protected generic factory",
+          "kind": "branch-narrowed opaque database executor"
+        }
+      ],
+      "prohibitedCrossing": [
+        "env/AppEnvironment object",
+        "process/process.env",
+        "databaseConnection wrapper",
+        "databaseConnection.kind as DTO/argument/return/property",
+        "databaseConnection.close",
+        "createMigrationClient",
+        "Pglite/Postgres driver discriminator or driver-specific HKT type",
+        "credential/secret/token/key",
+        "URL/endpoint/host",
+        "Provider/SDK/adapter/network capability",
+        "closure/proxy/visitor/service locator that recovers prohibited authority"
+      ],
+      "canonicalProof": {
+        "pathMustEqual": "src/server/ai/phase-b-composition.ts",
+        "realpathMustRemainInsideRepository": true,
+        "sha256Required": true,
+        "manifestMembershipRequired": true,
+        "everyEdgeRequired": true
+      },
+      "exactSourceTemplate": [
+        "import \"server-only\";",
+        "import { env } from \"@/config/env\";",
+        "import { databaseConnection } from \"@/db/client\";",
+        "import type { TrustedPhaseBEnvironmentV1 } from \"@/ai/config/trusted-phase-b-environment\";",
+        "import { createPhaseBAvailabilityServiceV1 } from \"@/ai/applications/draft-assistance/composition\";",
+        "function unsupportedDatabaseConnection(connection: never): never { throw new Error(\"Unsupported database connection kind.\"); }",
+        "export function createPhaseBServerAiAvailabilityV1() {",
+        "  const trustedEnvironment = Object.freeze({ appEnvironment: env.APP_ENV, processFeatureAiEnabled: env.FEATURE_AI }) satisfies TrustedPhaseBEnvironmentV1;",
+        "  switch (databaseConnection.kind) {",
+        "    case \"pglite\": return createPhaseBAvailabilityServiceV1({ database: databaseConnection.db, trustedEnvironment });",
+        "    case \"postgres\": return createPhaseBAvailabilityServiceV1({ database: databaseConnection.db, trustedEnvironment });",
+        "    default: return unsupportedDatabaseConnection(databaseConnection);",
+        "  }",
+        "}"
+      ],
+      "typeSafetyCounts": {
+        "exactImportEdges": 5,
+        "trustedDtoConstructions": 1,
+        "switchDiscriminantReads": 1,
+        "explicitDriverCases": [
+          "pglite",
+          "postgres"
+        ],
+        "databaseDbSyntacticReads": 2,
+        "protectedFactoryCallSites": 2,
+        "protectedFactoryRuntimeCallsPerInvocation": 1,
+        "connectionFactoriesOpened": 0,
+        "connectionWrappersCrossing": 0,
+        "discriminatorsCrossing": 0,
+        "castsAssertionsAnyUnknownRoundTrips": 0
+      },
+      "outerOnlyControlValues": [
+        {
+          "value": "databaseConnection.kind",
+          "use": "one exhaustive switch in the canonical outer root",
+          "crossesProtectedBoundary": false,
+          "reason": "required to preserve the actual discriminated-union/HKT relationship without erasure"
+        }
+      ],
+      "exhaustiveness": {
+        "helper": "unsupportedDatabaseConnection(connection: never): never",
+        "helperCalls": 1,
+        "behaviorForFutureUnionMember": "compile failure at the never call until a new explicit reviewed branch/profile is added; untyped runtime pollution throws",
+        "helperMayNotInspectStoreReturnOrForwardConnection": true
+      },
+      "noSecondAuthority": "both branches read the same singleton databaseConnection value and invoke the same factory; no new connection, repository, visitor, wrapper, cache, global, transaction or alternate factory exists"
+    },
+    {
+      "rootId": "phase-d-provider-composition-v1",
+      "path": "src/server/ai/phase-d-provider-composition.ts",
+      "rootClass": "phase-d-outer-composition-reserved",
+      "stage": "phase_d",
+      "status": "reserved_future_absent_until_separately_authorized",
+      "phaseBPresence": {
+        "minimumFiles": 0,
+        "maximumFiles": 0,
+        "earlyPresenceBehavior": "fail_closed_future_stage_unauthorized",
+        "undeclaredSecondModuleBehavior": "fail_closed_undeclared_composition"
+      },
+      "serverOnly": true,
+      "exactAllowedImportsInPhaseB": [],
+      "forbiddenImportsInPhaseB": [
+        "*"
+      ],
+      "incomingEdges": {
+        "phaseBRuntimeEdges": [],
+        "rule": "zero incoming/outgoing edge because the root must not exist"
+      },
+      "outgoingDirection": "none authorized in Phase B",
+      "crossingValues": [],
+      "canonicalProof": {
+        "expectedAbsent": true,
+        "absenceRecordedInManifest": true,
+        "undeclaredAliasOrSymlinkBehavior": "fail_closed"
+      },
+      "futureActivationTemplateNotAuthorization": {
+        "requiredVersionedProfileUpdate": true,
+        "dependencyDirection": "approved Phase D adapter -> provider-neutral TextAiProviderV1 type; sole Phase D composition -> approved adapter value + exact secret projection + provider-neutral registry; protected core/business never imports adapter/config/network",
+        "providerNeutralTypeEdge": {
+          "from": "src/integrations/ai/providers/<approved-adapter>.ts",
+          "to": "src/ai/providers/text-provider.ts",
+          "symbol": "TextAiProviderV1",
+          "edgeKind": "type-only"
+        },
+        "soleRegistrationEdge": {
+          "from": "src/server/ai/phase-d-provider-composition.ts",
+          "to": "src/ai/providers/registry.ts",
+          "symbol": "createTextProviderRegistry",
+          "edgeKind": "runtime"
+        },
+        "requiredFutureExactFacts": [
+          "approved adapter path",
+          "Provider package and version",
+          "license/security/offline/CI decision",
+          "exact credential projection fields",
+          "endpoint policy",
+          "operational/rollback controls"
+        ],
+        "noCurrentProviderAuthorization": true
+      }
+    }
+  ],
+  "adapterZone": {
+    "path": "src/integrations/ai/providers/",
+    "phaseBExpectedPresence": {
+      "minimumFiles": 0,
+      "maximumFiles": 0,
+      "behaviorIfPresent": "fail_closed_future_stage_unauthorized"
+    },
+    "dependencyDirection": "future adapter may depend type-only on provider-neutral interface; protected AI/business may never import adapter; only activated Phase D composition may import one approved adapter value",
+    "oneInjectionSeam": "reserved src/server/ai/phase-d-provider-composition.ts only, after a new approved Phase D profile; no service locator, global mutation, fallback chain or second construction seam",
+    "phaseBProviderRegistry": "exact empty",
+    "phaseBForbidden": [
+      "Provider",
+      "SDK",
+      "API",
+      "endpoint",
+      "credential",
+      "network",
+      "adapter registration"
+    ]
+  },
+  "resourceAndGeneratedPolicy": {
+    "productionResourceRoots": [
+      "src/ai/prompts/resources/production/"
+    ],
+    "productionGeneratedFiles": [
+      "src/ai/prompts/generated/production-prompt-bundle.generated.ts"
+    ],
+    "generatedRoots": [
+      "src/ai/prompts/generated/"
+    ],
+    "generatedExecutableSuffixes": [
+      ".generated.ts",
+      ".generated.tsx",
+      ".generated.mts",
+      ".generated.cts",
+      ".generated.js",
+      ".generated.jsx",
+      ".generated.mjs",
+      ".generated.cjs"
+    ],
+    "syntheticResourceRoots": [
+      "src/ai/testing/synthetic-prompts/"
+    ],
+    "documentationOnlyResourceFiles": [
+      "src/ai/prompts/resources/README.md"
+    ],
+    "rules": [
+      "every tracked or untracked executable/resource node is enumerated and hashed",
+      "Production resources and deterministic generated files are protected graph nodes",
+      "Synthetic resources cannot enter Production closure",
+      "unmanifested generated/resource/new URL/import.meta.url edge fails closed"
+    ],
+    "closedGeneratedRule": "every candidate below a generatedRoot or ending with a generatedExecutableSuffix must be one exact productionGeneratedFiles value and a protected-ai node; any other generated-marked path fails closed",
+    "generatedResourceSymlinkAliasRule": "generated/resource nodes use the same lexical path, lstat, realpath, inode, edge and content-hash checks; symlink, hard-link alias, unmanifested resource or unresolved new URL fails closed"
+  },
+  "actualTreeProof": {
+    "proofId": "cwt.phase1b.stage4a.phaseb.v15-m01.actual-tree.v1",
+    "designCandidateMode": {
+      "phaseBCompositionExpected": "absent_because_implementation_not_authorized",
+      "phaseDCompositionExpected": "absent",
+      "adapterZoneExpected": "absent",
+      "protectedAiImplementationExpected": "absent",
+      "rootClassDefinitionsRemainProspective": true
+    },
+    "futureImplementationGateMode": {
+      "phaseBCompositionCount": 1,
+      "phaseDCompositionCount": 0,
+      "adapterZoneNodeCount": 0,
+      "protectedAiImplementationRequired": true,
+      "allOtherV2_1ContainmentRulesRequired": true
+    },
+    "requiredOutput": [
+      "total candidate nodes and total executable nodes",
+      "every class id with sorted member paths including empty arrays",
+      "zeroClass=[] and ambiguous=[]",
+      "every excluded physical root with present/absent and not-walked status",
+      "protected-ai, test-only, root-control, composition, Phase D and adapter status",
+      "tracked/untracked/ignored source-state counts",
+      "inventorySha256, contentSha256 and classificationSha256"
+    ],
+    "hashDomains": {
+      "inventorySha256": "SHA-256 over UTF-8 JCS of sorted objects {path,nodeKind,realpath,device,inode,sourceState,contentSha256,isExecutable,isProtectedResource,isRootControl,isGenerated}",
+      "contentSha256": "SHA-256 over domain cwt-v16-content-v1 plus sorted UTF-8 path NUL raw-content-SHA-256 LF records",
+      "classificationSha256": "SHA-256 over domain cwt-v16-classification-v1 plus sorted UTF-8 path NUL classId NUL stageStatus NUL comma-joined-bundleZones LF records"
+    },
+    "proofEnvelopeRule": "captured .txt output and SHA256SUMS are evidence envelopes, not executable/protected-resource candidates; every executable .mjs/.ts and every .json/.md profile/probe inside docs/review-evidence remains a diagnostic-documentation candidate and is hashed before capture"
+  },
+  "testAndRootControlPolicy": {
+    "classIds": [
+      "synthetic-ai-test-code",
+      "other-test-fixtures",
+      "root-control-file"
+    ],
+    "forbiddenProductionIncomingEdge": "no production, public, server or protected-ai node may import, require, re-export, dynamically import or execute a test/root-control node",
+    "forbiddenLocalTargetsAllTestAndControl": [
+      "src/server/ai/",
+      "src/integrations/ai/providers/"
+    ],
+    "rootControlAdditionalForbiddenLocalTargets": [
+      "src/ai/"
+    ],
+    "forbiddenExternalSpecifiers": [
+      "node:http",
+      "node:https",
+      "node:net",
+      "node:tls",
+      "openai",
+      "@anthropic-ai/sdk",
+      "@google/generative-ai",
+      "@google/genai",
+      "cohere-ai",
+      "groq-sdk",
+      "ollama"
+    ],
+    "forbiddenProviderCredentialPatterns": [
+      "DEEPSEEK_*",
+      "OPENAI_*",
+      "ANTHROPIC_*",
+      "GEMINI_*",
+      "GOOGLE_AI_*",
+      "COHERE_*",
+      "GROQ_*",
+      "BEDROCK_*"
+    ],
+    "loopbackQualification": "existing Playwright browser/server and local database activity is isolated test execution only; it cannot contact an AI Provider or grant an external Provider-network/credential/Production runtime edge",
+    "classificationIsNotCapabilityGrant": true,
+    "violationBehavior": "fail_closed_capability_ceiling"
+  },
+  "v15M01MutationRequirements": [
+    {
+      "id": "new-unclassified-executable",
+      "requiredResult": "fail_closed_unclassified"
+    },
+    {
+      "id": "same-path-two-classes",
+      "requiredResult": "fail_closed_ambiguous"
+    },
+    {
+      "id": "remove-each-of-six-classifications",
+      "caseCount": 6,
+      "requiredResult": "each case fail_closed_unclassified"
+    },
+    {
+      "id": "silent-exclusion",
+      "requiredResult": "fail_closed_profile_or_inventory_mismatch"
+    },
+    {
+      "id": "symlink-alias-generated-resource-bypass",
+      "caseCountMinimum": 3,
+      "requiredResult": "each case fail_closed"
+    },
+    {
+      "id": "early-phase-d-or-adapter",
+      "caseCountMinimum": 2,
+      "requiredResult": "each case fail_closed_future_stage_unauthorized"
+    },
+    {
+      "id": "second-composition-root",
+      "requiredResult": "fail_closed_undeclared_composition"
+    }
+  ],
+  "moduleClosure": {
+    "compilerAuthority": {
+      "typescriptVersion": "5.9.3",
+      "tsconfigPath": "tsconfig.json",
+      "tsconfigSha256": "096a305991cc6ee011630e877fc571eba979baa77aab5995328f3e67688c8a9e",
+      "strict": true,
+      "exactOptionalPropertyTypes": true,
+      "moduleResolution": "bundler",
+      "alias": "@/* -> ./src/*"
+    },
+    "currentFacilitiesSuffice": true,
+    "dependencyAddedByProfile": [],
+    "edgeForms": [
+      "ImportDeclaration including type-only/default/namespace/named",
+      "ExportDeclaration including export-star/named re-export",
+      "ImportEqualsDeclaration external module reference",
+      "ImportTypeNode",
+      "dynamic import()",
+      "unshadowed require()/require.resolve()/module.require()",
+      "createRequire(import.meta.url) returned require",
+      "CommonJS module.exports/exports acquisition or re-export",
+      "new URL(resource, import.meta.url)"
+    ],
+    "staticSpecifierForms": [
+      "StringLiteral",
+      "NoSubstitutionTemplateLiteral",
+      "parenthesized/as-const/satisfies literal",
+      "template whose substitutions recursively fold to primitives",
+      "plus concatenation whose operands fold to primitives",
+      "single const alias chain without reassignment"
+    ],
+    "resolution": [
+      "parse tsconfig and use TypeScript module resolution",
+      "canonicalize repo-relative POSIX path and realpath",
+      "resolve aliases/extensions/index/package exports",
+      "follow imports/re-exports/resources transitively with cycle tracking",
+      "canonicalize external package to node:specifier or top-level package",
+      "unresolved/computed/dynamic/re-export/package/resource fails closed",
+      "symlink escape/case collision fails closed"
+    ],
+    "approvedProtectedExternalPackages": [
+      "server-only",
+      "zod",
+      "drizzle-orm",
+      "node:crypto",
+      "node:buffer"
+    ],
+    "broadConnectionAuthority": "src/db/client.ts is imported only by the exact Phase B outer root; direct kind/db member reads follow the exact switch template and never enter protected edges",
+    "broadEnvironmentAuthority": "src/config/env.ts may be imported only by exact phase-b outer composition member reads; it is never reachable from protected graph",
+    "unknownExternalPackageBehavior": "fail_closed"
+  },
+  "prohibitedAcquisitionForms": [
+    {
+      "id": "global-network",
+      "forms": [
+        "fetch",
+        "Request",
+        "WebSocket",
+        "EventSource",
+        "XMLHttpRequest",
+        "window",
+        "self",
+        "globalThis network members"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "network-modules",
+      "forms": [
+        "node:http",
+        "node:https",
+        "node:net",
+        "node:tls",
+        "unknown network packages"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "process-env",
+      "forms": [
+        "process",
+        "process.env",
+        "globalThis.process",
+        "env proxy/closure",
+        "src/config/env.ts",
+        "AppEnvironment"
+      ],
+      "behavior": "fail_closed_except_exact_phase_b_projection_edge"
+    },
+    {
+      "id": "dynamic-module",
+      "forms": [
+        "non-foldable import()",
+        "non-foldable require/require.resolve/module.require",
+        "unresolved package/local/re-export/resource"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "dynamic-code",
+      "forms": [
+        "eval",
+        "Function",
+        "AsyncFunction",
+        "GeneratorFunction",
+        "WebAssembly dynamic loading"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "reflection",
+      "forms": [
+        "Reflect.*",
+        "Proxy",
+        "Object.getOwnPropertySymbols",
+        "Object.getOwnPropertyDescriptors",
+        "computed recovery of prohibited roots"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "constructor-prototype",
+      "forms": [
+        ".constructor",
+        "__proto__",
+        "prototype traversal",
+        "constructor.constructor",
+        "call/apply/bind acquisition from prohibited roots"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "alias-symlink",
+      "forms": [
+        "unresolved @/*",
+        "symlink outside repository",
+        "canonical/case collision"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "public-bundle",
+      "forms": [
+        "public/client transitive reach to src/ai/",
+        "src/server/ai/",
+        "src/integrations/ai/providers/",
+        "server-only"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "server-closure",
+      "forms": [
+        "server AI edge outside declared roots",
+        "unmanifested composition/generated/resource edge",
+        "undeclared second composition module"
+      ],
+      "behavior": "fail_closed"
+    },
+    {
+      "id": "database-union-erasure",
+      "forms": [
+        "databaseConnection.db projected before kind narrowing",
+        "connection wrapper/destructure/spread/alias passed inward",
+        "cast/assertion/any/unknown round trip",
+        "generic visitor/overload/proxy hiding the HKT union",
+        "second database connection or composition factory"
+      ],
+      "behavior": "fail_closed_typecheck_or_architecture_gate"
+    }
+  ],
+  "bundleZones": {
+    "public": {
+      "entryRoots": [
+        "src/public-site/",
+        "src/app/"
+      ],
+      "entryExclusions": [
+        "src/app/admin/",
+        "src/app/operations-login/",
+        "src/app/api/",
+        "src/app/(admin-preview)/"
+      ],
+      "forbiddenReachability": [
+        "src/ai/",
+        "src/server/ai/",
+        "src/integrations/ai/providers/",
+        "server-only"
+      ],
+      "proof": "fresh public client-reference manifests and reachable chunks contain no protected marker/path/resource/Provider package"
+    },
+    "server": {
+      "requiredReachability": [
+        "src/ai/",
+        "src/server/ai/phase-b-composition.ts"
+      ],
+      "phaseBRequiredAbsence": [
+        "src/server/ai/phase-d-provider-composition.ts",
+        "src/integrations/ai/providers/"
+      ],
+      "proof": "isolated server build retains exact Phase B boundary markers and Production generated bytes; phase-d/adapter/Provider/credential/endpoint/network markers absent"
+    },
+    "ambiguityBehavior": "fail_closed"
+  },
+  "buildOnlyProofArtifacts": [
+    {
+      "path": "docs/review-evidence/<future-corrected-design-candidate>/AI_ACTUAL_TREE_CLASSIFICATION_PROOF_V2_1.json",
+      "requiredContent": [
+        "raw actual-filesystem inventory independent of Git ignore/index scope",
+        "all 12 class member arrays",
+        "zero-class and ambiguous empty arrays",
+        "source-state and excluded-root records",
+        "inventory/content/classification SHA-256 values",
+        "symlink/hard-link/canonical-collision checks",
+        "exact design-mode or implementation-gate-mode composition status"
+      ]
+    },
+    {
+      "path": "docs/review-evidence/<future-corrected-design-candidate>/AI_PROTECTED_GRAPH_MANIFEST_V2_1.json",
+      "requiredContent": [
+        "every tracked/untracked executable/resource node",
+        "primaryRootClass",
+        "stageStatus",
+        "bundleZones",
+        "repository-relative path",
+        "realpath",
+        "SHA-256",
+        "every parsed specifier/edge kind/resolved target",
+        "unresolved/computed/symlink/collision result",
+        "phase-b required membership",
+        "phase-d and adapter expected-absence records"
+      ]
+    },
+    {
+      "path": "docs/review-evidence/<future-corrected-design-candidate>/AI_PHASE_B_COMPOSITION_PROOF_V2_1.json",
+      "requiredContent": [
+        "exact Phase B canonical path/realpath/hash",
+        "exact five imports and no others",
+        "one direct Object.freeze two-field DTO",
+        "one direct databaseConnection.kind switch",
+        "explicit pglite/postgres cases and exact never default",
+        "two mutually exclusive .db reads and same-factory call sites",
+        "one runtime factory call and zero wrapper/discriminator crossing",
+        "strict positive and negative TypeScript probe results",
+        "no incoming Phase B business edge",
+        "Phase D/adapter expected absence"
+      ]
+    },
+    {
+      "path": "docs/review-evidence/<future-corrected-design-candidate>/AI_CAPABILITY_ORIGIN_PROOF_V2_1.json",
+      "requiredContent": [
+        "protected-to-src/config/env.ts nonreachability",
+        "protected-to-src/db/client.ts nonreachability",
+        "protected-to-adapter/network/Provider/credential/endpoint nonreachability",
+        "exact AppDatabase and UserRole type-only edges",
+        "outer-only direct kind/db acquisition template",
+        "unsupported acquisition/type erasure fail-closed results",
+        "exact-empty Production Provider registry",
+        "sole environment/connection origin with no second database authority"
+      ]
+    },
+    {
+      "path": "docs/review-evidence/<future-corrected-design-candidate>/AI_BUNDLE_BOUNDARY_PROOF_V2_1.json",
+      "requiredContent": [
+        "fresh public client-reference/chunk closure",
+        "fresh isolated server closure",
+        "Phase B composition present only server-side",
+        "Phase D composition/adapter absent",
+        "DTO and generated Production marker present server-side",
+        "no broad env/connection/secret/Provider/SDK/endpoint/network marker in protected/public closure"
+      ]
+    }
+  ],
+  "strategyRelationships": {
+    "M03-R1": {
+      "role": "mandatory-common-core",
+      "obligationsRemainUnderEveryChoice": true,
+      "selectedRecommendation": "M03-O1"
+    },
+    "M03-A1": {
+      "role": "optional-supplement-not-replacement",
+      "effect": "if selected, designated modules use a closed syntax subset and unsupported syntax fails closed; every R1 graph/DTO/composition/adapter/acquisition/bundle obligation remains mandatory"
+    },
+    "M03-A3": {
+      "role": "implementation-mechanism-not-architecture-alternative",
+      "effect": "an approved engine may implement checks but every R1 obligation remains; dependency/ADR/license/security/offline/CI/operations/bundle review is mandatory"
+    },
+    "recommendation": "M03-O1: current TypeScript 5.9.3 discriminant narrowing plus exact module/resource/bundle containment; no dependency, runtime wrapper, database authority, cast or whole-language taint engine"
+  },
+  "rollback": "this technical package changes docs/evidence only; a later corrected-Design/implementation Candidate reverts code/build artifacts to its independently accepted checkpoint, preserves accepted 0020, opens no data reconciliation, and never reuses failed V1/V2/V3 code",
+  "actualDatabaseTypeBoundary": {
+    "fixedCheckpoint": "6bc26cf035608a21a057d6f4e87da8d4f7f23d40",
+    "sourceHashes": {
+      "src/db/types.ts": "ad027049e357a5aeb429cd9136c9a0e561f56bb492b3ebebd46f21e5b0c81817",
+      "src/db/client.ts": "fda8e496113f7d7658e94942d6f93c392fcaf403fcfd77a888852d0f18207800",
+      "tsconfig.json": "096a305991cc6ee011630e877fc571eba979baa77aab5995328f3e67688c8a9e",
+      "package.json": "3f288f10bbb11e9a657e038af198bb31f0a471ecacb4f7d9e9ae6848ac241ed4"
+    },
+    "exactShapes": {
+      "AppDatabase": "type AppDatabase<TQueryResult extends PgQueryResultHKT> = PgDatabase<TQueryResult, typeof schema>",
+      "PgliteAppDatabase": "PgliteDatabase<typeof schema>",
+      "PostgresAppDatabase": "PostgresJsDatabase<typeof schema>",
+      "DatabaseConnection": "{kind:'pglite';db:PgliteAppDatabase;close} | {kind:'postgres';db:PostgresAppDatabase;createMigrationClient;close}",
+      "databaseProjection": "databaseConnection.db: PgliteAppDatabase | PostgresAppDatabase before discriminant narrowing"
+    },
+    "varianceFact": "the Drizzle query-result HKT parameter makes the two PgDatabase instantiations non-collapsible for generic inference; the invariant union projection is not assignable to one AppDatabase<TQueryResult> under TypeScript 5.9.3 strict/exactOptionalPropertyTypes",
+    "prohibitedTypeEscapes": [
+      "as or angle-bracket assertion",
+      "any",
+      "unknown round trip or reparsing",
+      "ts-ignore/ts-expect-error in positive Production code",
+      "overload whose implementation erases the database",
+      "generic default that widens the HKT",
+      "bivariant callback trick",
+      "wrapper/proxy/visitor added to database authority",
+      "second database connection or factory authority"
+    ]
+  },
+  "literalTypeSafeSeam": {
+    "protectedFactorySignature": [
+      "createPhaseBAvailabilityServiceV1<TQueryResult extends PgQueryResultHKT>(dependencies: {",
+      "  readonly database: AppDatabase<TQueryResult>;",
+      "  readonly trustedEnvironment: TrustedPhaseBEnvironmentV1;",
+      "}): DraftAssistanceService"
+    ],
+    "outerInference": [
+      "pglite branch infers the PGlite query-result HKT from PgliteAppDatabase",
+      "postgres branch infers the postgres-js query-result HKT from PostgresAppDatabase"
+    ],
+    "positiveProbe": "M03_DATABASE_DISCRIMINATED_SEAM_POSITIVE_V1_0.ts",
+    "negativeUnionProbe": "M03_DATABASE_UNION_PROJECTION_NEGATIVE_V1_0.ts",
+    "negativeDriverSwapProbe": "M03_DATABASE_DRIVER_SWAP_NEGATIVE_V1_0.ts",
+    "passCriteria": [
+      "positive compiles exit 0 under repository TypeScript 5.9.3 strict settings",
+      "union projection fails with TS2375",
+      "cross-driver handoff fails with TS2375",
+      "positive contains no cast/assertion/any/unknown/suppression/wrapper/second connection"
+    ]
+  },
+  "unsupportedSyntaxFailClosed": {
+    "exactOuterRootRule": "only the exact imports, direct Object.freeze DTO, direct switch discriminant, two direct branch .db reads, two same-factory calls and one never-helper call are supported",
+    "forbiddenOuterVariants": [
+      "destructuring databaseConnection",
+      "aliasing kind or db",
+      "spreading/wrapping/proxying the connection",
+      "conditional/logical/IIFE/Reflect access for the seam",
+      "computed property access",
+      "default branch without never exhaustiveness",
+      "any extra import/export/member read/call"
+    ],
+    "protectedGraphRule": "non-foldable/unresolved/dynamic module or resource specifier, unknown external package, network/global/process/reflection/dynamic-code/constructor escape, symlink/collision or unclassified node fails with exact path/node/reason",
+    "noWholeLanguageDataflowClaim": "containment removes prohibited capability origins; ordinary downstream carrier syntax is not treated as a taint-proof substitute"
+  },
+  "profileIntegrity": {
+    "algorithm": "sha256-jcs-selected-pointers-v1",
+    "coveredJsonPointers": [
+      "/authority",
+      "/filesystemEnumeration",
+      "/classificationModel",
+      "/protectedAiPolicy",
+      "/outerCompositionRoots",
+      "/adapterZone",
+      "/resourceAndGeneratedPolicy",
+      "/actualTreeProof",
+      "/testAndRootControlPolicy",
+      "/v15M01MutationRequirements",
+      "/moduleClosure",
+      "/prohibitedAcquisitionForms",
+      "/bundleZones",
+      "/actualDatabaseTypeBoundary",
+      "/literalTypeSafeSeam",
+      "/unsupportedSyntaxFailClosed"
+    ],
+    "sha256": "e85d860a8ca013c483b59df8bba2b79376fec46d9fa10522cd9e61ea8c07e310"
+  }
+}
