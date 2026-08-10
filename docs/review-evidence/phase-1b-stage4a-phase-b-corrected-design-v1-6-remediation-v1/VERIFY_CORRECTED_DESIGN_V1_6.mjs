@@ -640,6 +640,7 @@ for (const classId of profile.classificationModel.precedence) pass(`class ${clas
 pass(`zeroClass=0 ambiguous=0 inventory=${proof.hashes.inventorySha256} content=${proof.hashes.contentSha256} classification=${proof.hashes.classificationSha256}`);
 pass("six V15-M01 paths uniquely classified; src/test/** test-only; test/control capability ceilings and Production incoming-edge rule pass");
 pass(`mutation negatives=${mutations.length} all fail closed with exact reasons`);
+for (const mutation of mutations) pass(`mutation ${mutation}=EXPECTED_FAIL_CLOSED`);
 pass("Phase B/protected implementation absent in design mode; Phase D root=0 adapter=0 second composition=0 Provider registry implementation absent");
 pass("M02 selected INCLUDE full Unicode transitions/runtime mismatch/persisted bytes non-regression");
 pass("M03 branch-local positives exit=0; union/cross-driver/destructured negatives=TS2375; no selected seam change");
