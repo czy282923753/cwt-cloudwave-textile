@@ -1,0 +1,53 @@
+code_head=111301aea82569768661c6401b16054161ed19ff
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目
+
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > protects conservative cited prose but requires human semantic review
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects unknown Provider fields at the strict schema boundary
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: A balanced hand feel.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: A balanced hand feel.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: ISO certified textile.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: Contact us today.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: Use DeepSeek.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: Top 3 qualities.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects finite evidence-policy violation: Only $5.
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > accepts an exact cited GSM token and rejects a changed value
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > requires the exact adjacent same-alias MOQ value/unit ref pair
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > derives A-03 refs from the application context policy
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects deterministic repeated-block and repeated-token spam
+ ✓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects the reviewer equivalent-prefix family with cosmetic suffixes 2442ms
+ ✓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > rejects equivalent middle-core families with cosmetic prefixes and suffixes 118ms
+ ✓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > accepts bounded non-repetitive B2B paragraphs with shared textile vocabulary 160ms
+ ↓ src/ai/output/common.test.ts > A-01 through A-10 Draft output protection > derives deterministic candidate refs for blocks
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > builds and deterministically re-encodes an explicit-input context
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > uses the selected M02 classifier and rejects protected input
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects an ineligible Product weightGsm projection
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects an ineligible Product weightGsm projection
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects an ineligible Product composition projection
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects an ineligible Product fabricStyle projection
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects an ineligible Product customAvailable projection
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects an ineligible Product moqPair projection
+ ✓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects the reviewer Product identity/version substitution before accepting values 5ms
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects a mismatched Product target identity binding
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects a mismatched Product target version binding
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects a mismatched target association binding
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects Fabric and Company Fact selector, version, and target-binding substitutions
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > derives closed Fabric and Company Fact provenance without exposing identities to variables
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > emits the MOQ pair as adjacent refs and preserves exact source identity only in provenance
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rebuilds the exact four variable contracts and JCS hash after a JSONB-shaped round trip
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > builds the exact seo_content_draft variable key set
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > builds the exact fabric_knowledge_draft variable key set
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > builds the exact product_description_draft variable key set
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > builds the exact sourcing_guide_draft variable key set
+ ↓ src/ai/applications/draft-assistance/context.test.ts > Draft reconstructible context > rejects cross-use-case Company Facts and aggregate source overflows during durable reconstruction
+ ↓ src/ai/provider-neutral-foundation.integration.test.ts > Phase B Provider-neutral Production foundation > declares exactly the four approved Production keys
+ ↓ src/ai/provider-neutral-foundation.integration.test.ts > Phase B Provider-neutral Production foundation > authorizes and snapshots a Draft target, then stops at durable integration readiness
+ ↓ src/ai/provider-neutral-foundation.integration.test.ts > Phase B Provider-neutral Production foundation > fails target version before readiness without writing
+ ✓ src/ai/provider-neutral-foundation.integration.test.ts > Phase B Provider-neutral Production foundation > enforces Product and Content editor roles from the authoritative target entity type 996ms
+ ✓ src/ai/provider-neutral-foundation.integration.test.ts > Phase B Provider-neutral Production foundation > does not disclose Revision existence or version to the wrong editor 3ms
+
+ Test Files  3 passed (3)
+      Tests  6 passed | 37 skipped (43)
+   Start at  06:21:59
+   Duration  7.12s (transform 191ms, setup 16ms, import 844ms, tests 6.01s, environment 0ms)
+

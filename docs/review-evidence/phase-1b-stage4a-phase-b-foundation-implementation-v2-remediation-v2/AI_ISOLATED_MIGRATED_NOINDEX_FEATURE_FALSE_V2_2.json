@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "codeHead": "111301aea82569768661c6401b16054161ed19ff",
+  "database": "memory://",
+  "migrations": "accepted-through-0020",
+  "appEnvironment": "test",
+  "featureAi": false,
+  "nonProductionNoindex": true,
+  "publicIndexingAllowed": false,
+  "aiModelConfigRows": 0,
+  "aiRunRows": 0,
+  "syntheticPersistenceAuthorities": [],
+  "syntheticPersisted": false,
+  "network": "sandbox-denied"
+}

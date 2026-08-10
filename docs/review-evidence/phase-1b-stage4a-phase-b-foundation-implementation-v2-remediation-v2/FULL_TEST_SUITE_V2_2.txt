@@ -1,0 +1,12 @@
+code_head=111301aea82569768661c6401b16054161ed19ff
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目
+
+[inquiry-error] request 07e5158c-edff-426c-919f-129fdcc73586; details omitted.
+[inquiry-error] request befbebf9-df10-43ec-9fa8-3022ca90a1eb; details omitted.
+
+ Test Files  111 passed (111)
+      Tests  566 passed (566)
+   Start at  06:13:48
+   Duration  264.07s (transform 1.42s, setup 254ms, import 26.09s, tests 225.27s, environment 3.19s)
+

@@ -1,0 +1,110 @@
+{
+  "proofId": "cwt.phase1b.stage4a.phaseb.composition.v2_2",
+  "profileId": "cwt.phase1b.stage4a.phaseb.m03-protected-graph.v2_2",
+  "profileSha256": "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173",
+  "exactCodeHead": "111301aea82569768661c6401b16054161ed19ff",
+  "path": "src/server/ai/phase-b-composition.ts",
+  "realpath": "src/server/ai/phase-b-composition.ts",
+  "sha256": "6f822ca08806b554890ebbfec25c91f3e5e898a65b3869dfcc21f265c41ba24a",
+  "exactImports": [
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "server-only",
+      "position": 0,
+      "from": "src/server/ai/phase-b-composition.ts",
+      "resolutionKind": "external",
+      "externalPackage": "server-only"
+    },
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "@/config/env",
+      "position": 22,
+      "from": "src/server/ai/phase-b-composition.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/config/env.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "@/db/client",
+      "position": 58,
+      "from": "src/server/ai/phase-b-composition.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/client.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "type-only",
+      "specifier": "@/ai/config/trusted-phase-b-environment",
+      "position": 108,
+      "from": "src/server/ai/phase-b-composition.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/ai/config/trusted-phase-b-environment.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "@/ai/applications/draft-assistance/composition",
+      "position": 199,
+      "from": "src/server/ai/phase-b-composition.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/ai/applications/draft-assistance/composition.ts"
+    }
+  ],
+  "rootFacts": {
+    "freezeCalls": 1,
+    "kindReads": 1,
+    "dbReads": 2,
+    "factoryCalls": 2,
+    "switches": 1,
+    "elementAccesses": 0,
+    "spreads": 0
+  },
+  "discriminatedCases": [
+    "pglite",
+    "postgres"
+  ],
+  "neverDefaultCount": 1,
+  "mutuallyExclusiveFactoryCallSites": 2,
+  "runtimeFactoryCallsPerInvocation": 1,
+  "wrapperOrDiscriminatorCrossing": false,
+  "incomingEdges": [],
+  "typeBoundaryProbes": {
+    "positive": [
+      "test-fixtures/ai-types/database-seam/tsconfig.positive.json",
+      "test-fixtures/ai-types/read-scope/tsconfig.positive.json"
+    ],
+    "negative": [
+      {
+        "path": "test-fixtures/ai-types/database-seam/tsconfig.cross-driver-negative.json",
+        "code": "TS2379"
+      },
+      {
+        "path": "test-fixtures/ai-types/database-seam/tsconfig.unnarrowed-negative.json",
+        "code": "TS2379"
+      },
+      {
+        "path": "test-fixtures/ai-types/read-scope/tsconfig.common-authority-negative.json",
+        "code": "TS2339"
+      },
+      {
+        "path": "test-fixtures/ai-types/read-scope/tsconfig.execute-authority-negative.json",
+        "code": "TS2339"
+      },
+      {
+        "path": "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json",
+        "code": "TS2741"
+      },
+      {
+        "path": "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json",
+        "code": "TS2345"
+      }
+    ]
+  },
+  "expectedAbsence": {
+    "phaseDComposition": true,
+    "providerAdapterZone": true
+  }
+}

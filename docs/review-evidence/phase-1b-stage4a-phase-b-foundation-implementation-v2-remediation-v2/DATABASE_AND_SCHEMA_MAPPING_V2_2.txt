@@ -1,0 +1,22 @@
+code_head=111301aea82569768661c6401b16054161ed19ff
+AI foundation candidate verification passed: approved design identity, 40 historical artifacts, journal append, exact columns/defaults/nullability/types, constraints, indexes, and scope.
+
+{
+  "ok": true,
+  "acceptedDesignSha256": "db6ae44d3548e2c0c23ab2b95ee3550fefedb93224f878f5a9ab3070898b60a8",
+  "snapshotSha256": "274ad623210843981a27d262df2057213230f3943c3faafa16a2f15397792321",
+  "tables": [
+    {
+      "table": "ai_model_config",
+      "count": 21,
+      "orderSha256": "bb8f81617e365e1e8095784b07fb3061f65aca44c8aacc76215456de243fb88c",
+      "designSnapshotDrizzleMigrationExact": true
+    },
+    {
+      "table": "ai_runs",
+      "count": 96,
+      "orderSha256": "177a8c3bbe72fd198459e5da8376154030ed39a865704159d03fda9e1eeeecb4",
+      "designSnapshotDrizzleMigrationExact": true
+    }
+  ]
+}

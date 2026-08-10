@@ -1,0 +1,20 @@
+/Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目/scripts/verify-ai-architecture.ts:623
+  throw new ArchitectureGraphFailure(code, detail);
+        ^
+
+ArchitectureGraphFailure [Error]: fail_closed_unsupported_acquisition:{"path":"src/app/page.tsx","rule":"production-acquisition-must-resolve-uniquely","ast":{"form":"dynamic-import","edgeKind":"runtime","position":578},"acquisition":{"resolutionKind":"unsupported","reason":"non_foldable_specifier","specifier":null}}
+    at rejectGraph (/Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目/scripts/verify-ai-architecture.ts:623:9)
+    at enforceCapabilityEdge (/Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目/scripts/verify-ai-architecture.ts:978:7)
+    at ts (/Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目/scripts/verify-ai-architecture.ts:1070:5)
+    at Object.<anonymous> (/Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目/scripts/verify-ai-architecture.ts:1582:60)
+    at Module._compile (node:internal/modules/cjs/loader:1812:14)
+    at Object.transformer (/Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目/node_modules/.pnpm/tsx@4.23.1/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1533:32)
+    at Module._load (node:internal/modules/cjs/loader:1335:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:328:3) {
+  code: 'fail_closed_unsupported_acquisition',
+  detail: '{"path":"src/app/page.tsx","rule":"production-acquisition-must-resolve-uniquely","ast":{"form":"dynamic-import","edgeKind":"runtime","position":578},"acquisition":{"resolutionKind":"unsupported","reason":"non_foldable_specifier","specifier":null}}'
+}
+
+Node.js v24.14.0
