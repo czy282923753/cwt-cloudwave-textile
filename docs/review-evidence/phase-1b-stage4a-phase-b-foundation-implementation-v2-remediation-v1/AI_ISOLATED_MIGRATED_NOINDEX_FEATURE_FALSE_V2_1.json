@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "database": "memory://",
+  "migrations": "accepted-through-0020",
+  "appEnvironment": "test",
+  "featureAi": false,
+  "nonProductionNoindex": true,
+  "publicIndexingAllowed": false,
+  "aiModelConfigRows": 0,
+  "aiRunRows": 0,
+  "syntheticPersisted": false,
+  "network": "sandbox-denied"
+}

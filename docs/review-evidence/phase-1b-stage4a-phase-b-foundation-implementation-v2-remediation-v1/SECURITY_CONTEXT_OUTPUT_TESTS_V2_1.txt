@@ -1,0 +1,10 @@
+code_head=12817e6727ee2308ea8481d9f0153048f1ce9f18
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/07a1/CWT（CloudWave Textile）项目
+
+
+ Test Files  5 passed (5)
+      Tests  110 passed (110)
+   Start at  05:10:24
+   Duration  7.60s (transform 189ms, setup 20ms, import 876ms, tests 6.31s, environment 0ms)
+

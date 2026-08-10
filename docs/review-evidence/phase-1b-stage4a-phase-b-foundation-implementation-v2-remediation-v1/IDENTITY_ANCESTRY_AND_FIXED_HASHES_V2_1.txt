@@ -1,0 +1,25 @@
+branch=codex/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1
+code_head=12817e6727ee2308ea8481d9f0153048f1ce9f18
+code_parent=b30bb52beab8b45b83efd41ec1e76d6a154a161a
+design_start=3f475e13d73d9d68a4dfb9a040941c57f1ee92e6
+design_start_ancestor=true
+failed_candidate_ref=0d5b067c0912290ffd91d4d34b064d9c8dacd712
+authorized_remediation_parent_ancestor=true
+failed_ref_non_ancestor=755e514540351ed53ee96bedd5ea12f3e934387e
+failed_ref_non_ancestor=a696325fa2608c77e526bb7403bb911d34200064
+failed_ref_non_ancestor=b1a73bb8aae87f7c862117b32ce5c2a051f21b84
+failed_ref_non_ancestor=d8a24d48592a8c5e112d20edd24505e9e34d83c9
+remediation_merge_commits=0
+frozen_tag_object=1c626f9b788e4c6ed0480a7040aa54ccef3e6c76
+frozen_tag_commit=31c0e405acfdd0d05200d0fb2531e897a541a2c4
+schema_migration_package_lock_diff=0
+
+immutable independent FAIL manifest:
+docs/PHASE_1B_STAGE4A_PHASE_B_INDEPENDENT_IMPLEMENTATION_REVIEW_V2_0.md: OK
+docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/INDEPENDENT_IMPLEMENTATION_REVIEW_EVIDENCE_V2_0.md: OK
+docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_ARCHITECTURE_BUSINESS_EDGE_CHALLENGE_V2_0.txt: OK
+docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_CONTEXT_OUTPUT_AND_M02_CHALLENGE_V2_0.mts: OK
+docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_FRESH_VERIFICATION_OUTPUT_V2_0.txt: OK
+docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_RAW_JSON_CHALLENGE_V2_0.mts: OK
+docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_SCHEMA_MAPPING_V2_0.mjs: OK
+manifest_sha256=0de273493e7ea1a148469f93459b7e3b9186b79f5f072375c2c2aa536ebda940

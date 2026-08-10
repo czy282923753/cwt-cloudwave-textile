@@ -1,0 +1,154 @@
+code_head=12817e6727ee2308ea8481d9f0153048f1ce9f18
+
+## 0020 candidate verifier
+AI foundation candidate verification passed: approved design identity, 40 historical artifacts, journal append, exact columns/defaults/nullability/types, constraints, indexes, and scope.
+
+## reviewer schema mapping
+{
+  "ok": true,
+  "acceptedDesignSha256": "db6ae44d3548e2c0c23ab2b95ee3550fefedb93224f878f5a9ab3070898b60a8",
+  "snapshotSha256": "274ad623210843981a27d262df2057213230f3943c3faafa16a2f15397792321",
+  "tables": [
+    {
+      "table": "ai_model_config",
+      "count": 21,
+      "orderSha256": "bb8f81617e365e1e8095784b07fb3061f65aca44c8aacc76215456de243fb88c",
+      "designSnapshotDrizzleMigrationExact": true
+    },
+    {
+      "table": "ai_runs",
+      "count": 96,
+      "orderSha256": "177a8c3bbe72fd198459e5da8376154030ed39a865704159d03fda9e1eeeecb4",
+      "designSnapshotDrizzleMigrationExact": true
+    }
+  ]
+}
+
+## prompt bundle
+AI Prompt bundle verification passed.
+
+## prompt history
+AI Prompt history verification passed: 6bc26cf035608a21a057d6f4e87da8d4f7f23d40..12817e6727ee2308ea8481d9f0153048f1ce9f18
+
+## reviewer raw JSON challenge
+{
+  "escapedDuplicate": "output_invalid_json",
+  "nestedDuplicate": "output_invalid_json",
+  "normalizedDuplicate": "output_invalid_json",
+  "fenced": "output_invalid_json",
+  "concatenated": "output_invalid_json",
+  "truncatedEscape": "output_truncated",
+  "exactByteBoundary": "accepted",
+  "overByteBoundary": "output_too_large",
+  "exactMemberBoundary": "accepted",
+  "overMemberBoundary": "output_invalid_json"
+}
+
+## reviewer context/output/M02 challenge
+{
+  "invalidProductValuesAccepted": {
+    "negativeWeight": false,
+    "halfMoqPair": false,
+    "structuralComposition": false
+  },
+  "aggregateLimitsAccepted": {
+    "nineFabricSources": false,
+    "twentyOneCompanyFacts": false
+  },
+  "provenanceIdentity": {
+    "productId": "11111111-1111-4111-8111-111111111111",
+    "recordVersion": 7
+  },
+  "promptVariables": {
+    "keys": [
+      "locale",
+      "media_placement_refs_json",
+      "product_context_json",
+      "requested_tone"
+    ],
+    "inputHashMatchesPrepared": false
+  },
+  "claimedCrossUseCase": {
+    "durableContextAccepted": false,
+    "productOutputAcceptedWithCompanyFactRef": false
+  },
+  "repeatedSpamAccepted": false,
+  "m02Cases": {
+    "deepseek_diacritic": {
+      "kind": "protected_match",
+      "category": "provider_override",
+      "priority": 28,
+      "ruleId": "value.provider-selected-name.lexical.v2_1",
+      "targetDomain": "value",
+      "path": ""
+    },
+    "deepseek_default_ignorable": {
+      "kind": "protected_match",
+      "category": "provider_override",
+      "priority": 27,
+      "ruleId": "value.provider-selected-model-prefix.v1",
+      "targetDomain": "value",
+      "path": ""
+    },
+    "deepseek_combining_circle": {
+      "kind": "protected_match",
+      "category": "provider_override",
+      "priority": 28,
+      "ruleId": "value.provider-selected-name.lexical.v2_1",
+      "targetDomain": "value",
+      "path": ""
+    },
+    "deepseek_lf": {
+      "kind": "protected_match",
+      "category": "provider_override",
+      "priority": 28,
+      "ruleId": "value.provider-selected-name.lexical.v2_1",
+      "targetDomain": "value",
+      "path": ""
+    },
+    "visible_hyphen_tradeoff": {
+      "kind": "allow"
+    },
+    "visible_em_dash_tradeoff": {
+      "kind": "allow"
+    },
+    "ordinary_space_tradeoff": {
+      "kind": "allow"
+    },
+    "safe_persian_zwnj": {
+      "kind": "allow"
+    },
+    "safe_emoji_zwj": {
+      "kind": "allow"
+    },
+    "safe_accented_cjk": {
+      "kind": "allow"
+    }
+  },
+  "m02Boundaries": {
+    "perGapFour": {
+      "kind": "protected_match",
+      "category": "provider_override",
+      "priority": 28,
+      "ruleId": "value.provider-selected-name.lexical.v2_1",
+      "targetDomain": "value",
+      "path": ""
+    },
+    "perGapFive": {
+      "kind": "unsupported_value",
+      "path": ""
+    },
+    "total64": {
+      "kind": "protected_match",
+      "category": "credential_secret",
+      "priority": 21,
+      "ruleId": "value.credential.lexical.v2",
+      "targetDomain": "value",
+      "path": ""
+    },
+    "total65": {
+      "kind": "unsupported_value",
+      "path": ""
+    }
+  }
+}

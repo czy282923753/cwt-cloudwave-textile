@@ -1,0 +1,46 @@
+code_head=12817e6727ee2308ea8481d9f0153048f1ce9f18
+
+POSITIVE test-fixtures/ai-types/database-seam/tsconfig.positive.json
+exit=0
+
+POSITIVE test-fixtures/ai-types/read-scope/tsconfig.positive.json
+exit=0
+
+NEGATIVE test-fixtures/ai-types/database-seam/tsconfig.cross-driver-negative.json
+test-fixtures/ai-types/database-seam/cross-driver.negative.ts(20,39): error TS2379: Argument of type 'PostgresAppDatabase' is not assignable to parameter of type 'AppDatabase<PgliteQueryResultHKT>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  The types of '_.session' are incompatible between these types.
+    Type 'PgSession<PostgresJsQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>' is not assignable to type 'PgSession<PgliteQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>'.
+      Type 'PostgresJsQueryResultHKT' is not assignable to type 'PgliteQueryResultHKT'.
+        Types of property 'type' are incompatible.
+          Type 'Row[] & Iterable<Row> & ResultQueryMeta<number, string | number>' is missing the following properties from type 'Results<{ [key: string]: any; }>': rows, fields
+expected_nonzero=true
+
+NEGATIVE test-fixtures/ai-types/database-seam/tsconfig.unnarrowed-negative.json
+test-fixtures/ai-types/database-seam/unnarrowed.negative.ts(13,28): error TS2379: Argument of type 'PgliteAppDatabase | PostgresAppDatabase' is not assignable to parameter of type 'AppDatabase<PgliteQueryResultHKT>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Type 'PostgresAppDatabase' is not assignable to type 'PgDatabase<PgliteQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+    The types of '_.session' are incompatible between these types.
+      Type 'PgSession<PostgresJsQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>' is not assignable to type 'PgSession<PgliteQueryResultHKT, typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index"), ExtractTablesWithRelations<typeof import("/Users/calvin/.codex/worktrees/07a1/CWT\uFF08CloudWave Textile\uFF09\u9879\u76EE/src/db/schema/index")>>'.
+        Type 'PostgresJsQueryResultHKT' is not assignable to type 'PgliteQueryResultHKT'.
+          Types of property 'type' are incompatible.
+            Type 'Row[] & Iterable<Row> & ResultQueryMeta<number, string | number>' is missing the following properties from type 'Results<{ [key: string]: any; }>': rows, fields
+expected_nonzero=true
+
+NEGATIVE test-fixtures/ai-types/read-scope/tsconfig.common-authority-negative.json
+test-fixtures/ai-types/read-scope/common-authority.negative.ts(8,16): error TS2339: Property 'lockSelectedConfigForNewRequest' does not exist on type 'DraftConsistentReadScope<TQueryResult>'.
+expected_nonzero=true
+
+NEGATIVE test-fixtures/ai-types/read-scope/tsconfig.execute-authority-negative.json
+test-fixtures/ai-types/read-scope/execute-authority.negative.ts(11,68): error TS2339: Property 'execute' does not exist on type 'Pick<AppDatabase<TQueryResult>, "select">'.
+expected_nonzero=true
+
+NEGATIVE test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json
+test-fixtures/ai-types/read-scope/external-fabrication.negative.ts(7,3): error TS2741: Property '[draftConsistentReadScopeBrand]' is missing in type '{ mode: "read_only"; }' but required in type 'ReadOnlyDraftAvailabilityScope<TQueryResult>'.
+expected_nonzero=true
+
+NEGATIVE test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json
+test-fixtures/ai-types/read-scope/mode-mismatch.negative.ts(13,21): error TS2345: Argument of type 'SyntheticObservationReadScope' is not assignable to parameter of type 'ReadOnlyDraftAvailabilityScope<PgQueryResultHKT>'.
+  Property '[draftConsistentReadScopeBrand]' is missing in type 'SyntheticObservationReadScope' but required in type 'ReadOnlyDraftAvailabilityScope<PgQueryResultHKT>'.
+expected_nonzero=true
+
+execute authority source scan:
+execute_matches=0

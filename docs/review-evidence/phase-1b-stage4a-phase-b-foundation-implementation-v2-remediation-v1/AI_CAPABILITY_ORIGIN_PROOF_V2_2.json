@@ -1,0 +1,262 @@
+{
+  "proofId": "cwt.phase1b.stage4a.phaseb.capability-origin.v2_2",
+  "profileId": "cwt.phase1b.stage4a.phaseb.m03-protected-graph.v2_2",
+  "profileSha256": "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173",
+  "exactCodeHead": "12817e6727ee2308ea8481d9f0153048f1ce9f18",
+  "graphSha256": "f34dc37f3cf6d8b8c2a8cf67546e28e6579a9f4870191e56bb0fc358dcbd2998",
+  "protectedClosure": [
+    "src/ai/applications/contracts.ts",
+    "src/ai/applications/draft-assistance/association.ts",
+    "src/ai/applications/draft-assistance/authorization.ts",
+    "src/ai/applications/draft-assistance/composition.ts",
+    "src/ai/applications/draft-assistance/context.ts",
+    "src/ai/applications/draft-assistance/contracts.ts",
+    "src/ai/applications/draft-assistance/facade.ts",
+    "src/ai/applications/draft-assistance/read-scopes.ts",
+    "src/ai/canonical-json.ts",
+    "src/ai/config/feature-gate-repository.ts",
+    "src/ai/config/model-config-repository.ts",
+    "src/ai/config/model-config-resolver.ts",
+    "src/ai/config/trusted-phase-b-environment.ts",
+    "src/ai/context/contracts.ts",
+    "src/ai/context/protected-data.ts",
+    "src/ai/core/contracts.ts",
+    "src/ai/core/orchestrator.ts",
+    "src/ai/errors.ts",
+    "src/ai/index.ts",
+    "src/ai/internal/claimed-run-authority.ts",
+    "src/ai/internal/preparation.ts",
+    "src/ai/internal/worker-entry.ts",
+    "src/ai/output/common.ts",
+    "src/ai/output/fabric-knowledge-draft.ts",
+    "src/ai/output/product-description-draft.ts",
+    "src/ai/output/raw-json.ts",
+    "src/ai/output/registry.ts",
+    "src/ai/output/seo-content-draft.ts",
+    "src/ai/output/sourcing-guide-draft.ts",
+    "src/ai/prompts/contracts.ts",
+    "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
+    "src/ai/prompts/loader.ts",
+    "src/ai/prompts/renderer.ts",
+    "src/ai/providers/registry.ts",
+    "src/ai/providers/text-provider.ts",
+    "src/ai/registry/application-registry.ts",
+    "src/ai/registry/production-use-cases.ts",
+    "src/ai/server-bundle-marker.ts",
+    "src/ai/telemetry.ts",
+    "src/auth/permissions.ts",
+    "src/db/schema/ai.ts",
+    "src/db/schema/analytics.ts",
+    "src/db/schema/assets.ts",
+    "src/db/schema/catalog.ts",
+    "src/db/schema/content.ts",
+    "src/db/schema/crm.ts",
+    "src/db/schema/enums.ts",
+    "src/db/schema/identity.ts",
+    "src/db/schema/imports.ts",
+    "src/db/schema/index.ts",
+    "src/db/schema/seo.ts",
+    "src/db/schema/settings.ts",
+    "src/db/types.ts"
+  ],
+  "coreClosure": [
+    "src/ai/canonical-json.ts",
+    "src/ai/core/contracts.ts",
+    "src/ai/core/orchestrator.ts",
+    "src/ai/errors.ts",
+    "src/ai/internal/claimed-run-authority.ts",
+    "src/ai/internal/preparation.ts",
+    "src/ai/output/raw-json.ts",
+    "src/ai/prompts/contracts.ts",
+    "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
+    "src/ai/prompts/loader.ts",
+    "src/ai/prompts/renderer.ts",
+    "src/ai/providers/registry.ts",
+    "src/ai/providers/text-provider.ts",
+    "src/ai/server-bundle-marker.ts"
+  ],
+  "publicClientRoots": [
+    "src/public-site/analytics-consent.tsx",
+    "src/public-site/inquiry-form.tsx",
+    "src/public-site/product-view-tracker.tsx",
+    "src/public-site/tracking.tsx"
+  ],
+  "publicClientClosure": [
+    "src/crm/country-codes.ts",
+    "src/public-site/analytics-consent.tsx",
+    "src/public-site/inquiry-form.tsx",
+    "src/public-site/product-view-tracker.tsx",
+    "src/public-site/tracking.tsx"
+  ],
+  "serverClosure": [
+    "src/ai/applications/draft-assistance/association.ts",
+    "src/ai/applications/draft-assistance/authorization.ts",
+    "src/ai/applications/draft-assistance/composition.ts",
+    "src/ai/applications/draft-assistance/context.ts",
+    "src/ai/applications/draft-assistance/contracts.ts",
+    "src/ai/applications/draft-assistance/facade.ts",
+    "src/ai/applications/draft-assistance/read-scopes.ts",
+    "src/ai/canonical-json.ts",
+    "src/ai/config/feature-gate-repository.ts",
+    "src/ai/config/model-config-repository.ts",
+    "src/ai/context/protected-data.ts",
+    "src/ai/core/contracts.ts",
+    "src/ai/core/orchestrator.ts",
+    "src/ai/errors.ts",
+    "src/ai/output/common.ts",
+    "src/ai/output/fabric-knowledge-draft.ts",
+    "src/ai/output/product-description-draft.ts",
+    "src/ai/output/raw-json.ts",
+    "src/ai/output/registry.ts",
+    "src/ai/output/seo-content-draft.ts",
+    "src/ai/output/sourcing-guide-draft.ts",
+    "src/ai/prompts/renderer.ts",
+    "src/ai/registry/application-registry.ts",
+    "src/ai/registry/production-use-cases.ts",
+    "src/ai/server-bundle-marker.ts",
+    "src/config/env.ts",
+    "src/db/client.ts",
+    "src/db/schema/ai.ts",
+    "src/db/schema/analytics.ts",
+    "src/db/schema/assets.ts",
+    "src/db/schema/catalog.ts",
+    "src/db/schema/content.ts",
+    "src/db/schema/crm.ts",
+    "src/db/schema/enums.ts",
+    "src/db/schema/identity.ts",
+    "src/db/schema/imports.ts",
+    "src/db/schema/index.ts",
+    "src/db/schema/seo.ts",
+    "src/db/schema/settings.ts",
+    "src/server/ai/phase-b-composition.ts"
+  ],
+  "protectedForbiddenOriginReachability": {
+    "environment": false,
+    "databaseConnection": false,
+    "providerAdapter": false,
+    "testing": false
+  },
+  "exactProtectedCwtEdges": [
+    {
+      "form": "import",
+      "edgeKind": "type-only",
+      "specifier": "@/db/types",
+      "position": 132,
+      "from": "src/ai/applications/draft-assistance/composition.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/types.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "@/db/schema",
+      "position": 179,
+      "from": "src/ai/applications/draft-assistance/composition.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/schema/index.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "type-only",
+      "specifier": "@/auth/permissions",
+      "position": 0,
+      "from": "src/ai/applications/draft-assistance/contracts.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/auth/permissions.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "type-only",
+      "specifier": "@/db/types",
+      "position": 226,
+      "from": "src/ai/applications/draft-assistance/facade.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/types.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "type-only",
+      "specifier": "@/db/types",
+      "position": 70,
+      "from": "src/ai/applications/draft-assistance/read-scopes.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/types.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "@/db/schema",
+      "position": 353,
+      "from": "src/ai/config/feature-gate-repository.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/schema/index.ts"
+    },
+    {
+      "form": "import",
+      "edgeKind": "runtime",
+      "specifier": "@/db/schema",
+      "position": 576,
+      "from": "src/ai/config/model-config-repository.ts",
+      "resolutionKind": "local",
+      "resolvedTarget": "src/db/schema/index.ts"
+    }
+  ],
+  "protectedExternalPackages": [
+    "drizzle-orm",
+    "node:crypto",
+    "server-only",
+    "zod"
+  ],
+  "outerCapabilityOrigins": [
+    "src/config/env.ts",
+    "src/db/client.ts"
+  ],
+  "graphFaultResults": [
+    {
+      "id": "business-direct-phase-b-root",
+      "code": "fail_closed_composition_incoming_edge"
+    },
+    {
+      "id": "business-alias-dynamic-phase-b-root",
+      "code": "fail_closed_composition_incoming_edge"
+    },
+    {
+      "id": "business-reexport-phase-b-root",
+      "code": "fail_closed_composition_incoming_edge"
+    },
+    {
+      "id": "business-require-phase-b-root",
+      "code": "fail_closed_composition_incoming_edge"
+    },
+    {
+      "id": "business-resource-phase-b-root",
+      "code": "fail_closed_composition_incoming_edge"
+    },
+    {
+      "id": "protected-computed-dynamic",
+      "code": "fail_closed_unsupported_acquisition"
+    },
+    {
+      "id": "protected-unknown-package",
+      "code": "fail_closed_unknown_protected_package"
+    },
+    {
+      "id": "public-client-ai-edge",
+      "code": "fail_closed_public_client_to_server"
+    },
+    {
+      "id": "second-composition-root",
+      "code": "fail_closed_undeclared_composition"
+    },
+    {
+      "id": "early-phase-d-root",
+      "code": "fail_closed_future_stage_unauthorized"
+    },
+    {
+      "id": "early-provider-adapter",
+      "code": "fail_closed_future_stage_unauthorized"
+    }
+  ],
+  "providerRegistry": "exact-empty",
+  "secondDatabaseAuthority": false
+}
