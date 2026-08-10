@@ -288,7 +288,10 @@ const changedTracked = git(["diff", "--name-only", fixed.branchParent, "HEAD"])
 const changedUntracked = git(["ls-files", "--others", "--exclude-standard"])
   .split("\n")
   .filter(Boolean);
-const candidatePaths = [...new Set([...changedTracked, ...changedUntracked])].sort();
+const manifestRelativePath =
+  "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/SHA256SUMS.txt";
+const allCandidatePaths = [...new Set([...changedTracked, ...changedUntracked])].sort();
+const candidatePaths = allCandidatePaths.filter((path) => path !== manifestRelativePath);
 assert.ok(candidatePaths.length > 0);
 for (const path of candidatePaths) {
   assert.ok(path.startsWith("docs/"), `non-doc Candidate path: ${path}`);
@@ -297,6 +300,20 @@ for (const path of candidatePaths) {
   assert.notEqual(path, "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_V1_1.md");
 }
 pass(`Candidate scope docs/evidence only paths=${candidatePaths.length}`);
+
+const candidateManifestPath = repositoryPath(manifestRelativePath);
+if (existsSync(candidateManifestPath)) {
+  const manifestRows = readFileSync(candidateManifestPath, "utf8").trimEnd().split("\n");
+  assert.equal(manifestRows.length, candidatePaths.length);
+  const manifestedPaths = [];
+  for (const row of manifestRows) {
+    const match = /^([0-9a-f]{64})  (.+)$/u.exec(row);
+    assert.ok(match, `invalid Candidate manifest row: ${row}`);
+    manifestedPaths.push(match[2]);
+    assert.equal(sha256File(repositoryPath(match[2])), match[1], match[2]);
+  }
+  assert.deepEqual(manifestedPaths, candidatePaths);
+}
 
 const immutableImportedPrefixes = [
   "docs/PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_INDEPENDENT_REREVIEW_V1_0.md",
