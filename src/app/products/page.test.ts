@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseProductPage, productPageHref } from "./page";
+import { parseProductPage, productPageHref } from "@/public-site/product-pagination";
 
 describe("public Product pagination contract", () => {
   it("keeps page one canonical and makes later pages self-canonical", () => {
