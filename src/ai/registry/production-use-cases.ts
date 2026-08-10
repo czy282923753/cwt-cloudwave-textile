@@ -37,6 +37,7 @@ import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json"
 import {
   createOpaqueAvailabilityInvocation,
   createOpaqueRequestInvocation,
+  type ClaimedApplicationRuntimeRegistryV1,
   type PreparedRequestIdentityV1,
   type OpaqueClaimedApplicationRuntimeV1,
 } from "@/ai/core/contracts";
@@ -49,7 +50,10 @@ import {
 } from "@/ai/output/registry";
 import type { ProtectedDraftCandidateV1 } from "@/ai/output/common";
 
-import { createTypedApplicationRegistry } from "./application-registry";
+import {
+  createClaimedApplicationRuntimeRegistryV1,
+  createTypedApplicationRegistry,
+} from "./application-registry";
 
 const uuid = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -357,17 +361,10 @@ type DraftDefinitionV1<TQueryResult extends PgQueryResultHKT> = AiApplicationDef
   TransactionBoundDraftEnqueueScope<TQueryResult>
 >;
 
-export function createProductionApplicationRegistryV1<
+function createProductionDefinitionsV1<
   TQueryResult extends PgQueryResultHKT,
->(dependencies: DraftRegistryDependenciesV1<TQueryResult>): TypedApplicationRegistry<
-  DraftAssistanceCommandV1,
-  DraftDurableAssociationWithoutHashV1,
-  ReconstructibleDraftContextV1,
-  ProtectedDraftCandidateV1,
-  DraftConsistentReadScope<TQueryResult>,
-  ReadOnlyDraftAvailabilityScope<TQueryResult>,
-  TransactionBoundDraftEnqueueScope<TQueryResult>
-> {
+>(dependencies: DraftRegistryDependenciesV1<TQueryResult>):
+  readonly DraftDefinitionV1<TQueryResult>[] {
   const availabilityBinder = createDraftAvailabilityBinder(dependencies);
   const requestBinder = createDraftRequestBinder(dependencies);
   const definitions: DraftDefinitionV1<TQueryResult>[] = [];
@@ -421,8 +418,32 @@ export function createProductionApplicationRegistryV1<
       policyVersion: output.policyVersion,
     });
   }
-  const registry = createTypedApplicationRegistry(definitions);
+  return definitions;
+}
+
+export function createProductionApplicationRegistryV1<
+  TQueryResult extends PgQueryResultHKT,
+>(dependencies: DraftRegistryDependenciesV1<TQueryResult>): TypedApplicationRegistry<
+  DraftAssistanceCommandV1,
+  DraftDurableAssociationWithoutHashV1,
+  ReconstructibleDraftContextV1,
+  ProtectedDraftCandidateV1,
+  DraftConsistentReadScope<TQueryResult>,
+  ReadOnlyDraftAvailabilityScope<TQueryResult>,
+  TransactionBoundDraftEnqueueScope<TQueryResult>
+> {
+  const registry = createTypedApplicationRegistry(createProductionDefinitionsV1(dependencies));
   if (!registry.ok) throw new Error("Production application registry is invalid.");
+  return registry.value;
+}
+
+export function createProductionClaimedApplicationRegistryV1<
+  TQueryResult extends PgQueryResultHKT,
+>(dependencies: DraftRegistryDependenciesV1<TQueryResult>): ClaimedApplicationRuntimeRegistryV1 {
+  const registry = createClaimedApplicationRuntimeRegistryV1(
+    createProductionDefinitionsV1(dependencies),
+  );
+  if (!registry.ok) throw new Error("Production claimed application registry is invalid.");
   return registry.value;
 }
 
