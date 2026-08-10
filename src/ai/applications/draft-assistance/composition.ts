@@ -32,10 +32,12 @@ import type {
 import { createDraftAssistanceAvailabilityFacadeV1 } from "./facade";
 import { withDraftReadExecutor } from "./read-scopes";
 
-function actorCanEdit(command: DraftAssistanceCommandV1): boolean {
-  if (command.actor.role === "admin") return true;
-  if (command.target.type === "product_draft") return command.actor.role === "product_editor";
-  return command.actor.role === "content_editor";
+function actorCanEditEntityType(
+  role: string,
+  entityType: "product" | "content",
+): boolean {
+  if (role === "admin") return true;
+  return entityType === "product" ? role === "product_editor" : role === "content_editor";
 }
 
 function contentChannelAllowed(
@@ -52,7 +54,6 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
   DraftTargetReadRepository<TQueryResult> {
   return {
     async authorizeAndReadTargetForAvailability(input) {
-      if (!actorCanEdit(input.command)) return aiFailure("authorization_denied");
       return withDraftReadExecutor(input.scope, async (database) => {
         if (input.association.targetType === "product_draft") {
           if (input.command.useCase !== "product_description_draft" && input.command.useCase !== "seo_content_draft") {
@@ -67,6 +68,9 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
           )).where(eq(products.id, input.association.targetProductId));
           const row = rows[0];
           if (row === undefined) return aiFailure("authorization_denied");
+          if (!actorCanEditEntityType(input.actor.roleKey, "product")) {
+            return aiFailure("authorization_denied");
+          }
           if (row.status !== "draft") return aiFailure("target_not_editable");
           if (row.version !== input.association.expectedTargetVersion) return aiFailure("target_version_conflict");
           return buildAuthorizedDraftAssociationV1(input.association);
@@ -82,6 +86,9 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
           )).where(eq(contents.id, input.association.targetContentId));
           const row = rows[0];
           if (row === undefined) return aiFailure("authorization_denied");
+          if (!actorCanEditEntityType(input.actor.roleKey, "content")) {
+            return aiFailure("authorization_denied");
+          }
           if (!contentChannelAllowed(input.command.useCase, row.channel)) return aiFailure("target_scope_mismatch");
           if (row.status !== "draft") return aiFailure("target_not_editable");
           if (row.version !== input.association.expectedTargetVersion) return aiFailure("target_version_conflict");
@@ -99,11 +106,16 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
         )).where(eq(editorialRevisions.id, input.association.targetRevisionId));
         const row = rows[0];
         if (row === undefined) return aiFailure("authorization_denied");
+        if (row.entityType !== "product" && row.entityType !== "content") {
+          return aiFailure("target_scope_mismatch");
+        }
+        if (!actorCanEditEntityType(input.actor.roleKey, row.entityType)) {
+          return aiFailure("authorization_denied");
+        }
         if (row.locale !== "en" ||
           (row.entityType === "product" &&
             input.command.useCase !== "product_description_draft" && input.command.useCase !== "seo_content_draft") ||
-          (row.entityType === "content" && !contentChannelAllowed(input.command.useCase, row.contentChannel)) ||
-          (row.entityType !== "product" && row.entityType !== "content")) {
+          (row.entityType === "content" && !contentChannelAllowed(input.command.useCase, row.contentChannel))) {
           return aiFailure("target_scope_mismatch");
         }
         if (row.status !== "draft") return aiFailure("target_not_editable");
