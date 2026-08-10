@@ -743,7 +743,7 @@ function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
 
 function collectAcquisitions(path: string, text: string): readonly ParsedAcquisitionV1[] {
   const syntaxCheck = ts.transpileModule(text, {
-    fileName: path,
+    fileName: path.endsWith(".d.ts") ? path.slice(0, -5) + ".ts" : path,
     reportDiagnostics: true,
     compilerOptions: {
       target: ts.ScriptTarget.ESNext,
