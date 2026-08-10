@@ -41,8 +41,9 @@ M03-D1-DISCRIMINATED-SEAM remains byte-identical and independently PASS. Its gra
 | Parent's direct parent | `6bf81cbebbe9c17aff668049fbc6f3c43a44bf80` |
 | Clean restart checkpoint | `6bc26cf035608a21a057d6f4e87da8d4f7f23d40` |
 | Branch | `codex/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1` |
-| Independent FAIL import checkpoint | `f1af1f8736dfa2d55017444d2dfce75598796779`, parent `87bf5025...` |
-| TECH-M01 root-contract checkpoint | `2ee5631`, parent `f1af1f8...` |
+| Independent FAIL import checkpoint | `f1af1f8736dfa2d55017444d2dfce75598796779`, parent `87bf5025587b223aef3929172411cfeeb6fb1ca7` |
+| TECH-M01 root-contract checkpoint | `2ee5631699de07127f51d90ceca5aa2e7d59679b`, parent `f1af1f8736dfa2d55017444d2dfce75598796779` |
+| Report/manifest checkpoint | `c0752ed80b461ebd60ee9192eada9af6beee7abe`, parent `2ee5631699de07127f51d90ceca5aa2e7d59679b` |
 | Final package HEAD | recorded in the coordinator callback/final handoff after the content-addressed report and manifest commits |
 
 The V1.0 artifacts remain byte-identical:
@@ -60,6 +61,8 @@ The Fresh Independent FAIL authority was imported byte-for-byte at its original 
 | [Independent Review V1.0](PHASE_1B_STAGE4A_PHASE_B_THREE_STRIKE_TECHNICAL_ESCALATION_INDEPENDENT_REVIEW_V1_0.md) | `6d56bb4f3f632e55e3e3668fcfe67901709ad663edf6edd5c5a8074b56c763cf` |
 | [Independent evidence](review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/INDEPENDENT_TECHNICAL_ESCALATION_REVIEW_EVIDENCE_V1_0.md) | `06bb7ec59a84015e68c925e0921936b2471a42d323bf792b1631b5c87813082f` |
 | Reviewer 8-item manifest | `ab2a9a279288174bd34ce98efef4ef8d3ed948ca7a67647a22146da7f4ab32d5` |
+
+The imported evidence contains three Markdown two-space hard breaks authored by the Reviewer. Repository-wide `git diff --check` therefore reports those preserved bytes. V1.1 verification first requires the exact Reviewer hashes/8-item manifest, then applies strict whitespace checking only to the new V1.1 reports and remediation directory. Rewriting the imported evidence to silence that diagnostic would violate the byte-identity requirement.
 
 No failed implementation or diagnostic Candidate is an ancestor. No V1/V2/V3 mechanism was reused.
 

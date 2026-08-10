@@ -1527,6 +1527,22 @@ for (const path of allChangedPaths) {
 }
 pass(`scope guard ${allChangedPaths.length} paths; only imported FAIL and new V1.1 docs/evidence`);
 
+const ownedWhitespaceCheck = run("git", [
+  "diff",
+  "--check",
+  `${fixed.git.remediationParent}...HEAD`,
+  "--",
+  reportPaths[0],
+  reportPaths[1],
+  remediationEvidencePath,
+]);
+assert.equal(
+  ownedWhitespaceCheck.status,
+  0,
+  `V1.1-owned whitespace failure: ${ownedWhitespaceCheck.stdout}${ownedWhitespaceCheck.stderr}`,
+);
+pass("strict whitespace check for V1.1-owned artifacts; byte-identical reviewer hard breaks preserved by hash");
+
 if (captureMode) {
   pass("capture mode: remediation manifest and final clean-state checks deferred");
 } else {
