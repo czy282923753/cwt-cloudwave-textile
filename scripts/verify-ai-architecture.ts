@@ -185,6 +185,317 @@ function selectorMatches(path: string, selector: MatchDefinition): boolean {
   return positive && !negative;
 }
 
+class ExpectedMutationRejection extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+function rejectMutation(code: string): never {
+  throw new ExpectedMutationRejection(code);
+}
+
+function requireSingleClass(
+  path: string,
+  definitions: readonly RootClassDefinition[],
+): string {
+  const matches = definitions.filter((definition) => selectorMatches(path, definition.match));
+  if (matches.length === 0) rejectMutation("fail_closed_unclassified");
+  if (matches.length > 1) rejectMutation("fail_closed_ambiguous");
+  return matches[0]?.id ?? rejectMutation("fail_closed_unclassified");
+}
+
+function replaceDefinition(
+  definitions: readonly RootClassDefinition[],
+  id: string,
+  update: (definition: RootClassDefinition) => RootClassDefinition,
+): readonly RootClassDefinition[] {
+  return definitions.map((definition) => definition.id === id ? update(definition) : definition);
+}
+
+function withoutFileDisposition(
+  path: string,
+  classId: string,
+): readonly RootClassDefinition[] {
+  return replaceDefinition(classDefinitions, classId, (definition) => ({
+    ...definition,
+    match: {
+      ...definition.match,
+      files: definition.match.files.filter((member) => member !== path),
+      excludeFiles: [...definition.match.excludeFiles, path],
+    },
+  }));
+}
+
+function requireCandidateRetention(observedPaths: readonly string[], candidatePaths: readonly string[]): void {
+  if (observedPaths.some((path) => !candidatePaths.includes(path))) {
+    rejectMutation("fail_closed_lifecycle_candidate_missing");
+  }
+}
+
+function requirePhysicalNode(input: {
+  readonly kind: "file" | "directory" | "symlink";
+  readonly canonicalEscape?: boolean;
+  readonly inodeAlias?: boolean;
+}): void {
+  if (input.kind === "symlink") rejectMutation("fail_closed_symlink");
+  if (input.canonicalEscape === true) rejectMutation("fail_closed_canonical_alias");
+  if (input.inodeAlias === true) rejectMutation("fail_closed_hard_link_alias");
+}
+
+const expectedRootImports = [
+  "server-only",
+  "@/config/env",
+  "@/db/client",
+  "@/ai/config/trusted-phase-b-environment",
+  "@/ai/applications/draft-assistance/composition",
+] as const;
+
+function requireExactRootImports(specifiers: readonly string[]): void {
+  if (JSON.stringify(specifiers) !== JSON.stringify(expectedRootImports)) {
+    rejectMutation("fail_closed_alias_import");
+  }
+}
+
+function requireManifestedGeneratedCandidate(path: string, manifested: boolean): void {
+  if (!manifested) rejectMutation(`fail_closed_unmanifested_generated:${path}`);
+}
+
+function requireCompositionCounts(input: {
+  readonly phaseB: number;
+  readonly phaseD: number;
+  readonly adapter: number;
+}): void {
+  if (input.phaseB !== 1) rejectMutation("fail_closed_composition_count");
+  if (input.phaseD !== 0) rejectMutation("fail_closed_early_phase_d");
+  if (input.adapter !== 0) rejectMutation("fail_closed_early_adapter");
+}
+
+const sealedExcludedRoots = [
+  ".git/", "node_modules/", ".next/", "coverage/", "playwright-report/", "test-results/",
+  ".data/", ".storage/", "dist/", "build/", "tmp/",
+] as const;
+
+function requireSealedExcludedRoots(roots: readonly string[]): void {
+  if (JSON.stringify(roots) !== JSON.stringify(sealedExcludedRoots)) {
+    rejectMutation("fail_closed_sealed_exclusion_integrity");
+  }
+}
+
+function requireFrameworkControl(input: {
+  readonly bytesSha256: string;
+  readonly text: string;
+  readonly sourceState: "tracked" | "untracked-not-ignored" | "untracked-ignored";
+  readonly classId: string;
+  readonly tsconfigIncludesPath: boolean;
+}): void {
+  const contract = authority.resourceAndGeneratedPolicy.frameworkControlGeneratedContract;
+  const expectedText = `${contract.presentUtf8Lines.join("\n")}\n`;
+  if (input.bytesSha256 !== contract.presentSha256 || input.text !== expectedText ||
+    input.sourceState !== "untracked-ignored" || input.classId !== contract.soleRootClass ||
+    !input.tsconfigIncludesPath) {
+    rejectMutation("fail_closed_framework_control_generated_mismatch");
+  }
+}
+
+function requireNoDeletionPrerequisite(deletedBeforeProof: boolean): void {
+  if (deletedBeforeProof) rejectMutation("fail_closed_deletion_prerequisite");
+}
+
+function requireGeneratedRootPhysical(input: {
+  readonly physicalDirectory: boolean;
+  readonly aliasOrEscape: boolean;
+}): void {
+  if (!input.physicalDirectory || input.aliasOrEscape) {
+    rejectMutation("fail_closed_generated_root_bypass");
+  }
+}
+
+interface MutationProbe {
+  readonly id: string;
+  readonly expectedCode: string;
+  readonly run: () => void;
+}
+
+function exactFrameworkInput(): {
+  readonly bytesSha256: string;
+  readonly text: string;
+  readonly sourceState: "untracked-ignored";
+  readonly classId: string;
+  readonly tsconfigIncludesPath: true;
+} {
+  const contract = authority.resourceAndGeneratedPolicy.frameworkControlGeneratedContract;
+  return {
+    bytesSha256: contract.presentSha256,
+    text: `${contract.presentUtf8Lines.join("\n")}\n`,
+    sourceState: "untracked-ignored",
+    classId: contract.soleRootClass,
+    tsconfigIncludesPath: true,
+  };
+}
+
+const originalDispositionPaths = [
+  "drizzle.config.ts",
+  "playwright.config.ts",
+  "vitest.config.mts",
+] as const;
+const originalTestDispositionPaths = [
+  "tests/e2e/global-teardown.ts",
+  "tests/e2e/product-import.spec.ts",
+  "tests/e2e/public.spec.ts",
+] as const;
+
+const mutationProbes: MutationProbe[] = [
+  {
+    id: "v1.6-01-new-unclassified-executable",
+    expectedCode: "fail_closed_unclassified",
+    run: () => { requireSingleClass("unexpected-root.ts", classDefinitions); },
+  },
+  {
+    id: "v1.6-02-two-class-overlap",
+    expectedCode: "fail_closed_ambiguous",
+    run: () => {
+      const path = "scripts/verify-ai-architecture.ts";
+      const mutated = replaceDefinition(classDefinitions, "other-project-tooling", (definition) => ({
+        ...definition,
+        match: { ...definition.match, excludeFiles: definition.match.excludeFiles.filter((member) => member !== path) },
+      }));
+      requireSingleClass(path, mutated);
+    },
+  },
+  ...originalDispositionPaths.map((path, index): MutationProbe => ({
+    id: `v1.6-${String(index + 3).padStart(2, "0")}-remove-disposition-${path}`,
+    expectedCode: "fail_closed_unclassified",
+    run: () => { requireSingleClass(path, withoutFileDisposition(path, "root-control-file")); },
+  })),
+  ...originalTestDispositionPaths.map((path, index): MutationProbe => ({
+    id: `v1.6-${String(index + 6).padStart(2, "0")}-remove-disposition-${path}`,
+    expectedCode: "fail_closed_unclassified",
+    run: () => { requireSingleClass(path, withoutFileDisposition(path, "other-test-fixtures")); },
+  })),
+  {
+    id: "v1.6-09-silent-physical-exclusion",
+    expectedCode: "fail_closed_lifecycle_candidate_missing",
+    run: () => { requireCandidateRetention(["src/ai/errors.ts"], []); },
+  },
+  {
+    id: "v1.6-10-symlink",
+    expectedCode: "fail_closed_symlink",
+    run: () => { requirePhysicalNode({ kind: "symlink" }); },
+  },
+  {
+    id: "v1.6-11-canonical-alias",
+    expectedCode: "fail_closed_canonical_alias",
+    run: () => { requirePhysicalNode({ kind: "file", canonicalEscape: true }); },
+  },
+  {
+    id: "v1.6-12-alias-import",
+    expectedCode: "fail_closed_alias_import",
+    run: () => { requireExactRootImports([...expectedRootImports.slice(0, 4), "@/ai/applications/draft-assistance/composition/index"]); },
+  },
+  {
+    id: "v1.6-13-unmanifested-generated-resource",
+    expectedCode: "fail_closed_unmanifested_generated:src/ai/prompts/generated/unapproved.ts",
+    run: () => { requireManifestedGeneratedCandidate("src/ai/prompts/generated/unapproved.ts", false); },
+  },
+  {
+    id: "v1.6-14-early-phase-d",
+    expectedCode: "fail_closed_early_phase_d",
+    run: () => { requireCompositionCounts({ phaseB: 1, phaseD: 1, adapter: 0 }); },
+  },
+  {
+    id: "v1.6-15-early-adapter",
+    expectedCode: "fail_closed_early_adapter",
+    run: () => { requireCompositionCounts({ phaseB: 1, phaseD: 0, adapter: 1 }); },
+  },
+  {
+    id: "v1.6-16-second-composition-root",
+    expectedCode: "fail_closed_composition_count",
+    run: () => { requireCompositionCounts({ phaseB: 2, phaseD: 0, adapter: 0 }); },
+  },
+  {
+    id: "v1.6-17-sealed-exclusion-integrity",
+    expectedCode: "fail_closed_sealed_exclusion_integrity",
+    run: () => { requireSealedExcludedRoots([...sealedExcludedRoots, "unreviewed/"]); },
+  },
+  {
+    id: "attempt2-01-next-env-without-class",
+    expectedCode: "fail_closed_unclassified",
+    run: () => { requireSingleClass("next-env.d.ts", withoutFileDisposition("next-env.d.ts", "root-control-file")); },
+  },
+  {
+    id: "attempt2-02-next-env-double-class",
+    expectedCode: "fail_closed_ambiguous",
+    run: () => {
+      const mutated = replaceDefinition(classDefinitions, "other-production-src", (definition) => ({
+        ...definition,
+        match: { ...definition.match, files: [...definition.match.files, "next-env.d.ts"] },
+      }));
+      requireSingleClass("next-env.d.ts", mutated);
+    },
+  },
+  {
+    id: "attempt2-03-next-env-silent-ignore-or-exclude",
+    expectedCode: "fail_closed_lifecycle_candidate_missing",
+    run: () => { requireCandidateRetention(["next-env.d.ts"], []); },
+  },
+  {
+    id: "attempt2-04-other-ignored-root-ts",
+    expectedCode: "fail_closed_unclassified",
+    run: () => { requireSingleClass("ignored-generated-control.ts", classDefinitions); },
+  },
+  {
+    id: "attempt2-05-next-env-symlink",
+    expectedCode: "fail_closed_symlink",
+    run: () => { requirePhysicalNode({ kind: "symlink" }); },
+  },
+  {
+    id: "attempt2-06-next-env-hard-link",
+    expectedCode: "fail_closed_hard_link_alias",
+    run: () => { requirePhysicalNode({ kind: "file", inodeAlias: true }); },
+  },
+  {
+    id: "attempt2-07-next-env-generated-bytes",
+    expectedCode: "fail_closed_framework_control_generated_mismatch",
+    run: () => { requireFrameworkControl({ ...exactFrameworkInput(), bytesSha256: sha256("mutated") }); },
+  },
+  {
+    id: "attempt2-08-next-env-generated-path",
+    expectedCode: "fail_closed_unclassified",
+    run: () => { requireSingleClass("nested/next-env.d.ts", classDefinitions); },
+  },
+  {
+    id: "attempt2-09-next-env-type-reference",
+    expectedCode: "fail_closed_framework_control_generated_mismatch",
+    run: () => { requireFrameworkControl({ ...exactFrameworkInput(), text: '/// <reference types="next/mutated" />\n' }); },
+  },
+  {
+    id: "attempt2-10-deletion-prerequisite",
+    expectedCode: "fail_closed_deletion_prerequisite",
+    run: () => { requireNoDeletionPrerequisite(true); },
+  },
+  {
+    id: "attempt2-11-dot-next-generated-bypass",
+    expectedCode: "fail_closed_generated_root_bypass",
+    run: () => { requireGeneratedRootPhysical({ physicalDirectory: true, aliasOrEscape: true }); },
+  },
+];
+
+const mutationResults = mutationProbes.map((probe) => {
+  try {
+    probe.run();
+  } catch (error) {
+    if (error instanceof ExpectedMutationRejection && error.code === probe.expectedCode) {
+      return { id: probe.id, result: "fail-closed" as const, reason: error.code };
+    }
+    throw error;
+  }
+  fail(`mutation did not fail closed: ${probe.id}`);
+});
+if (mutationResults.length !== 28) fail("V1.6 plus Attempt-2 mutation count is not 28");
+
+requireSealedExcludedRoots(enumeration.excludedPhysicalRoots);
+
 interface ClassifiedNode {
   readonly path: string;
   readonly classId: string;
@@ -297,13 +608,9 @@ const rootSource = readFileSync(resolve(repositoryRoot, rootPath), "utf8");
 const exactSpecifiers = rootSource.split("\n")
   .filter((line) => line.startsWith("import "))
   .map((line) => line.match(/"([^"]+)"/)?.[1] ?? fail(`unparsed import in ${rootPath}`));
-if (JSON.stringify(exactSpecifiers) !== JSON.stringify([
-  "server-only",
-  "@/config/env",
-  "@/db/client",
-  "@/ai/config/trusted-phase-b-environment",
-  "@/ai/applications/draft-assistance/composition",
-])) fail("Phase B outer composition imports differ from the exact five-edge seam");
+if (JSON.stringify(exactSpecifiers) !== JSON.stringify(expectedRootImports)) {
+  fail("Phase B outer composition imports differ from the exact five-edge seam");
+}
 if ((rootSource.match(/createPhaseBAvailabilityServiceV1\(\{/g) ?? []).length !== 2 ||
   (rootSource.match(/database:\s*databaseConnection\.db/g) ?? []).length !== 2 ||
   !rootSource.includes("switch (databaseConnection.kind)") ||
@@ -342,15 +649,16 @@ const negativeTypeConfigs = [
   { path: "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json", code: "TS2741" },
   { path: "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json", code: "TS2345" },
 ];
+const localTsc = resolve(repositoryRoot, "node_modules/.bin/tsc");
 for (const config of positiveTypeConfigs) {
-  const compiled = spawnSync("tsc", ["-p", config], {
+  const compiled = spawnSync(localTsc, ["-p", config], {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
   if (compiled.status !== 0) fail(`positive type fixture failed: ${config}`);
 }
 for (const config of negativeTypeConfigs) {
-  const compiled = spawnSync("tsc", ["-p", config.path], {
+  const compiled = spawnSync(localTsc, ["-p", config.path], {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
@@ -396,6 +704,12 @@ const report = {
   typeBoundaryProbes: {
     positive: positiveTypeConfigs.length,
     negative: negativeTypeConfigs.length,
+  },
+  mutationProbes: {
+    total: mutationResults.length,
+    v16Original: mutationResults.filter((result) => result.id.startsWith("v1.6-")).length,
+    attempt2: mutationResults.filter((result) => result.id.startsWith("attempt2-")).length,
+    results: mutationResults,
   },
   excludedPhysicalRoots: excludedStatus,
   nextEnv: nextNode === undefined ? { present: false } : {
