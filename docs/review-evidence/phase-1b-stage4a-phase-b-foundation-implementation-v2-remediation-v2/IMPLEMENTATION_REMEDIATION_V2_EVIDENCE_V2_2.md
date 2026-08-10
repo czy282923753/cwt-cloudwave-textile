@@ -144,6 +144,9 @@ Retained process disclosures:
 7. The first inline migrated proof used a shell-quoted raw SQL literal whose quotes were stripped; the query failed
    without changing state. The replacement used typed table counts plus the closed Schema authority and passed under
    the same system network-deny policy.
+8. The final owned whitespace check found double-LF endings in five generated machine logs. A docs-only finalization
+   normalized those files to one LF terminator; executable content and results did not change, and the scoped check
+   then passed.
 
 These are harness/invocation corrections, not additional finding attempts. No root reached a third failed closure,
 no Max escalation occurred, and no compatibility layer or second authority was added.

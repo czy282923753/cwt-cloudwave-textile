@@ -115,7 +115,7 @@ then returned the identical passing report.
 | imported FAIL manifest | PASS 4/4 |
 
 The evidence narrative SHA-256 is
-`29267e444a2e51c89e05c5bb2275cc6ef7918680c3c8d945e861e185598ab36b`.
+`713e23756a2f24f8ee4c3d30d5c75a69be6f30e201ff4cbef90ea54f5616adc8`.
 
 The four public exact-start SHA-256 identities are `b8a40521...` (layout), `3803f096...` (globals),
 `65ac3c27...` (products page), and `d59979b8...` (products test). No full public-site build was run or claimed;
@@ -132,8 +132,9 @@ the pre-existing Google Font offline debt remains outside Phase B.
 | `95067a085f05f4c48236d23cf3dc3f2e4169121f` | `c62c3af9512660791f86e20f448cfedc77b24588` | IMP2-M04 Production acquisition fail-closed |
 | `111301aea82569768661c6401b16054161ed19ff` | `95067a085f05f4c48236d23cf3dc3f2e4169121f` | M01 stale projection confirmation; final code HEAD |
 | `1f389ad4510551d7e3c6a7b54125a52fac39bd7b` | `111301aea82569768661c6401b16054161ed19ff` | exact-code verification evidence, docs only |
-| report delivery commit | `1f389ad4510551d7e3c6a7b54125a52fac39bd7b` | this V2.2 report, docs only |
-| final manifest commit | report delivery commit | changed-file SHA manifest and aggregate, docs only |
+| `02f3531bd73af3fabc46c4f849b8e55bdd791ccb` | `1f389ad4510551d7e3c6a7b54125a52fac39bd7b` | initial V2.2 report delivery, docs only |
+| docs finalization commit | `02f3531bd73af3fabc46c4f849b8e55bdd791ccb` | normalize five owned log terminators and refresh report/evidence, docs only |
+| final manifest commit | docs finalization commit | changed/deleted-path SHA manifest and aggregate, docs only |
 
 All commits are linear and atomic with no amend/rebase/history rewrite. Full rollback remains exact V1.7
 `3f475e13...`; each narrow rollback uses the direct parent above. The Remediation V1 ref remains fixed at `2e6dc7a...`.
@@ -158,6 +159,8 @@ Process disclosures retained rather than hidden:
 6. Detached lifecycle first selected system x64 Node 25; explicit project arm64 Node 24.14.0 produced final evidence.
 7. The first dependency-link loop mishandled spaces; the quoted link-only replacement performed no materialization.
 8. One inline raw SQL proof lost shell quotes and failed read-only; typed counts/closed Schema rerun passed under network deny.
+9. The final owned whitespace check found five generated logs with double-LF endings; a docs-only finalization
+   normalized them before the manifest and introduced no executable change.
 
 No current remediation action installed, materialized, downloaded, contacted a registry, or attempted network.
 
