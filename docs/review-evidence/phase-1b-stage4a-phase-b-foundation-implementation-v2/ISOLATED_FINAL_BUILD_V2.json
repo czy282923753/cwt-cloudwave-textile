@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "candidateCommit": "b5e8decb23cffd9be18fe2272862b4846b8d85e6",
+  "nodeVersion": "24.14.0",
+  "nextVersion": "16.2.12",
+  "databaseDriver": "pglite",
+  "databaseState": {
+    "featureAiProcess": false,
+    "aiFeatureRows": 0,
+    "aiModelConfigRows": 0,
+    "aiRunRows": 0,
+    "assetRows": 0,
+    "syntheticFixturesPersisted": false
+  },
+  "build": {
+    "command": "next build --webpack",
+    "status": "passed",
+    "outputSha256": "35be7bebb4693246ddd2592a23e4f61a10ea1b7514cad54eb5990b286fc7c0fe",
+    "buildIdSha256": "a18503a741af1b0e1bf45a3e0984abdc1a5846f00d7bf21a7f036af1542b8cd5",
+    "routesManifestSha256": "b03f7e1630ec967c281acc1ee36d8528eb5bdcd5785f77fa8d8d8be3ac0e2406",
+    "buildManifestSha256": "11230f25594d6d49690332c49ce44763caa25f4b3291c147d3afef021849a72c"
+  },
+  "migration": {
+    "status": "passed",
+    "outputSha256": "c4778a3dd9e9b56c088424752f618eb932567cb901449b371f314f7bc8656ef6"
+  },
+  "publicBundle": {
+    "status": "passed",
+    "publicPageManifests": 20,
+    "manifestAndChunkFiles": 47,
+    "outputSha256": "cd7f548cfbff79e6a72740b9c6ba0f5af29fa23763a7c95b11898d15b8bee8f7"
+  },
+  "databaseStateEvidenceSha256": "0c79fd70a7d5ccad190f21ae3bc717e64d023530d280afea2657fe9f1ca3e26b",
+  "routePresenceEvidence": {
+    "appPathCount": 76,
+    "hasRobots": true,
+    "hasSitemap": true,
+    "sha256": "9944b6e7ce37441494195828757c005401394e5490c1eb87f5ef0f4c56040b82"
+  },
+  "isolation": {
+    "worktree": "tmp/cwt-phaseb-final-build-v2",
+    "ephemeralDatabase": ".data/phaseb-final-build",
+    "productionOrStagingAccessed": false,
+    "providerCalled": false
+  }
+}
