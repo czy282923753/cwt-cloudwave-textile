@@ -1,0 +1,19 @@
+command: node docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/VERIFY_TECHNICAL_ESCALATION_REMEDIATION_V1_1.mjs --capture
+exit: 0
+PASS runtime Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; CLDR 48.0; darwin/arm64; TypeScript 5.9.3
+PASS fixed branch, remediation parent, clean restart, frozen tag and evidence-only ancestry
+PASS V1.0 report/package/evidence byte identity and original 21/21 manifest
+PASS byte-identical independent FAIL report/evidence and 8/8 reviewer manifest
+PASS accepted Design, ADR, database/environment types, compiler, package and lock hashes
+PASS M02 closed registries include=32/direct:87af97aba127755852b308aaf908fe9ae3ae0f5951baeb19b661a9ae50e668d5/transition:9bb6f45786a28a9a4050e0ca955fae861b290fded1058bb74b004dcb92658024; exclude=30/direct:9ec60ef3deb868d0e92d83b848360e20e500b0bbf59ccdd8eea3866b1eef8c1e/transition:df86e7592dfeebca192b74293d8db56eb0cc0b560971d35d100ca05a44fd6ea2; structured=9 each
+PASS INCLUDE/EXCLUDE common rules are identical; exact delta is two DeepSeek-only rules and later priority shift
+PASS all five declared Unicode properties, explicit LF and invalid-control subtraction execute under the fixed runtime
+PASS M02 full transition-language corpus 40/40 for both Owner options with persisted-byte identity
+PASS transition compiler limits: direct zero-gap, per-gap 4/5 and total 64/65
+PASS mutation negatives 6/6, including legacy three-character shortcut
+PASS structural preflight exact depth/node/raw-byte/NFKC-byte/scalar/surrogate/identity limits
+PASS M03 non-regression: graph/root/absence unchanged; three author type probes plus reviewer positive retain exact results
+PASS V1.1 report, Owner package and remediation index links/final LF
+PASS scope guard 23 paths; only imported FAIL and new V1.1 docs/evidence
+PASS capture mode: remediation manifest and final clean-state checks deferred
+SUMMARY TECHNICAL_ESCALATION_REMEDIATION_V1_1=PASS TECH_M01=CORRECTED_CANDIDATE M03=NON_REGRESSION_PASS

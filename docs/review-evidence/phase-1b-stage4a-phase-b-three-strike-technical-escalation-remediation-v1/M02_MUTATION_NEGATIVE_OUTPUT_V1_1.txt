@@ -1,0 +1,14 @@
+runtime: Node 24.14.0 / V8 13.6.233.17-node.41 / ICU 78.2 / Unicode 17.0 / CLDR 48.0 / darwin arm64
+INCLUDE: 32 rules / 9 structured / direct IR 87af97aba127755852b308aaf908fe9ae3ae0f5951baeb19b661a9ae50e668d5 / transition IR 9bb6f45786a28a9a4050e0ca955fae861b290fded1058bb74b004dcb92658024
+EXCLUDE: 30 rules / 9 structured / direct IR 9ec60ef3deb868d0e92d83b848360e20e500b0bbf59ccdd8eea3866b1eef8c1e / transition IR df86e7592dfeebca192b74293d8db56eb0cc0b560971d35d100ca05a44fd6ea2
+PASS every common rule is semantically identical; INCLUDE adds only the DeepSeek provider token and model-prefix rules plus later priority shift
+PASS Default_Ignorable_Code_Point, Mark, White_Space, Separator, Punctuation, explicit LF and invalid-control subtraction executed
+PASS full transition corpus 40/40 for INCLUDE and EXCLUDE with persisted-byte identity
+PASS direct zero-gap, per-gap 4 match / 5 overflow, total 64 match / 65 overflow
+PASS mutation killed: legacy LF/U+034F/U+200B-only shortcut
+PASS mutation killed: global full property gap on the two DeepSeek rules
+PASS mutation killed: drop Default_Ignorable_Code_Point
+PASS mutation killed: drop Mark
+PASS mutation killed: drop Punctuation
+PASS mutation killed: disable total inserted-code-point counter
+RESULT M02_TECH_M01=CORRECTED_CANDIDATE MUTATIONS=6/6

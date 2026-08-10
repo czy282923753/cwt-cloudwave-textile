@@ -1,0 +1,12 @@
+profile SHA-256: ce5bdd54c7924e86fcf36e89f10c96a039814366862382c2df81e0a15cf13141
+PASS profile/root taxonomy remains 12 classes
+PASS exact five-edge Phase B composition root
+PASS explicit pglite/postgres branches, two syntactic factory sites, one runtime factory call
+PASS zero wrapper/discriminator crossing
+PASS Phase D composition and Provider adapter zone absent
+PASS Production Provider registry exact-empty
+PASS checked-in discriminated seam: TypeScript 5.9.3 exit 0, no diagnostics
+PASS unnarrowed union projection: exit 2, TS2375
+PASS PGlite to Postgres-HKT handoff: exit 2, TS2375
+PASS independent Reviewer DatabaseConnection-parameter seam: exit 0, no diagnostics
+RESULT M03=NON_REGRESSION_PASS SEMANTICS_CHANGED=false
