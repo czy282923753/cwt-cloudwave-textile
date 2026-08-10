@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { canonicalJsonHash, type ReadonlyJsonObject, type ReadonlyJsonValue } from "@/ai/canonical-json";
+import { type ReadonlyJsonObject, type ReadonlyJsonValue } from "@/ai/canonical-json";
 import type {
   AiModelConfigResolutionReadV1,
   AiModelConfigRow,
@@ -11,6 +11,7 @@ import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type { LoadedPromptResourceV1 } from "@/ai/prompts/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import type { TextProviderRegistryV1 } from "@/ai/providers/registry";
+import { resolvedConfigHashV1 } from "@/ai/internal/preparation";
 
 const uuid = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -134,29 +135,27 @@ export function resolveModelConfigV1(input: {
     policyVersion: input.policyVersion,
   });
   if (!prompt.ok) return prompt;
-  const hashInput = {
-    application_class: input.key.applicationClass,
+  const protectedHash = resolvedConfigHashV1({
+    applicationClass: input.key.applicationClass,
     capability: "text",
-    use_case: input.key.useCase,
-    model_config_id: row.id,
-    model_config_version: row.recordVersion,
-    requested_provider: row.provider,
-    requested_model: row.model,
-    parameters_snapshot_json: adapterConfig.value.parameters,
-    max_input_tokens: row.maxInputTokens,
-    max_output_tokens: row.maxOutputTokens,
-    max_attempts: row.maxAttempts,
-    run_cost_limit_microusd: row.runCostLimitMicrousd,
-    prompt_id: row.promptId,
-    prompt_version: row.promptVersion,
-    prompt_hash: row.promptHash,
-    provider_envelope_version: envelope.version,
-    provider_envelope_hash: envelope.hash,
-    input_schema_version: input.inputSchemaVersion,
-    output_schema_version: input.outputSchemaVersion,
-    policy_version: input.policyVersion,
-  };
-  const protectedHash = canonicalJsonHash(hashInput);
+    useCase: input.key.useCase,
+    modelConfigId: row.id,
+    modelConfigVersion: row.recordVersion,
+    requestedProvider: row.provider,
+    requestedModel: row.model,
+    parametersSnapshot: adapterConfig.value.parameters,
+    maxInputTokens: row.maxInputTokens,
+    maxOutputTokens: row.maxOutputTokens,
+    maxAttempts: row.maxAttempts,
+    runCostLimitMicrousd: row.runCostLimitMicrousd,
+    promptId: row.promptId,
+    promptVersion: row.promptVersion,
+    promptHash: row.promptHash,
+    providerEnvelope: envelope,
+    inputSchemaVersion: input.inputSchemaVersion,
+    outputSchemaVersion: input.outputSchemaVersion,
+    policyVersion: input.policyVersion,
+  });
   if (!protectedHash.ok) return aiFailure("canonicalization_failed");
   return aiSuccess({
     model: {

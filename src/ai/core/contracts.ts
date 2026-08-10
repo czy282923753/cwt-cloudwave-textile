@@ -284,6 +284,7 @@ export interface OpaqueClaimedApplicationRuntimeV1 {
   readonly capability: "text";
   readonly useCase: string;
   readonly inputSchemaVersion: number;
+  readonly outputSchemaId: string;
   readonly outputSchemaVersion: number;
   readonly policyVersion: string;
   decodeClaimedAssociation(
@@ -310,4 +311,33 @@ export interface GenericAiOrchestratorV1 {
     Promise<AiServiceResult<CoreAvailabilityV1>>;
   request(invocation: OpaqueRequestInvocationV1):
     Promise<AiServiceResult<CoreCommittedRunSummaryV1>>;
+}
+
+export interface ExecuteClaimedTextAttemptCommand {
+  readonly claimed: import("../internal/claimed-run-authority").ConstructedClaimedRunV1;
+  readonly signal: AbortSignal;
+}
+
+export type AiAttemptResult<TProtected> =
+  | {
+      readonly kind: "protected_result";
+      readonly protectedResult: TProtected;
+      readonly returnedModel: string;
+      readonly responseStatus: "success";
+      readonly usage?: import("../providers/text-provider").NormalizedTokenUsage;
+      readonly providerRequestId?: string;
+      readonly durationMs: number;
+    }
+  | {
+      readonly kind: "failure";
+      readonly error: import("../errors").SafeAiError;
+      readonly responseStatus: import("../providers/text-provider").NormalizedProviderResponseStatus;
+      readonly retryClass: "same_provider_transient" | "not_retryable";
+      readonly durationMs: number;
+    };
+
+export interface AiClaimedExecutionService {
+  executeClaimedTextAttempt(
+    command: ExecuteClaimedTextAttemptCommand,
+  ): Promise<AiAttemptResult<ProtectedApplicationResultEnvelopeV1>>;
 }

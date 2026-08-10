@@ -327,6 +327,7 @@ function claimedRuntime(
     capability: "text",
     useCase,
     inputSchemaVersion: 1,
+    outputSchemaId: output.schemaId,
     outputSchemaVersion: 1,
     policyVersion: output.policyVersion,
     decodeClaimedAssociation: (row) => persistenceCodec.decodeClaimedRow(row),
