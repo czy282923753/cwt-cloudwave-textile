@@ -304,3 +304,10 @@ export interface ClaimedApplicationRuntimeRegistryV1 {
     readonly policyVersion: string;
   }): AiServiceResult<OpaqueClaimedApplicationRuntimeV1>;
 }
+
+export interface GenericAiOrchestratorV1 {
+  inspect(invocation: OpaqueAvailabilityInvocationV1):
+    Promise<AiServiceResult<CoreAvailabilityV1>>;
+  request(invocation: OpaqueRequestInvocationV1):
+    Promise<AiServiceResult<CoreCommittedRunSummaryV1>>;
+}
