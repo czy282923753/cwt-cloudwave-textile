@@ -1,15 +1,16 @@
-import { sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
 import type { DraftConsistentReadScope } from "@/ai/applications/draft-assistance/read-scopes";
 import { withDraftReadExecutor } from "@/ai/applications/draft-assistance/read-scopes";
+import type { ReadonlyJsonObject, ReadonlyJsonValue } from "@/ai/canonical-json";
 import type {
   AiModelConfigResolutionReadV1,
   AiModelConfigRow,
 } from "@/ai/core/contracts";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
-import type { ReadonlyJsonObject, ReadonlyJsonValue } from "@/ai/canonical-json";
+import { aiModelConfig } from "@/db/schema";
 
 export interface AiModelConfigRepository {
   readResolutionState<TQueryResult extends PgQueryResultHKT>(
@@ -28,34 +29,25 @@ const uuid = z.string().regex(
 const modelRowSchema = z.object({
   id: uuid,
   capability: z.literal("text"),
-  use_case: z.string(),
+  useCase: z.string(),
   provider: z.string(),
   model: z.string(),
-  parameters_json: z.unknown(),
-  max_input_tokens: z.number().int(),
-  max_output_tokens: z.number().int(),
-  max_attempts: z.number().int(),
-  run_cost_limit_microusd: z.number().int(),
-  prompt_id: z.string(),
-  prompt_version: z.number().int(),
-  prompt_hash: z.string(),
+  parametersJson: z.unknown(),
+  maxInputTokens: z.number().int(),
+  maxOutputTokens: z.number().int(),
+  maxAttempts: z.number().int(),
+  runCostLimitMicrousd: z.number().int(),
+  promptId: z.string(),
+  promptVersion: z.number().int(),
+  promptHash: z.string(),
   enabled: z.boolean(),
-  is_default: z.boolean(),
-  fallback_config_id: uuid.nullable(),
-  record_version: z.number().int(),
-  created_by_user_id: uuid,
-  updated_by_user_id: uuid,
-  created_at: z.coerce.date(),
-  updated_at: z.coerce.date(),
-}).strict();
-const aggregateSchema = z.object({
-  applicationClass: z.literal("draft_assistance"),
-  capability: z.literal("text"),
-  useCase: z.string(),
-  totalRowCount: z.number().int().nonnegative(),
-  defaultRowCount: z.number().int().nonnegative(),
-  enabledDefaultRowCount: z.number().int().nonnegative(),
-  enabledDefaultRows: z.array(modelRowSchema),
+  isDefault: z.boolean(),
+  fallbackConfigId: uuid.nullable(),
+  recordVersion: z.number().int(),
+  createdByUserId: uuid,
+  updatedByUserId: uuid,
+  createdAt: z.date(),
+  updatedAt: z.date(),
 }).strict();
 
 function jsonValue(value: unknown): value is ReadonlyJsonValue {
@@ -72,42 +64,30 @@ function jsonObject(value: unknown): value is ReadonlyJsonObject {
   return jsonValue(value) && typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function ownRecord(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  return Object.fromEntries(Object.entries(value));
-}
-
-function firstAggregateRow(result: unknown): unknown {
-  if (Array.isArray(result)) return result.length === 1 ? result[0] : undefined;
-  const record = ownRecord(result);
-  const rows = record?.rows;
-  return Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
-}
-
 function mapRow(row: z.infer<typeof modelRowSchema>): AiServiceResult<AiModelConfigRow> {
-  if (!jsonObject(row.parameters_json)) return aiFailure("config_repository_invalid");
+  if (!jsonObject(row.parametersJson)) return aiFailure("config_repository_invalid");
   return aiSuccess({
     id: row.id,
     capability: "text",
-    useCase: row.use_case,
+    useCase: row.useCase,
     provider: row.provider,
     model: row.model,
-    parametersJson: row.parameters_json,
-    maxInputTokens: row.max_input_tokens,
-    maxOutputTokens: row.max_output_tokens,
-    maxAttempts: row.max_attempts,
-    runCostLimitMicrousd: row.run_cost_limit_microusd,
-    promptId: row.prompt_id,
-    promptVersion: row.prompt_version,
-    promptHash: row.prompt_hash,
+    parametersJson: row.parametersJson,
+    maxInputTokens: row.maxInputTokens,
+    maxOutputTokens: row.maxOutputTokens,
+    maxAttempts: row.maxAttempts,
+    runCostLimitMicrousd: row.runCostLimitMicrousd,
+    promptId: row.promptId,
+    promptVersion: row.promptVersion,
+    promptHash: row.promptHash,
     enabled: row.enabled,
-    isDefault: row.is_default,
-    fallbackConfigId: row.fallback_config_id,
-    recordVersion: row.record_version,
-    createdByUserId: row.created_by_user_id,
-    updatedByUserId: row.updated_by_user_id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    isDefault: row.isDefault,
+    fallbackConfigId: row.fallbackConfigId,
+    recordVersion: row.recordVersion,
+    createdByUserId: row.createdByUserId,
+    updatedByUserId: row.updatedByUserId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   });
 }
 
@@ -117,57 +97,55 @@ export const aiModelConfigRepositoryV1: AiModelConfigRepository = {
       return aiFailure("config_repository_invalid");
     }
     try {
-      const rawResult = await withDraftReadExecutor(scope, (database) => database.execute(sql`
-        WITH scoped AS MATERIALIZED (
-          SELECT
-            id, capability, use_case, provider, model, parameters_json,
-            max_input_tokens, max_output_tokens, max_attempts,
-            run_cost_limit_microusd, prompt_id, prompt_version, prompt_hash,
-            enabled, is_default, fallback_config_id, record_version,
-            created_by_user_id, updated_by_user_id, created_at, updated_at
-          FROM ai_model_config
-          WHERE capability = ${key.capability} AND use_case = ${key.useCase}
-        ),
-        facts AS (
-          SELECT
-            count(*)::integer AS total_row_count,
-            count(*) FILTER (WHERE is_default)::integer AS default_row_count,
-            count(*) FILTER (WHERE enabled AND is_default)::integer AS enabled_default_row_count
-          FROM scoped
-        )
-        SELECT
-          'draft_assistance' AS "applicationClass",
-          ${key.capability} AS capability,
-          ${key.useCase} AS "useCase",
-          facts.total_row_count AS "totalRowCount",
-          facts.default_row_count AS "defaultRowCount",
-          facts.enabled_default_row_count AS "enabledDefaultRowCount",
-          COALESCE(
-            jsonb_agg(to_jsonb(scoped) ORDER BY scoped.id)
-              FILTER (WHERE scoped.enabled AND scoped.is_default),
-            '[]'::jsonb
-          ) AS "enabledDefaultRows"
-        FROM facts
-        LEFT JOIN scoped ON true
-        GROUP BY facts.total_row_count, facts.default_row_count, facts.enabled_default_row_count
-      `));
-      const aggregate = aggregateSchema.safeParse(firstAggregateRow(rawResult));
-      if (!aggregate.success || aggregate.data.capability !== key.capability ||
-        aggregate.data.useCase !== key.useCase) return aiFailure("config_repository_invalid");
+      const selected = await withDraftReadExecutor(scope, (database) => database.select({
+        id: aiModelConfig.id,
+        capability: aiModelConfig.capability,
+        useCase: aiModelConfig.useCase,
+        provider: aiModelConfig.provider,
+        model: aiModelConfig.model,
+        parametersJson: aiModelConfig.parametersJson,
+        maxInputTokens: aiModelConfig.maxInputTokens,
+        maxOutputTokens: aiModelConfig.maxOutputTokens,
+        maxAttempts: aiModelConfig.maxAttempts,
+        runCostLimitMicrousd: aiModelConfig.runCostLimitMicrousd,
+        promptId: aiModelConfig.promptId,
+        promptVersion: aiModelConfig.promptVersion,
+        promptHash: aiModelConfig.promptHash,
+        enabled: aiModelConfig.enabled,
+        isDefault: aiModelConfig.isDefault,
+        fallbackConfigId: aiModelConfig.fallbackConfigId,
+        recordVersion: aiModelConfig.recordVersion,
+        createdByUserId: aiModelConfig.createdByUserId,
+        updatedByUserId: aiModelConfig.updatedByUserId,
+        createdAt: aiModelConfig.createdAt,
+        updatedAt: aiModelConfig.updatedAt,
+      }).from(aiModelConfig).where(and(
+        eq(aiModelConfig.capability, key.capability),
+        eq(aiModelConfig.useCase, key.useCase),
+      )).orderBy(asc(aiModelConfig.id)));
       const rows: AiModelConfigRow[] = [];
-      for (const rawRow of aggregate.data.enabledDefaultRows) {
-        const row = mapRow(rawRow);
-        if (!row.ok) return row;
-        rows.push(row.value);
+      let defaultRowCount = 0;
+      let enabledDefaultRowCount = 0;
+      for (const selectedRow of selected) {
+        const parsed = modelRowSchema.safeParse(selectedRow);
+        if (!parsed.success || parsed.data.capability !== key.capability ||
+          parsed.data.useCase !== key.useCase) return aiFailure("config_repository_invalid");
+        if (parsed.data.isDefault) defaultRowCount += 1;
+        if (parsed.data.enabled && parsed.data.isDefault) {
+          enabledDefaultRowCount += 1;
+          const row = mapRow(parsed.data);
+          if (!row.ok) return row;
+          rows.push(row.value);
+        }
       }
       return aiSuccess({
         version: 1,
         applicationClass: "draft_assistance",
         capability: "text",
         useCase: key.useCase,
-        totalRowCount: aggregate.data.totalRowCount,
-        defaultRowCount: aggregate.data.defaultRowCount,
-        enabledDefaultRowCount: aggregate.data.enabledDefaultRowCount,
+        totalRowCount: selected.length,
+        defaultRowCount,
+        enabledDefaultRowCount,
         enabledDefaultRows: rows,
       });
     } catch {

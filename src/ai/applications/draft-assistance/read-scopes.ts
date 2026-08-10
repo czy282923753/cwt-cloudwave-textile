@@ -22,7 +22,7 @@ const draftReadExecutor = Symbol("draft-read-executor");
 
 interface DraftPrivateReadState<TQueryResult extends PgQueryResultHKT> {
   readonly [draftConsistentReadScopeBrand]: {
-    readonly [draftReadExecutor]: Pick<AppDatabase<TQueryResult>, "select" | "execute">;
+    readonly [draftReadExecutor]: Pick<AppDatabase<TQueryResult>, "select">;
   };
 }
 
@@ -74,7 +74,7 @@ export function withDraftReadExecutor<
   T,
 >(
   scope: DraftConsistentReadScope<TQueryResult>,
-  work: (query: Pick<AppDatabase<TQueryResult>, "select" | "execute">) => Promise<T>,
+  work: (query: Pick<AppDatabase<TQueryResult>, "select">) => Promise<T>,
 ): Promise<T> {
   return work(scope[draftConsistentReadScopeBrand][draftReadExecutor]);
 }
@@ -82,7 +82,7 @@ export function withDraftReadExecutor<
 function createReadOnlyDraftAvailabilityScope<
   TQueryResult extends PgQueryResultHKT,
 >(
-  executor: Pick<AppDatabase<TQueryResult>, "select" | "execute">,
+  executor: Pick<AppDatabase<TQueryResult>, "select">,
 ): ReadOnlyDraftAvailabilityScope<TQueryResult> {
   return {
     [draftConsistentReadScopeBrand]: { [draftReadExecutor]: executor },
@@ -93,7 +93,7 @@ function createReadOnlyDraftAvailabilityScope<
 function createTransactionBoundDraftEnqueueScope<
   TQueryResult extends PgQueryResultHKT,
 >(
-  executor: Pick<AppDatabase<TQueryResult>, "select" | "execute">,
+  executor: Pick<AppDatabase<TQueryResult>, "select">,
   operations: DraftTransactionScopeOperationsV1,
 ): TransactionBoundDraftEnqueueScope<TQueryResult> {
   return {
@@ -124,7 +124,7 @@ export function withTransactionBoundDraftEnqueueScope<
   TQueryResult extends PgQueryResultHKT,
   T,
 >(
-  transaction: Pick<AppDatabase<TQueryResult>, "select" | "execute">,
+  transaction: Pick<AppDatabase<TQueryResult>, "select">,
   operations: DraftTransactionScopeOperationsV1,
   work: (scope: TransactionBoundDraftEnqueueScope<TQueryResult>) => Promise<T>,
 ): Promise<T> {

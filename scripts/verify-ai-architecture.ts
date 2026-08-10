@@ -638,6 +638,34 @@ if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Produc
 const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
 if (productionManifest !== '{"manifestVersion":1,"entries":[]}\n') fail("Production Prompt manifest is not exact-empty");
 
+const commonReadAuthorityPaths = [
+  "src/ai/applications/draft-assistance/read-scopes.ts",
+  "src/ai/applications/draft-assistance/composition.ts",
+  "src/ai/config/feature-gate-repository.ts",
+  "src/ai/config/model-config-repository.ts",
+];
+for (const path of commonReadAuthorityPaths) {
+  const source = readFileSync(resolve(repositoryRoot, path), "utf8");
+  if (/\.execute\s*\(|["']select["']\s*\|\s*["']execute["']/.test(source)) {
+    fail(`raw execute escaped into common read authority: ${path}`);
+  }
+}
+const readScopeSource = readFileSync(
+  resolve(repositoryRoot, "src/ai/applications/draft-assistance/read-scopes.ts"),
+  "utf8",
+);
+if ((readScopeSource.match(/Pick<AppDatabase<TQueryResult>, "select">/g) ?? []).length !== 5) {
+  fail("common Draft read carrier/helper/factories are not exact select-only projections");
+}
+const configRepositorySource = readFileSync(
+  resolve(repositoryRoot, "src/ai/config/model-config-repository.ts"),
+  "utf8",
+);
+if (!configRepositorySource.includes("database.select({") ||
+  configRepositorySource.includes(".limit(") || configRepositorySource.includes("sql`")) {
+  fail("model configuration repository is not one typed complete select");
+}
+
 const positiveTypeConfigs = [
   "test-fixtures/ai-types/database-seam/tsconfig.positive.json",
   "test-fixtures/ai-types/read-scope/tsconfig.positive.json",
@@ -646,6 +674,7 @@ const negativeTypeConfigs = [
   { path: "test-fixtures/ai-types/database-seam/tsconfig.cross-driver-negative.json", code: "TS2379" },
   { path: "test-fixtures/ai-types/database-seam/tsconfig.unnarrowed-negative.json", code: "TS2379" },
   { path: "test-fixtures/ai-types/read-scope/tsconfig.common-authority-negative.json", code: "TS2339" },
+  { path: "test-fixtures/ai-types/read-scope/tsconfig.execute-authority-negative.json", code: "TS2339" },
   { path: "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json", code: "TS2741" },
   { path: "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json", code: "TS2345" },
 ];
