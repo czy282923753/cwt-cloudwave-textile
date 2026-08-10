@@ -1,0 +1,38 @@
+Candidate identity
+branch/ref: codex/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1
+HEAD/ref: 377181cd76e5427f344ff0c259fc9bd32ec7b670
+direct parent: 6a74823666cebc67912ed90c44381d8399076fc3
+remediation parent ancestor: 87bf5025587b223aef3929172411cfeeb6fb1ca7
+accepted restart ancestor: 6bc26cf035608a21a057d6f4e87da8d4f7f23d40
+frozen tag object/peel: 1c626f9b788e4c6ed0480a7040aa54ccef3e6c76 / 31c0e405acfdd0d05200d0fb2531e897a541a2c4
+Candidate tracked state before and after checks: clean
+remediation-parent-to-HEAD scope: 23 added docs/evidence paths, 10839 insertions, zero Product/Schema/Migration/ADR/package/lock/source changes
+
+Fixed artifact checks
+V1.1 Technical Escalation: ab561395788756a285e54b91486124e8c2bda830a4c38ae8692a94dcba85b2bf PASS
+V1.1 Owner package: 342e88e61292e2e25fce21ddaf5e769402f5086e8195d02a5fbe8b083f08e7ea PASS
+V1.1 manifest: 7613959e9dadded7261f68e9b2dfbc5c51d5969a0435f87a3cb2187c62bb9c34 PASS 22/22
+V1.0 report/package/manifest and prior independent FAIL report/evidence/manifest: byte-identical PASS
+
+Author verifier
+fixed runtime: Node 24.14.0 / V8 13.6.233.17-node.41 / ICU 78.2 / Unicode 17.0 / CLDR 48.0 / darwin arm64
+run 1: exit 0
+run 2: exit 0
+run 1/run 2: byte-identical, SHA-256 1a281f30425e99b18af46893b161949017dcc6780cb81133e56ff3dc5d44ad78
+fresh payload/captured payload: byte-identical
+default Node 25.8.1 mismatch: exit 1 at runtime-node assertion before profile acceptance
+
+M03 independent non-regression
+profile SHA-256: ce5bdd54c7924e86fcf36e89f10c96a039814366862382c2df81e0a15cf13141 PASS
+author discriminated seam: exit 0 / no diagnostics
+unnarrowed union projection: exit 2 / TS2375
+cross-driver handoff: exit 2 / TS2375
+prior independent Reviewer discriminated positive: exit 0 / no diagnostics
+Phase D composition and adapter zone: absent
+Production Provider registry: exact-empty
+
+Whitespace boundary
+git diff --check 87bf502...HEAD: exit 2 only for the three SHA-protected Markdown hard-break spaces in imported prior independent evidence
+git diff --check f1af1f8...HEAD: exit 0 for V1.1-owned artifacts
+
+Network/package/install/download/Provider/API/credential/external actions: 0

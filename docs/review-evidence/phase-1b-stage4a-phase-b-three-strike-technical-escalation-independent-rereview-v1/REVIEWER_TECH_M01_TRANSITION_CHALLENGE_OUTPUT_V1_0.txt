@@ -1,0 +1,8 @@
+PASS runtime=24.14.0/17.0/arm64
+PASS registries include=32 exclude=30 common=30 delta=2
+PASS compiled every rule from inline grammar AST + inline gapSetAst + counters: include=32 exclude=30
+PASS deepseek fresh cases=26 visible separators excluded; DICP/Mark/LF admitted; controls and 4/5 limits exact
+PASS total transition counter synthetic=64 match / 65 unsupported_value from the same graph
+PASS full Unicode property predicates enumerated counts={"Default_Ignorable_Code_Point":4174,"Mark":2543,"White_Space":25,"Separator":19,"Punctuation":856}
+PASS fresh witnesses kill legacy LF/U+034F/U+200B shortcut and preserve original UTF-8 bytes
+SUMMARY TECH_M01_FRESH_TRANSITION_CHALLENGE=PASS graph_sha256=6e7554cb78381e3cd238dc04b47d96bbf0e47871dd3818d042006ce96b33ee68
