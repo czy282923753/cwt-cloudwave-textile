@@ -196,6 +196,8 @@ function repetitionPolicyPasses(
   blocks: readonly CandidateBlockV1[],
 ): boolean {
   const textCounts = new Map<string, number>();
+  const equivalentCoreCounts = new Map<string, number>();
+  let totalTokens = 0;
   for (const node of nodes) {
     if (!/\p{L}/u.test(node.text)) return false;
     const normalized = node.text.normalize("NFKC").toLocaleLowerCase("en");
@@ -203,10 +205,36 @@ function repetitionPolicyPasses(
     if (next > 2) return false;
     textCounts.set(normalized, next);
     const tokens = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
+    totalTokens += tokens.length;
+    if (tokens.length > 10_000 || totalTokens > 32_000) return false;
     let repeatedRun = 1;
     for (let index = 1; index < tokens.length; index += 1) {
       repeatedRun = tokens[index] === tokens[index - 1] ? repeatedRun + 1 : 1;
       if (repeatedRun >= 8) return false;
+    }
+    const maximumCosmeticTokens = Math.min(
+      2,
+      tokens.length - 4,
+      Math.floor(tokens.length / 3),
+    );
+    const nodeCoreHashes = new Set<string>();
+    for (let cosmeticCount = 1; cosmeticCount <= maximumCosmeticTokens; cosmeticCount += 1) {
+      for (let leadingCosmetic = 0; leadingCosmetic <= cosmeticCount; leadingCosmetic += 1) {
+        const trailingCosmetic = cosmeticCount - leadingCosmetic;
+        const core = tokens.slice(
+          leadingCosmetic,
+          trailingCosmetic === 0 ? tokens.length : -trailingCosmetic,
+        );
+        if (core.length < 4 || new Set(core).size < 3) continue;
+        const canonicalCore = canonicalJsonHash(core);
+        if (!canonicalCore.ok) return false;
+        nodeCoreHashes.add(canonicalCore.value.hash);
+      }
+    }
+    for (const coreHash of nodeCoreHashes) {
+      const familyCount = (equivalentCoreCounts.get(coreHash) ?? 0) + 1;
+      if (familyCount > 3) return false;
+      equivalentCoreCounts.set(coreHash, familyCount);
     }
   }
   const blockCounts = new Map<string, number>();

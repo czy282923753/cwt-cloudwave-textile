@@ -194,6 +194,96 @@ describe("A-01 through A-10 Draft output protection", () => {
     }).ok).toBe(false);
   });
 
+  it("rejects the reviewer equivalent-prefix family with cosmetic suffixes", () => {
+    const suffixes = [
+      "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+      "india", "juliet", "kilo", "lima", "mike", "maple", "oscar", "papa",
+      "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "xray",
+      "yankee", "zulu", "amber", "birch", "cedar", "dahlia",
+    ];
+    const blocks = suffixes.map((suffix) => ({
+      type: "paragraph",
+      text: {
+        text: `Repeated plain weave narrative ${suffix}.`,
+        sourceRefs: ["src_01:fabricStyle"],
+      },
+    }));
+    const allIndividualControlsPass = blocks.every((block) =>
+      output.policy.parseAndProtect({
+        rawObject: {
+          ...productCandidate("A conservative textile narrative."),
+          descriptionBlocks: [block],
+        },
+        context: narrativeContext,
+      }).ok);
+    const combined = output.policy.parseAndProtect({
+      rawObject: {
+        ...productCandidate("A conservative textile narrative."),
+        descriptionBlocks: blocks,
+      },
+      context: narrativeContext,
+    });
+    expect(allIndividualControlsPass).toBe(true);
+    expect(combined).toMatchObject({
+      ok: false,
+      error: { code: "output_policy_rejected" },
+    });
+  });
+
+  it("rejects equivalent middle-core families with cosmetic prefixes and suffixes", () => {
+    const variants = [
+      ["amber", "edition"],
+      ["birch", "option"],
+      ["cedar", "version"],
+      ["dahlia", "variation"],
+      ["elm", "alternative"],
+      ["fir", "selection"],
+    ];
+    const result = output.policy.parseAndProtect({
+      rawObject: {
+        ...productCandidate("A conservative textile narrative."),
+        descriptionBlocks: variants.map(([prefix, suffix]) => ({
+          type: "paragraph",
+          text: {
+            text: `${prefix} repeated plain weave narrative ${suffix}.`,
+            sourceRefs: ["src_01:fabricStyle"],
+          },
+        })),
+      },
+      context: narrativeContext,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "output_policy_rejected" },
+    });
+  });
+
+  it("accepts bounded non-repetitive B2B paragraphs with shared textile vocabulary", () => {
+    const paragraphs = [
+      "A plain weave supports a balanced surface.",
+      "The hand feel remains suitable for considered development.",
+      "Color planning can follow the selected textile direction.",
+      "A concise narrative keeps the material focus clear.",
+      "The construction presents a restrained visual texture.",
+      "Sampling discussions can evaluate drape and finish.",
+      "The selected style offers a versatile editorial starting point.",
+      "Human review can refine tone before any later workflow.",
+    ];
+    const result = output.policy.parseAndProtect({
+      rawObject: {
+        ...productCandidate("A conservative textile narrative."),
+        descriptionBlocks: paragraphs.map((text) => ({
+          type: "paragraph",
+          text: { text, sourceRefs: ["src_01:fabricStyle"] },
+        })),
+      },
+      context: narrativeContext,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.value.semanticReviewStatus).toBe("human_review_required");
+  });
+
   it("derives deterministic candidate refs for blocks", () => {
     const candidate = {
       ...productCandidate("A balanced hand feel."),
