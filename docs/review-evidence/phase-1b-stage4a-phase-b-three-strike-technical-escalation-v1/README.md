@@ -55,4 +55,3 @@ No Provider/API/credential/network/spend is used. The verifier reads the paused 
 A full verifier PASS proves that this Candidate is internally consistent, hash-bound, offline-repeatable and implementable at the specified proof boundaries. It does not prove a later Product implementation, Production bundle, Provider behavior, external service, database runtime or independent acceptance.
 
 The only next gate is Fresh Independent Technical Escalation Review by the original independent Reviewer.
-
