@@ -1,0 +1,56 @@
+PASS runtime Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; CLDR 48.0; darwin/arm64
+PASS branch/detached lifecycle mode, V1.5/V1.6 checkpoints, attempt-2 authoring parent, escalation/rollback/tag ancestry and failed-code isolation
+PASS V1.5 and V1.6 bytes/manifests unchanged; both imported FAIL evidence sets byte-identical; technical escalation PASS 5/5
+PASS M03 V2.2 one sealed selector authority classes=12 integrity=ff40d348d7b23c0a3e9156d5c5eec3236fae879e13fc44153004778d9d3eae0f
+PASS actual tree candidates=406 executable=364 protectedResource=39 rootControl=9
+PASS class phase-b-outer-composition members=0
+PASS class phase-d-outer-composition-reserved members=0
+PASS class future-provider-adapter-zone-reserved members=0
+PASS class synthetic-ai-test-code members=0
+PASS class protected-ai members=0
+PASS class business-consumer members=144
+PASS class other-production-src members=64
+PASS class ai-proof-tooling members=0
+PASS class other-project-tooling members=25
+PASS class other-test-fixtures members=104
+PASS class diagnostic-documentation members=60
+PASS class root-control-file members=9
+PASS zeroClass=0 ambiguous=0 inventory=629cb40fcfdc5ca7683d6713f3bffd57ed021de98aac8bcad494affd497a6e01 content=bf3efe209323a5acdd8fcd3a20659efd865ca0058083ca56f033f1779f89de46 classification=05e984ed1534bedc093e69aa30df85d86aa53d73fc7eda263b80c4714acd701c
+PASS lifecycle=candidate-file-absent next-env=absent generated-root=not_requested
+PASS six original V15-M01 paths uniquely classified; optional next-env receives the sole root-control class when present; src/test/** test-only; test/control capability ceilings and Production incoming-edge rule pass
+PASS mutation negatives=28 base-v1.6=17 attempt-2=11 all fail closed with exact reasons
+PASS mutation new-unclassified-executable=EXPECTED_FAIL_CLOSED
+PASS mutation same-path-two-classes=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:drizzle.config.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:playwright.config.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:tests/e2e/global-teardown.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:tests/e2e/product-import.spec.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:tests/e2e/public.spec.ts=EXPECTED_FAIL_CLOSED
+PASS mutation remove-classification:vitest.config.mts=EXPECTED_FAIL_CLOSED
+PASS mutation silent-exclusion=EXPECTED_FAIL_CLOSED
+PASS mutation symlink-bypass=EXPECTED_FAIL_CLOSED
+PASS mutation canonical-hardlink-alias=EXPECTED_FAIL_CLOSED
+PASS mutation alias-import-bypass=EXPECTED_FAIL_CLOSED
+PASS mutation generated-resource-bypass=EXPECTED_FAIL_CLOSED
+PASS mutation early-phase-d=EXPECTED_FAIL_CLOSED
+PASS mutation early-adapter=EXPECTED_FAIL_CLOSED
+PASS mutation second-composition-root=EXPECTED_FAIL_CLOSED
+PASS mutation sealed-exclusion-table=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-present-without-class=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-double-class=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-silent-ignore-or-exclude=EXPECTED_FAIL_CLOSED
+PASS mutation other-root-ignored-ts=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-symlink-alias=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-hard-link-alias=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-generated-bytes=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-generated-path=EXPECTED_FAIL_CLOSED
+PASS mutation next-env-type-reference=EXPECTED_FAIL_CLOSED
+PASS mutation deletion-prerequisite=EXPECTED_FAIL_CLOSED
+PASS mutation dot-next-generated-bypass=EXPECTED_FAIL_CLOSED
+PASS Phase B/protected implementation absent in design mode; Phase D root=0 adapter=0 second composition=0 Provider registry implementation absent
+PASS M02 selected INCLUDE full Unicode transitions/runtime mismatch/persisted bytes non-regression
+PASS M03 branch-local positives exit=0; union/cross-driver/destructured negatives=TS2375; no selected seam change
+PASS accepted mapping V1.7=V1.5=Drizzle=0020: ai_model_config 21/21, ai_runs 96/96
+PASS all 13 historical closures, 26 sections, frozen four use cases/Draft-only/phase boundaries retained
+PASS Schema/Migration/ADR/dependency/package/lock/persistent-complexity impact none; docs/evidence-only scope
+SUMMARY CORRECTED_EXACT_DESIGN_V1_7=PASS V15_M01=CLOSED_CANDIDATE_ONLY INDEPENDENT_APPROVAL=FALSE IMPLEMENTATION_AUTHORIZED=FALSE

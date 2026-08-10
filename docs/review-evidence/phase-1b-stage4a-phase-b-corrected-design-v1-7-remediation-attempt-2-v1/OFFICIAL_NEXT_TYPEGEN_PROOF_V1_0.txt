@@ -1,0 +1,98 @@
+CWT Stage 4A Phase B — V1.7 official Next type-generation lifecycle proof V1.0
+
+RESULT PASS
+SCOPE design/evidence only; Candidate not independently approved; implementation not authorized
+FORMAL_CANDIDATE_WORKTREE /Users/calvin/.codex/worktrees/263d/CWT（CloudWave Textile）项目
+FORMAL_CANDIDATE_NEXT_ENV untouched_and_absent
+DISPOSABLE_WORKTREE /tmp/cwt-v17-official-lifecycle.Urklo7/repo
+EXACT_PROOF_CHECKPOINT 595e2f9a5372b0ec682772b7fe379252845c29c4
+BRANCH_AT_PROOF detached
+
+RUNTIME
+Node 24.14.0
+V8 13.6.233.17-node.41
+ICU 78.2
+Unicode 17.0
+CLDR 48.0
+platform darwin
+arch arm64
+Next.js 16.2.12
+installed Next package.json SHA-256 297079fdc10beaf4f8ea52def582807768f086cc4cff516e1c7e2482c97fa309
+
+ISOLATION_AND_OFFLINE_METHOD
+- git worktree add --detach used the exact proof checkpoint.
+- The disposable root had one physical excluded node_modules directory. Only local already-installed typescript, @types/react and @types/node entries were linked inside that excluded dependency root so the public Next CLI could perform normal TypeScript setup.
+- No package install, download, registry request, Provider/API/credential action or project dependency change occurred.
+- NEXT_TELEMETRY_DISABLED=1 and CI=1 were set.
+- No file was generated, removed or cleaned in the formal Candidate worktree.
+
+ABSENT_COMMAND
+CWT_V17_EXPECTED_HEAD=595e2f9a5372b0ec682772b7fe379252845c29c4 /Users/calvin/.nvm/versions/node/v24.14.0/bin/node docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-7-remediation-attempt-2-v1/VERIFY_CORRECTED_DESIGN_V1_7.mjs --lifecycle-only --inventory --lifecycle-state=source-clean-file-absent
+ABSENT_EXIT 0
+ABSENT_GIT_STATUS !! node_modules/
+ABSENT_NEXT_ENV absent
+ABSENT_DOT_NEXT absent
+ABSENT_GIT_IGNORE_DECLARATION .gitignore:48:next-env.d.ts
+ABSENT_TSCONFIG_INCLUDE true
+ABSENT_TOTAL_CANDIDATES 406
+ABSENT_TOTAL_EXECUTABLES 364
+ABSENT_SOURCE_STATES tracked=406 untracked-not-ignored=0 untracked-ignored=0
+ABSENT_ZERO_CLASS []
+ABSENT_AMBIGUOUS []
+ABSENT_INVENTORY_SHA256 629cb40fcfdc5ca7683d6713f3bffd57ed021de98aac8bcad494affd497a6e01
+ABSENT_CONTENT_SHA256 bf3efe209323a5acdd8fcd3a20659efd865ca0058083ca56f033f1779f89de46
+ABSENT_CLASSIFICATION_SHA256 05e984ed1534bedc093e69aa30df85d86aa53d73fc7eda263b80c4714acd701c
+ABSENT_GENERATED_ROOT_SHA256 a0d203b432c025ff4215ff4accb66acab9f0f1449a48a4f3e62c379b476ed7f8
+
+OFFICIAL_GENERATION_COMMAND_RUN_1
+NEXT_TELEMETRY_DISABLED=1 CI=1 /Users/calvin/.nvm/versions/node/v24.14.0/bin/node /Users/calvin/.codex/worktrees/263d/CWT（CloudWave Textile）项目/node_modules/next/dist/bin/next typegen .
+RUN_1_EXIT 0
+RUN_1_STDOUT_LINE_1 Generating route types...
+RUN_1_STDOUT_LINE_2 ✓ Types generated successfully
+
+PRESENT_COMMAND
+CWT_V17_EXPECTED_HEAD=595e2f9a5372b0ec682772b7fe379252845c29c4 /Users/calvin/.nvm/versions/node/v24.14.0/bin/node docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-7-remediation-attempt-2-v1/VERIFY_CORRECTED_DESIGN_V1_7.mjs --lifecycle-only --inventory --lifecycle-state=official-next-generated-file-present
+PRESENT_EXIT 0
+PRESENT_GIT_STATUS !! .next/ | !! next-env.d.ts | !! node_modules/
+PRESENT_NEXT_ENV bytes=247 mode=regular_file
+PRESENT_NEXT_ENV_SHA256 7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651
+PRESENT_NEXT_ENV_SOURCE_STATE untracked-ignored
+PRESENT_NEXT_ENV_TSCONFIG_INCLUDED true
+PRESENT_NEXT_ENV_GENERATED true
+PRESENT_NEXT_ENV_SOLE_CLASS root-control-file
+PRESENT_NEXT_ENV_PRODUCTION_CLOSURE false
+PRESENT_TOTAL_CANDIDATES 407
+PRESENT_TOTAL_EXECUTABLES 365
+PRESENT_SOURCE_STATES tracked=406 untracked-not-ignored=0 untracked-ignored=1
+PRESENT_ZERO_CLASS []
+PRESENT_AMBIGUOUS []
+PRESENT_INVENTORY_SHA256 f7f6bda0ee1e9f50b8a3a836769ee5c96cafb3116d28b58f1319953f7ea991d4
+PRESENT_CONTENT_SHA256 5befb5f8ceefccdb7eabec9dfa03025d7b96b217c4f24c22b44987f40c65909e
+PRESENT_CLASSIFICATION_SHA256 4ad6e82924306b19761c82fed045a981fce3341bbf78928bf60f34eb6a943b14
+
+DOT_NEXT_AUDIT
+.next/types/cache-life.d.ts bytes=5854 SHA-256=d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7
+.next/types/routes.d.ts bytes=6832 SHA-256=e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4
+.next/types/validator.ts bytes=26616 SHA-256=8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df
+DOT_NEXT_FILE_SET exact_3
+DOT_NEXT_SYMLINKS 0
+DOT_NEXT_GENERATED_ROOT_SHA256 fc4e44647d4941f5f392d80cb98db04227995133cb23ee99d2c2c3df501caccb
+
+OFFICIAL_GENERATION_COMMAND_RUN_2
+NEXT_TELEMETRY_DISABLED=1 CI=1 /Users/calvin/.nvm/versions/node/v24.14.0/bin/node /Users/calvin/.codex/worktrees/263d/CWT（CloudWave Textile）项目/node_modules/next/dist/bin/next typegen .
+RUN_2_EXIT 0
+RUN_2_STDOUT_BYTE_IDENTICAL_TO_RUN_1 true
+RUN_2_NEXT_ENV_BYTE_IDENTICAL true
+RUN_2_DOT_NEXT_FILE_SET_AND_HASHES_IDENTICAL true
+RUN_2_PRESENT_VERIFIER_OUTPUT_BYTE_IDENTICAL true
+
+MUTATIONS base_v1_6=17 attempt_2=11 total=28 all_expected_fail_closed=true
+OWNER_M02_D1_INCLUDE non_regressed
+OWNER_M03_D1_DISCRIMINATED_SEAM non_regressed
+SCHEMA_MAPPING ai_model_config=21/21 ai_runs=96/96 non_regressed
+PHASE_D_ROOT absent
+ADAPTER_ZONE absent
+SECOND_COMPOSITION_ROOT absent
+PROVIDER_REGISTRY implementation_absent_and_no_registry_node
+
+No handwritten next-env.d.ts, private writer shortcut, cleanup dependency, second selector, wildcard root matcher or ignored-file scope reduction was used.
