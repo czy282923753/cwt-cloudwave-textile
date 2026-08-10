@@ -1,0 +1,29 @@
+command: /Users/calvin/.nvm/versions/node/v24.14.0/bin/node docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/VERIFY_CORRECTED_DESIGN_V1_0.mjs
+cwd: /Users/calvin/.codex/worktrees/263d/CWT（CloudWave Textile）项目
+run 1 exit: 0
+run 2 exit: 0
+run 1 and run 2 output: byte-identical
+PASS runtime Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; CLDR 48.0; darwin/arm64
+PASS branch, parent, accepted rollback, frozen tag, ancestry and failed-code isolation
+PASS fixed artifacts byte-identical count=17
+PASS imported Fresh Technical Escalation PASS manifest 5/5
+PASS Owner selections exact and authority limited to corrected Design authorship
+PASS M02 selected INCLUDE registry=32 rules, exact two DeepSeek rules and inline narrow gaps
+PASS M02 independent full transition graph, Unicode properties, counters, persisted bytes and legacy-shortcut negative
+PASS Unicode runtime tuple mismatch fails before Candidate acceptance
+PASS M03 12-class graph, five-edge outer root, two branches and Phase D/adapter absences
+PASS M03 strict TypeScript positive exit=0; union and cross-driver negatives=TS2375; no type escape
+PASS accepted 0020 mappings byte-order equivalent by field: ai_model_config 21/21, ai_runs 96/96
+PASS standalone V1.5 contract map complete and all 13 accepted finding closures preserved
+PASS Candidate scope docs/evidence only paths=22
+PASS owned Markdown links/fences/final-LF/whitespace valid; imported Reviewer bytes excluded only from owned whitespace claim
+PASS Schema/Migration/ADR/dependency/persistent-complexity/SEO/data impact remains none
+SUMMARY CORRECTED_EXACT_DESIGN_V1_5=PASS OWNER_SELECTIONS=INCORPORATED CANDIDATE_ONLY=TRUE IMPLEMENTATION_AUTHORIZED=FALSE
+
+runtime mismatch negative:
+command: node docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/VERIFY_CORRECTED_DESIGN_V1_0.mjs
+observed default Node: v25.8.1
+exit: 1
+first diagnostic: AssertionError [ERR_ASSERTION]: runtime node; actual 25.8.1, expected 24.14.0
+
+reviewer ruling: the author verifier is reproducible, but its M03 graph assertion checks declared profile shape rather than enumerating every actual Candidate node. The separate reviewer graph challenge therefore controls V15-M01.

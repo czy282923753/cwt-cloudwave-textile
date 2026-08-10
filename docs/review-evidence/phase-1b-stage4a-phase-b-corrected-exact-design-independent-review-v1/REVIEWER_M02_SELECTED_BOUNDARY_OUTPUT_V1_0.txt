@@ -1,0 +1,14 @@
+RUNTIME_TUPLE=24.14.0/13.6.233.17-node.41/78.2/17.0/48.0/darwin/arm64
+RULES=32 COMMON=30 DEEPSEEK_ONLY=2 COMMON_DELTA=IDENTICAL_EXCEPT_PRIORITY_SHIFT
+FRESH_ADMITTED_GAPS=7 FRESH_VISIBLE_OR_ORDINARY_EXCLUDED=8
+LIMITS=PER_GAP_4_MATCH_5_UNSUPPORTED PERSISTED_BYTES=UNCHANGED
+SUMMARY M02_SELECTED_BOUNDARY_PROBE=PASS
+
+The earlier independent full-transition challenge was also freshly rerun under exact Node and exited 0:
+PASS registries include=32 exclude=30 common=30 delta=2
+PASS compiled every rule from inline grammar AST + inline gapSetAst + counters: include=32 exclude=30
+PASS deepseek fresh cases=26 visible separators excluded; DICP/Mark/LF admitted; controls and 4/5 limits exact
+PASS total transition counter synthetic=64 match / 65 unsupported_value from the same graph
+PASS full Unicode property predicates enumerated counts={"Default_Ignorable_Code_Point":4174,"Mark":2543,"White_Space":25,"Separator":19,"Punctuation":856}
+PASS fresh witnesses kill legacy LF/U+034F/U+200B shortcut and preserve original UTF-8 bytes
+SUMMARY TECH_M01_FRESH_TRANSITION_CHALLENGE=PASS graph_sha256=6e7554cb78381e3cd238dc04b47d96bbf0e47871dd3818d042006ce96b33ee68

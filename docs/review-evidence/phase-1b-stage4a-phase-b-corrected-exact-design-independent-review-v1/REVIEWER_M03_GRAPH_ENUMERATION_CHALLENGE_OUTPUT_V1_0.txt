@@ -1,0 +1,12 @@
+CANDIDATE_EXECUTABLE_OR_PROTECTED_RESOURCE_NODES=391
+ROOT_CLASSES=12
+UNCLASSIFIED_COUNT=6
+UNCLASSIFIED drizzle.config.ts
+UNCLASSIFIED playwright.config.ts
+UNCLASSIFIED tests/e2e/global-teardown.ts
+UNCLASSIFIED tests/e2e/product-import.spec.ts
+UNCLASSIFIED tests/e2e/public.spec.ts
+UNCLASSIFIED vitest.config.mts
+SUMMARY M03_GRAPH_ENUMERATION_CHALLENGE=EXPECTED_DESIGN_DEFECT_REPRODUCED
+
+Method note: the probe enumerates the exact HEAD tree, applies the profile's physical exclusions and executable/resource extensions, and gives the profile a generous interpretation by mapping every declared .test/.integration.test suffix to other-test-fixtures before applying exact-file and longest-directory matches. The six reported paths still have no root-class match.

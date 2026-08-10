@@ -1,0 +1,25 @@
+runtime: TypeScript 5.9.3, strict, exactOptionalPropertyTypes
+dependency source: read-only node_modules symlink to /Users/calvin/.codex/worktrees/263d/CWT（CloudWave Textile）项目/node_modules
+
+author positive:
+  tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-positive.json
+  exit 0; no diagnostics
+
+author unnarrowed-union negative:
+  exit 2
+  TS2375: PgliteAppDatabase | PostgresAppDatabase is not assignable to AppDatabase<PgliteQueryResultHKT>
+
+author cross-driver negative:
+  exit 2
+  TS2375: PgliteAppDatabase is not assignable to AppDatabase<PostgresJsQueryResultHKT>
+
+fresh reviewer branch-local positive:
+  tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/tsconfig.m03-reviewer-positive.json
+  exit 0; no diagnostics
+
+fresh reviewer destructured-union negative:
+  tsc -p docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/tsconfig.m03-reviewer-negative.json
+  exit 2
+  REVIEWER_M03_DESTRUCTURED_UNION_NEGATIVE_V1_0.ts(24,3): TS2375: PgliteAppDatabase | PostgresAppDatabase is not assignable to AppDatabase<PgliteQueryResultHKT>
+
+SUMMARY M03_DISCRIMINATED_TYPE_SEAM=PASS M03_COMPLETE_GRAPH=FAIL_V15_M01

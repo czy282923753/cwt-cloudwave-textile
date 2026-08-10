@@ -1,0 +1,62 @@
+Task: CWT Stage 4A Phase B Corrected Exact Design V1.5 Fresh Independent Design Review
+Date: 2026-08-11 Asia/Shanghai
+Network/download/install/package-registry/Provider/API use: 0
+
+Candidate identity:
+  ref: codex/phase-1b-stage4a-phase-b-corrected-design-v1
+  HEAD: da2143654a372f70a93ff22f9fcb6e999f1e528e
+  parent: 9cedefd618a168176f8d70a85e3ec8cb684967a7
+  technical-escalation ancestor: 377181cd76e5427f344ff0c259fc9bd32ec7b670
+  accepted rollback: 6bc26cf035608a21a057d6f4e87da8d4f7f23d40
+  frozen tag object/peel: 1c626f9b788e4c6ed0480a7040aa54ccef3e6c76 / 31c0e405acfdd0d05200d0fb2531e897a541a2c4
+  Candidate tracked state before/after: clean
+  reviewer detached worktree: /tmp/cwt-corrected-design-v15-review.NmkiA4
+
+Scope:
+  377181cd..HEAD: 23 added paths, 5529 insertions, 0 deletions
+  all paths: docs/ or docs/review-evidence/
+  source/scripts/test-fixtures/Schema/Migration/ADR/package/lock/config changes: 0
+  git diff --check 377181cd..HEAD: exit 0
+  git diff --check V1.5-owned range 1f61152f..HEAD: exit 0
+  historical Reviewer bytes: preserved
+
+Runtime/tools:
+  Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; CLDR 48.0; darwin arm64
+  pnpm 11.9.0
+  TypeScript 5.9.3
+  Git 2.24.3 (Apple Git-128)
+
+Fixed artifact verification:
+  Owner Selection Record 21c5db60154374f52546dae730dd2893d1fb53689757cf969106b9f1c7c96fa2 PASS
+  Corrected Design V1.5 22d9820f1faa5b318bb6904adcefbb96ba59559f132c9dcd611e16c574643698 PASS
+  Derivation 481947f06bd51139d081b46bf3ef852f1ce233191428e568b1c970ad36547d65 PASS
+  contract profile bbdc730b3b1a6d9d9ec0c26d50e8eabcbc33c132762775f80947b85919383a08 PASS
+  fixed inputs e3895fb405a0ad15cf9f73b35898161ebcae45cf41683137bd3e40de2c7569fe PASS
+  author verifier 55b2c00cf55d8522e1cba2ae3f266eab3ee62242022629ac5e8bccc191697e71 PASS
+  Candidate manifest a98890959e9e24c522367b9e788cdd797cb6e98d5d1d57e35dcbdea01e853d6e PASS 22/22
+  imported technical-escalation PASS report/evidence/manifest PASS 5/5
+  accepted V1.4/remediation hashes PASS
+
+Failed implementation isolation:
+  755e514540351ed53ee96bedd5ea12f3e934387e non-ancestor PASS
+  a696325fa2608c77e526bb7403bb911d34200064 non-ancestor PASS
+  b1a73bb8aae87f7c862117b32ce5c2a051f21b84 non-ancestor PASS
+  d8a24d48592a8c5e112d20edd24505e9e34d83c9 non-ancestor PASS
+
+Independent checks:
+  author verifier exact Node run 1/2 exit 0, byte-identical PASS
+  default Node 25.8.1 mismatch exit 1 before acceptance PASS
+  selected M02 fresh boundary probe PASS
+  prior independent full transition compiler freshly rerun PASS
+  M03 author and reviewer strict type positives exit 0 PASS
+  M03 union/cross-driver/destructured negatives exit 2 TS2375 PASS
+  schema mapping exact Design=Drizzle=0020 Migration: 21/21 and 96/96 PASS
+  V1.4/V1.5 26-section and 13-closure non-regression probe PASS subject to V15-M01
+  M03 actual-tree graph enumeration FAIL: six existing executable nodes unclassified
+
+Proportional decision:
+  No unrelated build/test suite was run because the Candidate is docs/evidence-only. Exact hashes, static profiles, Node/TypeScript probes, actual Schema mapping and actual-tree enumeration directly cover the design risks. The deterministic graph defect is independent of application runtime behavior.
+
+Review conclusion: FAIL
+Findings: Blocker 0 / High 0 / Medium 1 / Low 0 / External Validation 0
+Implementation eligibility: NO

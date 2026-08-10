@@ -1,0 +1,11 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "tsBuildInfoFile": null
+  },
+  "files": ["./REVIEWER_M03_DESTRUCTURED_UNION_NEGATIVE_V1_0.ts"],
+  "include": [],
+  "exclude": []
+}
