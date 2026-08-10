@@ -1,0 +1,7 @@
+CWT Stage 4A Phase B independent M02 escalation challenge V1.0
+PASS INCLUDE/EXCLUDE are unselected, mutually named, and differ in rule semantics only by the DeepSeek prefix, one whole-token rule, and the declared later priority shift
+PASS whole-token DeepSeek and deepseek- model-prefix rules are generated from the selected closed AST and grammar-adjacency insertion policy
+PASS fresh derived matcher confirms direct, U+200B, LF, U+034F and deepseek-v4-flash protected forms
+FAIL false-positive boundary is internally contradictory: Punctuation/White_Space are admitted at every literal adjacency, so both deep-seek and deep; seek match the whole-token DeepSeek rule although the mandatory corpus and Owner package say allow
+FAIL author verifier is not a proof of the normative insertion language: its corpus helper strips only LF/U+034F/U+200B and never evaluates the declared Punctuation/White_Space property union
+RESULT TECHNICAL_ESCALATION_OWNER_DECISION_READY=NO M02_OWNER_CHOICE_PRECISE=NO

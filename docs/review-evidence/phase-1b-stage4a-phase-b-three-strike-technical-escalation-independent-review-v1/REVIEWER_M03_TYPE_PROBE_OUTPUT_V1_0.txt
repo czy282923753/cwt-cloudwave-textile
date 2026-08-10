@@ -1,0 +1,6 @@
+runtime: Node 24.14.0 / TypeScript 5.9.3 / repository strict + exactOptionalPropertyTypes
+checked-in discriminated seam positive: exit 0, no diagnostics
+checked-in union projection negative: exit 2, TS2375, PgliteAppDatabase | PostgresAppDatabase is not assignable to one inferred AppDatabase<PgliteQueryResultHKT>
+checked-in cross-driver negative: exit 2, TS2375, PgliteAppDatabase is not assignable to AppDatabase<PostgresJsQueryResultHKT>
+fresh reviewer discriminated seam positive using actual DatabaseConnection parameter and actual singleton: exit 0, no diagnostics
+result: PASS; exhaustive outer kind switch is literally implementable without cast/assertion/any/unknown/wrapper/visitor/second database authority

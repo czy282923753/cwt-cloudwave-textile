@@ -1,0 +1,7 @@
+exact runtime: Node 24.14.0 / V8 13.6.233.17-node.41 / ICU 78.2 / Unicode 17.0 / CLDR 48.0 / darwin arm64 / TypeScript 5.9.3
+fresh run 1: exit 0
+fresh run 2: exit 0
+run 1 versus run 2: byte-identical
+fresh payload versus captured output after the capture command/exit header: byte-identical
+default Node 25.8.1 mismatch: exit 1 before profile acceptance
+independent ruling: author verifier execution is deterministic, but its M02 corpus classifier is incomplete relative to the normative insertion property union and therefore its PASS does not establish the claimed false-positive boundary
