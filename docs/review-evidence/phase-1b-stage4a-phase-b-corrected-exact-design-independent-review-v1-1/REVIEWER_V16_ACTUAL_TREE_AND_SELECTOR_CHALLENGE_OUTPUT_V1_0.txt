@@ -1,0 +1,9 @@
+CURRENT_TREE candidates=402 executables=362 zero=0 ambiguous=0
+HASHES inventory=af98fecfd5963207855478301dea528dee220057ddb3abbb85379c81f8d49e5d content=29a1c9d740ae99b491c57412d75c7d68f9f8f6f6fe73b246ea0e70b86030996a classification=964fb51dad53c886ead8c5506a78cd59014b38fdb5239e3ab821612e150cda6e
+CLASSES phase-b-outer-composition:0 phase-d-outer-composition-reserved:0 future-provider-adapter-zone-reserved:0 synthetic-ai-test-code:0 protected-ai:0 business-consumer:144 other-production-src:64 ai-proof-tooling:0 other-project-tooling:25 other-test-fixtures:104 diagnostic-documentation:56 root-control-file:9
+SIX_PATHS drizzle.config.ts=>root-control-file | playwright.config.ts=>root-control-file | tests/e2e/global-teardown.ts=>other-test-fixtures | tests/e2e/product-import.spec.ts=>other-test-fixtures | tests/e2e/public.spec.ts=>other-test-fixtures | vitest.config.mts=>root-control-file
+AUTHOR_MUTATIONS classification-removal/overlap/generated/phase-d/adapter/second-root=EXPECTED_FAIL_CLOSED
+PHYSICAL_AND_SEALED_MUTATIONS symlink/hardlink/alias-import/silent-exclusion/sealed-exclusion=EXPECTED_FAIL_CLOSED
+FRESH_BOUNDARIES nested-test=one-class src-testing=production docs-test=test-only unknown-root-config=unclassified nested-node-modules=unclassified
+FINDING next-env.d.ts=candidate+ignored+tsconfig-included+Next-build-generated+zero-class
+SUMMARY REVIEWER_V16_ACTUAL_TREE_AND_SELECTOR_CHALLENGE=FINDING_REPRODUCED V15_M01=OPEN
