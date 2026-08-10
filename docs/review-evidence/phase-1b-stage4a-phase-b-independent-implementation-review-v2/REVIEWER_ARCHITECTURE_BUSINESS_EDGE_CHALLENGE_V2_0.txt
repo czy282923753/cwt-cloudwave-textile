@@ -1,0 +1,32 @@
+Reviewer M03 business incoming-edge challenge
+Candidate: 0d5b067c0912290ffd91d4d34b064d9c8dacd712
+Disposable worktree: /tmp/cwt-phase-b-impl-v2-arch-fault.B0IyMP/repo
+Installed runtime: Node 24.14.0 / local tsx and TypeScript only
+
+Fault injected only in disposable worktree:
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@
+ import type { Metadata } from "next";
++import "@/server/ai/phase-b-composition";
+
+Selected M03 V2.2 profile contract:
+- src/server/ai/phase-b-composition.ts incomingEdges.phaseBRuntimeEdges is exact-empty.
+- No Production business module may import the Phase B composition root.
+
+Actual checker result:
+- exit: 0
+- ok: true
+- candidateCount: 501
+- executableCount: 443
+- zeroClass: []
+- ambiguous: []
+- positive type probes: 2
+- expected-negative type probes: 5
+- in-memory mutations: 28/28
+
+Full checker output SHA-256:
+4af6b224131063d5e4f4f8c54d52a192d188826c72c6c87fab5224fa065dcec6
+
+Ruling:
+The checker observes unchanged primary-root classification but does not construct/enforce the declared import edge. This is a real false negative against the selected profile, not a mutation of the formal Candidate.

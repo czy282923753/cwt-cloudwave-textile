@@ -1,0 +1,89 @@
+CWT Stage 4A Phase B Fresh Foundation Implementation V2 independent verification
+Candidate: 0d5b067c0912290ffd91d4d34b064d9c8dacd712
+Runtime: Node 24.14.0 / pnpm 11.9.0 / TypeScript 5.9.3 / Next 16.2.12
+External downloads: 0
+Provider/API/credential/Staging/Production access: 0
+
+IDENTITY
+ref=codex/phase-1b-stage4a-phase-b-foundation-implementation-v2 -> exact HEAD PASS
+parent=530fa35aa08dc9c49b25f97a589cefd1f27617b8 PASS
+start=3f475e13d73d9d68a4dfb9a040941c57f1ee92e6 ancestor PASS
+post-start commits=27 linear, merge commits=0
+failed implementation refs=4/4 NON_ANCESTOR
+changed paths=114; payload manifest=112/112 PASS
+
+FIXED HASHES
+implementation report=edda35f368c31329060566de7f839e6e6693ff8344e86169fc0b349cbc9643ea PASS
+acceptance/authorization=237deb5b00a25837c63eb09d9f0f379ac3ccfe226feb16f66519d943ce3982da PASS
+112-entry manifest=24ddca7e51051c0f7921f0358e50b10bef11351de1ecc7d34c0bb951561dfb8c PASS
+aggregate envelope=4471d3b02afbf6d42075e2527456b786f80005a048117b8bc30bcf96ae916770 PASS
+imported V1.7 PASS artifacts/manifest=PASS
+
+TESTS AND STATIC GATES
+focused src/ai=13 files / 122 tests PASS
+focused output sha256=01e27a1338fd099d4f7ccaef532ca3cb97e9a135781127f261b21e14386c31f6
+full suite=111 files / 539 tests PASS
+full output sha256=1765d08da11b2f52e2b5abeb6f691705b7a52e9f90e0fe86e0b243c173f08e76
+lint=PASS; output sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+typecheck=PASS; output sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+DB verifier=PASS; output sha256=a7f5039da3842354a63c268260a4ee4fbb85a6f54584b63f14a2b5384ffd2617
+Prompt bundle=PASS; output sha256=1d89bff4e6ae03b5642b6df2d190fc1209e1dfe34eb4526ee973c99b7d022177
+Prompt history c6f971...->0d5b067...=PASS; output sha256=0ee5a19ea33dca50e4ba8cd267e36518a08c159a6098036b50ea2366da76eebe
+
+SCHEMA
+independent Design/Snapshot/Drizzle/Migration ai_model_config=21/21 exact order PASS
+independent Design/Snapshot/Drizzle/Migration ai_runs=96/96 exact order PASS
+schema output sha256=0e6172403da4c2ce3fc88b23c1b2fe06b397d2f52a21d71f1aca6cbd5939be74
+Schema/Migration/snapshot/journal/seed/lockfile Candidate diff=0
+dependencies/devDependencies/engines/packageManager=UNCHANGED
+
+ARCHITECTURE AND M03
+exact Candidate absent inventory=501 candidates / 443 executables / 12 classes / zero=[] / ambiguous=[] PASS
+type probes=2 positive PASS / 5 expected-negative PASS
+in-memory mutations=28/28 fail closed
+architecture output sha256=fe4574d2983d30fdf3a1acdbba79ba93d745aa27813d673c4ac818e732e36f5e
+fresh business incoming-edge fault=checker incorrectly PASS
+fault output sha256=4af6b224131063d5e4f4f8c54d52a192d188826c72c6c87fab5224fa065dcec6
+
+OFFICIAL NEXT LIFECYCLE
+disposable worktree=/tmp/cwt-phase-b-impl-v2-next-lifecycle.3JFgya/repo
+absent=501/443; zero=[]; ambiguous=[]; sha256=fe4574d2983d30fdf3a1acdbba79ba93d745aa27813d673c4ac818e732e36f5e
+typegen first=PASS; sha256=adba4af9194e10e47dda75ff0fd0f8c2b756474896d0eba5612799c527ff372a
+present first=502/444; sha256=ddcb62bd1ec5f676ad6ae8e34f102498a959c0fb3c9035e394483ae49aebe830
+typegen second=PASS; sha256=adba4af9194e10e47dda75ff0fd0f8c2b756474896d0eba5612799c527ff372a
+present second=502/444; sha256=ddcb62bd1ec5f676ad6ae8e34f102498a959c0fb3c9035e394483ae49aebe830
+next-env.d.ts=247 bytes / 7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651 / ignored root-control-file
+
+M02 AND OUTPUT PROBES
+selected registry=32 rules (30 common + 2 DeepSeek), sha256=264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66
+fresh M02 Unicode/tradeoff/boundary cases=PASS
+context/output behavioral fault reproduced
+context/output/M02 output sha256=92a85062a62e4576dc138448f2a136ee286e4718ed464c122d1de8e8cc571cc7
+raw JSON fresh cases=PASS
+raw JSON output sha256=b3a8710df2d7c508c0099f47f326ce06ae2b667b597090b91833c8c3e35b61ea
+
+BUNDLES AND ISOLATED BUILD
+server fixture build=PASS; output sha256=d531e1bbe7bb4f1f59de3e5bc1ef9ddf5f4733795d9a3d1a46c53ea5b494544d
+server verify=51 server / 16 client / markers PASS; sha256=a7f1c5162369ad439909ab6360ef32b961fee2d4030bbb8f534dd698f0525dc2
+isolated PGlite migrate=PASS; sha256=c4778a3dd9e9b56c088424752f618eb932567cb901449b371f314f7bc8656ef6
+isolated test/noindex/FEATURE_AI=false build=PASS; sha256=e4f61f6b54c1a09d60ec95c36a311b805ed9d046e78213308760adfde1be2b57
+public bundle=20 manifests / 47 active files PASS; sha256=cd7f548cfbff79e6a72740b9c6ba0f5af29fa23763a7c95b11898d15b8bee8f7
+
+DIFF CHECK
+global start..HEAD exit=2
+global sole issue=immutable imported V1.7 report line 118 new blank line at EOF
+global output sha256=2ffbc295e49d0e1c2c51de4c47be8a381f7a3ece5397caeb267a0d4c2d6d1aca
+owned scope excluding exact six imported V1.7 artifacts exit=0
+owned output sha256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+
+PROHIBITED SOURCE SCAN
+Provider SDK/import/network call in src/ai=none
+Production Provider registry=[]
+Production Prompt manifest={"manifestVersion":1,"entries":[]}
+non-test ai_runs repository=none
+scan output sha256=dd8c12f799f3e4691d36bb86261476944c71a7e4f304ea1ee8f2f48ec1861d8c
+
+PROCESS DISCLOSURE
+author local-store materialization=526 reused / downloaded 0 / lock unchanged (prohibited install-like event, disclosed)
+author first font build=2 failed TLS attempts / successful connection 0 / downloaded bytes 0 (prohibited network attempt, disclosed)
+reviewer initial pnpm wiring triggered local offline consistency/materialization; downloaded 0; tracked changes 0; direct installed binaries used afterward
