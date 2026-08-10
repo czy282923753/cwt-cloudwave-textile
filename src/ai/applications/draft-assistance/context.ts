@@ -5,7 +5,6 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import type { ApplicationContextPolicy } from "@/ai/applications/contracts";
 import {
   canonicalJsonHash,
-  type JsonPrimitive,
   type ReadonlyJsonObject,
   type ReadonlyJsonValue,
 } from "@/ai/canonical-json";
@@ -112,21 +111,53 @@ export interface ReconstructibleDraftContextV1 extends ReadonlyJsonObject {
   readonly mediaPlacementRefs: readonly string[];
 }
 
-export interface DraftContextSourceDtoV1 {
-  readonly sourceClass:
-    | "public_company_fact"
-    | "product_structured"
-    | "fabric_knowledge";
-  readonly sourceIdentity: ReadonlyJsonObject;
-  readonly fields: readonly {
-    readonly field: string;
-    readonly provenance: SourceProvenanceV1;
-    readonly value:
-      | JsonPrimitive
-      | readonly JsonPrimitive[]
-      | ReadonlyJsonObject;
-  }[];
-}
+const sourceTargetBindingSchema = z.discriminatedUnion("targetType", [
+  z.object({
+    targetType: z.literal("product_draft"),
+    targetProductId: z.string().uuid(),
+    expectedTargetVersion: z.number().int().min(1).max(2_147_483_647),
+  }).strict(),
+  z.object({
+    targetType: z.literal("content_draft"),
+    targetContentId: z.string().uuid(),
+    expectedTargetVersion: z.number().int().min(1).max(2_147_483_647),
+  }).strict(),
+  z.object({
+    targetType: z.literal("editorial_revision"),
+    targetRevisionId: z.string().uuid(),
+    expectedTargetVersion: z.number().int().min(1).max(2_147_483_647),
+  }).strict(),
+]);
+const sourceDtoFieldSchema = z.object({
+  field: z.string().regex(/^[a-z][A-Za-z0-9_]{0,63}$/),
+  provenance: z.enum(["structural", "provided", "verified"]),
+  value: sourceValueSchema,
+}).strict();
+const draftContextSourceDtoSchema = z.discriminatedUnion("sourceClass", [
+  z.object({
+    sourceClass: z.literal("product_structured"),
+    productId: z.string().uuid(),
+    recordVersion: z.number().int().min(1).max(2_147_483_647),
+    targetBinding: sourceTargetBindingSchema,
+    fields: z.array(sourceDtoFieldSchema).min(1).max(32),
+  }).strict(),
+  z.object({
+    sourceClass: z.literal("fabric_knowledge"),
+    contentId: z.string().uuid(),
+    recordVersion: z.number().int().min(1).max(2_147_483_647),
+    targetBinding: sourceTargetBindingSchema,
+    fields: z.array(sourceDtoFieldSchema).min(1).max(3),
+  }).strict(),
+  z.object({
+    sourceClass: z.literal("public_company_fact"),
+    companyFactId: z.string().uuid(),
+    recordUpdatedAt: z.string().datetime({ offset: true }),
+    targetBinding: sourceTargetBindingSchema,
+    fields: z.array(sourceDtoFieldSchema).min(1).max(4),
+  }).strict(),
+]);
+
+export type DraftContextSourceDtoV1 = z.infer<typeof draftContextSourceDtoSchema>;
 
 export interface DraftContextReadRepository<
   TQueryResult extends PgQueryResultHKT,
@@ -189,6 +220,64 @@ function isReadonlyJsonObject(value: ReadonlyJsonValue): value is ReadonlyJsonOb
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function targetBindingMatchesAssociation(
+  binding: DraftContextSourceDtoV1["targetBinding"],
+  association: DraftDurableAssociationWithoutHashV1,
+): boolean {
+  if (binding.targetType !== association.targetType ||
+    binding.expectedTargetVersion !== association.expectedTargetVersion) return false;
+  switch (association.targetType) {
+    case "product_draft":
+      return binding.targetType === "product_draft" &&
+        binding.targetProductId === association.targetProductId;
+    case "content_draft":
+      return binding.targetType === "content_draft" &&
+        binding.targetContentId === association.targetContentId;
+    case "editorial_revision":
+      return binding.targetType === "editorial_revision" &&
+        binding.targetRevisionId === association.targetRevisionId;
+  }
+}
+
+function sourceIdentity(
+  source: DraftContextSourceDtoV1,
+): ReadonlyJsonObject {
+  switch (source.sourceClass) {
+    case "product_structured":
+      return { productId: source.productId, recordVersion: source.recordVersion };
+    case "fabric_knowledge":
+      return { contentId: source.contentId, recordVersion: source.recordVersion };
+    case "public_company_fact":
+      return { companyFactId: source.companyFactId, recordUpdatedAt: source.recordUpdatedAt };
+  }
+}
+
+function sourceIdentityMatchesSelectionAndTarget(
+  source: DraftContextSourceDtoV1,
+  selection: Exclude<
+    DraftAssistanceCommandV1["contextSelections"][number],
+    { readonly sourceClass: "explicit_human_input" }
+  >,
+  association: DraftDurableAssociationWithoutHashV1,
+): boolean {
+  if (source.sourceClass !== selection.sourceClass ||
+    !targetBindingMatchesAssociation(source.targetBinding, association)) return false;
+  switch (source.sourceClass) {
+    case "product_structured":
+      return source.productId === selection.sourceId &&
+        (association.targetType !== "product_draft" ||
+          (source.productId === association.targetProductId &&
+            source.recordVersion === association.expectedTargetVersion));
+    case "fabric_knowledge":
+      return source.contentId === selection.sourceId &&
+        (association.targetType !== "content_draft" ||
+          source.contentId !== association.targetContentId ||
+          source.recordVersion === association.expectedTargetVersion);
+    case "public_company_fact":
+      return source.companyFactId === selection.sourceId;
+  }
+}
+
 function sourceAllowed(
   useCase: ProductionAiUseCase,
   sourceClass: DraftAssistanceCommandV1["contextSelections"][number]["sourceClass"],
@@ -222,7 +311,11 @@ function serializedField(
 function serializeProductField(
   alias: string,
   field: ProductContextField,
-  sourceField: DraftContextSourceDtoV1["fields"][number],
+  sourceField: {
+    readonly field: string;
+    readonly provenance: SourceProvenanceV1;
+    readonly value: ReconstructibleSourceFieldV1["value"];
+  },
 ): AiServiceResult<readonly ReconstructibleSourceFieldV1[]> {
   const provenance = sourceField.provenance;
   const value = sourceField.value;
@@ -291,17 +384,23 @@ function serializeProductField(
 
 function serializeSelectedSource(
   alias: string,
-  source: DraftContextSourceDtoV1,
+  sourceInput: DraftContextSourceDtoV1,
   selection: Exclude<
     DraftAssistanceCommandV1["contextSelections"][number],
     { readonly sourceClass: "explicit_human_input" }
   >,
+  association: DraftDurableAssociationWithoutHashV1,
 ): AiServiceResult<ReconstructibleSourceEntryV1> {
-  if (source.sourceClass !== selection.sourceClass || selection.fields.length === 0 ||
+  const parsed = draftContextSourceDtoSchema.safeParse(sourceInput);
+  if (!parsed.success ||
+    !sourceIdentityMatchesSelectionAndTarget(parsed.data, selection, association)) {
+    return aiFailure("context_provenance_mismatch");
+  }
+  const source = parsed.data;
+  if (selection.fields.length === 0 ||
     new Set(selection.fields).size !== selection.fields.length ||
     source.fields.length !== selection.fields.length ||
-    new Set(source.fields.map((field) => field.field)).size !== source.fields.length ||
-    canonicalSize(source.sourceIdentity) === undefined) {
+    new Set(source.fields.map((field) => field.field)).size !== source.fields.length) {
     return aiFailure("context_field_forbidden");
   }
   const selected = new Set<string>(selection.fields);
@@ -614,13 +713,18 @@ export function createDraftContextPolicy<
           selector: selection,
         });
         if (!read.ok) return read;
-        const entry = serializeSelectedSource(alias, read.value, selection);
+        const entry = serializeSelectedSource(
+          alias,
+          read.value,
+          selection,
+          input.association.association,
+        );
         if (!entry.ok) return entry;
         sources.push(entry.value);
         inputSources.push({
           alias,
           sourceClass: read.value.sourceClass,
-          sourceIdentity: read.value.sourceIdentity,
+          sourceIdentity: sourceIdentity(read.value),
           selectedFields: entry.value.fields.map((field) => field.field),
           fieldProvenance: entry.value.fields.map((field) => ({
             field: field.field,

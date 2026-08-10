@@ -2,9 +2,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestDatabase } from "@/test/database";
 import { canonicalJsonHash } from "@/ai/canonical-json";
+import type { ExplicitContextSelector } from "@/ai/context/contracts";
 
 import { buildAuthorizedDraftAssociationV1, prepareDraftAssociationV1 } from "./association";
-import { createDraftContextPolicy } from "./context";
+import {
+  createDraftContextPolicy,
+  type DraftContextSourceDtoV1,
+} from "./context";
+import type { DraftTarget, ProductionAiUseCase } from "./contracts";
 import { withReadOnlyDraftAvailabilityScope } from "./read-scopes";
 
 describe("Draft reconstructible context", () => {
@@ -17,6 +22,39 @@ describe("Draft reconstructible context", () => {
   afterAll(async () => {
     await database.close();
   });
+
+  async function buildContextWithSource(input: {
+    readonly useCase: ProductionAiUseCase;
+    readonly target: DraftTarget;
+    readonly selection: Exclude<
+      ExplicitContextSelector,
+      { readonly sourceClass: "explicit_human_input" }
+    >;
+    readonly source: DraftContextSourceDtoV1;
+  }) {
+    const policy = createDraftContextPolicy({
+      async readSelectedSource() {
+        return { ok: true, value: input.source };
+      },
+    });
+    const association = prepareDraftAssociationV1(input.target);
+    if (!association.ok) throw new Error("fixture association failed");
+    const authorized = buildAuthorizedDraftAssociationV1(association.value);
+    if (!authorized.ok) throw new Error("fixture authorization failed");
+    return withReadOnlyDraftAvailabilityScope(database.db, (scope) =>
+      policy.buildReconstructibleContext({
+        actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
+        command: {
+          useCase: input.useCase,
+          actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
+          target: input.target,
+          idempotencyKey: "fixture-source-binding",
+          contextSelections: [input.selection],
+        },
+        association: authorized.value,
+        scope,
+      }));
+  }
 
   it("builds and deterministically re-encodes an explicit-input context", async () => {
     const readSelectedSource = vi.fn();
@@ -114,7 +152,13 @@ describe("Draft reconstructible context", () => {
           ok: true,
           value: {
             sourceClass: "product_structured",
-            sourceIdentity: { productId: "11111111-1111-4111-8111-111111111111", recordVersion: 7 },
+            productId: "11111111-1111-4111-8111-111111111111",
+            recordVersion: 7,
+            targetBinding: {
+              targetType: "product_draft",
+              targetProductId: "11111111-1111-4111-8111-111111111111",
+              expectedTargetVersion: 7,
+            },
             fields: [{ field, provenance, value }],
           },
         };
@@ -154,6 +198,301 @@ describe("Draft reconstructible context", () => {
     expect(result).toMatchObject({ ok: false, error: { code: "context_field_ineligible" } });
   });
 
+  it("rejects the reviewer Product identity/version substitution before accepting values", async () => {
+    const result = await buildContextWithSource({
+      useCase: "product_description_draft",
+      target: {
+        type: "product_draft",
+        productId: "11111111-1111-4111-8111-111111111111",
+        locale: "en",
+        expectedVersion: 7,
+      },
+      selection: {
+        sourceClass: "product_structured",
+        sourceId: "22222222-2222-4222-8222-222222222222",
+        fields: ["name"],
+      },
+      source: {
+        sourceClass: "product_structured",
+        productId: "33333333-3333-4333-8333-333333333333",
+        recordVersion: 99,
+        targetBinding: {
+          targetType: "product_draft",
+          targetProductId: "11111111-1111-4111-8111-111111111111",
+          expectedTargetVersion: 7,
+        },
+        fields: [{
+          field: "name",
+          provenance: "structural",
+          value: "SYNTHETIC wrong product",
+        }],
+      },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "context_provenance_mismatch" },
+    });
+  });
+
+  it.each([
+    ["Product target identity", {
+      sourceClass: "product_structured",
+      productId: "22222222-2222-4222-8222-222222222222",
+      recordVersion: 7,
+      targetBinding: {
+        targetType: "product_draft",
+        targetProductId: "11111111-1111-4111-8111-111111111111",
+        expectedTargetVersion: 7,
+      },
+      fields: [{ field: "name", provenance: "structural", value: "SYNTHETIC product" }],
+    }],
+    ["Product target version", {
+      sourceClass: "product_structured",
+      productId: "11111111-1111-4111-8111-111111111111",
+      recordVersion: 6,
+      targetBinding: {
+        targetType: "product_draft",
+        targetProductId: "11111111-1111-4111-8111-111111111111",
+        expectedTargetVersion: 7,
+      },
+      fields: [{ field: "name", provenance: "structural", value: "SYNTHETIC product" }],
+    }],
+    ["target association", {
+      sourceClass: "product_structured",
+      productId: "11111111-1111-4111-8111-111111111111",
+      recordVersion: 7,
+      targetBinding: {
+        targetType: "product_draft",
+        targetProductId: "44444444-4444-4444-8444-444444444444",
+        expectedTargetVersion: 7,
+      },
+      fields: [{ field: "name", provenance: "structural", value: "SYNTHETIC product" }],
+    }],
+  ] satisfies ReadonlyArray<readonly [string, DraftContextSourceDtoV1]>)
+  ("rejects a mismatched %s binding", async (_label, source) => {
+    const result = await buildContextWithSource({
+      useCase: "product_description_draft",
+      target: {
+        type: "product_draft",
+        productId: "11111111-1111-4111-8111-111111111111",
+        locale: "en",
+        expectedVersion: 7,
+      },
+      selection: {
+        sourceClass: "product_structured",
+        sourceId: source.sourceClass === "product_structured"
+          ? source.productId : "11111111-1111-4111-8111-111111111111",
+        fields: ["name"],
+      },
+      source,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "context_provenance_mismatch" },
+    });
+  });
+
+  it("rejects Fabric and Company Fact selector, version, and target-binding substitutions", async () => {
+    const productTarget = {
+      type: "product_draft",
+      productId: "11111111-1111-4111-8111-111111111111",
+      locale: "en",
+      expectedVersion: 7,
+    } satisfies DraftTarget;
+    const fabricSelectorMismatch = await buildContextWithSource({
+      useCase: "seo_content_draft",
+      target: productTarget,
+      selection: {
+        sourceClass: "fabric_knowledge",
+        sourceId: "22222222-2222-4222-8222-222222222222",
+        fields: ["title"],
+      },
+      source: {
+        sourceClass: "fabric_knowledge",
+        contentId: "33333333-3333-4333-8333-333333333333",
+        recordVersion: 4,
+        targetBinding: {
+          targetType: "product_draft",
+          targetProductId: productTarget.productId,
+          expectedTargetVersion: 7,
+        },
+        fields: [{ field: "title", provenance: "provided", value: "SYNTHETIC fabric" }],
+      },
+    });
+    const fabricTargetVersion = await buildContextWithSource({
+      useCase: "fabric_knowledge_draft",
+      target: {
+        type: "content_draft",
+        contentId: "33333333-3333-4333-8333-333333333333",
+        locale: "en",
+        expectedVersion: 5,
+      },
+      selection: {
+        sourceClass: "fabric_knowledge",
+        sourceId: "33333333-3333-4333-8333-333333333333",
+        fields: ["title"],
+      },
+      source: {
+        sourceClass: "fabric_knowledge",
+        contentId: "33333333-3333-4333-8333-333333333333",
+        recordVersion: 4,
+        targetBinding: {
+          targetType: "content_draft",
+          targetContentId: "33333333-3333-4333-8333-333333333333",
+          expectedTargetVersion: 5,
+        },
+        fields: [{ field: "title", provenance: "provided", value: "SYNTHETIC fabric" }],
+      },
+    });
+    const companySelectorMismatch = await buildContextWithSource({
+      useCase: "sourcing_guide_draft",
+      target: productTarget,
+      selection: {
+        sourceClass: "public_company_fact",
+        sourceId: "55555555-5555-4555-8555-555555555555",
+        fields: ["statement"],
+      },
+      source: {
+        sourceClass: "public_company_fact",
+        companyFactId: "66666666-6666-4666-8666-666666666666",
+        recordUpdatedAt: "2026-08-11T00:00:00.000Z",
+        targetBinding: {
+          targetType: "product_draft",
+          targetProductId: productTarget.productId,
+          expectedTargetVersion: 7,
+        },
+        fields: [{
+          field: "statement",
+          provenance: "verified",
+          value: "SYNTHETIC company fact",
+        }],
+      },
+    });
+    const companyTargetVersion = await buildContextWithSource({
+      useCase: "sourcing_guide_draft",
+      target: productTarget,
+      selection: {
+        sourceClass: "public_company_fact",
+        sourceId: "55555555-5555-4555-8555-555555555555",
+        fields: ["statement"],
+      },
+      source: {
+        sourceClass: "public_company_fact",
+        companyFactId: "55555555-5555-4555-8555-555555555555",
+        recordUpdatedAt: "2026-08-11T00:00:00.000Z",
+        targetBinding: {
+          targetType: "product_draft",
+          targetProductId: productTarget.productId,
+          expectedTargetVersion: 6,
+        },
+        fields: [{
+          field: "statement",
+          provenance: "verified",
+          value: "SYNTHETIC company fact",
+        }],
+      },
+    });
+    for (const result of [
+      fabricSelectorMismatch,
+      fabricTargetVersion,
+      companySelectorMismatch,
+      companyTargetVersion,
+    ]) {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "context_provenance_mismatch" },
+      });
+    }
+  });
+
+  it("derives closed Fabric and Company Fact provenance without exposing identities to variables", async () => {
+    const targetProductId = "11111111-1111-4111-8111-111111111111";
+    const fabricId = "33333333-3333-4333-8333-333333333333";
+    const companyFactId = "55555555-5555-4555-8555-555555555555";
+    const targetBinding = {
+      targetType: "product_draft",
+      targetProductId,
+      expectedTargetVersion: 7,
+    } satisfies DraftContextSourceDtoV1["targetBinding"];
+    const policy = createDraftContextPolicy({
+      async readSelectedSource(input) {
+        if (input.selector.sourceClass === "fabric_knowledge") {
+          return {
+            ok: true,
+            value: {
+              sourceClass: "fabric_knowledge",
+              contentId: fabricId,
+              recordVersion: 4,
+              targetBinding,
+              fields: [{
+                field: "title",
+                provenance: "provided",
+                value: "Plain weave overview",
+              }],
+            },
+          };
+        }
+        return {
+          ok: true,
+          value: {
+            sourceClass: "public_company_fact",
+            companyFactId,
+            recordUpdatedAt: "2026-08-11T00:00:00.000Z",
+            targetBinding,
+            fields: [{
+              field: "statement",
+              provenance: "verified",
+              value: "Public textile sourcing statement",
+            }],
+          },
+        };
+      },
+    });
+    const association = prepareDraftAssociationV1({
+      type: "product_draft",
+      productId: targetProductId,
+      locale: "en",
+      expectedVersion: 7,
+    });
+    if (!association.ok) throw new Error("fixture association failed");
+    const authorized = buildAuthorizedDraftAssociationV1(association.value);
+    if (!authorized.ok) throw new Error("fixture authorization failed");
+    const built = await withReadOnlyDraftAvailabilityScope(database.db, (scope) =>
+      policy.buildReconstructibleContext({
+        actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
+        command: {
+          useCase: "seo_content_draft",
+          actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
+          target: {
+            type: "product_draft",
+            productId: targetProductId,
+            locale: "en",
+            expectedVersion: 7,
+          },
+          idempotencyKey: "fixture-closed-source-identities",
+          contextSelections: [
+            { sourceClass: "fabric_knowledge", sourceId: fabricId, fields: ["title"] },
+            { sourceClass: "public_company_fact", sourceId: companyFactId, fields: ["statement"] },
+          ],
+        },
+        association: authorized.value,
+        scope,
+      }));
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const encoded = policy.encodePreparedContext(built.value);
+    const variables = policy.buildPromptVariables(built.value);
+    expect(encoded.ok).toBe(true);
+    expect(variables.ok).toBe(true);
+    if (!encoded.ok || !variables.ok) return;
+    expect(encoded.value.inputSources.map((source) => source.sourceIdentity)).toEqual([
+      { contentId: fabricId, recordVersion: 4 },
+      { companyFactId, recordUpdatedAt: "2026-08-11T00:00:00.000Z" },
+    ]);
+    expect(JSON.stringify(variables.value)).not.toContain(fabricId);
+    expect(JSON.stringify(variables.value)).not.toContain(companyFactId);
+  });
+
   it("emits the MOQ pair as adjacent refs and preserves exact source identity only in provenance", async () => {
     const sourceIdentity = {
       productId: "11111111-1111-4111-8111-111111111111",
@@ -165,7 +504,13 @@ describe("Draft reconstructible context", () => {
           ok: true,
           value: {
             sourceClass: "product_structured",
-            sourceIdentity,
+            productId: sourceIdentity.productId,
+            recordVersion: sourceIdentity.recordVersion,
+            targetBinding: {
+              targetType: "product_draft",
+              targetProductId: sourceIdentity.productId,
+              expectedTargetVersion: sourceIdentity.recordVersion,
+            },
             fields: [{
               field: "moqPair",
               provenance: "verified",
