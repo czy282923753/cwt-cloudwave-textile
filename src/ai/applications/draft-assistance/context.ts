@@ -491,6 +491,30 @@ function strictContext(input: unknown): AiServiceResult<ReconstructibleDraftCont
   return aiSuccess(context);
 }
 
+export interface AllowedEvidenceFieldV1 {
+  readonly alias: string;
+  readonly field: string;
+  readonly value: ReadonlyJsonValue;
+}
+
+export function deriveAllowedEvidenceFieldsV1(
+  context: ReconstructibleDraftContextV1,
+): AiServiceResult<ReadonlyMap<string, AllowedEvidenceFieldV1>> {
+  const validated = strictContext(context);
+  if (!validated.ok) return validated;
+  const fields = new Map<string, AllowedEvidenceFieldV1>();
+  for (const source of validated.value.sources) {
+    for (const field of source.fields) {
+      fields.set(field.ref, {
+        alias: source.alias,
+        field: field.field,
+        value: field.value,
+      });
+    }
+  }
+  return aiSuccess(fields);
+}
+
 function promptVariables(
   context: ReconstructibleDraftContextV1,
 ): AiServiceResult<import("@/ai/core/contracts").PromptVariablesV1> {

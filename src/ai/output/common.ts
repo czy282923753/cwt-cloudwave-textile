@@ -5,11 +5,16 @@ import {
   type ReadonlyJsonObject,
   type ReadonlyJsonValue,
 } from "@/ai/canonical-json";
-import type { ReconstructibleDraftContextV1 } from "@/ai/applications/draft-assistance/context";
+import {
+  deriveAllowedEvidenceFieldsV1,
+  type AllowedEvidenceFieldV1,
+  type ReconstructibleDraftContextV1,
+} from "@/ai/applications/draft-assistance/context";
 import { protectedDataClassifierV1 } from "@/ai/context/protected-data";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 
 const referencePattern = /^src_[0-9]{2}:[a-z][A-Za-z0-9_]{0,63}$/;
+const acceptedNumericSpan = /(?<![+\-\d.])([1-9]\d*(?:\.\d+)?|0\.\d+) (GSM|cm|m|kg|roll|yd)(?![a-z\d])/g;
 
 function unicodeScalars(value: string): number {
   return Array.from(value).length;
@@ -122,30 +127,13 @@ function collectCandidateMaterial(
   }
 }
 
-function contextFields(context: ReconstructibleDraftContextV1): ReadonlyMap<
-  string,
-  { readonly alias: string; readonly field: string; readonly value: ReadonlyJsonValue }
-> {
-  const map = new Map<string, {
-    readonly alias: string;
-    readonly field: string;
-    readonly value: ReadonlyJsonValue;
-  }>();
-  for (const source of context.sources) {
-    for (const field of source.fields) {
-      map.set(field.ref, { alias: source.alias, field: field.field, value: field.value });
-    }
-  }
-  return map;
-}
-
 function numericPolicyPasses(
   text: string,
   refs: readonly string[],
-  fields: ReadonlyMap<string, { readonly alias: string; readonly field: string; readonly value: ReadonlyJsonValue }>,
+  fields: ReadonlyMap<string, AllowedEvidenceFieldV1>,
 ): boolean {
-  let scan = text.normalize("NFKC").toLowerCase();
-  const matches = Array.from(scan.matchAll(/(?<![+\-\d.])([1-9]\d*(?:\.\d+)?|0\.\d+) (gsm|cm|m|kg|roll|yd)(?![a-z\d])/g));
+  let scan = text.normalize("NFKC");
+  const matches = Array.from(scan.matchAll(acceptedNumericSpan));
   for (const match of matches) {
     const number = match[1];
     const unit = match[2];
@@ -154,18 +142,26 @@ function numericPolicyPasses(
       const field = fields.get(ref);
       return field === undefined ? [] : [field];
     });
-    if (unit === "gsm") {
+    if (unit === "GSM") {
       if (!cited.some((field) => field.field === "weightGsm" && field.value === number)) return false;
     } else if (unit === "cm") {
       if (!cited.some((field) => field.field === "widthCm" && field.value === number)) return false;
     } else {
-      if (!cited.some((valueField) =>
-        valueField.field === "moqValue" && valueField.value === number &&
-        cited.some((unitField) => unitField.alias === valueField.alias &&
-          unitField.field === "moqUnit" && unitField.value === unit))) return false;
+      const valueIndex = refs.findIndex((ref) => {
+        const field = fields.get(ref);
+        return field?.field === "moqValue" && field.value === number;
+      });
+      const valueField = valueIndex < 0 ? undefined : fields.get(refs[valueIndex] ?? "");
+      const unitField = fields.get(refs[valueIndex + 1] ?? "");
+      if (valueField === undefined || unitField === undefined ||
+        unitField.alias !== valueField.alias || unitField.field !== "moqUnit" ||
+        unitField.value !== unit) return false;
+      const orderedRefs = Array.from(fields.keys());
+      if (orderedRefs.indexOf(refs[valueIndex] ?? "") + 1 !==
+        orderedRefs.indexOf(refs[valueIndex + 1] ?? "")) return false;
     }
   }
-  scan = scan.replace(/(?<![+\-\d.])([1-9]\d*(?:\.\d+)?|0\.\d+) (gsm|cm|m|kg|roll|yd)(?![a-z\d])/g, "");
+  scan = scan.replace(acceptedNumericSpan, "");
   return !/\p{N}/u.test(scan);
 }
 
@@ -175,9 +171,8 @@ const placeholder = /(?:\bTODO\b|\bTBD\b|\[insert[^\]]*\]|lorem ipsum)/iu;
 
 function validateEvidence(
   nodes: readonly EvidenceNodeV1[],
-  context: ReconstructibleDraftContextV1,
+  fields: ReadonlyMap<string, AllowedEvidenceFieldV1>,
 ): boolean {
-  const fields = contextFields(context);
   const orderedRefs = Array.from(fields.keys());
   for (const node of nodes) {
     if (node.sourceRefs.length === 0 || new Set(node.sourceRefs).size !== node.sourceRefs.length) return false;
@@ -192,6 +187,35 @@ function validateEvidence(
     if (!numericPolicyPasses(node.text, node.sourceRefs, fields)) return false;
     if (bannedCurrencyOrTime.test(node.text) || bannedActionOrClaim.test(node.text)) return false;
     if (protectedDataClassifierV1.classify(node.text).kind !== "allow") return false;
+  }
+  return true;
+}
+
+function repetitionPolicyPasses(
+  nodes: readonly EvidenceNodeV1[],
+  blocks: readonly CandidateBlockV1[],
+): boolean {
+  const textCounts = new Map<string, number>();
+  for (const node of nodes) {
+    if (!/\p{L}/u.test(node.text)) return false;
+    const normalized = node.text.normalize("NFKC").toLocaleLowerCase("en");
+    const next = (textCounts.get(normalized) ?? 0) + 1;
+    if (next > 2) return false;
+    textCounts.set(normalized, next);
+    const tokens = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
+    let repeatedRun = 1;
+    for (let index = 1; index < tokens.length; index += 1) {
+      repeatedRun = tokens[index] === tokens[index - 1] ? repeatedRun + 1 : 1;
+      if (repeatedRun >= 8) return false;
+    }
+  }
+  const blockCounts = new Map<string, number>();
+  for (const candidate of blocks) {
+    const canonical = canonicalJsonHash(candidate.block);
+    if (!canonical.ok) return false;
+    const next = (blockCounts.get(canonical.value.hash) ?? 0) + 1;
+    if (next > 2) return false;
+    blockCounts.set(canonical.value.hash, next);
   }
   return true;
 }
@@ -225,10 +249,13 @@ export function protectDraftCandidateV1(input: {
   const parsed = input.schema.safeParse(input.rawObject);
   if (!parsed.success) return aiFailure("output_schema_invalid");
   if (input.context.useCase !== input.useCase) return aiFailure("output_policy_rejected");
+  const allowedEvidence = deriveAllowedEvidenceFieldsV1(input.context);
+  if (!allowedEvidence.ok) return aiFailure("output_policy_rejected");
   const evidence: EvidenceNodeV1[] = [];
   const blocks: CandidateBlockV1[] = [];
   collectCandidateMaterial(input.rawObject, "", evidence, blocks);
-  if (evidence.length === 0 || !validateEvidence(evidence, input.context) ||
+  if (evidence.length === 0 || !validateEvidence(evidence, allowedEvidence.value) ||
+    !repetitionPolicyPasses(evidence, blocks) ||
     !mechanicsPass(input.rawObject, input.context)) {
     return aiFailure("output_policy_rejected");
   }
@@ -256,6 +283,8 @@ export function protectDraftCandidateV1(input: {
       candidateRef: `cand_${String(block.ordinal).padStart(4, "0")}_${protectedBlock.value.hash}`,
     });
   }
+  if (new Set(derivedCandidateRefs.map((reference) => reference.candidateRef)).size !==
+    derivedCandidateRefs.length) return aiFailure("output_policy_rejected");
   const value: ProtectedDraftCandidateV1 = {
     schemaVersion: 1,
     useCase: input.useCase,

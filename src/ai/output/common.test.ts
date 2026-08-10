@@ -8,7 +8,7 @@ import { draftOutputDefinitionV1 } from "./registry";
 function context(fields: readonly (ReadonlyJsonObject & {
   readonly field: string;
   readonly ref: string;
-  readonly provenance: "provided";
+  readonly provenance: "provided" | "verified";
   readonly value: string;
 })[]): ReconstructibleDraftContextV1 {
   return {
@@ -113,6 +113,84 @@ describe("A-01 through A-10 Draft output protection", () => {
     expect(output.policy.parseAndProtect({
       rawObject: productCandidate("A measured weight of 185 GSM.", ["src_01:weightGsm"]),
       context: gsmContext,
+    }).ok).toBe(false);
+  });
+
+  it("requires the exact adjacent same-alias MOQ value/unit ref pair", () => {
+    const moqContext = context([
+      {
+        field: "moqValue",
+        ref: "src_01:moqValue",
+        provenance: "verified",
+        value: "100",
+      },
+      {
+        field: "moqUnit",
+        ref: "src_01:moqUnit",
+        provenance: "verified",
+        value: "kg",
+      },
+    ]);
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidate("A minimum order of 100 kg.", [
+        "src_01:moqValue", "src_01:moqUnit",
+      ]),
+      context: moqContext,
+    }).ok).toBe(true);
+    for (const [text, refs] of [
+      ["A minimum order of 100 kg.", ["src_01:moqValue"]],
+      ["A minimum order of 100 m.", ["src_01:moqValue", "src_01:moqUnit"]],
+      ["A minimum order of 100 KG.", ["src_01:moqValue", "src_01:moqUnit"]],
+      ["A minimum order of -100 kg.", ["src_01:moqValue", "src_01:moqUnit"]],
+      ["A minimum order of 1e2 kg.", ["src_01:moqValue", "src_01:moqUnit"]],
+      ["A minimum order of 100.0 kg.", ["src_01:moqValue", "src_01:moqUnit"]],
+    ] as const) {
+      expect(output.policy.parseAndProtect({
+        rawObject: productCandidate(text, refs),
+        context: moqContext,
+      }).ok).toBe(false);
+    }
+  });
+
+  it("derives A-03 refs from the application context policy", () => {
+    const companyContext: ReconstructibleDraftContextV1 = {
+      ...narrativeContext,
+      sources: [{
+        alias: "src_01",
+        sourceClass: "public_company_fact",
+        selectedBy: "request_actor",
+        fields: [{
+          field: "statement",
+          ref: "src_01:statement",
+          provenance: "verified",
+          value: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+        }],
+      }],
+    };
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidate("A conservative TEST narrative.", ["src_01:statement"]),
+      context: companyContext,
+    }).ok).toBe(false);
+  });
+
+  it("rejects deterministic repeated-block and repeated-token spam", () => {
+    const repeatedBlock = {
+      type: "paragraph",
+      text: {
+        text: "Repeated plain weave narrative.",
+        sourceRefs: ["src_01:fabricStyle"],
+      },
+    };
+    expect(output.policy.parseAndProtect({
+      rawObject: {
+        ...productCandidate("A conservative TEST narrative."),
+        descriptionBlocks: Array.from({ length: 30 }, () => repeatedBlock),
+      },
+      context: narrativeContext,
+    }).ok).toBe(false);
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidate("weave weave weave weave weave weave weave weave"),
+      context: narrativeContext,
     }).ok).toBe(false);
   });
 
