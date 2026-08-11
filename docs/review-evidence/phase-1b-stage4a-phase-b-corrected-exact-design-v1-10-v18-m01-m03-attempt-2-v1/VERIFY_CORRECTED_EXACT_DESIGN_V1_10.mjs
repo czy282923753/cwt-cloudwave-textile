@@ -597,7 +597,7 @@ function runTypeProbes() {
   const positive = runTsc(positiveTypeProbePath);
   assert.equal(positive.status, 0, `${positive.stdout}\n${positive.stderr}`);
   for (const [label, fixturePath] of Object.entries(negativeTypeProbePaths)) {
-    const materializedPath = fixturePath.replace(/\.fixture$/, ".author-run.ts");
+    const materializedPath = fixturePath.replace(/\.fixture$/, `.author-run-${process.pid}.ts`);
     writeFileSync(materializedPath, readFileSync(fixturePath));
     try {
       const negative = runTsc(materializedPath);
