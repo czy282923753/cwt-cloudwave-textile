@@ -67,7 +67,7 @@
     "officialNetworkDeniedTypegen": "PASS; next-env.d.ts SHA-256 7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651",
     "isolatedNetworkDeniedWebpackBundle": "PASS; 51 server files / 16 client chunks; marker and positive leak controls PASS",
     "postSealExecutableMutation": "FAIL CLOSED post-proof executable candidate drift",
-    "attachedDetachedFinalVerifier": "required after final docs commit"
+    "attachedDetachedFinalVerifier": "PASS; source-clean 668/478, attached/detached official-present 669/479, exact Production-to-evidence rejection"
   },
   "scope": {
     "soleProductCodePath": "scripts/verify-ai-architecture.ts",
