@@ -106,7 +106,7 @@ Complexity falls at the proof boundary: one false type-level inverse and one mut
 | fixed vectors | `docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/V18_M01_M03_ATTEMPT_2_FIXED_VECTORS_V2_0.json` | `c3c0c35a0d6535689b127471e973373ed59c894c9fd22ac37f7fe2c4e388dab0` |
 | honest positive TypeScript probe | `docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/ERROR_TAXONOMY_TWO_LAYER_POSITIVE_PROBE_V1_0.ts` | `3dd2befc93b2bc975339a1c636e6d902f9dc16cfe3bac1af1d9243f91d781f85` |
 | three independent negative fixtures | same evidence directory | manifest authority |
-| offline verifier | same evidence directory, `VERIFY_CORRECTED_EXACT_DESIGN_V1_10.mjs` | `772de5a0ca6a0cb8bc1dd313fbee99cf5c2c5450c33bb4796c08c09297d2553e` |
+| offline verifier | same evidence directory, `VERIFY_CORRECTED_EXACT_DESIGN_V1_10.mjs` | `ec014b6983f86f32199af889879f70a2ecfb9449ccc1ed8e2b16979fafaec5ad` |
 | deterministic capture | same evidence directory, `VERIFY_CORRECTED_EXACT_DESIGN_V1_10_OUTPUT_V1_0.txt` | `afffb18ba8f48b58d82e41e56522f7b5945a72f3bc03ab9210153c3d80842919` |
 | fixed identities | same evidence directory, `FIXED_INPUT_IDENTITIES_V1_0.txt` | `TO_BE_SEALED` |
 | manifest | same evidence directory, `SHA256SUMS.txt` | self-hash reported outside the manifest |
@@ -114,6 +114,15 @@ Complexity falls at the proof boundary: one false type-level inverse and one mut
 Required final checks are: pinned runtime tuple; profile identity; 69/69 Layer A; positive and three negative TypeScript probes; all executed profile/domain/order/mutability mutations; exact two Reviewer post-compile probes; old-bug child exit `97`; V18-M02 byte/semantic equality; V1.9 FAIL 6/6; V1.8 manifests; persisted bytes/JCS/hash; M02/M03; 21/21 + 96/96; Markdown links/fences/final LF/owned whitespace; `c0fe5b...HEAD` docs/evidence-only scope; V1.9 byte identity; clean worktree; checkpoint exact before and after.
 
 ## 6. Attempt and gate disposition
+
+Atomic rollback map:
+
+1. `487a75a18e5f6f8b57cf13eba765657221aa1619` imports only the byte-identical V1.9 independent FAIL package; parent `c0fe5b57100ff7fd83ef50b85288e6160397af80`.
+2. `34934943c438b1a619cfd43acdce006605fa76b5` adds the standalone design, this audit, profile, vectors, honest type probes, verifier and deterministic capture; parent `487a75a...`.
+3. `8ea17ddc1dc55a41b0fdd09fceb42f0bf1c270c6` changes only the verifier's temporary probe name to include the process ID after a parallel Fresh-run cleanup collision was detected; proof semantics and captured output are unchanged; parent `34934943...`.
+4. The final seal commit adds the fixed identities and `SHA256SUMS.txt` and finalizes only this audit's atomic map; its parent is `8ea17ddc...`, and the exact final commit is reported by Git/callback because a commit cannot contain its own hash.
+
+Each commit is independently revertible. Full V1.10 rollback is `c0fe5b...`; the immutable architecture checkpoint remains `b7ad96b...`.
 
 - `V18-M01`: correction attempt 2 Candidate; **not closed until Fresh independent PASS**.
 - `V18-M03`: correction attempt 2 Candidate; **not closed until Fresh independent PASS**.
