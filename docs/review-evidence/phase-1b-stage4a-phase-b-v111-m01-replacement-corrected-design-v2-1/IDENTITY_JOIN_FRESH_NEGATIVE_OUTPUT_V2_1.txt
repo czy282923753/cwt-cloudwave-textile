@@ -1,0 +1,121 @@
+{
+  "cases": [
+    {
+      "diagnostic": "authority-path-not-canonical:.next/reviewer-v111-m01-v2/alternate-authority-copy.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-ignored-untracked-exact-root-copy",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:.next/reviewer-v111-m01-v2/alternate-authority-hardlink.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-ignored-untracked-hardlink-root",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:.next/reviewer-v111-m01-v2/alternate-authority-resealed.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-ignored-untracked-resealed-root",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:docs/reviewer-visible-untracked-root.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-visible-untracked-root",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/TRACKED_WRONG_PATH_ROOT.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-tracked-wrong-path-root",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/v111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-case-only-root-path",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-worktree-symlink:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-symlink-root-alias",
+      "rejected": true
+    },
+    {
+      "diagnostic": "physical-alias:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_1.json",
+      "id": "v2-m01-root-hardlink-current-role",
+      "rejected": true
+    },
+    {
+      "diagnostic": "physical-alias:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_1.json",
+      "id": "v2-m01-root-hardlink-proof-artifact",
+      "rejected": true
+    },
+    {
+      "diagnostic": "physical-alias:docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_V2_M01_REMEDIATION_PRE_L3_CHECKPOINT_V1_0.md",
+      "id": "v2-m01-root-hardlink-checkpoint",
+      "rejected": true
+    },
+    {
+      "diagnostic": "physical-alias:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/SHA256SUMS.txt",
+      "id": "v2-m01-root-hardlink-manifest",
+      "rejected": true
+    },
+    {
+      "diagnostic": "manifest-root-entry-cardinality:0",
+      "id": "v2-m01-manifest-missing-root-entry",
+      "rejected": true
+    },
+    {
+      "diagnostic": "manifest-root-entry-cardinality:2",
+      "id": "v2-m01-manifest-duplicate-root-entry",
+      "rejected": true
+    },
+    {
+      "diagnostic": "manifest-root-hash:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-manifest-root-wrong-hash",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:.next/coordinated-authority-and-envelope.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-coordinated-authority-envelope-redirection",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-head-missing:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-head-root-missing",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-head-mode:100755",
+      "id": "v2-m01-head-root-wrong-mode",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-index-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-head-root-wrong-blob",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-index-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-index-root-differs-head",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-worktree-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-worktree-root-differs-head",
+      "rejected": true
+    },
+    {
+      "diagnostic": "envelope-authority-path-not-canonical:.next/envelope-mutated-root.json",
+      "id": "v2-m01-envelope-path-mutation",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:.cache-v2-m01/resealed-root.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-self-consistently-resealed-alternate-root",
+      "rejected": true
+    },
+    {
+      "diagnostic": "authority-path-not-canonical:.fresh-unnamed-ignored-v2-m01/root.json->docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "id": "v2-m01-arbitrary-ignored-directory-root",
+      "rejected": true
+    }
+  ],
+  "count": 23,
+  "ok": true
+}

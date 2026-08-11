@@ -1,0 +1,29 @@
+{
+  "acceptanceEligible": false,
+  "authority": {
+    "authorityJcsSha256": "927b4956cacf1f59749b8cc6d0066b25251c37dbe601415bc4757d30be69147e",
+    "fileSha256": "c2040ed884c2f6b0765e8d01aa510d61d8f4cae0912dcc97796883e10815fad1",
+    "markdownAuthority": false,
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+    "rootCount": 1
+  },
+  "disposition": "PACKAGE_CONSISTENCY_PASS_NOT_INDEPENDENT_ACCEPTANCE",
+  "mode": "package-only",
+  "ok": true,
+  "package": {
+    "currentRoles": 3,
+    "executableCurrentRoles": 2,
+    "manifestEntries": 13
+  },
+  "proofMatrix": {
+    "negative": 65,
+    "positive": 10,
+    "properties": 14,
+    "total": 89
+  },
+  "runtime": {
+    "arch": "arm64",
+    "node": "24.14.0",
+    "platform": "darwin"
+  }
+}
