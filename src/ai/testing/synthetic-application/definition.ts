@@ -71,7 +71,19 @@ export function createSyntheticDefinitionV1(): SyntheticDefinitionV1 {
       }));
     },
     encodePreparedContext: encodeSyntheticContextV1,
-    parseDurableContext: parseSyntheticContextV1,
+    decodeDurableContext(input) {
+      const context = parseSyntheticContextV1(input);
+      if (!context.ok) return context;
+      const preparedContext = encodeSyntheticContextV1(context.value);
+      if (!preparedContext.ok) return preparedContext;
+      const promptVariables = buildSyntheticPromptVariablesV1(context.value);
+      if (!promptVariables.ok) return promptVariables;
+      return aiSuccess({
+        context: context.value,
+        preparedContext: preparedContext.value,
+        promptVariables: promptVariables.value,
+      });
+    },
     buildPromptVariables: buildSyntheticPromptVariablesV1,
   };
   const definition: SyntheticDefinitionV1 = {
@@ -222,13 +234,17 @@ export function createSyntheticDefinitionV1(): SyntheticDefinitionV1 {
           : authorized;
       },
       decodeClaimedContext(input) {
-        const context = parseSyntheticContextV1(input);
-        if (!context.ok) return context;
-        const prepared = encodeSyntheticContextV1(context.value);
-        if (!prepared.ok) return prepared;
+        const decoded = contextPolicy.decodeDurableContext(input);
+        if (!decoded.ok) return decoded;
         return aiSuccess({
-          preparedContext: prepared.value,
-          buildPromptVariables: () => buildSyntheticPromptVariablesV1(context.value),
+          preparedContext: decoded.value.preparedContext,
+          verifyAssociationIntegrity(association) {
+            const hash = canonicalJsonHash(association.snapshot);
+            return hash.ok && hash.value.hash === association.snapshotHash
+              ? aiSuccess(true as const)
+              : aiFailure("association_provenance_mismatch");
+          },
+          buildPromptVariables: () => aiSuccess(decoded.value.promptVariables),
           parseAndProtect: protectSyntheticOutputV1,
         });
       },

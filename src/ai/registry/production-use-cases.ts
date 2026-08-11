@@ -17,7 +17,7 @@ import type {
 import { productionAiUseCases } from "@/ai/applications/draft-assistance/contracts";
 import {
   buildAuthorizedDraftAssociationV1,
-  decodeDraftTargetColumnsV1,
+  decodeDraftTargetColumnsStructureV1,
   prepareDraftAssociationV1,
   toDraftAssociationEnvelopeV1,
 } from "@/ai/applications/draft-assistance/association";
@@ -171,7 +171,7 @@ const persistenceCodec: ApplicationPersistenceCodec<DraftDurableAssociationWitho
   decodeClaimedRow(input) {
     const row = record(input);
     if (row === undefined) return aiFailure("association_provenance_mismatch");
-    const decoded = decodeDraftTargetColumnsV1({
+    return decodeDraftTargetColumnsStructureV1({
       targetType: row.targetType,
       targetProductId: row.targetProductId,
       targetContentId: row.targetContentId,
@@ -180,10 +180,6 @@ const persistenceCodec: ApplicationPersistenceCodec<DraftDurableAssociationWitho
       expectedTargetVersion: row.expectedTargetVersion,
       targetSnapshotHash: row.targetSnapshotHash,
     });
-    if (!decoded.ok) return decoded;
-    const authorized = buildAuthorizedDraftAssociationV1(decoded.value);
-    if (!authorized.ok) return authorized;
-    return toDraftAssociationEnvelopeV1(authorized.value);
   },
 };
 
@@ -321,6 +317,48 @@ export function createDraftRequestBinder<
   };
 }
 
+function exactSnapshotKeys(snapshot: ReadonlyJsonObject, expected: readonly string[]): boolean {
+  const actual = Object.keys(snapshot).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index]);
+}
+
+function verifyClaimedAssociationIntegrity(
+  association: import("@/ai/core/contracts").ApplicationAssociationEnvelopeV1,
+  context: ReconstructibleDraftContextV1,
+) {
+  const snapshotHash = canonicalJsonHash(association.snapshot);
+  if (!snapshotHash.ok || association.kind !== "draft_target.v1" ||
+    snapshotHash.value.hash !== association.snapshotHash ||
+    context.association.snapshotHash !== association.snapshotHash ||
+    association.snapshot.association_version !== 1 ||
+    association.snapshot.expected_target_version !== context.association.expectedVersion ||
+    association.snapshot.target_type !== context.association.targetType) {
+    return aiFailure("association_provenance_mismatch");
+  }
+  const snapshot = association.snapshot;
+  switch (context.association.targetType) {
+    case "product_draft":
+      return exactSnapshotKeys(snapshot, [
+        "association_version", "expected_target_version", "target_locale", "target_product_id", "target_type",
+      ]) && snapshot.target_locale === "en" && typeof snapshot.target_product_id === "string" &&
+        uuid.safeParse(snapshot.target_product_id).success
+        ? aiSuccess(true as const) : aiFailure("association_provenance_mismatch");
+    case "content_draft":
+      return exactSnapshotKeys(snapshot, [
+        "association_version", "expected_target_version", "target_content_id", "target_locale", "target_type",
+      ]) && snapshot.target_locale === "en" && typeof snapshot.target_content_id === "string" &&
+        uuid.safeParse(snapshot.target_content_id).success
+        ? aiSuccess(true as const) : aiFailure("association_provenance_mismatch");
+    case "editorial_revision":
+      return exactSnapshotKeys(snapshot, [
+        "association_version", "expected_target_version", "target_revision_id", "target_type",
+      ]) && typeof snapshot.target_revision_id === "string" && uuid.safeParse(snapshot.target_revision_id).success
+        ? aiSuccess(true as const) : aiFailure("association_provenance_mismatch");
+  }
+}
+
 function claimedRuntime(
   useCase: ProductionAiUseCase,
   output: DraftOutputDefinitionV1,
@@ -336,16 +374,20 @@ function claimedRuntime(
     policyVersion: output.policyVersion,
     decodeClaimedAssociation: (row) => persistenceCodec.decodeClaimedRow(row),
     decodeClaimedContext(input) {
-      const context = contextPolicy.parseDurableContext(input);
-      if (!context.ok || context.value.useCase !== useCase) {
+      const decoded = contextPolicy.decodeDurableContext(input);
+      if (!decoded.ok) return decoded;
+      if (decoded.value.context.useCase !== useCase) {
         return aiFailure("context_provenance_mismatch");
       }
-      const prepared = contextPolicy.encodePreparedContext(context.value);
-      if (!prepared.ok) return prepared;
       return aiSuccess({
-        preparedContext: prepared.value,
-        buildPromptVariables: () => contextPolicy.buildPromptVariables(context.value),
-        parseAndProtect: (rawObject) => output.policy.parseAndProtect({ rawObject, context: context.value }),
+        preparedContext: decoded.value.preparedContext,
+        verifyAssociationIntegrity: (association) =>
+          verifyClaimedAssociationIntegrity(association, decoded.value.context),
+        buildPromptVariables: () => aiSuccess(decoded.value.promptVariables),
+        parseAndProtect: (rawObject) => output.policy.parseAndProtect({
+          rawObject,
+          context: decoded.value.context,
+        }),
       });
     },
   };

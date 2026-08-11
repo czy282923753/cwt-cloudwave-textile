@@ -614,15 +614,11 @@ describe("Draft reconstructible context", () => {
     const preparationVariables = policy.buildPromptVariables(built.value);
     if (!prepared.ok || !preparationVariables.ok) return;
     const jsonbShaped = JSON.parse(JSON.stringify(prepared.value.inputContext));
-    const claimed = policy.parseDurableContext(jsonbShaped);
+    const claimed = policy.decodeDurableContext(jsonbShaped);
     expect(claimed.ok).toBe(true);
     if (!claimed.ok) return;
-    const claimedPrepared = policy.encodePreparedContext(claimed.value);
-    const claimedVariables = policy.buildPromptVariables(claimed.value);
-    expect(claimedPrepared.ok).toBe(true);
-    expect(claimedVariables).toEqual(preparationVariables);
-    if (!claimedPrepared.ok) return;
-    expect(claimedPrepared.value.inputHash).toBe(prepared.value.inputHash);
+    expect(claimed.value.promptVariables).toEqual(preparationVariables.value);
+    expect(claimed.value.preparedContext.inputHash).toBe(prepared.value.inputHash);
     expect(canonicalJsonHash(prepared.value.inputContext)).toMatchObject({
       ok: true,
       value: { hash: prepared.value.inputHash },
@@ -662,12 +658,10 @@ describe("Draft reconstructible context", () => {
       internalLinkCandidates: [],
       mediaPlacementRefs: [],
     };
-    const parsed = policy.parseDurableContext(durable);
+    const parsed = policy.decodeDurableContext(durable);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    const variables = policy.buildPromptVariables(parsed.value);
-    expect(variables.ok).toBe(true);
-    if (variables.ok) expect(Object.keys(variables.value).sort()).toEqual(expectedKeys);
+    expect(Object.keys(parsed.value.promptVariables).sort()).toEqual(expectedKeys);
   });
 
   it("rejects cross-use-case Company Facts and aggregate source overflows during durable reconstruction", () => {
@@ -699,12 +693,12 @@ describe("Draft reconstructible context", () => {
       internalLinkCandidates: [],
       mediaPlacementRefs: [],
     };
-    expect(policy.parseDurableContext({
+    expect(policy.decodeDurableContext({
       ...base,
       useCase: "product_description_draft",
       sources: [source(0, "public_company_fact")],
     }).ok).toBe(false);
-    expect(policy.parseDurableContext({
+    expect(policy.decodeDurableContext({
       ...base,
       useCase: "product_description_draft",
       sources: Array.from({ length: 9 }, (_, index) => source(index, "fabric_knowledge")),

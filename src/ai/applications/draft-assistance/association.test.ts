@@ -82,4 +82,24 @@ describe("Draft association provenance", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("association_provenance_mismatch");
   });
+
+  it("recomputes 1000 distinct authorized JCS snapshot hashes", () => {
+    const hashes = new Set<string>();
+    for (let expectedVersion = 1; expectedVersion <= 1_000; expectedVersion += 1) {
+      const prepared = prepareDraftAssociationV1({
+        type: "product_draft",
+        productId: "11111111-1111-4111-8111-111111111111",
+        locale: "en",
+        expectedVersion,
+      });
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) return;
+      const authorized = buildAuthorizedDraftAssociationV1(prepared.value);
+      expect(authorized.ok).toBe(true);
+      if (!authorized.ok) return;
+      expect(authorized.value.snapshotHash).toMatch(/^[0-9a-f]{64}$/);
+      hashes.add(authorized.value.snapshotHash);
+    }
+    expect(hashes.size).toBe(1_000);
+  });
 });

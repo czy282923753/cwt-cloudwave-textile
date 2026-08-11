@@ -1,0 +1,1086 @@
+{
+  "associationIntegrity": {
+    "acceptanceOrder": [
+      "strict_context_shape",
+      "strict_durable_association_decode",
+      "authorized_target_snapshot_rebuild",
+      "jcs_canonicalize_snapshot",
+      "sha256_lowercase_hex_recompute",
+      "context_association_tuple_compare",
+      "persisted_target_snapshot_hash_compare",
+      "context_snapshot_hash_compare"
+    ],
+    "algorithm": "sha256",
+    "authorizedSnapshotVariants": {
+      "content_draft": [
+        "association_version",
+        "expected_target_version",
+        "target_content_id",
+        "target_locale",
+        "target_type"
+      ],
+      "editorial_revision": [
+        "association_version",
+        "expected_target_version",
+        "target_revision_id",
+        "target_type"
+      ],
+      "product_draft": [
+        "association_version",
+        "expected_target_version",
+        "target_locale",
+        "target_product_id",
+        "target_type"
+      ]
+    },
+    "canonicalization": "RFC8785-JCS-accepted-domain",
+    "contextObjectFieldsInOrder": [
+      "kind",
+      "targetType",
+      "targetAlias",
+      "expectedVersion",
+      "snapshotHash"
+    ],
+    "failClosedCases": [
+      "tamper",
+      "uppercase",
+      "wrong_length",
+      "wrong_algorithm",
+      "wrong_snapshot_version",
+      "wrong_target_type",
+      "wrong_target_identity",
+      "wrong_expected_version",
+      "replay_mismatch"
+    ],
+    "snapshotVersion": 1
+  },
+  "authority": {
+    "acceptedV17Commit": "3f475e13d73d9d68a4dfb9a040941c57f1ee92e6",
+    "checkpointCommit": "b7ad96b24da45de00cae2cdb961a9aefcbc99496",
+    "checkpointRef": "codex/checkpoint/phase-1b-stage4a-phase-b-nm01-pre-design-v1",
+    "correctedDesign": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_CORRECTED_EXACT_DESIGN_V1_10.md",
+    "ownerDecisionRecord": "docs/PHASE_1B_STAGE4A_PHASE_B_IMP2_NM01_OWNER_DECISION_RECORD_V1_0.md"
+  },
+  "compiledAuthority": {
+    "algorithm": "sha256",
+    "canonicalization": "RFC8785-JCS-accepted-domain",
+    "expectedSha256": "efdec023f886a9ca9d1a558bfba0e54781292e0e8215609c4b68a68268caba01",
+    "identityProjectionKeys": [
+      "profileId",
+      "profileVersion",
+      "traversalAuthority",
+      "domains",
+      "protectedClassifier",
+      "associationIntegrity",
+      "contextNodeAssignments",
+      "sourceFieldAllowlists",
+      "promptProjections",
+      "providerLeakDenyPrefixes",
+      "persistence",
+      "recursiveEvidenceGrammar",
+      "errorTaxonomy",
+      "executionOrders",
+      "compilerContract"
+    ],
+    "mismatchDisposition": "fail_closed_context_provenance_mismatch_before_recursive_traversal"
+  },
+  "compilerContract": {
+    "cache": "optional_module_private_singleton_of_sealed_product_keyed_by_fixed_identity_never_source_json",
+    "copySemantics": "recursive_plain_value_copy_with_no_source_alias_or_prototype_sharing",
+    "exportedAssignments": false,
+    "exportedDomains": false,
+    "exportedSourceJson": false,
+    "input": "repository_reviewed_profile_bytes_and_plain_json_value",
+    "mismatchDisposition": "context_provenance_mismatch_before_recursive_traversal",
+    "mutableProfileOverridePerValidation": false,
+    "postCompileSourceMutation": "cannot_change_closed_product_or_traversal_behavior",
+    "productVisibility": "module_private_compile_once_closure",
+    "publicProductSurface": [
+      "identity",
+      "summary",
+      "validateContext"
+    ],
+    "sealSemantics": "recursive_deep_freeze_before_any_traversal_closure_is_returned",
+    "summaryFields": [
+      "assignmentCount",
+      "domainCount",
+      "errorCodeCount",
+      "claimedReplayStepCount"
+    ],
+    "validationBeforeSeal": [
+      "fixed_profile_identity_and_plain_json_shape",
+      "closed_traversal_and_exact_assignment_table",
+      "three_exact_domains_and_recursive_grammar",
+      "selected_m02_identity_and_no_second_classifier_or_exception",
+      "full_69_code_runtime_projection_and_selected_traversal_subset",
+      "byte_identical_v18_m02_execution_order",
+      "prompt_projection_no_association_leak"
+    ]
+  },
+  "contextNodeAssignments": [
+    {
+      "domain": "closed_container",
+      "node": "object",
+      "pattern": "/",
+      "validator": "context_root_exact_keys"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/version",
+      "validator": "literal:1"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/applicationClass",
+      "validator": "literal:draft_assistance"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/capability",
+      "validator": "literal:text"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/useCase",
+      "validator": "enum:production_use_cases_4"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/locale",
+      "validator": "literal:en"
+    },
+    {
+      "domain": "closed_container",
+      "node": "object",
+      "pattern": "/association",
+      "validator": "association_exact_keys"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/association/kind",
+      "validator": "literal:draft_target.v1"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/association/targetType",
+      "validator": "enum:draft_target_types_3"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/association/targetAlias",
+      "validator": "literal:target_01"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/association/expectedVersion",
+      "validator": "integer:1..2147483647"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/association/snapshotHash",
+      "validator": "recomputed_sha256_lowercase_hex_64"
+    },
+    {
+      "domain": "closed_container",
+      "node": "object",
+      "pattern": "/task",
+      "validator": "task_exact_use_case_keys"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/task/tone",
+      "validator": "enum:task_tones_2"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "scalar",
+      "pattern": "/task/pageIntent",
+      "scanRoot": true,
+      "validator": "bounded_text:500_scalars_500_utf8"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "scalar",
+      "pattern": "/task/primaryPhrase",
+      "scanRoot": true,
+      "validator": "bounded_text:200_scalars_200_utf8"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "scalar",
+      "pattern": "/task/topic",
+      "scanRoot": true,
+      "validator": "bounded_text:300_scalars_300_utf8"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "scalar",
+      "pattern": "/task/guideIntent",
+      "scanRoot": true,
+      "validator": "bounded_text:500_scalars_500_utf8"
+    },
+    {
+      "domain": "closed_container",
+      "node": "array",
+      "pattern": "/sources",
+      "validator": "array:max32_ordered"
+    },
+    {
+      "domain": "closed_container",
+      "node": "object",
+      "pattern": "/sources/*",
+      "validator": "source_entry_exact_keys"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/sources/*/alias",
+      "validator": "sequential_source_alias:^src_[0-9]{2}$"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/sources/*/sourceClass",
+      "validator": "enum:source_classes_4"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/sources/*/selectedBy",
+      "validator": "literal:request_actor"
+    },
+    {
+      "domain": "closed_container",
+      "node": "array",
+      "pattern": "/sources/*/fields",
+      "validator": "array:1..32_ordered"
+    },
+    {
+      "domain": "closed_container",
+      "node": "object",
+      "pattern": "/sources/*/fields/*",
+      "validator": "source_field_exact_keys"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "scalar",
+      "pattern": "/sources/*/fields/*/field",
+      "scanRoot": true,
+      "validator": "source_class_field_allowlist_and_identifier"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/sources/*/fields/*/ref",
+      "validator": "exact_alias_colon_field_ref"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/sources/*/fields/*/provenance",
+      "validator": "enum:structural_provided_verified"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "json_subtree",
+      "pattern": "/sources/*/fields/*/value/**",
+      "scanRoot": true,
+      "validator": "accepted_recursive_readonly_json_value_v1"
+    },
+    {
+      "domain": "closed_container",
+      "node": "array",
+      "pattern": "/internalLinkCandidates",
+      "validator": "array:max32_ordered"
+    },
+    {
+      "domain": "closed_container",
+      "node": "object",
+      "pattern": "/internalLinkCandidates/*",
+      "validator": "internal_link_exact_keys"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/internalLinkCandidates/*/candidateRef",
+      "validator": "unique_opaque_ref:^link_[0-9]{2}$"
+    },
+    {
+      "domain": "protected_human_business_provider_evidence",
+      "node": "scalar",
+      "pattern": "/internalLinkCandidates/*/label",
+      "scanRoot": true,
+      "validator": "bounded_text:300_scalars_300_utf8"
+    },
+    {
+      "domain": "closed_container",
+      "node": "array",
+      "pattern": "/mediaPlacementRefs",
+      "validator": "array:max32_ordered"
+    },
+    {
+      "domain": "machine_structural_integrity",
+      "node": "scalar",
+      "pattern": "/mediaPlacementRefs/*",
+      "validator": "unique_opaque_ref:^media_[0-9]{2}$"
+    }
+  ],
+  "decision": "IMP2-NM01-STRUCTURAL-INTEGRITY-DOMAIN",
+  "domains": [
+    {
+      "id": "closed_container",
+      "purpose": "Strict object/array shape, cardinality, ordering and unknown-key rejection; never a lexical exemption for descendant evidence."
+    },
+    {
+      "id": "machine_structural_integrity",
+      "purpose": "Application-generated literals, enums, opaque aliases/refs, bounded versions and recomputed integrity hashes."
+    },
+    {
+      "id": "protected_human_business_provider_evidence",
+      "purpose": "Human narrative, business-source values and labels, and every Provider-evidence string/key; invoke the selected M02 classifier and fail closed."
+    }
+  ],
+  "errorTaxonomy": {
+    "authorityPath": "src/ai/errors.ts",
+    "authoritySha256AtV18": "a2dd5aa0ef2b5be54bb522057c740362343919b0e1641fdab7451d9c17695431",
+    "closed": true,
+    "codes": [
+      {
+        "category": "authorization",
+        "code": "authorization_denied",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "authorization",
+        "code": "target_not_found",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "authorization",
+        "code": "target_not_editable",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "authorization",
+        "code": "target_scope_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "conflict",
+        "code": "target_version_conflict",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "availability",
+        "code": "environment_not_authorized",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "availability",
+        "code": "feature_disabled",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "availability",
+        "code": "feature_flag_missing",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "availability",
+        "code": "integration_not_ready",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "use_case_unknown",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "registry_invalid",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "config_missing",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "config_disabled",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "config_default_missing",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "config_ambiguous",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "config_repository_invalid",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "config_invalid",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "budget_disabled",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "provider_unsupported",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "model_unsupported",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "parameters_invalid",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "configuration",
+        "code": "fallback_forbidden",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_not_found",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_invalid",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_manifest_invalid",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_bundle_invalid",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_hash_mismatch",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_contract_mismatch",
+        "manualEditorAvailable": true,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_variables_missing",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_variables_extra",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_variable_invalid",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "prompt",
+        "code": "prompt_too_large",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "context_source_forbidden",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "context_field_forbidden",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "context_field_ineligible",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "context_record_unauthorized",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "context_prohibited_data",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "context_too_large",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "context",
+        "code": "input_token_limit_exceeded",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "association_provenance_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "config_provenance_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "prompt_provenance_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "context_provenance_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "envelope_provenance_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "policy_provenance_mismatch",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provenance",
+        "code": "request_reconstruction_failed",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "provider_timeout",
+        "manualEditorAvailable": false,
+        "retryable": true
+      },
+      {
+        "category": "provider",
+        "code": "provider_transport_error",
+        "manualEditorAvailable": false,
+        "retryable": true
+      },
+      {
+        "category": "provider",
+        "code": "provider_rate_limited",
+        "manualEditorAvailable": false,
+        "retryable": true
+      },
+      {
+        "category": "provider",
+        "code": "provider_quota_exceeded",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "provider_auth_failed",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "provider_safety_rejected",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "provider_cancelled",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "provider_client_error",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "provider_server_error",
+        "manualEditorAvailable": false,
+        "retryable": true
+      },
+      {
+        "category": "provider",
+        "code": "adapter_unexpected_failure",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "provider",
+        "code": "model_drift",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "output",
+        "code": "output_empty",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "output",
+        "code": "output_truncated",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "output",
+        "code": "output_invalid_json",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "output",
+        "code": "output_schema_invalid",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "output",
+        "code": "output_policy_rejected",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "output",
+        "code": "output_too_large",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "conflict",
+        "code": "claimed_run_required",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "conflict",
+        "code": "claim_expired",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "conflict",
+        "code": "state_conflict",
+        "manualEditorAvailable": false,
+        "retryable": true
+      },
+      {
+        "category": "conflict",
+        "code": "idempotency_conflict",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "internal",
+        "code": "canonicalization_failed",
+        "manualEditorAvailable": false,
+        "retryable": false
+      },
+      {
+        "category": "internal",
+        "code": "internal_failure",
+        "manualEditorAvailable": false,
+        "retryable": false
+      }
+    ],
+    "commonProjection": {
+      "persistence": "before_insert_create_no_synthetic_run_else_write_exact_code_to_existing_ai_runs_failure_code",
+      "phaseC": "same_code_and_category_no_remap_retry_scheduler_uses_retry_class_and_run_state",
+      "precedence": "first_terminal_failure_in_the_active_normative_sequence_stops_all_later_steps",
+      "safeMessage": "AI assistance is unavailable.",
+      "telemetry": "safe_error_code_and_category_only_no_prompt_input_output_private_or_identity_substitute"
+    },
+    "factory": "aiFailure",
+    "fieldDomainZeroOrMultiple": "context_provenance_mismatch",
+    "id": "cwt.phase1b.stage4a.phaseb.ai-error-taxonomy.v1",
+    "proofContract": {
+      "fullAuthorityClosure": "offline_runtime_exact_equality_against_src_ai_errors_aiErrorCodes_and_aiFailure_for_all_69_entries_in_source_order",
+      "fullAuthorityFields": [
+        "code",
+        "category",
+        "retryable",
+        "manualEditorAvailable",
+        "safeMessage"
+      ],
+      "jsonLiteralUnionDerivationClaimed": false,
+      "profileAuthorityRole": "manifest_bound_runtime_checked_derivative_not_runtime_error_authority",
+      "runtimeVerifierRole": "full_69_code_source_order_and_aiFailure_projection_closure",
+      "selectedTraversalSubset": "explicit_five_member_tuple_each_member_typescript_assignable_to_AiErrorCode",
+      "selectedTraversalSubsetInverseRequired": false,
+      "typescriptProbeRole": "selected_traversal_subset_assignability_and_unknown_catch_only"
+    },
+    "traversalReturnCodes": [
+      "context_provenance_mismatch",
+      "context_prohibited_data",
+      "context_too_large",
+      "canonicalization_failed",
+      "internal_failure"
+    ],
+    "tupleExport": "aiErrorCodes",
+    "unknownCaughtFailure": "internal_failure"
+  },
+  "executionOrders": {
+    "adapterCallCount": 1,
+    "allConfigPromptEnvelopeBeforeAdapterCall": true,
+    "allContextBeforeConfigPromptEnvelopeAdapterResolution": true,
+    "authority": "this_object_is_the_only_machine_order_authority_design_sections_are_verified_projections",
+    "availability": {
+      "claimedReplay": false,
+      "normativeSection": "18.2",
+      "purpose": "read_only_readiness_no_run_no_claim_no_adapter_call"
+    },
+    "claimedReplay": [
+      {
+        "adapterCalls": 0,
+        "id": "CR-01",
+        "operation": "strict_claimed_projection_claim_lease_dispatch_and_abort_shape",
+        "owner": "generic_claimed_core"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-02",
+        "operation": "resolve_exact_claimed_application_runtime_from_durable_application_use_case_schema_policy_tuple",
+        "owner": "claimed_application_runtime_registry"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-03",
+        "operation": "strict_decode_durable_association_and_context_association_tuple_without_hash_acceptance",
+        "owner": "application_claimed_runtime"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-04",
+        "operation": "strict_parse_unchanged_context_outer_shape_and_recursive_json_domain",
+        "owner": "application_claimed_runtime"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-05",
+        "operation": "compile_and_match_exact_field_domain_profile_identity_and_assignment_table",
+        "owner": "application_claimed_runtime"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-06",
+        "operation": "recursively_traverse_every_context_object_array_key_and_value_with_zero_missing_zero_duplicate",
+        "owner": "application_claimed_runtime"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-07",
+        "operation": "execute_each_domain_validator_and_exact_selected_m02_on_every_protected_root",
+        "owner": "application_claimed_runtime_and_selected_m02_identity"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-08",
+        "operation": "rebuild_authorized_target_snapshot_then_recompute_association_jcs_sha_and_full_context_jcs_input_hash",
+        "owner": "application_claimed_runtime_and_generic_canonical_json"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-09",
+        "operation": "reconstruct_and_verify_resolved_config_hash_limits_fallback_absence_requested_actual_provider_equality",
+        "owner": "generic_claimed_core"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-10",
+        "operation": "load_exact_prompt_raw_bytes_and_verify_hash_manifest_contract_schema_and_policy_tuple",
+        "owner": "prompt_byte_authority"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-11",
+        "operation": "verify_compiled_provider_envelope_version_hash_and_no_alternate_identity",
+        "owner": "provider_neutral_registry"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-12",
+        "operation": "resolve_exact_adapter_once_validate_model_parameters_policy_then_project_prompt_variables_rebuild_request_and_recheck_limits",
+        "owner": "generic_claimed_core_and_exact_adapter_policy"
+      },
+      {
+        "adapterCalls": 1,
+        "id": "CR-13",
+        "operation": "invoke_text_adapter_exactly_once",
+        "owner": "sole_generic_core_call_site"
+      },
+      {
+        "adapterCalls": 0,
+        "id": "CR-14",
+        "operation": "recheck_abort_lease_completion_model_then_raw_parse_schema_and_output_policy_A07_before_normalized_return",
+        "owner": "generic_claimed_core_and_application_output_policy"
+      }
+    ],
+    "contextValidationSubsequence": [
+      "CR-04:outer_strict_parse_and_shape",
+      "CR-05:exact_assignment_and_compiled_profile_authority",
+      "CR-06:recursive_domain_traversal",
+      "CR-07:domain_validators_and_selected_m02",
+      "CR-08:jcs_hash_and_cross_authority_integrity"
+    ],
+    "fallback": false,
+    "preparationEnqueue": {
+      "claimedReplay": false,
+      "normativeSection": "18.3",
+      "purpose": "governed_transaction_replay_first_and_pending_insert_no_claim_no_adapter_call"
+    }
+  },
+  "persistence": {
+    "inputContextBytes": "preserve_original_accepted_bytes_no_rewrite",
+    "inputContextJsonShape": "unchanged_ReconstructibleDraftContextV1",
+    "inputSourcesJsonPurpose": "bounded_internal_provenance_not_provider_payload_unchanged",
+    "jcsInputHashCoverage": "entire_input_context_json_including_association",
+    "newColumns": 0,
+    "schemaMigrationChange": false
+  },
+  "phaseBoundary": {
+    "implementationAuthorized": false,
+    "phaseB": "contracts_profiles_offline_proof_empty_production_provider_registry",
+    "phaseC": "later_durable_runtime_only_after_separate_authorization",
+    "phaseD": "absent_provider_adapter_zone",
+    "phaseE": "later_business_integration_and_human_review_only"
+  },
+  "profileId": "cwt.phase1b.stage4a.phaseb.corrected-design.v1_10.v18-m01-m03-attempt-2.v1",
+  "profileVersion": "2.0.0",
+  "promptProjections": {
+    "fabric_knowledge_draft": {
+      "locale": "/locale",
+      "requested_tone": "/task/tone",
+      "selected_context_json": "/sources",
+      "topic": "/task/topic"
+    },
+    "product_description_draft": {
+      "locale": "/locale",
+      "media_placement_refs_json": "/mediaPlacementRefs",
+      "product_context_json": "/sources",
+      "requested_tone": "/task/tone"
+    },
+    "seo_content_draft": {
+      "internal_link_candidates_json": "/internalLinkCandidates",
+      "locale": "/locale",
+      "page_intent": "/task/pageIntent",
+      "primary_phrase": "/task/primaryPhrase",
+      "requested_tone": "/task/tone",
+      "selected_context_json": "/sources"
+    },
+    "sourcing_guide_draft": {
+      "guide_intent": "/task/guideIntent",
+      "locale": "/locale",
+      "requested_tone": "/task/tone",
+      "selected_context_json": "/sources"
+    }
+  },
+  "protectedClassifier": {
+    "commonRules": 30,
+    "consumerExceptionAllowed": false,
+    "consumers": [
+      "ctx.draft-assistance.v1.field-domain-traversal.v1:protected_human_business_provider_evidence",
+      "output-policy:A-07"
+    ],
+    "deepSeekOnlyRules": 2,
+    "evidenceRegistryPath": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+    "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2_1",
+    "registryPath": "src/ai/context/protected-data-registry.v2_1.json",
+    "registryVersion": "2.1.0",
+    "ruleCount": 32,
+    "runtime": {
+      "arch": "arm64",
+      "cldr": "48.0",
+      "icu": "78.2",
+      "node": "24.14.0",
+      "platform": "darwin",
+      "unicode": "17.0",
+      "v8": "13.6.233.17-node.41"
+    },
+    "sameCompiledIdentityRequired": true,
+    "secondClassifierAllowed": false,
+    "sha256": "264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66"
+  },
+  "providerLeakDenyPrefixes": [
+    "/association",
+    "/input_sources_json",
+    "/actor",
+    "/configuration",
+    "/endpoint",
+    "/credential"
+  ],
+  "recursiveEvidenceGrammar": {
+    "arrayAndObjectOrder": "traversed_in_input_order_persisted_bytes_not_rewritten_jcs_sorts_object_keys_only_for_hash",
+    "cycle": "reject",
+    "id": "accepted_recursive_readonly_json_value_v1",
+    "maximumDepth": 16,
+    "maximumNodesPerValue": 4096,
+    "maximumWholeContextUtf8Bytes": 65536,
+    "negativeZero": "accepted_and_canonicalized_by_existing_jcs_contract",
+    "nonFiniteNumber": "reject",
+    "numberBooleanNullLeaves": "structural_validation_only",
+    "objectKeys": "scan_with_selected_m02_before_acceptance",
+    "rootTypes": [
+      "null",
+      "boolean",
+      "finite_number",
+      "string",
+      "dense_array",
+      "plain_object"
+    ],
+    "sparseArray": "reject",
+    "stringLeaves": "scan_with_selected_m02_before_acceptance",
+    "undefinedBigIntSymbolFunctionTypedArrayDateMapSetCustomPrototype": "reject"
+  },
+  "sourceFieldAllowlists": {
+    "explicit_human_input": [
+      "text"
+    ],
+    "fabric_knowledge": [
+      "title",
+      "excerpt",
+      "narrativeText"
+    ],
+    "product_structured": [
+      "name",
+      "primaryCategoryLabel",
+      "additionalCategoryLabels",
+      "applicationLabels",
+      "composition",
+      "weightGsm",
+      "widthCm",
+      "moqValue",
+      "moqUnit",
+      "fabricStyle",
+      "colorOptions",
+      "moqNote",
+      "customAvailable",
+      "sampleAvailable"
+    ],
+    "public_company_fact": [
+      "factKey",
+      "subject",
+      "statement",
+      "relationshipToCwt"
+    ]
+  },
+  "status": "candidate_not_approved_implementation_not_authorized",
+  "traversalAuthority": {
+    "applicationOwned": true,
+    "closed": true,
+    "compatibilityTraversals": 0,
+    "consumerLocalBypasses": 0,
+    "id": "ctx.draft-assistance.v1.field-domain-traversal.v1",
+    "multipleMatches": {
+      "errorCode": "context_provenance_mismatch",
+      "proofReason": "assignment_count_multiple",
+      "publicOrPersistedReason": false
+    },
+    "pathExceptionLists": 0,
+    "patternLanguage": {
+      "recursiveEvidenceSubtree": "**",
+      "recursiveUse": "only_as_final_segment_after_sources_star_fields_star_value",
+      "root": "/",
+      "separator": "/",
+      "singleArrayIndex": "*"
+    },
+    "profileIdentityMismatch": {
+      "errorCode": "context_provenance_mismatch",
+      "proofReason": "compiled_profile_identity_mismatch",
+      "publicOrPersistedReason": false
+    },
+    "strictUnknownKeys": true,
+    "zeroMatches": {
+      "errorCode": "context_provenance_mismatch",
+      "proofReason": "assignment_count_zero",
+      "publicOrPersistedReason": false
+    }
+  }
+}

@@ -183,8 +183,8 @@ describe("Phase B Provider-neutral Production foundation", () => {
         target: { type: "content_draft", contentId, locale: "en", expectedVersion: 5 },
         correctEditor: contentEditor,
         wrongEditor: productEditor,
-        downstreamCode: "context_prohibited_data",
-        downstreamManualEditorAvailable: false,
+        downstreamCode: "integration_not_ready",
+        downstreamManualEditorAvailable: true,
       },
       {
         label: "Product Revision",
@@ -210,7 +210,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
       readonly target: Inspection["target"];
       readonly correctEditor: Inspection["actor"];
       readonly wrongEditor: Inspection["actor"];
-      readonly downstreamCode: "integration_not_ready" | "context_prohibited_data";
+      readonly downstreamCode: "integration_not_ready";
       readonly downstreamManualEditorAvailable: boolean;
     }>;
 

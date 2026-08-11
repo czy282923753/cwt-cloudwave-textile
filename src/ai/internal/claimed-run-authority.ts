@@ -153,8 +153,19 @@ export function constructClaimedRunV1(input: {
   });
   if (!runtime.ok) return runtime;
   const association = runtime.value.decodeClaimedAssociation(row);
-  if (!association.ok || association.value.snapshotHash !== row.targetSnapshotHash) {
+  if (!association.ok) {
     return aiFailure("association_provenance_mismatch");
+  }
+  const claimedContext = runtime.value.decodeClaimedContext(inputContext);
+  if (!claimedContext.ok) return claimedContext;
+  const associationIntegrity = claimedContext.value.verifyAssociationIntegrity(association.value);
+  if (!associationIntegrity.ok || association.value.snapshotHash !== row.targetSnapshotHash) {
+    return aiFailure("association_provenance_mismatch");
+  }
+  const contextHash = canonicalJsonHash(inputContext);
+  if (!contextHash.ok || contextHash.value.hash !== row.inputHash ||
+    claimedContext.value.preparedContext.inputHash !== row.inputHash) {
+    return aiFailure("context_provenance_mismatch");
   }
   const configHash = resolvedConfigHashV1({
     applicationClass: row.applicationClass,
@@ -182,14 +193,6 @@ export function constructClaimedRunV1(input: {
   });
   if (!configHash.ok || configHash.value.hash !== row.resolvedConfigHash) {
     return aiFailure("config_provenance_mismatch");
-  }
-  const contextHash = canonicalJsonHash(inputContext);
-  if (!contextHash.ok || contextHash.value.hash !== row.inputHash) {
-    return aiFailure("context_provenance_mismatch");
-  }
-  const claimedContext = runtime.value.decodeClaimedContext(inputContext);
-  if (!claimedContext.ok || claimedContext.value.preparedContext.inputHash !== row.inputHash) {
-    return aiFailure("context_provenance_mismatch");
   }
   const claimed: ConstructedClaimedRunV1 = Object.freeze({
     [claimedRunBrand]: claimedRunMarker(),

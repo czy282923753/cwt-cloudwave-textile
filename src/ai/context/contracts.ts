@@ -1,6 +1,6 @@
 import type {
-  JsonPrimitive,
   ReadonlyJsonObject,
+  ReadonlyJsonValue,
 } from "../canonical-json";
 
 export type SourceProvenanceV1 = "structural" | "provided" | "verified";
@@ -53,10 +53,7 @@ export interface ReconstructibleSourceFieldV1 extends ReadonlyJsonObject {
   readonly field: string;
   readonly ref: string;
   readonly provenance: SourceProvenanceV1;
-  readonly value:
-    | JsonPrimitive
-    | readonly JsonPrimitive[]
-    | ReadonlyJsonObject;
+  readonly value: ReadonlyJsonValue;
 }
 
 export interface ReconstructibleSourceEntryV1 extends ReadonlyJsonObject {

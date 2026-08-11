@@ -15,10 +15,12 @@ import type {
   SourceProvenanceV1,
 } from "@/ai/context/contracts";
 import {
-  protectedDataClassifierV1,
   selectedProtectedDataRegistryIdentityV1,
 } from "@/ai/context/protected-data";
-import type { SafeInputSourceReferenceV1 } from "@/ai/core/contracts";
+import type {
+  PreparedApplicationContextV1,
+  SafeInputSourceReferenceV1,
+} from "@/ai/core/contracts";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 
 import type {
@@ -26,6 +28,7 @@ import type {
   DraftDurableAssociationWithoutHashV1,
   ProductionAiUseCase,
 } from "./contracts";
+import { draftContextIntegrityV1 } from "./context-integrity";
 import type { DraftConsistentReadScope } from "./read-scopes";
 
 const lowercaseHash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -37,11 +40,11 @@ const unicodeScalars = (value: string): number => Array.from(value).length;
 const jsonPrimitiveSchema = z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(),
 ]);
-const sourceValueSchema = z.union([
+const sourceValueSchema: z.ZodType<ReadonlyJsonValue> = z.lazy(() => z.union([
   jsonPrimitiveSchema,
-  z.array(jsonPrimitiveSchema),
-  z.record(z.string(), jsonPrimitiveSchema),
-]);
+  z.array(sourceValueSchema),
+  z.record(z.string(), sourceValueSchema),
+]));
 const sourceFieldSchema = z.object({
   field: z.string().regex(/^[a-z][A-Za-z0-9_]{0,63}$/),
   ref: sourceRef,
@@ -565,11 +568,13 @@ function contextLimitsAreValid(context: ReconstructibleDraftContextV1): boolean 
     (context.useCase !== "product_description_draft" || selectedSourcesSize <= 48 * 1_024);
 }
 
-function strictContext(input: unknown): AiServiceResult<ReconstructibleDraftContextV1> {
+function strictContextUnchecked(input: unknown): AiServiceResult<ReconstructibleDraftContextV1> {
   const parsed = reconstructibleContextSchema.safeParse(input);
   if (!parsed.success || !taskContractIsValid(parsed.data)) {
     return aiFailure("context_provenance_mismatch");
   }
+  const integrity = draftContextIntegrityV1.validateContext(input);
+  if (!integrity.ok) return integrity;
   const refs = new Set<string>();
   for (const [sourceIndex, source] of parsed.data.sources.entries()) {
     if (source.alias !== `src_${String(sourceIndex + 1).padStart(2, "0")}` ||
@@ -591,9 +596,15 @@ function strictContext(input: unknown): AiServiceResult<ReconstructibleDraftCont
   if (parsed.data.task.guideIntent !== undefined) task.guideIntent = parsed.data.task.guideIntent;
   const context: ReconstructibleDraftContextV1 = { ...parsed.data, task };
   if (!contextLimitsAreValid(context)) return aiFailure("context_too_large");
-  const classification = protectedDataClassifierV1.classify(context);
-  if (classification.kind !== "allow") return aiFailure("context_prohibited_data");
   return aiSuccess(context);
+}
+
+function strictContext(input: unknown): AiServiceResult<ReconstructibleDraftContextV1> {
+  try {
+    return strictContextUnchecked(input);
+  } catch {
+    return aiFailure("internal_failure");
+  }
 }
 
 export interface AllowedEvidenceFieldV1 {
@@ -656,6 +667,35 @@ function promptVariables(
         requested_tone: context.task.tone ?? "concise_professional_b2b",
       });
   }
+}
+
+function encodeValidatedContext(
+  context: ReconstructibleDraftContextV1,
+  inputSources: readonly SafeInputSourceReferenceV1[],
+): AiServiceResult<PreparedApplicationContextV1> {
+  const input = canonicalJsonHash(context);
+  if (!input.ok) return aiFailure("canonicalization_failed");
+  const explicit = context.sources
+    .filter((source) => source.sourceClass === "explicit_human_input")
+    .flatMap((source) => source.fields.map((field) => field.value));
+  const explicitHash = canonicalJsonHash(explicit);
+  if (!explicitHash.ok) return aiFailure("canonicalization_failed");
+  return aiSuccess({
+    version: 1,
+    inputSources,
+    inputContext: context,
+    inputHash: input.value.hash,
+    explicitInputHash: explicitHash.value.hash,
+    requestFingerprintInput: {
+      classifier_registry_id: selectedProtectedDataRegistryIdentityV1.registryId,
+      classifier_registry_version: selectedProtectedDataRegistryIdentityV1.registryVersion,
+      classifier_registry_hash: selectedProtectedDataRegistryIdentityV1.sha256,
+      input_hash: input.value.hash,
+      explicit_input_hash: explicitHash.value.hash,
+      association_hash: context.association.snapshotHash,
+      source_refs: context.sources.map((source) => source.alias),
+    },
+  });
 }
 
 export function createDraftContextPolicy<
@@ -774,33 +814,21 @@ export function createDraftContextPolicy<
     encodePreparedContext(context) {
       const validated = strictContext(context);
       if (!validated.ok) return validated;
-      const input = canonicalJsonHash(validated.value);
-      if (!input.ok) return aiFailure("canonicalization_failed");
-      const explicit = validated.value.sources
-        .filter((source) => source.sourceClass === "explicit_human_input")
-        .flatMap((source) => source.fields.map((field) => field.value));
-      const explicitHash = canonicalJsonHash(explicit);
-      if (!explicitHash.ok) return aiFailure("canonicalization_failed");
       const inputSources = preparedSources.get(context) ?? [];
-      return aiSuccess({
-        version: 1,
-        inputSources,
-        inputContext: validated.value,
-        inputHash: input.value.hash,
-        explicitInputHash: explicitHash.value.hash,
-        requestFingerprintInput: {
-          classifier_registry_id: selectedProtectedDataRegistryIdentityV1.registryId,
-          classifier_registry_version: selectedProtectedDataRegistryIdentityV1.registryVersion,
-          classifier_registry_hash: selectedProtectedDataRegistryIdentityV1.sha256,
-          input_hash: input.value.hash,
-          explicit_input_hash: explicitHash.value.hash,
-          association_hash: validated.value.association.snapshotHash,
-          source_refs: validated.value.sources.map((source) => source.alias),
-        },
-      });
+      return encodeValidatedContext(validated.value, inputSources);
     },
-    parseDurableContext(input) {
-      return strictContext(input);
+    decodeDurableContext(input) {
+      const context = strictContext(input);
+      if (!context.ok) return context;
+      const preparedContext = encodeValidatedContext(context.value, []);
+      if (!preparedContext.ok) return preparedContext;
+      const variables = promptVariables(context.value);
+      if (!variables.ok) return variables;
+      return aiSuccess({
+        context: context.value,
+        preparedContext: preparedContext.value,
+        promptVariables: variables.value,
+      });
     },
     buildPromptVariables(context) {
       const validated = strictContext(context);

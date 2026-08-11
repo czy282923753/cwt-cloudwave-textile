@@ -77,7 +77,11 @@ export interface ApplicationContextPolicy<
     readonly scope: TCommonReadScope;
   }): Promise<AiServiceResult<TContext>>;
   encodePreparedContext(context: TContext): AiServiceResult<PreparedApplicationContextV1>;
-  parseDurableContext(input: unknown): AiServiceResult<TContext>;
+  decodeDurableContext(input: unknown): AiServiceResult<{
+    readonly context: TContext;
+    readonly preparedContext: PreparedApplicationContextV1;
+    readonly promptVariables: PromptVariablesV1;
+  }>;
   buildPromptVariables(context: TContext): AiServiceResult<PromptVariablesV1>;
 }
 

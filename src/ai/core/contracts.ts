@@ -273,6 +273,9 @@ export function createOpaqueRequestInvocation(
 
 export interface OpaqueClaimedContextStageV1 {
   readonly preparedContext: PreparedApplicationContextV1;
+  verifyAssociationIntegrity(
+    association: ApplicationAssociationEnvelopeV1,
+  ): AiServiceResult<true>;
   buildPromptVariables(): AiServiceResult<PromptVariablesV1>;
   parseAndProtect(
     rawObject: ReadonlyJsonObject,

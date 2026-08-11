@@ -186,9 +186,12 @@ export function encodeDraftTargetColumnsV1(
   }
 }
 
-export function decodeDraftTargetColumnsV1(
+function parseDraftTargetColumnsV1(
   input: unknown,
-): AiServiceResult<DraftDurableAssociationV1> {
+): AiServiceResult<{
+  readonly association: DraftDurableAssociationWithoutHashV1;
+  readonly targetSnapshotHash: string;
+}> {
   const parsed = targetColumnsSchema.safeParse(input);
   if (!parsed.success) return provenanceFailure();
   const row = parsed.data;
@@ -236,13 +239,37 @@ export function decodeDraftTargetColumnsV1(
       };
       break;
   }
-  const authorized = buildAuthorizedDraftAssociationV1(association);
-  if (!authorized.ok || authorized.value.snapshotHash !== row.targetSnapshotHash) {
+  return aiSuccess({ association, targetSnapshotHash: row.targetSnapshotHash });
+}
+
+export function decodeDraftTargetColumnsStructureV1(
+  input: unknown,
+): AiServiceResult<{
+  readonly kind: "draft_target.v1";
+  readonly snapshot: ReadonlyJsonObject;
+  readonly snapshotHash: string;
+}> {
+  const parsed = parseDraftTargetColumnsV1(input);
+  if (!parsed.ok) return parsed;
+  return aiSuccess({
+    kind: "draft_target.v1",
+    snapshot: buildSnapshot(parsed.value.association),
+    snapshotHash: parsed.value.targetSnapshotHash,
+  });
+}
+
+export function decodeDraftTargetColumnsV1(
+  input: unknown,
+): AiServiceResult<DraftDurableAssociationV1> {
+  const parsed = parseDraftTargetColumnsV1(input);
+  if (!parsed.ok) return parsed;
+  const authorized = buildAuthorizedDraftAssociationV1(parsed.value.association);
+  if (!authorized.ok || authorized.value.snapshotHash !== parsed.value.targetSnapshotHash) {
     return provenanceFailure();
   }
   return aiSuccess({
-    ...association,
-    targetSnapshotHash: row.targetSnapshotHash,
+    ...parsed.value.association,
+    targetSnapshotHash: parsed.value.targetSnapshotHash,
   });
 }
 
