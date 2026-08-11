@@ -25,6 +25,10 @@ export type DatabaseConnection =
       close: () => Promise<void>;
     };
 
+declare global {
+  var cwtDatabaseConnection: DatabaseConnection | undefined;
+}
+
 export function createDatabaseConnection(): DatabaseConnection {
   if (env.DATABASE_DRIVER === "pglite") {
     const dataDirectory = env.PGLITE_DATA_DIR.startsWith("memory://")
@@ -50,13 +54,9 @@ export function createDatabaseConnection(): DatabaseConnection {
   };
 }
 
-const globalDatabase = globalThis as typeof globalThis & {
-  cwtDatabaseConnection?: DatabaseConnection;
-};
-
 export const databaseConnection =
-  globalDatabase.cwtDatabaseConnection ?? createDatabaseConnection();
+  globalThis.cwtDatabaseConnection ?? createDatabaseConnection();
 
 if (env.APP_ENV !== "production") {
-  globalDatabase.cwtDatabaseConnection = databaseConnection;
+  globalThis.cwtDatabaseConnection = databaseConnection;
 }
