@@ -1,0 +1,162 @@
+{
+  "cases": [
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-ignored-untracked-exact-root-copy",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-ignored-untracked-hardlink-root",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-ignored-untracked-resealed-root",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-visible-untracked-root",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-tracked-wrong-path-root",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-case-only-root-path",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "diagnostic": "authority-worktree-symlink:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "id": "v2-m01-symlink-root-alias",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "physical-alias:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_2.json",
+      "id": "v2-m01-root-hardlink-current-role",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "physical-alias:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_2.json",
+      "id": "v2-m01-root-hardlink-proof-artifact",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "physical-alias:docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_V2_M01_REMEDIATION_PRE_L3_CHECKPOINT_V1_0.md",
+      "id": "v2-m01-root-hardlink-checkpoint",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "physical-alias:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/SHA256SUMS.txt",
+      "id": "v2-m01-root-hardlink-manifest",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "manifest-root-entry-cardinality:0",
+      "id": "v2-m01-manifest-missing-root-entry",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "manifest-root-entry-cardinality:2",
+      "id": "v2-m01-manifest-duplicate-root-entry",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "manifest-root-hash:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "id": "v2-m01-manifest-root-wrong-hash",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-coordinated-authority-envelope-redirection",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "diagnostic": "authority-head-missing:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "id": "v2-m01-head-root-missing",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "authority-head-mode:100755",
+      "id": "v2-m01-head-root-wrong-mode",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "authority-index-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "id": "v2-m01-head-root-wrong-blob",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "authority-index-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "id": "v2-m01-index-root-differs-head",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "authority-worktree-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "id": "v2-m01-worktree-root-differs-head",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "diagnostic": "envelope-authority-path-not-canonical:.next/envelope-mutated-root.json",
+      "id": "v2-m01-envelope-path-mutation",
+      "rejected": true,
+      "transport": "direct-validator-defense-in-depth"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-self-consistently-resealed-alternate-root",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-arbitrary-ignored-directory-root",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    }
+  ],
+  "count": 23,
+  "ok": true
+}

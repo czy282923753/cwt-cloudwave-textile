@@ -1,0 +1,203 @@
+{
+  "canonicalParentInvocation": {
+    "accepted": true,
+    "diagnostic": "raw_authority_spelling_exact",
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+    "transport": "real-package-cli-process-argv"
+  },
+  "cases": [
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-exact-absolute-realpath",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-dot-prefix",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-dot-segment",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-cancelling-dot-dot",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-noncancelling-dot-dot",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-duplicate-slash",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-trailing-slash",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-backslash",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-percent-encoded",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-percent-bearing",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-nfd-lookalike",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-unicode-slash-lookalike",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-case-only",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-leading-control",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-trailing-control",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-interior-control",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-leading-whitespace",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-trailing-whitespace",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-interior-whitespace",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-tilde-home",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-home-environment",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-environment-assignment-like",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "childProcessObserved": true,
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "exit": 1,
+      "id": "v2-m01-raw-cli-other-nonidentical",
+      "rejected": true,
+      "transport": "spawnSync-process-execPath-real-package-cli"
+    },
+    {
+      "diagnostic": "process_interface_rejected_nul_before_cli",
+      "exit": null,
+      "id": "v2-m01-raw-cli-nul-process-interface",
+      "rejected": true,
+      "transport": "node-process-interface"
+    }
+  ],
+  "count": 24,
+  "ok": true
+}
