@@ -1,0 +1,24 @@
+{
+  "authorityBinding": {
+    "authorityJcsSha256": "e31ee8c3c63d3e8cc4a8a2895f5692d3cff26149efe7869dca90cc4db3ef53a9",
+    "fileSha256": "43bfab75b2cf79adabd68d46272ec0ece732440af5bedfab84a8716ae06fafb7",
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_0.json",
+    "role": "canonicalReviewAuthority"
+  },
+  "expectedGit": {
+    "attachmentPolicy": "detached-or-exact-ref",
+    "cleanRequired": true,
+    "head": "4b626fc9278f4c49957ecf165d7d5c5fc4058dca",
+    "parent": "3aaad46b1627191a18fb82763a9627c1e2292d73",
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-design-v1",
+    "tree": "8e4d3b48cef65a418012438d00e677f4169b684e"
+  },
+  "provenance": {
+    "createdAfterCandidateCommit": true,
+    "ownerRole": "original-independent-phase-b-design-reviewer",
+    "statement": "Reviewer-created post-commit envelope for the exact detached and exact-attached Fresh review of Candidate 4b626fc9278f4c49957ecf165d7d5c5fc4058dca; it grants no acceptance or implementation authority."
+  },
+  "schemaId": "cwt.phase1b.stage4a.phaseb.v111-m01.candidate-review-envelope.v2",
+  "status": "review-expectation-not-acceptance",
+  "version": "2.0.0"
+}

@@ -1,0 +1,42 @@
+{
+  "baseline": {
+    "detachedFullReviewExit": 0,
+    "detachedStdoutSha256": "25c5275c5d74a097ede70c7ee297bc06b47091499ed0b0801e055babc5ea74a2"
+  },
+  "candidate": {
+    "head": "4b626fc9278f4c49957ecf165d7d5c5fc4058dca",
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-design-v1",
+    "reviewSnapshot": "/tmp/cwt-v111-m01-v2-review.yzbv1m"
+  },
+  "decisiveFinding": {
+    "cleanPorcelainBeforeAliasRuns": true,
+    "ignoredUntrackedExactAuthorityCopyExit": 0,
+    "ignoredUntrackedHardLinkAuthorityAliasExit": 0,
+    "ignoredUntrackedResealedAlteredAuthorityExit": 0,
+    "resealedMutation": "historicalEvidence[0].candidateCommit changed to forty zeroes; authority seal and external envelope recomputed",
+    "rootCause": "loadAuthority validates only in-repo/canonical syntax and self-seals; it does not require the loaded root to be the exact tracked Candidate manifest root or include the root in physical-identity injectivity"
+  },
+  "envelopeLeafCoverage": {
+    "acceptedWithDistinctEnvelopeJcsEvidence": [
+      "provenance.ownerRole",
+      "provenance.statement"
+    ],
+    "mutatedLeafCount": 16,
+    "rejectedLeafCount": 14
+  },
+  "freshNegatives": {
+    "duplicateDecodedEnvelopeNameExit": 1,
+    "movedExpectedRefAtPointInTimeHeadExit": 1,
+    "renderedMarkdownByteMutationExit": 1,
+    "visibleUntrackedDirtyStateExit": 1,
+    "wrongAttachedSymbolicRefExit": 1
+  },
+  "process": {
+    "candidateBytesRestored": true,
+    "finalDetachedPorcelainEmpty": true,
+    "network": false,
+    "node": "24.14.0",
+    "packageManager": false,
+    "temporaryInputsRemoved": true
+  }
+}

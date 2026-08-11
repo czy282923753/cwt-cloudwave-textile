@@ -1,0 +1,45 @@
+{
+  "acceptanceEligible": true,
+  "attachmentDiagnostic": "attached-exact-ref",
+  "authority": {
+    "authorityJcsSha256": "e31ee8c3c63d3e8cc4a8a2895f5692d3cff26149efe7869dca90cc4db3ef53a9",
+    "fileSha256": "43bfab75b2cf79adabd68d46272ec0ece732440af5bedfab84a8716ae06fafb7",
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_0.json"
+  },
+  "disposition": "TECHNICAL_REVIEW_INPUT_VALID_FRESH_INDEPENDENT_HUMAN_PASS_REQUIRED",
+  "envelope": {
+    "consumedLeafCount": 16,
+    "jcsSha256": "76ea4cec640ca30d58bcf9de43315e1cbddbe292ac2da5ddba1ccfbc342902e0",
+    "path": "/Users/calvin/.codex/worktrees/2a07/CWT（CloudWave Textile）项目/docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/CANDIDATE_REVIEW_ENVELOPE_V2_0.json",
+    "schemaId": "cwt.phase1b.stage4a.phaseb.v111-m01.candidate-review-envelope.v2"
+  },
+  "git": {
+    "attachmentPolicy": "detached-or-exact-ref",
+    "authorityBound": true,
+    "clean": true,
+    "expectedHead": "4b626fc9278f4c49957ecf165d7d5c5fc4058dca",
+    "expectedParent": "3aaad46b1627191a18fb82763a9627c1e2292d73",
+    "expectedRef": "refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-design-v1",
+    "expectedTree": "8e4d3b48cef65a418012438d00e677f4169b684e",
+    "headBound": true,
+    "parentBound": true,
+    "refBound": true,
+    "treeBound": true
+  },
+  "mode": "full-review",
+  "ok": true,
+  "package": {
+    "manifestEntries": 12
+  },
+  "proofMatrix": {
+    "negative": 42,
+    "positive": 10,
+    "properties": 10,
+    "total": 62
+  },
+  "runtime": {
+    "arch": "arm64",
+    "node": "24.14.0",
+    "platform": "darwin"
+  }
+}
