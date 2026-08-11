@@ -1,0 +1,10 @@
+{
+  "candidate": "4b626fc9278f4c49957ecf165d7d5c5fc4058dca",
+  "runtime": "Node 24.14.0",
+  "baselineFullReviewExit": 0,
+  "ignoredUntrackedExactRootCopyExit": 0,
+  "ignoredUntrackedHardLinkRootExit": 0,
+  "ignoredUntrackedResealedAlteredRootExit": 0,
+  "finalDetachedStatusClean": true,
+  "causalIdentityConfirmed": true
+}

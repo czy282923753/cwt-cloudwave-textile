@@ -1,0 +1,60 @@
+{
+  "candidate": {
+    "head": "3d424821aab67c03c3b8ec02a62b5577044837c9",
+    "parent": "ac080b1d8b49906154ecbc44d381a84afe972bad",
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-replacement-design-remediation-v1"
+  },
+  "process": {
+    "node": "24.14.0",
+    "packageManager": false,
+    "network": false
+  },
+  "baseline": {
+    "detachedFullReview": { "exit": 0 },
+    "packageOnly": { "exit": 0, "stdoutSha256": "012fb82abfa3097f543075a061ba7679b507cde9bc2cfc30a6ba6a7f268c594c" }
+  },
+  "exactPathBoundary": {
+    "exactRelative": { "exit": 0 },
+    "dotPrefix": { "exit": 0, "expected": "reject" },
+    "dotDotCancellation": { "exit": 0, "expected": "reject" },
+    "duplicateSlash": { "exit": 0, "expected": "reject" },
+    "exactAbsoluteRealpath": { "exit": 0, "expected": "reject" },
+    "backslash": { "exit": 1, "diagnostic": "backslash-path:authority-path" },
+    "percent": { "exit": 1, "diagnostic": "percent-path:authority-path" },
+    "caseOnly": { "exit": 1, "diagnostic": "authority-path-not-canonical" },
+    "nfd": { "exit": 1, "diagnostic": "path-not-nfc:authority-path" }
+  },
+  "priorDefectWitnesses": {
+    "ignoredExactCopy": { "exit": 1, "diagnostic": "authority-path-not-canonical" },
+    "ignoredHardlink": { "exit": 1, "diagnostic": "authority-path-not-canonical" },
+    "ignoredResealedAlteredRoot": { "exit": 1, "diagnostic": "authority-path-not-canonical" }
+  },
+  "envelopeLeaves": {
+    "challenged": 16,
+    "rejected": 14,
+    "acceptedWithChangedRecordedJcsEvidence": ["provenance.ownerRole", "provenance.statement"]
+  },
+  "gitAndMembership": {
+    "historicalImportedEnvelope": { "exit": 1, "diagnostic": "envelope-authority-path-not-canonical" },
+    "visibleDirty": { "exit": 1, "diagnostic": "git-dirty" },
+    "movedExpectedRef": { "exit": 1, "diagnostic": "git-ref-target" },
+    "wrongAttachment": { "exit": 1, "diagnostic": "git-attachment" },
+    "unstagedRootDrift": { "exit": 1, "diagnostic": "authority-worktree-differs-head" },
+    "stagedRootDrift": { "exit": 1, "diagnostic": "authority-index-differs-head" },
+    "finalDisposableStatus": { "clean": true }
+  },
+  "manifestAndPhysical": {
+    "unstagedManifestDrift": { "exit": 1, "diagnostic": "manifest-worktree-differs-head" },
+    "rootHardlinkCurrentProfile": { "exit": 1 },
+    "committedManifestMissingRoot": { "exit": 1, "diagnostic": "manifest-root-entry-cardinality:0" },
+    "committedManifestDuplicateRoot": { "exit": 1, "diagnostic": "manifest-duplicate-path" },
+    "committedManifestWrongRootHash": { "exit": 1, "diagnostic": "manifest-root-hash" },
+    "committedManifestReordered": { "exit": 1, "diagnostic": "manifest-order" }
+  },
+  "reviewerRuling": {
+    "finding": "V2-M01",
+    "root": "same V111-M01 exact-current-authority identity root",
+    "status": "OPEN_AFTER_REPLACEMENT_CYCLE_CORRECTION_ATTEMPT_1",
+    "reason": "The actual CLI boundary resolves aliases before validating them; four forbidden spellings select the exact root and return package success while the internal synthetic path test claims the property is fail closed."
+  }
+}

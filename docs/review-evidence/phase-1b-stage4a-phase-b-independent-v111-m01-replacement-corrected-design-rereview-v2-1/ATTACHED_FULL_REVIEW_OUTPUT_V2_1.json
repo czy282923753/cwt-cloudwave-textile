@@ -1,0 +1,33 @@
+{
+  "acceptanceEligible": true,
+  "attachmentDiagnostic": "attached-exact-ref",
+  "authority": {
+    "authorityJcsSha256": "927b4956cacf1f59749b8cc6d0066b25251c37dbe601415bc4757d30be69147e",
+    "fileSha256": "c2040ed884c2f6b0765e8d01aa510d61d8f4cae0912dcc97796883e10815fad1",
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json"
+  },
+  "disposition": "TECHNICAL_REVIEW_INPUT_VALID_FRESH_INDEPENDENT_HUMAN_PASS_REQUIRED",
+  "envelope": {
+    "consumedLeafCount": 16,
+    "jcsSha256": "0092881553987df6ab32073ebe9a577719b4ab4f1dd4c62e05530374ddc63f99",
+    "schemaId": "cwt.phase1b.stage4a.phaseb.v111-m01.candidate-review-envelope.v2"
+  },
+  "git": {
+    "attachmentPolicy": "detached-or-exact-ref",
+    "authorityBound": true,
+    "clean": true,
+    "expectedHead": "3d424821aab67c03c3b8ec02a62b5577044837c9",
+    "expectedParent": "ac080b1d8b49906154ecbc44d381a84afe972bad",
+    "expectedRef": "refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-replacement-design-remediation-v1",
+    "expectedTree": "2feaecc44874462929c20ed8670de251244f5bd8",
+    "headBound": true,
+    "parentBound": true,
+    "refBound": true,
+    "treeBound": true
+  },
+  "mode": "full-review",
+  "ok": true,
+  "package": { "manifestEntries": 13 },
+  "proofMatrix": { "negative": 65, "positive": 10, "properties": 14, "total": 89 },
+  "runtime": { "arch": "arm64", "node": "24.14.0", "platform": "darwin" }
+}
