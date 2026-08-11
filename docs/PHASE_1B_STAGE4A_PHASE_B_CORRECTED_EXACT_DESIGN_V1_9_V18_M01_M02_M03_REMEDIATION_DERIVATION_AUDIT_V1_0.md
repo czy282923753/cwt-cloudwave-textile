@@ -11,7 +11,7 @@
 - Accepted V1.7 ancestor: `3f475e13d73d9d68a4dfb9a040941c57f1ee92e6`
 - Frozen Tag peel: `phase-1b-stage3-approved-2026-08-09 -> 31c0e405acfdd0d05200d0fb2531e897a541a2c4`
 - V1.8 independent result: **FAIL**, Blocker `0`, High `0`, Medium `3`, Low `0`
-- Remediation content checkpoint: recorded after its atomic commit below
+- Remediation content checkpoint: `fcb060edb47c04187ccdaea4cb65b1032dffa828`, direct parent `901e87c620c52458c0a56613ec87353dbe240319`
 
 This task corrects only V18-M01, V18-M02 and V18-M03. The Owner-selected `IMP2-NM01-STRUCTURAL-INTEGRITY-DOMAIN`, `M02-D1-INCLUDE` and `M03-D1-DISCRIMINATED-SEAM` directions remain unchanged. This record is not Owner approval, independent Review, implementation authorization or consumption of implementation correction attempt 3.
 
@@ -137,7 +137,7 @@ The linear rollback points are:
 
 1. `a2cd31f...`: immutable V1.8 Candidate / complete V1.9 rollback;
 2. `901e87c...`: byte-identical V1.8 independent FAIL import;
-3. remediation content checkpoint: standalone V1.9/profile/vectors/type probe/verifier/capture/audit;
+3. `fcb060e...`: standalone V1.9/profile/vectors/type probe/verifier/capture/audit;
 4. final manifest checkpoint: audit identity update plus V1.9 `SHA256SUMS.txt`.
 
 Rollback never moves the existing checkpoint ref or Tag. No merge, Push or history rewrite is authorized.
