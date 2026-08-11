@@ -1,0 +1,28 @@
+RUN v4.1.10 /private/tmp/cwt-v22-impl-review.b4Y7b5
+
+PASS: rejects a Fresh position-independent multiset family but preserves three-member and diverse positives
+FAIL: keeps malformed authoritative Revision rows indistinguishable from missing rows for an unrelated actor
+
+Expected:
+  ok=true
+  available=false
+  code=authorization_denied
+  manualEditorAvailable=false
+
+Received for malformed existing authoritative Revision:
+  ok=true
+  available=false
+  code=target_scope_mismatch
+  manualEditorAvailable=false
+
+Missing Revision result:
+  ok=true
+  available=false
+  code=authorization_denied
+  manualEditorAvailable=false
+
+Test Files: 1 failed (1)
+Tests: 1 failed, 1 passed (2)
+Full raw output SHA-256: b3832f6f87cf95b3eff0179679dc0ab8a80939939b3404930ca3c425d1d7be22
+Executed reviewer source SHA-256: 3b7062d13a5ec1db40d63c12f70ddfc5aca3fd00cc7e8dfe6f31e6f20ccbeea5
+Restoration: reviewer file removed; final disposable snapshot clean

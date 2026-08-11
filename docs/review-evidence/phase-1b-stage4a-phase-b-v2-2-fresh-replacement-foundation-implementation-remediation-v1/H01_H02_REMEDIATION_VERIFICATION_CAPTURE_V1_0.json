@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_remediation_evidence_not_acceptance",
+  "runtime": {
+    "node": "24.14.0",
+    "next": "16.2.12",
+    "typescript": "5.9.3",
+    "packageInstallOrMaterialization": false,
+    "providerNetworkOrSpend": false
+  },
+  "identity": {
+    "failedCandidate": "b95390c34fc4fe687f6e7577a7505a7394bca80b",
+    "failedCandidateTree": "dd9992b1273e6247b476593e91682b90dad6d2a8",
+    "failedCodeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+    "correctedCodeHead": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+    "correctedCodeParent": "8c43df1719fb550f9849ee6dd26e169a351e0339",
+    "correctedCodeTree": "242b1b8eeff9c38bc872d0f56a1e7bcaf2592752",
+    "linearRemediationCommits": [
+      "8c43df1719fb550f9849ee6dd26e169a351e0339",
+      "8cd768fada5da140d62aa48b7efc02d60cf1758b"
+    ],
+    "mergeCommits": 0
+  },
+  "beforeCorrectionReproductions": {
+    "H01": {
+      "witness": "void globalThis.fetch(\"https://api.deepseek.com\");",
+      "protectedSourcePath": "src/ai/canonical-json.ts",
+      "observedGateExit": 0,
+      "observedGateOk": true,
+      "result": "exact_reviewer_failure_reproduced"
+    },
+    "H02": {
+      "actorRole": "content_editor",
+      "malformedExistingRevision": "target_scope_mismatch",
+      "missingRevision": "authorization_denied",
+      "result": "exact_reviewer_failure_reproduced"
+    }
+  },
+  "afterCorrection": {
+    "H01": {
+      "soleGate": "scripts/verify-ai-architecture.ts",
+      "allowedGlobalThis": {
+        "path": "src/db/client.ts",
+        "member": "cwtDatabaseConnection",
+        "form": "direct_non_optional_named_property_access_only"
+      },
+      "faultProbeCount": 39,
+      "positiveProbeCount": 5,
+      "newFailClosedProbeIds": [
+        "globalthis-fetch-reviewer-witness",
+        "globalthis-approved-member-wrong-path",
+        "globalthis-wrong-member-approved-path",
+        "globalthis-computed-approved-member",
+        "globalthis-destructured-member",
+        "globalthis-aliased-member",
+        "globalthis-static-field-member"
+      ],
+      "allNewProbes": "denied_capability_origin",
+      "ordinaryGlobalUrlValues": 21,
+      "lifecycleMutations": 28,
+      "proofArtifactCount": 5
+    },
+    "H02": {
+      "targetReadsPerInvocation": 1,
+      "locksPerAvailabilityInvocation": 0,
+      "authorizationAuthorities": 1,
+      "realServiceMatrixCases": 21,
+      "malformedAndMissingForUnauthorizedActor": "authorization_denied",
+      "authorizedValidPaths": [
+        "Product Draft",
+        "Content Draft",
+        "Product Revision",
+        "Content Revision"
+      ],
+      "authorizedVersionOutcome": "target_version_conflict",
+      "adminMalformedOutcomeAfterAuthorization": "target_scope_mismatch"
+    }
+  },
+  "verification": {
+    "focusedH02": {
+      "filesPassed": 1,
+      "testsPassed": 6,
+      "passed": true
+    },
+    "allSrcAi": {
+      "filesPassed": 14,
+      "testsPassed": 163,
+      "passed": true
+    },
+    "frozenDbFeatureNoindexPublicFocused": {
+      "filesPassed": 8,
+      "testsPassed": 12,
+      "passed": true
+    },
+    "eslintRepositoryZeroWarnings": true,
+    "strictTypecheckSourceClean": true,
+    "strictTypecheckOfficialTypegenState": true,
+    "aiFoundation0020": true,
+    "acceptedV22Package": "PACKAGE_CONSISTENCY_PASS_NOT_INDEPENDENT_ACCEPTANCE",
+    "schemaMapping": {
+      "aiModelConfig": "21/21",
+      "aiRuns": "96/96",
+      "orderExact": true
+    },
+    "promptBundle": true,
+    "promptHistoryFromAcceptedStart": true,
+    "productionPromptManifest": "exact-empty",
+    "productionProviderRegistry": "exact-empty",
+    "fullSuite": {
+      "run": false,
+      "rationale": "The task expressly limits broader/full execution to actual correction scope; all 163 src/ai tests, the real-service NH01 matrix, actual-tree architecture gate, targeted DB/schema/FEATURE_AI/noindex/public frozen checks, repository lint and strict typecheck cover both causal edits without expanding remediation scope."
+    }
+  },
+  "officialNextTypegenNetworkDenied": {
+    "passed": true,
+    "files": {
+      ".next/types/cache-life.d.ts": "d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7",
+      ".next/types/routes.d.ts": "e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4",
+      ".next/types/validator.ts": "8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df"
+    },
+    "nextEnvSha256": "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651"
+  },
+  "isolatedServerPublicBundleNetworkDenied": {
+    "passed": true,
+    "builder": "Next 16.2.12 webpack",
+    "serverFiles": 51,
+    "publicClientChunkFiles": 16,
+    "serverMarkers": 3,
+    "rawPromptMarkerServerOnly": true,
+    "positiveLeakControl": true
+  },
+  "architectureAtCorrectedCodeHead": {
+    "passed": true,
+    "profileSha256": "68cbb7f1105995919d0e26a81d20b0be7331812995307da55f5e7e01603acdb5",
+    "profileFileSha256": "1005dd96a372b3ef87417b11ac8c0f1f3530a728c9840448ffd89b4ad153d339",
+    "lifecycle": "official-next-generated-file-present",
+    "candidates": 612,
+    "executables": 469,
+    "unclassified": 0,
+    "ambiguous": 0,
+    "ordinaryUrlValues": 21,
+    "faultProbes": 39,
+    "positiveProbes": 5,
+    "typePositive": 2,
+    "typeExpectedNegative": 6,
+    "lifecycleMutations": 28,
+    "bundleProofReady": true
+  },
+  "processExceptions": [
+    "The isolated fixture's default Turbopack mode rejected an external pinned node_modules symlink before compilation; the accepted installed Next webpack path was then selected explicitly and passed under the same OS-level network denial.",
+    "The webpack standalone tracer generated an untracked 2a07 dependency trace and fixture next-env.d.ts; those exact generated outputs were removed before the clean-HEAD gate. No Product or source bytes were changed.",
+    "The unchanged full public build retains its previously disclosed offline Google Font debt; it was not rerun because the bounded remediation did not touch public/font code and the isolated Phase B server/public proof passed."
+  ]
+}

@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "authorityId": "cwt.phase1b.stage4a.phaseb.v2_2.fresh_replacement_implementation_remediation.h01_h02.v1",
+  "status": "CORRECTED_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED",
+  "acceptanceClaim": false,
+  "selfApproval": false,
+  "branch": "codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-remediation-v1",
+  "worktree": "/Users/calvin/.codex/worktrees/b62f/CWT（CloudWave Textile）项目",
+  "failedCandidate": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-v1",
+    "commit": "b95390c34fc4fe687f6e7577a7505a7394bca80b",
+    "tree": "dd9992b1273e6247b476593e91682b90dad6d2a8",
+    "codeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+    "preserved": true
+  },
+  "correctedCode": {
+    "head": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+    "parent": "8c43df1719fb550f9849ee6dd26e169a351e0339",
+    "tree": "242b1b8eeff9c38bc872d0f56a1e7bcaf2592752",
+    "successorsMustBeDocsOnly": true
+  },
+  "linearCommits": [
+    {
+      "commit": "8c43df1719fb550f9849ee6dd26e169a351e0339",
+      "parent": "b95390c34fc4fe687f6e7577a7505a7394bca80b",
+      "finding": "H-01"
+    },
+    {
+      "commit": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+      "parent": "8c43df1719fb550f9849ee6dd26e169a351e0339",
+      "finding": "H-02"
+    }
+  ],
+  "attempts": {
+    "H-01": 1,
+    "H-02": 1
+  },
+  "findings": {
+    "H-01": {
+      "root": "M04",
+      "outcome": "corrected",
+      "correction": "The sole existing gate permits only exact direct non-optional globalThis.cwtDatabaseConnection access at src/db/client.ts; every other Production globalThis origin fails before reachability.",
+      "reviewerWitness": "denied_capability_origin",
+      "freshVariants": 6,
+      "singleChecker": true,
+      "profileFileSha256": "1005dd96a372b3ef87417b11ac8c0f1f3530a728c9840448ffd89b4ad153d339",
+      "profileSelectedPointerSha256": "68cbb7f1105995919d0e26a81d20b0be7331812995307da55f5e7e01603acdb5"
+    },
+    "H-02": {
+      "root": "NH01",
+      "outcome": "corrected",
+      "correction": "Non-admin actors must pass authoritative Revision entity-type record scope before malformed structure, use-case, editability or version distinctions are exposed.",
+      "unauthorizedCollapse": "authorization_denied",
+      "oneTargetRead": true,
+      "zeroAvailabilityLock": true,
+      "oneAuthorizationAuthority": true,
+      "realServiceDisposableDatabaseMatrix": true
+    }
+  },
+  "changedPathBoundary": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/CHANGED_PATH_INVENTORY_V1_0.json",
+    "sha256": "6aab6e4d1eb9df2d127633cdd64546e87ddb8c4b6a70d90c8039fcef987bb28e",
+    "modified": 4,
+    "added": 0,
+    "deleted": 0
+  },
+  "verificationCapture": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/H01_H02_REMEDIATION_VERIFICATION_CAPTURE_V1_0.json",
+    "sha256": "bfd787e27c776571fe636e918f34f89820aeb0400e5642842802f0c0836985eb"
+  },
+  "controllingFailImport": {
+    "report": {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_INDEPENDENT_REVIEW_V1_0.md",
+      "sha256": "b345a3f6327ec2b4c7c63f3795aeeee9a23f1333463c476b2a9b3ad0b1f32d54"
+    },
+    "evidenceRoot": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-independent-review-v1",
+    "evidenceSha256": "c61ae45466c467d138a81a084ccffc34e66457d6fdd91ce9f1d9fdc2e4ac63a1",
+    "manifestSha256": "506276efb41a4e472a3f40ce8d9e0d41a38002fca59355eaee7a0ab807da874b",
+    "manifestEntriesVerified": 7,
+    "byteIdentical": true
+  },
+  "m04ProofArtifacts": {
+    "count": 5,
+    "hashes": {
+      "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "e3e787e1e6afc13c7d44784ee7dc3b183bb65ec2872db2f930df58a8839b5ba5",
+      "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "f45673329b9bd6adfffaa3338133fd654b6ba389a148f2e21ba0a7748045cb64",
+      "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "d549150cfcbeb7793905b443033d3f936a9ffe77b70c6a37c476ad46aefff15e",
+      "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "1ba23ec7fba450482ed6176266ed3794780238ec69d5eda287aa196d41f04d32",
+      "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "1c648b49a96b8b229d399aefd5c9e72a06124d4208225f6756f97088012c5f86"
+    }
+  },
+  "preservedClosures": {
+    "dbConvergence": "byte-identical to failed Candidate",
+    "M02": "byte-identical Production authority; only M04 fixture changed",
+    "NM01": "byte-identical",
+    "M01": "byte-identical",
+    "M03": "2 positive and 6 expected-negative seams pass",
+    "M05": "public blobs and pagination byte-identical",
+    "L01": "availability-only; no callable request path",
+    "L02": "exact corrected code HEAD and docs-only successor boundary",
+    "schema": "21/21 and 96/96 exact",
+    "productionProviderRegistry": "exact-empty",
+    "productionPromptManifest": "exact-empty",
+    "promptHistory": "byte-identical from accepted start",
+    "phaseCPhaseDPhaseEAdded": false,
+    "providerAdapterSdkEndpointCredentialNetworkAdded": false
+  },
+  "checkpoints": {
+    "acceptedStart": "9aa9735f422975780585e62eaec1a4759f9894c9",
+    "freshImplementationPreL3": "9aa9735f422975780585e62eaec1a4759f9894c9",
+    "dbConvergencePreL3": "d83cfb69a2abb51b95e43db3ea23c87c0410692b",
+    "movedOrPushed": false
+  },
+  "rollback": {
+    "failedCandidate": "b95390c34fc4fe687f6e7577a7505a7394bca80b",
+    "method": "create a new branch at the failed Candidate or apply explicit linear revert commits; never move checkpoint or failed Candidate refs and never rewrite history"
+  },
+  "nextGate": {
+    "name": "Fresh Independent Implementation Re-review",
+    "first": "REMEDIATION_FINDINGS_REVIEW for H-01 and H-02, then all preserved-closed DB convergence, M02, M04, NM01, M01, NH01, M03, M05, L01 and L02 boundaries",
+    "then": "FULL_REVIEW_NECESSITY decision with rationale",
+    "alwaysMandatory": [
+      "identity",
+      "checkpoint",
+      "manifest",
+      "frozen boundaries",
+      "security"
+    ]
+  }
+}

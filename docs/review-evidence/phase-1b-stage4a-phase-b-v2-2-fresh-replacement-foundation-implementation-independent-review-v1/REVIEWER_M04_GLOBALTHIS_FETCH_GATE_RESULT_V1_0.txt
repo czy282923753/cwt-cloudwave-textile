@@ -1,0 +1,18 @@
+Candidate: b95390c34fc4fe687f6e7577a7505a7394bca80b
+Disposable snapshot: /tmp/cwt-v22-impl-review.b4Y7b5
+Runtime: Node 24.14.0 / TypeScript 5.9.3
+Fault: void globalThis.fetch("https://api.deepseek.com") in src/ai/canonical-json.ts
+Entry point: scripts/verify-ai-architecture.ts through installed tsx CLI
+Exit: 0
+Top-level result: ok=true
+Candidate count: 611
+Executable count: 468
+Unclassified: []
+Ambiguous: []
+Declared fault fixtures: 32
+Lifecycle mutations: 28
+Secure expectation: nonzero exit with ambient/global forbidden-capability diagnostic
+Disposition: FAIL; M04 origin boundary OPEN
+Full raw fault capture SHA-256: 85017133af68755f55d5d0c1877e203ae3f0c6dfe5d7606063a3972d0b8cacc6
+Full raw baseline capture SHA-256: 7febd5390356f1f2a9b181aeb4c899f242dab7702bb88bf5638b9c0ad1488d88
+Restoration: patched file restored byte-exact; final disposable snapshot clean

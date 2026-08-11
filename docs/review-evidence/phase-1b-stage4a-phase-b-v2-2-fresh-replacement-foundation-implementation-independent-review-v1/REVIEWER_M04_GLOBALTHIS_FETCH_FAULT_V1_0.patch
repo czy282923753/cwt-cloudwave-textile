@@ -1,0 +1,10 @@
+diff --git a/src/ai/canonical-json.ts b/src/ai/canonical-json.ts
+--- a/src/ai/canonical-json.ts
++++ b/src/ai/canonical-json.ts
+@@
+ import "server-only";
++void globalThis.fetch("https://api.deepseek.com");
+
+Expected secure result: the sole architecture gate exits nonzero with path/rule/AST/acquisition diagnostics.
+
+Actual exact-Candidate result: exit 0 and `ok: true`.

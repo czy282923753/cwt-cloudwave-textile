@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "baseCandidate": "b95390c34fc4fe687f6e7577a7505a7394bca80b",
+  "baseCodeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+  "correctedCodeHead": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+  "aggregate": {
+    "added": 0,
+    "deleted": 0,
+    "modified": 4,
+    "total": 4
+  },
+  "paths": [
+    {
+      "status": "M",
+      "path": "scripts/verify-ai-architecture.ts",
+      "baseSha256": "1efdc796992d13e107a2025ccfe2d7e3c2e51a6dd89d2ce33aa2a9fa282247d8",
+      "correctedSha256": "81e2578a1f8aff9e0c6dd090e5ad2c393e5e8d680a2afb828ac04637b1663945",
+      "finding": "H-01"
+    },
+    {
+      "status": "M",
+      "path": "src/ai/applications/draft-assistance/composition.ts",
+      "baseSha256": "273a804432314861bdcbbf3136cb58a52eec22dd9325be5a4c27e91c19ce4026",
+      "correctedSha256": "c1e111a77b10325e57f53e851a43f2455c48bc35f5adfe386dc033f0a7ad8ab1",
+      "finding": "H-02"
+    },
+    {
+      "status": "M",
+      "path": "src/ai/provider-neutral-foundation.integration.test.ts",
+      "baseSha256": "2013731ed30f1441cee88bc87133bac5af68642b04d4c9bd5913caa0af593c28",
+      "correctedSha256": "7c6f9d9ed5c80c36aa3fd33d55f962d3383b80a7422df637de1f2feecb2f80ca",
+      "finding": "H-02"
+    },
+    {
+      "status": "M",
+      "path": "test-fixtures/ai-architecture/graph-faults.v3_1.json",
+      "baseSha256": "fbda9c643ce2697474b361d93459f89f3c417ec7d96dcbb98c17cdeaa924d708",
+      "correctedSha256": "1005dd96a372b3ef87417b11ac8c0f1f3530a728c9840448ffd89b4ad153d339",
+      "finding": "H-01"
+    }
+  ],
+  "preservedNoDiffFromFailedCandidate": {
+    "srcDbAll": true,
+    "publicProductSeoUrlRedirectFontPagination": true,
+    "productionPromptAndProviderRegistry": true,
+    "schemaMigrationSnapshotJournalSeedPackageLockConfig": true
+  }
+}
