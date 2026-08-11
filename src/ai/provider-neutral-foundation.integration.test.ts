@@ -25,6 +25,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
   const authorId = "44444444-4444-4444-8444-444444444444";
   const productRevisionId = "77777777-7777-4777-8777-777777777777";
   const contentRevisionId = "88888888-8888-4888-8888-888888888888";
+  const malformedRevisionId = "99999999-1111-4111-8111-111111111111";
 
   beforeAll(async () => {
     database = await createTestDatabase();
@@ -84,6 +85,15 @@ describe("Phase B Provider-neutral Production foundation", () => {
           entityId: contentId,
           locale: "en",
           versionNumber: 4,
+          status: "draft",
+          snapshot: { synthetic: true },
+        },
+        {
+          id: malformedRevisionId,
+          entityType: "unexpected_entity_type",
+          entityId: "99999999-3333-4333-8333-333333333333",
+          locale: "en",
+          versionNumber: 1,
           status: "draft",
           snapshot: { synthetic: true },
         },
@@ -308,5 +318,176 @@ describe("Phase B Provider-neutral Production foundation", () => {
         code: "target_version_conflict",
       },
     });
+  });
+
+  it("applies record-scope-first authorization across a real-service database matrix", async () => {
+    const service = createPhaseBAvailabilityServiceV1({
+      database: database.db,
+      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+    });
+    type Inspection = Parameters<typeof service.inspectDraftAssistanceAvailability>[0];
+    const admin = {
+      userId: "99999999-9999-4999-8999-999999999999",
+      role: "admin",
+    } satisfies Inspection["actor"];
+    const productEditor = {
+      userId: "66666666-6666-4666-8666-666666666666",
+      role: "product_editor",
+    } satisfies Inspection["actor"];
+    const contentEditor = {
+      userId: "55555555-5555-4555-8555-555555555555",
+      role: "content_editor",
+    } satisfies Inspection["actor"];
+    const missingProductId = "aaaaaaaa-1111-4111-8111-111111111111";
+    const missingContentId = "aaaaaaaa-2222-4222-8222-222222222222";
+    const missingRevisionId = "aaaaaaaa-3333-4333-8333-333333333333";
+    const inspect = (entry: {
+      readonly useCase: Inspection["useCase"];
+      readonly actor: Inspection["actor"];
+      readonly target: Inspection["target"];
+    }) => service.inspectDraftAssistanceAvailability({ ...entry, contextSelections: [] });
+    const expected = (code: string, manualEditorAvailable = false) => ({
+      ok: true,
+      value: { available: false, manualEditorAvailable, code },
+    });
+
+    const validCases = [
+      {
+        label: "Product Draft",
+        useCase: "product_description_draft",
+        target: { type: "product_draft", productId, locale: "en", expectedVersion: 7 },
+        actors: [admin, productEditor],
+      },
+      {
+        label: "Content Draft",
+        useCase: "fabric_knowledge_draft",
+        target: { type: "content_draft", contentId, locale: "en", expectedVersion: 5 },
+        actors: [admin, contentEditor],
+      },
+      {
+        label: "Product Revision",
+        useCase: "product_description_draft",
+        target: { type: "editorial_revision", revisionId: productRevisionId, expectedVersion: 3 },
+        actors: [admin, productEditor],
+      },
+      {
+        label: "Content Revision",
+        useCase: "fabric_knowledge_draft",
+        target: { type: "editorial_revision", revisionId: contentRevisionId, expectedVersion: 4 },
+        actors: [admin, contentEditor],
+      },
+    ] satisfies ReadonlyArray<{
+      readonly label: string;
+      readonly useCase: Inspection["useCase"];
+      readonly target: Inspection["target"];
+      readonly actors: readonly Inspection["actor"][];
+    }>;
+    for (const entry of validCases) {
+      for (const actor of entry.actors) {
+        expect(await inspect({ useCase: entry.useCase, actor, target: entry.target }),
+          `${entry.label}: authorized`).toEqual(expected("integration_not_ready", true));
+      }
+    }
+
+    const deniedCases = [
+      {
+        label: "missing Product Draft",
+        useCase: "product_description_draft",
+        actor: productEditor,
+        target: { type: "product_draft", productId: missingProductId, locale: "en", expectedVersion: 7 },
+      },
+      {
+        label: "missing Content Draft",
+        useCase: "fabric_knowledge_draft",
+        actor: contentEditor,
+        target: { type: "content_draft", contentId: missingContentId, locale: "en", expectedVersion: 5 },
+      },
+      {
+        label: "missing Revision",
+        useCase: "product_description_draft",
+        actor: productEditor,
+        target: { type: "editorial_revision", revisionId: missingRevisionId, expectedVersion: 3 },
+      },
+      {
+        label: "malformed Revision for Product Editor",
+        useCase: "product_description_draft",
+        actor: productEditor,
+        target: { type: "editorial_revision", revisionId: malformedRevisionId, expectedVersion: 1 },
+      },
+      {
+        label: "malformed Revision for Content Editor",
+        useCase: "product_description_draft",
+        actor: contentEditor,
+        target: { type: "editorial_revision", revisionId: malformedRevisionId, expectedVersion: 1 },
+      },
+      {
+        label: "Product Revision wrong type, actor and version",
+        useCase: "product_description_draft",
+        actor: contentEditor,
+        target: { type: "editorial_revision", revisionId: productRevisionId, expectedVersion: 99 },
+      },
+      {
+        label: "Content Revision wrong type, actor and version",
+        useCase: "fabric_knowledge_draft",
+        actor: productEditor,
+        target: { type: "editorial_revision", revisionId: contentRevisionId, expectedVersion: 99 },
+      },
+      {
+        label: "Product Draft wrong actor and use case",
+        useCase: "fabric_knowledge_draft",
+        actor: contentEditor,
+        target: { type: "product_draft", productId, locale: "en", expectedVersion: 99 },
+      },
+    ] satisfies ReadonlyArray<{
+      readonly label: string;
+      readonly useCase: Inspection["useCase"];
+      readonly actor: Inspection["actor"];
+      readonly target: Inspection["target"];
+    }>;
+    for (const entry of deniedCases) {
+      expect(await inspect(entry), entry.label).toEqual(expected("authorization_denied"));
+    }
+
+    const authorizedVersionCases = [
+      {
+        label: "Product Draft version",
+        useCase: "product_description_draft",
+        actor: productEditor,
+        target: { type: "product_draft", productId, locale: "en", expectedVersion: 99 },
+      },
+      {
+        label: "Content Draft version",
+        useCase: "fabric_knowledge_draft",
+        actor: contentEditor,
+        target: { type: "content_draft", contentId, locale: "en", expectedVersion: 99 },
+      },
+      {
+        label: "Product Revision version",
+        useCase: "product_description_draft",
+        actor: productEditor,
+        target: { type: "editorial_revision", revisionId: productRevisionId, expectedVersion: 99 },
+      },
+      {
+        label: "Content Revision version",
+        useCase: "fabric_knowledge_draft",
+        actor: contentEditor,
+        target: { type: "editorial_revision", revisionId: contentRevisionId, expectedVersion: 99 },
+      },
+    ] satisfies ReadonlyArray<{
+      readonly label: string;
+      readonly useCase: Inspection["useCase"];
+      readonly actor: Inspection["actor"];
+      readonly target: Inspection["target"];
+    }>;
+    for (const entry of authorizedVersionCases) {
+      expect(await inspect(entry), entry.label).toEqual(expected("target_version_conflict"));
+    }
+
+    expect(await inspect({
+      useCase: "product_description_draft",
+      actor: admin,
+      target: { type: "editorial_revision", revisionId: malformedRevisionId, expectedVersion: 1 },
+    }), "Admin may see malformed target structure only after authorization")
+      .toEqual(expected("target_scope_mismatch"));
   });
 });

@@ -56,9 +56,6 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
     async authorizeAndReadTargetForAvailability(input) {
       return withDraftReadExecutor(input.scope, async (database) => {
         if (input.association.targetType === "product_draft") {
-          if (input.command.useCase !== "product_description_draft" && input.command.useCase !== "seo_content_draft") {
-            return aiFailure("target_scope_mismatch");
-          }
           const rows = await database.select({
             status: products.status,
             version: productLocalizations.editorDocumentVersion,
@@ -70,6 +67,9 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
           if (row === undefined) return aiFailure("authorization_denied");
           if (!actorCanEditEntityType(input.actor.roleKey, "product")) {
             return aiFailure("authorization_denied");
+          }
+          if (input.command.useCase !== "product_description_draft" && input.command.useCase !== "seo_content_draft") {
+            return aiFailure("target_scope_mismatch");
           }
           if (row.status !== "draft") return aiFailure("target_not_editable");
           if (row.version !== input.association.expectedTargetVersion) return aiFailure("target_version_conflict");
@@ -106,11 +106,13 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
         )).where(eq(editorialRevisions.id, input.association.targetRevisionId));
         const row = rows[0];
         if (row === undefined) return aiFailure("authorization_denied");
+        if (input.actor.roleKey !== "admin" &&
+          (row.entityType !== "product" && row.entityType !== "content" ||
+            !actorCanEditEntityType(input.actor.roleKey, row.entityType))) {
+          return aiFailure("authorization_denied");
+        }
         if (row.entityType !== "product" && row.entityType !== "content") {
           return aiFailure("target_scope_mismatch");
-        }
-        if (!actorCanEditEntityType(input.actor.roleKey, row.entityType)) {
-          return aiFailure("authorization_denied");
         }
         if (row.locale !== "en" ||
           (row.entityType === "product" &&
