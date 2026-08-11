@@ -53,6 +53,14 @@ for (const entry of manifest.entries) {
   if (bytes.length !== entry.bytes || sha256(bytes) !== entry.sha256) fail(`hash or byte mismatch ${entry.path}`);
   if (git(["ls-files", "--error-unmatch", entry.path]) !== entry.path) fail(`untracked evidence ${entry.path}`);
 }
+const report = manifest.nonAuthoritativeReport;
+const reportPath = resolve(repositoryRoot, report.path);
+if (!reportPath.startsWith(`${repositoryRoot}${sep}`) || realpathSync(reportPath) !== reportPath) {
+  fail("report physical path identity");
+}
+const reportBytes = readFileSync(reportPath);
+if (reportBytes.length !== report.bytes || sha256(reportBytes) !== report.sha256) fail("report hash or byte mismatch");
+if (git(["ls-files", "--error-unmatch", report.path]) !== report.path) fail("untracked report");
 if (seen.has(manifestRelative)) fail("manifest must not self-hash");
 const trackedEvidence = git(["ls-files", "--", manifest.root]).split("\n").filter(Boolean).sort();
 const expectedTracked = [...seen, manifestRelative].sort();
