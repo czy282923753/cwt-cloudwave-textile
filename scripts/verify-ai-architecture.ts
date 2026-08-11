@@ -793,18 +793,20 @@ function scanStaticLanguage(input: {
   readonly production: boolean;
 }): StaticLanguageScan {
   const { path, source, checker, production } = input;
-  const syntaxCheck = ts.transpileModule(source.text, {
-    fileName: path,
-    reportDiagnostics: true,
-    compilerOptions: {
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.ESNext,
-      jsx: ts.JsxEmit.ReactJSX,
-      allowJs: true,
-    },
-  });
-  if (syntaxCheck.diagnostics?.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error) === true) {
-    rejectGraph("parse_failed", JSON.stringify({ path, nodeKind: "SourceFile", position: 0, reason: "typescript_parse_diagnostic" }));
+  if (!source.isDeclarationFile) {
+    const syntaxCheck = ts.transpileModule(source.text, {
+      fileName: path,
+      reportDiagnostics: true,
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX,
+        allowJs: true,
+      },
+    });
+    if (syntaxCheck.diagnostics?.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error) === true) {
+      rejectGraph("parse_failed", JSON.stringify({ path, nodeKind: "SourceFile", position: 0, reason: "typescript_parse_diagnostic" }));
+    }
   }
   const acquisitions: ParsedAcquisitionV1[] = [];
   const ordinaryGlobalUrlValues: number[] = [];
