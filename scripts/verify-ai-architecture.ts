@@ -16,8 +16,8 @@ import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.v3_1.json";
-const expectedProfileFileHash = "fbda9c643ce2697474b361d93459f89f3c417ec7d96dcbb98c17cdeaa924d708";
-const expectedProfileIntegrityHash = "8341c1372c035db305f5ab16c99fbffdcbc9651854abca794d287a6868fe433e";
+const expectedProfileFileHash = "1005dd96a372b3ef87417b11ac8c0f1f3530a728c9840448ffd89b4ad153d339";
+const expectedProfileIntegrityHash = "68cbb7f1105995919d0e26a81d20b0be7331812995307da55f5e7e01603acdb5";
 const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -901,10 +901,11 @@ function scanStaticLanguage(input: {
     }
     if (production && ts.isElementAccessExpression(node)) {
       const member = node.argumentExpression === undefined ? undefined : literalText(node.argumentExpression);
-      const ambientOwner = (ts.isIdentifier(node.expression) && [
-        "globalThis", "process", "module", "exports",
+      const globalThisOwner = ts.isIdentifier(node.expression) && node.expression.text === "globalThis";
+      const otherAmbientOwner = (ts.isIdentifier(node.expression) && [
+        "process", "module", "exports",
       ].includes(node.expression.text)) || ts.isMetaProperty(node.expression);
-      if ((ambientOwner && (member === undefined || forbiddenComputedMembers.has(member))) ||
+      if (globalThisOwner || (otherAmbientOwner && (member === undefined || forbiddenComputedMembers.has(member))) ||
         member === "constructor") rejectNode(node, "ambient_computed_capability");
     }
 
@@ -949,9 +950,10 @@ function scanStaticLanguage(input: {
     }
     if (production && ts.isIdentifier(node) && node.text === "globalThis") {
       const parent = node.parent;
-      const directNamedNonLoader = ts.isPropertyAccessExpression(parent) && parent.expression === node &&
-        !forbiddenComputedMembers.has(parent.name.text);
-      if (!directNamedNonLoader) rejectNode(node, "global_object_capture_or_computed_access");
+      const exactAuthorizedDatabaseCacheAccess = path === "src/db/client.ts" &&
+        ts.isPropertyAccessExpression(parent) && parent.expression === node &&
+        parent.questionDotToken === undefined && parent.name.text === "cwtDatabaseConnection";
+      if (!exactAuthorizedDatabaseCacheAccess) rejectNode(node, "ambient_global_capability_not_authorized");
     }
     if (production && ts.isIdentifier(node) && [
       "require", "module", "exports", "createRequire", "getBuiltinModule",

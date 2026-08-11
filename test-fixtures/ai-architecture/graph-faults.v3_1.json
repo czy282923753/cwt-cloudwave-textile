@@ -624,7 +624,7 @@
     ],
     "deniedProductionCapabilityOrigins": {
       "ambientAndComputed": [
-        "capture or alias of globalThis; direct named non-loader property access is allowed after any required src/db/client.ts mechanical convergence",
+        "capture, alias, destructuring, computed access or any direct named member of globalThis except exact direct globalThis.cwtDatabaseConnection access in src/db/client.ts",
         "non-literal element access on globalThis, process, import.meta or another ambient capability root",
         "any literal or statically folded computed property equal to require, createRequire, module, exports, getBuiltinModule, binding, _linkedBinding, mainModule or constructor",
         "import.meta outside the exact static-resource base import.meta.url",
@@ -1247,7 +1247,7 @@
         "/implementationAllowlist",
         "/impactAssessment"
       ],
-      "sha256": "8341c1372c035db305f5ab16c99fbffdcbc9651854abca794d287a6868fe433e"
+      "sha256": "68cbb7f1105995919d0e26a81d20b0be7331812995307da55f5e7e01603acdb5"
     },
     "profileVersion": "3.1.0-candidate",
     "proofArtifactContracts": {
@@ -1775,6 +1775,55 @@
       "id": "global-object-capture",
       "sourcePath": "src/db/client.ts",
       "source": "const captured = globalThis;\nvoid captured;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "globalthis-fetch-reviewer-witness",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void globalThis.fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "globalthis-approved-member-wrong-path",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void globalThis.cwtDatabaseConnection;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "globalthis-wrong-member-approved-path",
+      "sourcePath": "src/db/client.ts",
+      "source": "void globalThis.fetch;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "globalthis-computed-approved-member",
+      "sourcePath": "src/db/client.ts",
+      "source": "void globalThis[\"cwtDatabaseConnection\"];\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "ElementAccessExpression"
+    },
+    {
+      "id": "globalthis-destructured-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "const { fetch } = globalThis;\nvoid fetch;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "globalthis-aliased-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "const ambient = globalThis;\nvoid ambient.fetch;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "globalthis-static-field-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "class Fault { static value = globalThis.fetch; }\nvoid Fault;\n",
       "expectedReason": "denied_capability_origin",
       "expectedNodeKind": "Identifier"
     },
