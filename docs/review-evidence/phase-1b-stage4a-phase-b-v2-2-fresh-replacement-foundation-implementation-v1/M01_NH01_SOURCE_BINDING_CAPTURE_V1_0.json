@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_evidence_not_acceptance",
+  "finalCodeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+  "implementationCommit": "1b8447afc3aac6f5ba5af02569a1dd52bbd50a6f",
+  "reconstruction": {
+    "mechanicallyCopiedFromFailedSource": false,
+    "authority": "accepted V2.2 structured Design/profile and allowed M02/M04 analysis evidence",
+    "chain": [
+      "selector identity",
+      "returned identity and current version",
+      "authoritative Revision entity_type and entity_id",
+      "exact Product or Fabric source and target",
+      "values and provenance"
+    ],
+    "revisionFields": [
+      "authoritativeRevisionVersion",
+      "revisionEntityType",
+      "revisionEntityId"
+    ],
+    "productAndFabricPositiveBindings": 2,
+    "negativeBindings": [
+      "wrong entity id",
+      "wrong entity type",
+      "wrong revision version",
+      "stale selector record"
+    ],
+    "nh01RoleOrderingPreserved": true
+  },
+  "verification": {
+    "m01ContextAndIntegrationFocused": {"passed": 27, "failed": 0},
+    "finalHeadFocusedAggregate": {"passed": 84, "failed": 0},
+    "finalHeadFullSuite": {"testFilesPassed": 113, "testsPassed": 581, "failed": 0}
+  }
+}

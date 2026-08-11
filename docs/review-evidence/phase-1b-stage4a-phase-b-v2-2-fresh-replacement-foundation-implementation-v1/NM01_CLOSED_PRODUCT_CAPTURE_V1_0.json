@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_evidence_not_acceptance",
+  "finalCodeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+  "implementationCommit": "28c38a30b0dbf5de3a16c2e3a268421686586f5b",
+  "compiledProduct": {
+    "recordCount": 35,
+    "rawRuntimeReferences": 0,
+    "properties": [
+      "validated",
+      "deep-copied",
+      "pretokenized",
+      "recursively frozen"
+    ],
+    "humanBusinessProviderEvidenceClassifier": "selected M02 identity",
+    "machineAssociationEvidence": "strict structure plus authorized JCS target-snapshot recompute",
+    "machineAssociationLexicalScan": false,
+    "secondMapCacheTraversalOrLookalike": false
+  },
+  "closure": {
+    "runtimeErrors": {"expected": 69, "observed": 69},
+    "typedTraversalSubset": {"expected": 5, "observed": 5},
+    "validAuthorizedHashRepetitions": 1000,
+    "cr05ThroughCr07BeforeCr08": true,
+    "unknownFailureDisposition": "internal_failure"
+  },
+  "mutationCoverage": [
+    "integrity",
+    "protected",
+    "machine metadata",
+    "prototype",
+    "source profile detachment",
+    "cycle",
+    "depth",
+    "node and byte ceilings",
+    "accessor",
+    "symbol",
+    "sparse array and extra array keys"
+  ],
+  "verification": {
+    "nm01Focused": {"passed": 46, "failed": 0},
+    "finalHeadFocusedAggregate": {"passed": 84, "failed": 0},
+    "finalHeadFullSuite": {"testFilesPassed": 113, "testsPassed": 581, "failed": 0}
+  }
+}

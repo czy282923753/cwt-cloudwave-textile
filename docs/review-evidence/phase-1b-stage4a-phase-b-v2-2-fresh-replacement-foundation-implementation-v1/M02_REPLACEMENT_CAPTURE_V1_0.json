@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_evidence_not_acceptance",
+  "finalCodeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+  "implementationCommit": "6d21a1fce8701ab25b93bb1b797173ef0003b5de",
+  "classifier": {
+    "id": "M02-A08-D1-POSITION-INSENSITIVE-MULTISET",
+    "normalization": "NFKC plus English lowercase for detection only",
+    "tokens": "Unicode Letter/Number multiset; multiplicity retained; order ignored",
+    "sharedDistinctMinimum": 4,
+    "shorterContainmentMinimum": "1/2",
+    "lengthRatioMaximum": "2:1",
+    "familyMaximum": 3,
+    "thirdNeighborDisposition": "reject",
+    "rawBytesMaximum": 98304,
+    "protectedBytesMaximum": 65536,
+    "blocksMaximum": 60,
+    "evidenceTextCharactersMaximum": 1826,
+    "perNodeTokensMaximum": 10000,
+    "aggregateTokensMaximum": 32000,
+    "exactOrBlockDuplicateMaximum": 2,
+    "identicalTokenRunRejectAt": 8,
+    "b2bPositiveFamilies": 8,
+    "humanReviewMandatory": true
+  },
+  "removedAuthorities": [
+    "whole-string equality",
+    "edge or arbitrary deletion",
+    "ordered core",
+    "cosmetic-case accumulation",
+    "stopword and compatibility paths",
+    "second classifier"
+  ],
+  "preserved": [
+    "A-07 classifier identity",
+    "direct",
+    "insertion",
+    "structured",
+    "overflow semantics"
+  ],
+  "verification": {
+    "controllingFocused": {"passed": 24, "failed": 0},
+    "completePhaseBFocused": {"passed": 54, "failed": 0},
+    "finalHeadFocusedAggregate": {"passed": 84, "failed": 0},
+    "finalHeadFullSuite": {"testFilesPassed": 113, "testsPassed": 581, "failed": 0}
+  }
+}

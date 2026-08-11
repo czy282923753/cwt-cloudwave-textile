@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_evidence_not_acceptance",
+  "finalCodeHead": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+  "finalCodeParent": "1b8447afc3aac6f5ba5af02569a1dd52bbd50a6f",
+  "finalCodeTree": "9178ba098375df22fc2e7e6395170406c1e6c35e",
+  "runtime": {
+    "node": "24.14.0",
+    "next": "16.2.12",
+    "typescript": "5.9.3",
+    "packageInstallOrMaterialization": false,
+    "networkForImplementation": false
+  },
+  "results": {
+    "fullVitest": {"testFilesPassed": 113, "testsPassed": 581, "durationSeconds": 294.74, "passed": true},
+    "focusedFinalHead": {"testFilesPassed": 6, "testsPassed": 84, "passed": true},
+    "featureAiNoindexMigrationFocused": {"testFilesPassed": 5, "testsPassed": 22, "passed": true},
+    "eslintAllZeroWarnings": true,
+    "strictTypecheck": true,
+    "promptBundle": true,
+    "promptHistory": true,
+    "foundationCandidate0020": true,
+    "acceptedV22PackageConsistency": true,
+    "acceptedV22Disposition": "PACKAGE_CONSISTENCY_PASS_NOT_INDEPENDENT_ACCEPTANCE",
+    "officialNextTypegenNetworkDenied": {
+      "passed": true,
+      "nextEnvBytes": 247,
+      "nextEnvSha256": "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651"
+    },
+    "isolatedServerBundleNetworkDenied": {
+      "passed": true,
+      "builder": "Next 16.2.12 webpack",
+      "serverFiles": 51,
+      "publicClientChunkFiles": 16,
+      "serverMarkers": 3,
+      "rawPromptMarkerPresentServerOnly": true,
+      "positiveLeakControl": true
+    },
+    "architectureAtFinalCodeHead": {
+      "passed": true,
+      "lifecycle": "official-next-generated-file-present",
+      "candidates": 599,
+      "executables": 468,
+      "unclassified": 0,
+      "ambiguous": 0,
+      "ordinaryUrlValues": 21,
+      "staticProtectedResources": 0,
+      "typePositive": 2,
+      "typeExpectedNegative": 6,
+      "lifecycleMutations": 28,
+      "bundleProofReady": true
+    },
+    "publicProductSeoUrlRedirectFontPaginationDiffFromAcceptedStart": [],
+    "schemaMigrationPackageLockConfigDiffFromAcceptedStart": []
+  },
+  "declaredException": {
+    "scope": "unrelated full public build",
+    "result": "expected failure under denied network",
+    "cause": "existing src/app/layout.tsx next/font/google Geist and Geist_Mono fetches fonts.googleapis.com",
+    "changedByCandidate": false,
+    "phaseBImpact": "none; isolated network-denied server/public bundle proof passed",
+    "remediationTaken": false
+  },
+  "acceptedProfileMetadataJoin": {
+    "profileDeclaredTsconfigSha256": "096a305f93b5715c4b9b75f74784803260fb77736ab0a2a0d1284055f131c3de",
+    "immutableActualTsconfigSha256": "9e18b3b8ef3e92050317541731759172067e1601793813164937050915b2a3ac",
+    "disposition": "disclosed metadata/process exception; immutable tsconfig bytes and exact compiler semantics were bound; no config mutation"
+  }
+}
