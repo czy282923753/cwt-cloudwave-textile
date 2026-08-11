@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "head": "4a053c0fa9449588e88f2b8519e74e08b1b59956",
+  "seal": "9b5be5792bbb7f863740dca3168081ad92ced868",
+  "executableTree": "067a5e2ec41b1809b38091972e362b0d5dd9fc559abf1a50545ecac05bc26674",
+  "proofCount": 5,
+  "proofs": [
+    {
+      "name": "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "proofHash": "a93e1020d721521828d37205f0252cb93c7f8b9607d6e8e7b6b3fc154efe7859"
+    },
+    {
+      "name": "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "proofHash": "9b5ddaa69a3e04887d86f20c0bb6462c34bfff07effddd73e48623a78dc576a8"
+    },
+    {
+      "name": "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "proofHash": "3b02aa97e7107ca49076658debf8136cc5b44c96b2d4126fa3919f76f8ae4edc"
+    },
+    {
+      "name": "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "proofHash": "c7e0e472260abaf87f8ed0320d9722afb1dfc8cb60ca83e4985b9b49f3c85f1e"
+    },
+    {
+      "name": "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "proofHash": "0f67fd0a6e4a74b415dd5db9896cdb29ad1522e882b6c09169965d93e2a8a0da"
+    }
+  ],
+  "allProofsBindSealAndExecutableTree": true,
+  "productionPromptManifest": "exact-empty",
+  "productionProviderRegistry": "exact-empty"
+}

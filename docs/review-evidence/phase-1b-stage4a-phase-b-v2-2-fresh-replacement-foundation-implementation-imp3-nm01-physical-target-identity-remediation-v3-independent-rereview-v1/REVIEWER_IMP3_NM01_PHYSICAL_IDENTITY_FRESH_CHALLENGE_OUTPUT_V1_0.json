@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "candidate": "4a053c0fa9449588e88f2b8519e74e08b1b59956",
+  "failedAttempt2": "d60d5cc2398eeeb06263c58924896250f12f3756",
+  "seal": "9b5be5792bbb7f863740dca3168081ad92ced868",
+  "runtime": {
+    "node": "24.14.0",
+    "typescript": "5.9.3"
+  },
+  "attempt2Reproductions": [
+    {
+      "id": "ts-filename-case-variant",
+      "gateExit": 0,
+      "sameDeviceAndInode": true,
+      "unsafeAcceptance": true
+    },
+    {
+      "id": "current-json-filename-case-variant",
+      "gateExit": 0,
+      "strictTypecheckExit": 0,
+      "sameDeviceAndInode": true,
+      "unsafeAcceptance": true
+    }
+  ],
+  "candidateExpectedNegatives": [
+    "ts-filename-case",
+    "v2-current-json-filename-case",
+    "v3-current-authority-json-filename-case",
+    "directory-case",
+    "canonical-side-effect",
+    "canonical-reexport",
+    "canonical-type-import",
+    "canonical-type-reexport",
+    "canonical-current-json-evidence",
+    "canonical-alternative-markdown-evidence",
+    "markdown-extension-case",
+    "transitive-product-helper",
+    "index-resolution-evidence",
+    "visible-copy",
+    "ignored-copy",
+    "tracked-copy",
+    "symlink",
+    "hardlink",
+    "unicode-normalization-physical-alias",
+    "h01-ambient-origin",
+    "post-seal-executable",
+    "stale-proof"
+  ],
+  "candidateExpectedPositives": [
+    "canonical-product-edge",
+    "h01-emitted-local-shadow",
+    "evidence-observes-product"
+  ],
+  "diagnosticReasonsObserved": [
+    "static-target-spelling-must-match-canonical-actual-tree-and-git-identity",
+    "production-current-must-not-reach-evidence-only",
+    "symlink encountered",
+    "hard-link alias",
+    "ambient_runtime_capability_not_authorized",
+    "post-proof executable candidate drift",
+    "stale proof commit or executable-tree binding"
+  ],
+  "summary": {
+    "total": 27,
+    "expectedNegative": 22,
+    "expectedPositive": 3,
+    "priorUnsafePassesReproduced": 2,
+    "candidateUnsafeAcceptance": 0
+  },
+  "conclusion": "PASS"
+}

@@ -1,0 +1,55 @@
+{
+  "ok": true,
+  "status": "IMP3_NM01_ATTEMPT3_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED",
+  "finalHead": "4a053c0fa9449588e88f2b8519e74e08b1b59956",
+  "executableTreeSeal": "9b5be5792bbb7f863740dca3168081ad92ced868",
+  "executableTreeSha256": "067a5e2ec41b1809b38091972e362b0d5dd9fc559abf1a50545ecac05bc26674",
+  "lifecycle": {
+    "sourceClean": {
+      "candidateCount": 683,
+      "executableCount": 481
+    },
+    "officialPresent": {
+      "candidateCount": 684,
+      "executableCount": 482
+    }
+  },
+  "attachedGate": "PASS",
+  "detachedGate": "PASS",
+  "productionToEvidence": {
+    "result": "fail-closed",
+    "reason": "class_capability_violation"
+  },
+  "physicalTargetCaseVariants": {
+    "immutableCaseVariant": {
+      "result": "fail-closed",
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true,
+      "strictTypecheckStatus": null
+    },
+    "currentJsonCaseVariant": {
+      "result": "fail-closed",
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true,
+      "strictTypecheckStatus": 0
+    },
+    "currentAuthorityCaseVariant": {
+      "result": "fail-closed",
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true,
+      "strictTypecheckStatus": 0
+    },
+    "directoryCaseVariant": {
+      "result": "fail-closed",
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true,
+      "strictTypecheckStatus": null
+    }
+  },
+  "manifestEntries": 22,
+  "proofArtifacts": 5,
+  "imp3Nm01Attempt": 3,
+  "h01": "CLOSED_AFTER_ATTEMPT3_NON_REGRESSION",
+  "h02": "CLOSED_AFTER_ATTEMPT1_NON_REGRESSION",
+  "clean": true
+}
