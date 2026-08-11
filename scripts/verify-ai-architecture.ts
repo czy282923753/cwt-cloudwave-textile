@@ -2302,7 +2302,7 @@ const finalTreeClosureMutationCases = [
     },
     {
       id: "production-reexports-evidence-only",
-      form: "export-from",
+      form: "re-export",
       edgeKind: "runtime",
       specifier: `../../${immutableHistoricalProbePath}`,
       nodeKind: "ExportDeclaration",
