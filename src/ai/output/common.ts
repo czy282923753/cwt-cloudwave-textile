@@ -96,34 +96,97 @@ export interface ProtectedDraftCandidateV1 extends ReadonlyJsonObject {
   readonly semanticReviewStatus: "human_review_required";
 }
 
-function isJsonObject(value: ReadonlyJsonValue): value is ReadonlyJsonObject {
+function isJsonObject(value: ReadonlyJsonValue | undefined): value is ReadonlyJsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function collectCandidateMaterial(
-  value: ReadonlyJsonValue,
-  path: string,
+  rawObject: ReadonlyJsonObject,
+  useCase: string,
   evidence: EvidenceNodeV1[],
   blocks: CandidateBlockV1[],
 ): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) =>
-      collectCandidateMaterial(item, `${path}/${index}`, evidence, blocks));
-    return;
-  }
-  if (!isJsonObject(value)) return;
-  if (
-    typeof value.text === "string" && Array.isArray(value.sourceRefs) &&
-    value.sourceRefs.every((ref) => typeof ref === "string")
-  ) {
+  const appendEvidence = (value: ReadonlyJsonValue | undefined): void => {
+    if (!isJsonObject(value) || typeof value.text !== "string" ||
+      !Array.isArray(value.sourceRefs) ||
+      !value.sourceRefs.every((ref) => typeof ref === "string")) return;
     evidence.push({ text: value.text, sourceRefs: value.sourceRefs });
-  }
-  if (typeof value.type === "string") {
+  };
+  const appendEvidenceArray = (value: ReadonlyJsonValue | undefined): void => {
+    if (Array.isArray(value)) value.forEach(appendEvidence);
+  };
+  const appendBlock = (value: ReadonlyJsonValue, path: string): void => {
+    if (!isJsonObject(value) || typeof value.type !== "string") return;
     blocks.push({ path, ordinal: blocks.length + 1, block: value });
-  }
-  for (const key of Object.keys(value)) {
-    const child = value[key];
-    if (child !== undefined) collectCandidateMaterial(child, `${path}/${key}`, evidence, blocks);
+    switch (value.type) {
+      case "heading":
+      case "paragraph":
+        appendEvidence(value.text);
+        break;
+      case "feature_list":
+      case "bullet_list":
+        appendEvidenceArray(value.items);
+        break;
+      case "callout":
+        appendEvidence(value.title);
+        appendEvidence(value.text);
+        break;
+      case "faq":
+        if (Array.isArray(value.items)) {
+          value.items.forEach((item) => {
+            if (!isJsonObject(item)) return;
+            appendEvidence(item.question);
+            appendEvidence(item.answer);
+          });
+        }
+        break;
+    }
+  };
+  const appendBlocks = (value: ReadonlyJsonValue | undefined, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((block, index) => appendBlock(block, `${path}/${index}`));
+    }
+  };
+
+  switch (useCase) {
+    case "seo_content_draft":
+      appendEvidence(rawObject.titleProposal);
+      appendEvidence(rawObject.metaDescriptionProposal);
+      appendEvidenceArray(rawObject.outline);
+      appendBlocks(rawObject.blocks, "/blocks");
+      if (Array.isArray(rawObject.internalLinkSuggestions)) {
+        rawObject.internalLinkSuggestions.forEach((suggestion) => {
+          if (isJsonObject(suggestion)) appendEvidence(suggestion.anchorText);
+        });
+      }
+      break;
+    case "fabric_knowledge_draft":
+    case "sourcing_guide_draft":
+      appendEvidence(rawObject.titleProposal);
+      appendEvidence(rawObject.summaryProposal);
+      appendEvidenceArray(rawObject.outline);
+      appendBlocks(rawObject.blocks, "/blocks");
+      break;
+    case "product_description_draft":
+      appendEvidence(rawObject.displayNameProposal);
+      appendEvidence(rawObject.summaryProposal);
+      appendBlocks(rawObject.descriptionBlocks, "/descriptionBlocks");
+      appendEvidenceArray(rawObject.featureProposals);
+      if (Array.isArray(rawObject.faqProposals)) {
+        rawObject.faqProposals.forEach((item) => {
+          if (!isJsonObject(item)) return;
+          appendEvidence(item.question);
+          appendEvidence(item.answer);
+        });
+      }
+      if (Array.isArray(rawObject.mediaTextProposals)) {
+        rawObject.mediaTextProposals.forEach((item) => {
+          if (!isJsonObject(item)) return;
+          appendEvidence(item.altText);
+          appendEvidence(item.caption);
+        });
+      }
+      break;
   }
 }
 
@@ -195,8 +258,9 @@ function repetitionPolicyPasses(
   nodes: readonly EvidenceNodeV1[],
   blocks: readonly CandidateBlockV1[],
 ): boolean {
+  if (nodes.length > 1_826 || blocks.length > 60) return false;
   const textCounts = new Map<string, number>();
-  const equivalentCoreCounts = new Map<string, number>();
+  const tokenMultisets: { readonly counts: ReadonlyMap<string, number>; readonly length: number }[] = [];
   let totalTokens = 0;
   for (const node of nodes) {
     if (!/\p{L}/u.test(node.text)) return false;
@@ -207,34 +271,41 @@ function repetitionPolicyPasses(
     const tokens = normalized.match(/[\p{L}\p{N}]+/gu) ?? [];
     totalTokens += tokens.length;
     if (tokens.length > 10_000 || totalTokens > 32_000) return false;
+    const counts = new Map<string, number>();
+    for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+    tokenMultisets.push({ counts, length: tokens.length });
     let repeatedRun = 1;
     for (let index = 1; index < tokens.length; index += 1) {
       repeatedRun = tokens[index] === tokens[index - 1] ? repeatedRun + 1 : 1;
       if (repeatedRun >= 8) return false;
     }
-    const maximumCosmeticTokens = Math.min(
-      2,
-      tokens.length - 4,
-      Math.floor(tokens.length / 3),
-    );
-    const nodeCoreHashes = new Set<string>();
-    for (let cosmeticCount = 1; cosmeticCount <= maximumCosmeticTokens; cosmeticCount += 1) {
-      for (let leadingCosmetic = 0; leadingCosmetic <= cosmeticCount; leadingCosmetic += 1) {
-        const trailingCosmetic = cosmeticCount - leadingCosmetic;
-        const core = tokens.slice(
-          leadingCosmetic,
-          trailingCosmetic === 0 ? tokens.length : -trailingCosmetic,
-        );
-        if (core.length < 4 || new Set(core).size < 3) continue;
-        const canonicalCore = canonicalJsonHash(core);
-        if (!canonicalCore.ok) return false;
-        nodeCoreHashes.add(canonicalCore.value.hash);
+  }
+  const neighborCounts = new Uint16Array(tokenMultisets.length);
+  for (let leftIndex = 0; leftIndex < tokenMultisets.length - 1; leftIndex += 1) {
+    const left = tokenMultisets[leftIndex];
+    if (left === undefined) return false;
+    for (let rightIndex = leftIndex + 1; rightIndex < tokenMultisets.length; rightIndex += 1) {
+      const right = tokenMultisets[rightIndex];
+      if (right === undefined) return false;
+      const shorterLength = Math.min(left.length, right.length);
+      const longerLength = Math.max(left.length, right.length);
+      if (longerLength > 2 * shorterLength) continue;
+      const smaller = left.counts.size <= right.counts.size ? left.counts : right.counts;
+      const larger = smaller === left.counts ? right.counts : left.counts;
+      let sharedDistinct = 0;
+      let multisetIntersection = 0;
+      for (const [token, count] of smaller) {
+        const otherCount = larger.get(token);
+        if (otherCount === undefined) continue;
+        sharedDistinct += 1;
+        multisetIntersection += Math.min(count, otherCount);
       }
-    }
-    for (const coreHash of nodeCoreHashes) {
-      const familyCount = (equivalentCoreCounts.get(coreHash) ?? 0) + 1;
-      if (familyCount > 3) return false;
-      equivalentCoreCounts.set(coreHash, familyCount);
+      if (sharedDistinct < 4 || 2 * multisetIntersection < shorterLength) continue;
+      const leftNeighborCount = (neighborCounts[leftIndex] ?? 0) + 1;
+      const rightNeighborCount = (neighborCounts[rightIndex] ?? 0) + 1;
+      neighborCounts[leftIndex] = leftNeighborCount;
+      neighborCounts[rightIndex] = rightNeighborCount;
+      if (leftNeighborCount >= 3 || rightNeighborCount >= 3) return false;
     }
   }
   const blockCounts = new Map<string, number>();
@@ -281,7 +352,7 @@ export function protectDraftCandidateV1(input: {
   if (!allowedEvidence.ok) return aiFailure("output_policy_rejected");
   const evidence: EvidenceNodeV1[] = [];
   const blocks: CandidateBlockV1[] = [];
-  collectCandidateMaterial(input.rawObject, "", evidence, blocks);
+  collectCandidateMaterial(input.rawObject, input.useCase, evidence, blocks);
   if (evidence.length === 0 || !validateEvidence(evidence, allowedEvidence.value) ||
     !repetitionPolicyPasses(evidence, blocks) ||
     !mechanicsPass(input.rawObject, input.context)) {

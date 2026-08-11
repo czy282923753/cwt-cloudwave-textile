@@ -56,6 +56,16 @@ function productCandidate(text: string, sourceRefs: readonly string[] = ["src_01
   };
 }
 
+function productCandidateWithParagraphs(paragraphs: readonly string[]): ReadonlyJsonObject {
+  return {
+    ...productCandidate("A conservative textile narrative."),
+    descriptionBlocks: paragraphs.map((text) => ({
+      type: "paragraph",
+      text: { text, sourceRefs: ["src_01:fabricStyle"] },
+    })),
+  };
+}
+
 describe("A-01 through A-10 Draft output protection", () => {
   const output = draftOutputDefinitionV1("product_description_draft");
   if (output === undefined) throw new Error("Missing test output definition.");
@@ -194,80 +204,129 @@ describe("A-01 through A-10 Draft output protection", () => {
     }).ok).toBe(false);
   });
 
-  it("rejects the reviewer equivalent-prefix family with cosmetic suffixes", () => {
-    const suffixes = [
-      "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
-      "india", "juliet", "kilo", "lima", "mike", "maple", "oscar", "papa",
-      "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "xray",
-      "yankee", "zulu", "amber", "birch", "cedar", "dahlia",
-    ];
-    const blocks = suffixes.map((suffix) => ({
-      type: "paragraph",
-      text: {
-        text: `Repeated plain weave narrative ${suffix}.`,
-        sourceRefs: ["src_01:fabricStyle"],
-      },
-    }));
-    const allIndividualControlsPass = blocks.every((block) =>
-      output.policy.parseAndProtect({
-        rawObject: {
-          ...productCandidate("A conservative textile narrative."),
-          descriptionBlocks: [block],
-        },
+  it.each([
+    ["unique suffix", [
+      "balanced woven textile surface amber", "balanced woven textile surface birch",
+      "balanced woven textile surface cedar", "balanced woven textile surface dahlia",
+    ]],
+    ["unique prefix", [
+      "amber balanced woven textile surface", "birch balanced woven textile surface",
+      "cedar balanced woven textile surface", "dahlia balanced woven textile surface",
+    ]],
+    ["alternating middle token", [
+      "balanced amber woven textile surface", "balanced woven birch textile surface",
+      "balanced woven textile cedar surface", "dahlia balanced woven textile surface",
+    ]],
+    ["interleaved cosmetic tokens", [
+      "balanced amber woven textile birch surface", "cedar balanced woven dahlia textile surface",
+      "balanced elm woven fir textile surface", "garnet balanced woven textile hazel surface",
+    ]],
+    ["token reordering", [
+      "balanced woven textile surface amber", "surface textile woven balanced birch",
+      "woven cedar surface balanced textile", "dahlia textile balanced surface woven",
+    ]],
+    ["two cosmetics at arbitrary positions", [
+      "amber balanced woven textile surface birch", "balanced cedar woven dahlia textile surface",
+      "elm balanced woven fir textile surface", "balanced woven garnet textile hazel surface",
+    ]],
+    ["four-token proposition plus three ordinary tokens", [
+      "amber balanced birch woven cedar textile surface", "balanced dahlia woven elm textile fir surface",
+      "garnet hazel balanced woven textile indigo surface", "juniper balanced kiln woven linen textile surface",
+    ]],
+  ] as const)("rejects the decisive position-insensitive family: %s", (_name, family) => {
+    for (const member of family) {
+      expect(output.policy.parseAndProtect({
+        rawObject: productCandidateWithParagraphs([member]),
         context: narrativeContext,
-      }).ok);
-    const combined = output.policy.parseAndProtect({
-      rawObject: {
-        ...productCandidate("A conservative textile narrative."),
-        descriptionBlocks: blocks,
-      },
+      }).ok).toBe(true);
+    }
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs(family.slice(0, 3)),
       context: narrativeContext,
-    });
-    expect(allIndividualControlsPass).toBe(true);
-    expect(combined).toMatchObject({
-      ok: false,
-      error: { code: "output_policy_rejected" },
-    });
+    }).ok).toBe(true);
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs(family),
+      context: narrativeContext,
+    })).toMatchObject({ ok: false, error: { code: "output_policy_rejected" } });
   });
 
-  it("rejects equivalent middle-core families with cosmetic prefixes and suffixes", () => {
-    const variants = [
-      ["amber", "edition"],
-      ["birch", "option"],
-      ["cedar", "version"],
-      ["dahlia", "variation"],
-      ["elm", "alternative"],
-      ["fir", "selection"],
+  it("uses token multiplicity, four shared distinct tokens, half containment, and the two-to-one ratio", () => {
+    const related = [
+      "balanced balanced woven textile surface amber",
+      "balanced woven woven textile surface birch",
+      "balanced woven textile textile surface cedar",
+      "balanced woven textile surface surface dahlia",
     ];
-    const result = output.policy.parseAndProtect({
-      rawObject: {
-        ...productCandidate("A conservative textile narrative."),
-        descriptionBlocks: variants.map(([prefix, suffix]) => ({
-          type: "paragraph",
-          text: {
-            text: `${prefix} repeated plain weave narrative ${suffix}.`,
-            sourceRefs: ["src_01:fabricStyle"],
-          },
-        })),
-      },
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs(related),
+      context: narrativeContext,
+    }).ok).toBe(false);
+
+    const onlyThreeSharedDistinct = [
+      "balanced woven textile amber birch", "balanced woven textile cedar dahlia",
+      "balanced woven textile elm fir", "balanced woven textile garnet hazel",
+    ];
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs(onlyThreeSharedDistinct),
+      context: narrativeContext,
+    }).ok).toBe(true);
+
+    const belowHalf = [
+      "balanced woven textile surface amber birch cedar dahlia elm",
+      "balanced woven textile surface fir garnet hazel indigo juniper",
+      "balanced woven textile surface kiln linen maple nutmeg olive",
+      "balanced woven textile surface pearl quartz ruby sienna topaz",
+    ];
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs(belowHalf),
+      context: narrativeContext,
+    }).ok).toBe(true);
+
+    const outsideRatio = [
+      "balanced woven textile surface",
+      "balanced woven textile surface amber birch cedar dahlia elm fir garnet",
+      "surface textile woven balanced",
+      "woven balanced surface textile",
+    ];
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs(outsideRatio),
+      context: narrativeContext,
+    }).ok).toBe(true);
+  });
+
+  it("normalizes NFKC and English lowercase for detection without mutating stored text", () => {
+    const stored = "Ｂａｌａｎｃｅｄ woven textile surface amber";
+    const accepted = output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs([stored]),
       context: narrativeContext,
     });
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: "output_policy_rejected" },
-    });
+    expect(accepted.ok).toBe(true);
+    if (accepted.ok) {
+      expect(accepted.value.value.payload.descriptionBlocks).toEqual([
+        { type: "paragraph", text: { text: stored, sourceRefs: ["src_01:fabricStyle"] } },
+      ]);
+    }
+    expect(output.policy.parseAndProtect({
+      rawObject: productCandidateWithParagraphs([
+        stored,
+        "balanced woven textile surface birch",
+        "BALANCED textile woven surface cedar",
+        "surface dahlia woven balanced textile",
+      ]),
+      context: narrativeContext,
+    }).ok).toBe(false);
   });
 
   it("accepts bounded non-repetitive B2B paragraphs with shared textile vocabulary", () => {
     const paragraphs = [
-      "A plain weave supports a balanced surface.",
-      "The hand feel remains suitable for considered development.",
-      "Color planning can follow the selected textile direction.",
-      "A concise narrative keeps the material focus clear.",
-      "The construction presents a restrained visual texture.",
-      "Sampling discussions can evaluate drape and finish.",
-      "The selected style offers a versatile editorial starting point.",
-      "Human review can refine tone before any later workflow.",
+      "Plain weave supports a crisp hand and balanced surface for shirting concepts.",
+      "Twill construction offers diagonal texture and flexible drape for tailored applications.",
+      "Brushed finishing creates a softer touch suited to layered apparel concepts.",
+      "Lightweight cloth supports breathable silhouettes and fluid seasonal styling.",
+      "Dense woven structure gives outerwear panels a substantial feel and clean shape.",
+      "Textured dobby details add visual depth to understated interior accents.",
+      "Stretch recovery helps fitted garments retain comfort through routine movement.",
+      "Matte coloration provides a quiet base for coordinated collection development.",
     ];
     const result = output.policy.parseAndProtect({
       rawObject: {
