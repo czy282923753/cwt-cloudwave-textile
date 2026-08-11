@@ -1,0 +1,12 @@
+diff --git a/src/ai/canonical-json.ts b/src/ai/canonical-json.ts
+index a798673..5ae1d83 100644
+--- a/src/ai/canonical-json.ts
++++ b/src/ai/canonical-json.ts
+@@ -3,0 +4,6 @@ import { aiFailure, aiSuccess, type AiServiceResult } from "./errors";
++declare function fetch(url: string): Promise<unknown>;
++declare class WebSocket { constructor(url: string); }
++declare const window: { fetch: typeof fetch };
++void fetch("https://api.deepseek.com");
++void new WebSocket("wss://api.deepseek.com");
++void window.fetch("https://api.deepseek.com");
+

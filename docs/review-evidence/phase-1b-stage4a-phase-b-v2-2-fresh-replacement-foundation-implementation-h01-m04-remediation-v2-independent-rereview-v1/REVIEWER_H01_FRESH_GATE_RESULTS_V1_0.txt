@@ -1,0 +1,40 @@
+Exact final Candidate: d41c9c4bd496f4c3a612c6ac88cc5acf6ae83308
+Detached snapshot: /tmp/cwt-h01-m04-v2-review.n05h23
+Runtime: Node 24.14.0 / TypeScript 5.9.3 / installed local tsx
+Real gate: scripts/verify-ai-architecture.ts
+
+Baseline exact Candidate:
+- exit 0; ok=true
+- 633 candidates / 472 executables
+- zeroClass=[] / ambiguous=[]
+- raw SHA-256 4015b10592d771cca748df3824db2f8bfb10581b64c326d4ebcdc57fa4a2d484
+
+Controlling literal witness:
+- fault: void fetch("https://api.deepseek.com");
+- exit 1, denied_capability_origin
+- diagnostic binds path, rule, Identifier position, TypeScript ambient-global origin and capability=fetch
+- stderr SHA-256 204511d9cd382c6afb2d308478f035d105de3a55e8a20e3afbef6aee1a1c9abd
+
+Exact DB exception boundary:
+- fault outside src/db/client.ts: void globalThis.cwtDatabaseConnection;
+- exit 1, denied_capability_origin / ambient_global_capability_not_authorized
+- stderr SHA-256 4a75684c6cbc7c1843094f77e8dbf6111871dd7005dc02509549e9285d21e038
+- unchanged exact direct named non-optional access in src/db/client.ts passes baseline and DB cache tests
+
+Fresh legitimate runtime-local shadow:
+- function parameter named fetch captured through a container and invoked
+- exit 0; ok=true
+- raw SHA-256 1b30f68da06ddf1872339a5ef56098d9780c9877828566f12bfd37337aa61a9d
+
+Fresh non-emitting declaration bypasses:
+1. declare const fetch + runtime fetch call
+   - exit 0; ok=true
+   - raw SHA-256 081e2e578eab1205911747f09a2d571d1200d01750e1d02ae0d96eaaae056c
+2. combined declare function fetch, declare class WebSocket and declare const window, then runtime calls
+   - exit 0; ok=true
+   - raw SHA-256 a03be577ec95ca66364076768f173e576184ffdc54b6527014ae4930d64b046c
+
+Secure expectation for both declaration cases: fail closed. A declare-only repository declaration emits no runtime binding, so the runtime reference resolves to the ambient capability that the rule is intended to deny.
+
+Every disposable fault was restored. Final detached and formal Candidate states were clean.
+

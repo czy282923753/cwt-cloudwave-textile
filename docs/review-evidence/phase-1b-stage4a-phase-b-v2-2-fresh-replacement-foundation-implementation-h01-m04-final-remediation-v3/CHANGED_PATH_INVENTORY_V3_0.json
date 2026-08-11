@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "baseCandidate": "d41c9c4bd496f4c3a612c6ac88cc5acf6ae83308",
+  "correctedCodeHead": "df3369e5459c9eaf45186ee3140d94495254bf22",
+  "aggregate": {
+    "modified": 2,
+    "added": 0,
+    "deleted": 0,
+    "total": 2
+  },
+  "paths": [
+    {
+      "status": "M",
+      "path": "scripts/verify-ai-architecture.ts",
+      "baseSha256": "63b159055a537d4ec24ed28f53c0ac1dae5498b814689560474fb49fff3eebff",
+      "correctedSha256": "ac89fc28542e056f9f638676d047cd65181a8125438d8bea544b65318e11ee8f"
+    },
+    {
+      "status": "M",
+      "path": "test-fixtures/ai-architecture/graph-faults.v3_1.json",
+      "baseSha256": "766c10d8170276f4eaf51f3609ae02b9cf8f31776dc65634a9e4c4f1a36066f4",
+      "correctedSha256": "3a5ad42377740ee9072900b6b050ca4ec61ebba716a2238a41f963a63c6b7d45"
+    }
+  ],
+  "scopeProof": {
+    "srcRuntimeDiffFromBaseCandidate": [],
+    "schemaMigrationSnapshotJournalSeedPackageLockConfigDiffFromAcceptedStart": [],
+    "publicProductSeoUrlRedirectFontPaginationDiffFromAcceptedStart": [],
+    "productCodeAddDeleteOrModeChange": false,
+    "mergeCommitCount": 0,
+    "diffCheckPassed": true
+  }
+}

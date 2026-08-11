@@ -1,0 +1,65 @@
+TASK=CWT Stage 4A Phase B Fresh Replacement Implementation H-01/M04 Remediation V2 Independent Re-review
+REF=refs/heads/codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-h01-m04-remediation-v2
+FINAL_HEAD=d41c9c4bd496f4c3a612c6ac88cc5acf6ae83308
+FINAL_PARENT=75c77797d64636d303cea2e8683c7a093fe8ec1f
+FINAL_TREE=baa61ca075fb5756876c8aa2eeeceb6a38bfd7f8
+CODE_HEAD=75c77797d64636d303cea2e8683c7a093fe8ec1f
+CODE_PARENT=49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b
+CODE_TREE=018d872a3544bbfc9d0f6aa84b08911d262ee2b9
+FAILED_REMEDIATION_REF=49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b
+FORMAL_WORKTREE=/Users/calvin/.codex/worktrees/b62f/CWT（CloudWave Textile）项目
+DETACHED_REVIEW=/tmp/cwt-h01-m04-v2-review.n05h23
+
+IDENTITY_SCOPE:
+- formal exact ref/head and clean: PASS
+- detached exact head/tree and final clean: PASS
+- linear code commit plus docs-only successor; zero merges: PASS
+- Product-code delta: exactly scripts/verify-ai-architecture.ts and test-fixtures/ai-architecture/graph-faults.v3_1.json, both modified mode 100644: PASS
+- zero Product-code add/delete, zero symlinks/mode changes: PASS
+- no Schema/Migration/snapshot/journal/seed/package/lock/config/Prompt/Provider/Product/public/SEO/URL/data path change: PASS
+- code delta diff-check: PASS
+- docs successor scoped diff-check excluding byte-identical imported FAIL package: PASS
+- full successor diff-check: exit 2 only for four fixed EOF diagnostics in imported independent FAIL artifacts
+
+SUPPLIED_EVIDENCE:
+- remediation report SHA-256 12d1b3c15fcb2633861f9b4252e45e015e74edd9d02d22d821317b0c51295fac: exact
+- canonical authority SHA-256 2f3aa02b13f2f3b927409c18f1c1e7a4ddab55f9f4bc6356d3d86c0c2d4eec8a: exact
+- sole manifest SHA-256 35cb5029ef89f0b9bfd3ec122b430342290032aee5334a8b8f2927fae6d70fd9: exact, 18/18
+- controlling FAIL manifest SHA-256 d1e66f0a1ffdfb898e62508643c6488027ad98eb79eddff05e4543cf66776cd7: exact, 7/7
+- five committed M04 proof artifacts: exact, 5/5
+- attached evidence verifier: exit 0, exact identities, 18 entries, 16 semantic faults, 2 shadow positives, 5 proofs, clean=true
+- detached evidence verifier: not applicable; it requires symbolic branch attachment, while all Candidate inspection/gates used the exact detached snapshot
+
+RUNTIME:
+- Node 24.14.0; V8 13.6.233.17-node.41
+- ICU 78.2; Unicode 17.0; CLDR 48.0; arm64
+- TypeScript 5.9.3
+- package manager/install/materialization/download/registry/network/Provider/API/credential: none
+- a temporary node_modules symlink to already-installed Reviewer dependencies was used only for test/lint/typecheck commands and removed before final clean proof
+
+FRESH_VERIFICATION:
+- all src/ai: 14 files / 163 tests PASS
+- Fresh H-02 actual PGlite probe: 1 file / 1 test PASS
+- DB/cache/schema/noindex/public focused: 7 files / 9 tests PASS
+- lint zero warnings: PASS
+- strict typecheck: PASS
+- AI foundation/0020 verifier: PASS, 40 historical artifacts
+- independent ai_model_config: 21/21, ordered SHA-256 9a1e4a7cbe0ea8ee6eecad22d233c3865ca60658c07eb790b75747a13559368b
+- independent ai_runs: 96/96, ordered SHA-256 413824f30e3c74d7b58070c13231985596436e066e65e8f0d4f434cb821cda64
+- Prompt bundle/history: PASS
+- Production Prompt manifest exact {"manifestVersion":1,"entries":[]}: PASS
+- Production Provider registry constructed from []: PASS
+- architecture exact final baseline: 633 candidates / 472 executables / 12 classes / zero=[] / ambiguous=[]
+- profile graph cases: 52 faults + 3 topology = 55; 7 positives; 28 inherited mutations; 2 positive / 6 expected-negative type seams
+- five code-head M04 proof artifacts: exact; Phase D and adapter absent; public-client isolation and positive leak control true
+- public four blobs byte-identical to accepted checkpoint; pagination helper absent at both: PASS
+
+DECISIVE_RESULT:
+- literal bare fetch now rejected: PASS
+- wrong-path globalThis DB exception rejected: PASS
+- real runtime-local shadow accepted: PASS
+- non-emitting repository declare shadows accepted: FAIL SECURE EXPECTATION
+
+FULL_REVIEW_NECESSITY=NOT_REQUIRED
+RATIONALE=bounded two-path static checker/fixture correction, complete remediation-closure review, decisive same-root High residual, and all mandatory identity/security/Schema/Prompt/public/type gates completed; unrelated full application suite cannot alter eligibility.
+

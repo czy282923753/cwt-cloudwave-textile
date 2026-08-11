@@ -1,0 +1,15 @@
+Runtime: Node 24.14.0 / Vitest 4.1.10
+Execution: imported the byte-identical prior Reviewer probe through a disposable src/ai test entry
+
+Test Files  1 passed (1)
+Tests       1 passed (1)
+Duration    1.88s
+
+The actual migrated PGlite service matrix preserved:
+- unauthorized Content Editor: Product Revision, malformed Revision and missing Revision -> authorization_denied
+- unauthorized Product Editor: malformed Revision and missing Revision -> authorization_denied
+- authorized Product Editor: authoritative Product Revision wrong version -> target_version_conflict
+- Admin: malformed Revision -> target_scope_mismatch after authorization
+
+The import entry was removed from the disposable snapshot after execution. Final state was clean.
+

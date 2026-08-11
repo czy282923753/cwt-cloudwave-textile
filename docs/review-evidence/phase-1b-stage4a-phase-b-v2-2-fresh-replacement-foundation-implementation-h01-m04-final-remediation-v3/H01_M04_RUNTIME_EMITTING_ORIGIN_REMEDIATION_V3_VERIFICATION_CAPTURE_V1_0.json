@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_remediation_evidence_not_acceptance",
+  "runtime": {
+    "node": "24.14.0",
+    "typescript": "5.9.3",
+    "next": "16.2.12",
+    "v8": "13.6.233.17-node.41",
+    "icu": "78.2",
+    "unicode": "17.0",
+    "cldr": "48.0",
+    "packageInstallOrDependencyMaterialization": false,
+    "providerApiCredentialNetworkOrSpend": false
+  },
+  "identity": {
+    "failedAttempt2Candidate": "d41c9c4bd496f4c3a612c6ac88cc5acf6ae83308",
+    "failedAttempt2CodeHead": "75c77797d64636d303cea2e8683c7a093fe8ec1f",
+    "correctedCodeHead": "df3369e5459c9eaf45186ee3140d94495254bf22",
+    "correctedCodeParent": "d41c9c4bd496f4c3a612c6ac88cc5acf6ae83308",
+    "correctedCodeTree": "6574602ac86d0d30dcc64aa585f83257410c99b2",
+    "linearCorrectionCommits": [
+      "df3369e5459c9eaf45186ee3140d94495254bf22"
+    ],
+    "mergeCommits": 0,
+    "successorsMustBeDocsOnly": true
+  },
+  "beforeCorrectionReproduction": {
+    "protectedSourcePath": "src/ai/canonical-json.ts",
+    "witness": "declare function fetch; declare class WebSocket; declare const window; runtime fetch/WebSocket/window.fetch calls",
+    "observedGateExit": 0,
+    "observedGateOk": true,
+    "rawStdoutSha256": "1c976e122810f0a0e6b60f0039288465203227d15bcc37eee0150a2612a1f9e7",
+    "rawStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sourceRestoredSha256": "f728ecb41f1536a6bb17c2eaa1c00fab0de69827803ecfcfd57a52adee5751cb",
+    "result": "exact_attempt2_reviewer_failure_reproduced"
+  },
+  "afterCorrectionExactReproduction": {
+    "sameProtectedSourceAndWitness": true,
+    "observedGateExit": 1,
+    "rawStdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "rawStderrSha256": "0f5588fd31a2fa4ee415262d23ec987ae2e44213fdd9959183b65b128ad12222",
+    "diagnostic": {
+      "path": "src/ai/canonical-json.ts",
+      "rule": "protected-phase-b-runtime-global-capability-origin-denied",
+      "nodeKind": "Identifier",
+      "reason": "ambient_runtime_capability_not_authorized",
+      "origin": "typescript_resolved_non_emitting_repository_declaration",
+      "capability": "fetch",
+      "astBound": true
+    },
+    "sourceRestoredSha256": "f728ecb41f1536a6bb17c2eaa1c00fab0de69827803ecfcfd57a52adee5751cb",
+    "result": "fail_closed_before_reachability"
+  },
+  "runtimeEmittingOriginBoundary": {
+    "singleChecker": "scripts/verify-ai-architecture.ts",
+    "singleTypeCheckerAuthority": true,
+    "safeOnlyWhenDeclarationSetContainsRuntimeEmittingBinding": true,
+    "nonEmittingFormsFailClosed": [
+      "declare var",
+      "declare let",
+      "declare const",
+      "declare function",
+      "declare class",
+      "ambient namespace",
+      "global augmentation",
+      "declaration-file declaration",
+      "type-only import",
+      "overload-only declaration"
+    ],
+    "flowPositionsFailClosed": [
+      "property/container",
+      "bind",
+      "call",
+      "apply",
+      "IIFE"
+    ],
+    "runtimeEmittingShadowPositives": [
+      "local variable",
+      "parameter",
+      "function implementation",
+      "class implementation",
+      "value import",
+      "overload set with implementation"
+    ],
+    "soleGlobalException": {
+      "path": "src/db/client.ts",
+      "member": "globalThis.cwtDatabaseConnection",
+      "form": "direct non-optional statically named property access"
+    },
+    "newNonEmittingFaultProbeCount": 14,
+    "attempt2SemanticFaultProbeCount": 16,
+    "totalFaultAndTopologyProbeCount": 69,
+    "positiveProbeCount": 10
+  },
+  "architectureAtCorrectedCodeHead": {
+    "passed": true,
+    "rawCaptureSha256": "1cb2f5d5577c97e0fb1b3e8e69b844eec31356c1007416c6eb9e2d721e9af9ab",
+    "profileSelectedPointerSha256": "ef984a8366dbf837d941694fe79e03638d8c597b9a91e0daf761d5ae2fc42985",
+    "profileFileSha256": "3a5ad42377740ee9072900b6b050ca4ec61ebba716a2238a41f963a63c6b7d45",
+    "lifecycle": "official-next-generated-file-present",
+    "candidates": 634,
+    "executables": 473,
+    "tracked": 633,
+    "untrackedNotIgnored": 0,
+    "untrackedIgnored": 1,
+    "unclassified": 0,
+    "ambiguous": 0,
+    "ordinaryGlobalUrlValues": 21,
+    "staticResourceCandidates": 0,
+    "typePositive": 2,
+    "typeExpectedNegative": 6,
+    "lifecycleMutations": 28,
+    "faultAndTopologyProbes": 69,
+    "positiveProbes": 10,
+    "bundleProofReady": true,
+    "proofArtifactCount": 5
+  },
+  "verification": {
+    "allSrcAi": {
+      "filesPassed": 14,
+      "testsPassed": 163,
+      "captureSha256": "f718b8c5c354e18dfeb9e1649f3038feba39cdddcb7aa38c11d323cce511741c",
+      "passed": true
+    },
+    "h02Nh01RealServiceMatrix": {
+      "filesPassed": 1,
+      "testsPassed": 6,
+      "captureSha256": "3bdac01ec1a031feba5c3d749f70654da41606e5761138933a06d800c40c111b",
+      "productionBytesChanged": false,
+      "outcome": "CLOSED"
+    },
+    "dbSchemaNoindexPublicFocused": {
+      "filesPassed": 7,
+      "testsPassed": 8,
+      "captureSha256": "b0672bf0c10b91297d71244bd8b0dd54117e018b687f1c22de7ecdebab2a8d82",
+      "passed": true
+    },
+    "eslintRepository": {
+      "zeroWarnings": true,
+      "captureSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "strictTypecheck": {
+      "passed": true,
+      "captureSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "aiFoundation0020": {
+      "passed": true,
+      "historicalArtifacts": 40,
+      "captureSha256": "a7f5039da3842354a63c268260a4ee4fbb85a6f54584b63f14a2b5384ffd2617"
+    },
+    "independentSchemaMapping": {
+      "aiModelConfig": "21/21",
+      "aiRuns": "96/96",
+      "designSnapshotDrizzleMigrationOrderExact": true,
+      "aiModelConfigOrderSha256": "bb8f81617e365e1e8095784b07fb3061f65aca44c8aacc76215456de243fb88c",
+      "aiRunsOrderSha256": "177a8c3bbe72fd198459e5da8376154030ed39a865704159d03fda9e1eeeecb4",
+      "captureSha256": "0e6172403da4c2ce3fc88b23c1b2fe06b397d2f52a21d71f1aca6cbd5939be74"
+    },
+    "promptBundle": {
+      "passed": true,
+      "captureSha256": "1d89bff4e6ae03b5642b6df2d190fc1209e1dfe34eb4526ee973c99b7d022177"
+    },
+    "promptHistoryFromAcceptedStart": {
+      "passed": true,
+      "captureSha256": "80a2f3a4bdeb60f4c9fb24e9b5865a512b38bde41917c076e83217e363040493"
+    },
+    "productionPromptManifest": "exact-empty",
+    "productionProviderRegistry": "exact-empty",
+    "acceptedV22Package": {
+      "disposition": "PACKAGE_CONSISTENCY_PASS_NOT_INDEPENDENT_ACCEPTANCE",
+      "captureSha256": "a7dff9ae647ed3f928c3abdd2949b83bca088a842070797f5c1bae07682ca164"
+    },
+    "frozenDiffCaptureSha256": "06da5772a90969127bc49538f2f3d1b983ed345e1573b120d553cbcf47e2c3e6",
+    "fullUnrelatedSuite": {
+      "run": false,
+      "rationale": "The sole Product-code delta is the non-runtime architecture checker and its one profile fixture. The real gate, 69 fault/topology probes, 10 positives, 28 mutations, all AI tests, focused DB/public tests, lint, strict typing, schema, Prompt, typegen and isolated bundle directly cover the changed and preserved risk; an unrelated exhaustive application suite would not exercise runtime-emitting symbol classification further."
+    }
+  },
+  "officialNextTypegenNetworkDenied": {
+    "passed": true,
+    "captureSha256": "adba4af9194e10e47dda75ff0fd0f8c2b756474896d0eba5612799c527ff372a",
+    "nextEnvSha256": "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651",
+    "generatedTypeHashes": {
+      ".next/types/cache-life.d.ts": "d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7",
+      ".next/types/routes.d.ts": "e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4",
+      ".next/types/validator.ts": "8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df"
+    }
+  },
+  "isolatedServerPublicBundleNetworkDenied": {
+    "passed": true,
+    "builder": "Next 16.2.12 webpack",
+    "buildCaptureSha256": "ca455f71f7e2a1b5bdd50db95f925a1c43adf61d18aaee77fbd18faf6af09fca",
+    "verificationCaptureSha256": "a7f1c5162369ad439909ab6360ef32b961fee2d4030bbb8f534dd698f0525dc2",
+    "serverFiles": 51,
+    "publicClientChunkFiles": 16,
+    "serverMarkerCounts": [5, 5, 5],
+    "rawPromptMarkerServerCount": 4,
+    "publicClientAbsence": true,
+    "positiveLeakControl": true,
+    "sourceBundleAgreement": true
+  },
+  "m04ProofArtifactHashes": {
+    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "364db62fc799c961e05b3e7320698a3bc911119cf10ff50535f3c80197691b18",
+    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "2578f840a6aaa803ce607e96ccccc3fb3e2c6c30d5bb7455507b0d6648d04768",
+    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "96e2634d36d876ad516bfcb35980e2490717650406a268a5d7807afa99fb8398",
+    "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "95b162bf6837e6a50e209fde5358383f08d3c21491dc605089da803cc46df434",
+    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "e58278ee9d50ca610179b0b0bd5ba9ee4db9de54f37af3dd57df3a2b74f017f4"
+  },
+  "processExceptions": [
+    "The Next standalone tracer copied a small dependency trace into an untracked repository path; it and the fixture next-env.d.ts were moved outside the repository before clean proof emission and were not committed.",
+    "The first proof command used unsupported equals-style arguments and therefore emitted no proof; the second rejected the standalone symlink as designed. The successful run used exact separate arguments plus an alias-free external public static-tree copy and emitted the sole five artifacts.",
+    "The accepted V3.1 profile retains its disclosed historical tsconfig metadata mismatch while the checker binds the immutable actual tsconfig and TypeScript 5.9.3 semantics; no config changed.",
+    "The unchanged public Google Font route retains the previously disclosed offline full-public-build debt. No public/font bytes changed and no unrelated full public build PASS is claimed."
+  ]
+}
