@@ -1,0 +1,183 @@
+import { createHash } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, extname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const evidenceRoot = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = realpathSync(resolve(evidenceRoot, "../../.."));
+const authorityPath = resolve(evidenceRoot, "IMP3_NM01_FINAL_TREE_CLOSURE_AUTHORITY_V1_0.json");
+const manifestPath = resolve(evidenceRoot, "SHA256SUMS.txt");
+const proofDirectory = resolve(evidenceRoot, "M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1");
+const checkerPath = "scripts/verify-ai-architecture.ts";
+const executableExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
+
+function fail(message) {
+  throw new Error(`IMP3-NM01 final-tree closure evidence verification failed: ${message}`);
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function argumentValue(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (value === undefined || value.length === 0) fail(`${name} requires one value`);
+  return value;
+}
+
+function git(args, cwd = repositoryRoot) {
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trimEnd();
+}
+
+function requireEqual(actual, expected, label) {
+  if (actual !== expected) fail(`${label}: expected ${expected}, got ${actual}`);
+}
+
+function parseManifest(path) {
+  return readFileSync(path, "utf8").split("\n").filter(Boolean).map((line) => {
+    const match = /^([0-9a-f]{64})  (.+)$/u.exec(line);
+    if (match === null) fail(`invalid manifest line: ${line}`);
+    return { sha256: match[1], path: match[2] };
+  });
+}
+
+function verifyManifest(path) {
+  const entries = parseManifest(path);
+  const observedPaths = entries.map((entry) => entry.path);
+  if (new Set(observedPaths).size !== observedPaths.length ||
+    JSON.stringify(observedPaths) !== JSON.stringify([...observedPaths].sort())) {
+    fail("manifest paths are duplicated or not sorted");
+  }
+  for (const entry of entries) {
+    const absolute = resolve(repositoryRoot, entry.path);
+    if (absolute === repositoryRoot || !absolute.startsWith(`${repositoryRoot}${sep}`) ||
+      !existsSync(absolute) || !lstatSync(absolute).isFile() || lstatSync(absolute).isSymbolicLink()) {
+      fail(`manifest path is not one physical repository file: ${entry.path}`);
+    }
+    requireEqual(sha256(readFileSync(absolute)), entry.sha256, `manifest hash ${entry.path}`);
+  }
+  return entries;
+}
+
+function installDependencyBridge(root, installedNodeModules) {
+  const local = resolve(root, "node_modules");
+  if (existsSync(local)) fail(`temporary dependency bridge target already exists: ${local}`);
+  mkdirSync(local);
+  for (const name of ["tsx", "typescript"]) {
+    const source = resolve(installedNodeModules, name);
+    if (!existsSync(source)) fail(`installed dependency missing: ${name}`);
+    symlinkSync(source, resolve(local, name), "dir");
+  }
+  return () => rmSync(local, { recursive: true });
+}
+
+function runGate(root, installedNodeModules, sealCommit) {
+  const removeBridge = installDependencyBridge(root, installedNodeModules);
+  try {
+    const result = spawnSync(process.execPath, [
+      "--import", "tsx", checkerPath,
+      "--proof-bound-commit", sealCommit,
+      "--verify-evidence-dir",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1",
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, CWT_INSTALLED_NODE_MODULES: installedNodeModules },
+    });
+    if (result.status !== 0) fail(`architecture gate failed at ${root}: ${result.stderr || result.stdout}`);
+    const report = JSON.parse(result.stdout);
+    if (report.ok !== true || report.zeroClass.length !== 0 || report.ambiguous.length !== 0 ||
+      report.moduleGraph.ordinaryGlobalUrlValueCount !== 21 || report.finalTreeClosureMutations.length !== 6 ||
+      report.proofBoundCommit !== sealCommit) {
+      fail(`architecture gate report contract mismatch at ${root}`);
+    }
+    return report;
+  } finally {
+    removeBridge();
+  }
+}
+
+if (process.versions.node !== "24.14.0") fail("Node must be 24.14.0");
+const installedInput = argumentValue("--installed-node-modules");
+if (installedInput === undefined) fail("--installed-node-modules is required");
+const installedNodeModules = realpathSync(installedInput);
+if (!lstatSync(installedNodeModules).isDirectory()) fail("installed dependency input is not a physical directory");
+requireEqual(realpathSync(git(["rev-parse", "--show-toplevel"])), repositoryRoot, "repository root");
+
+const authorityBytes = readFileSync(authorityPath);
+const authority = JSON.parse(authorityBytes);
+if (authority.status !== "IMP3_NM01_ATTEMPT1_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED" ||
+  authority.acceptanceClaim !== false || authority.selfApproval !== false) {
+  fail("authority status or no-self-approval boundary mismatch");
+}
+const sealCommit = authority.executableTreeSeal.commit;
+const finalHead = git(["rev-parse", "HEAD"]);
+requireEqual(git(["symbolic-ref", "--short", "HEAD"]), authority.candidate.branch, "Candidate branch");
+requireEqual(finalHead, authority.candidate.head, "Candidate HEAD");
+requireEqual(git(["rev-parse", `${sealCommit}^{commit}`]), sealCommit, "executable-tree seal commit");
+requireEqual(git(["rev-parse", `${sealCommit}^`]), authority.executableTreeSeal.parent, "seal parent");
+requireEqual(git(["rev-parse", `${sealCommit}^{tree}`]), authority.executableTreeSeal.tree, "seal tree");
+requireEqual(git(["rev-parse", authority.failedCandidate.ref]), authority.failedCandidate.head, "preserved failed ref");
+if (spawnSync("git", ["merge-base", "--is-ancestor", sealCommit, finalHead], { cwd: repositoryRoot }).status !== 0) {
+  fail("executable-tree seal is not an ancestor of final HEAD");
+}
+const successorPaths = git(["diff", "--name-only", `${sealCommit}..${finalHead}`]).split("\n").filter(Boolean);
+if (successorPaths.length === 0 || successorPaths.some((path) =>
+  !path.startsWith("docs/") || executableExtensions.has(extname(path)))) {
+  fail("every post-seal successor must be non-executable docs/evidence");
+}
+
+const manifestEntries = verifyManifest(manifestPath);
+requireEqual(String(manifestEntries.length), String(authority.manifest.entryCount), "manifest entry count");
+requireEqual(sha256(readFileSync(authority.controllingReview.reportPath)),
+  authority.controllingReview.reportSha256, "controlling review report SHA-256");
+requireEqual(sha256(readFileSync(authority.controllingReview.manifestPath)),
+  authority.controllingReview.manifestSha256, "controlling review manifest SHA-256");
+requireEqual(sha256(readFileSync(authority.immutableHistoricalProbe.path)),
+  authority.immutableHistoricalProbe.sha256, "immutable historical probe SHA-256");
+requireEqual(sha256(readFileSync(checkerPath)), authority.executableTreeSeal.checkerSha256, "sole checker SHA-256");
+
+const attached = runGate(repositoryRoot, installedNodeModules, sealCommit);
+requireEqual(attached.executableTreeSha256, authority.executableTreeSeal.executableTreeSha256,
+  "attached executable-tree SHA-256");
+const detachedRoot = mkdtempSync(join(tmpdir(), "cwt-imp3-nm01-final-tree-"));
+let detached;
+try {
+  execFileSync("git", ["worktree", "add", "--detach", detachedRoot, finalHead], {
+    cwd: repositoryRoot,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  detached = runGate(detachedRoot, installedNodeModules, sealCommit);
+  requireEqual(detached.executableTreeSha256, attached.executableTreeSha256,
+    "attached/detached executable-tree SHA-256");
+  requireEqual(detached.moduleGraph.graphSha256, attached.moduleGraph.graphSha256,
+    "attached/detached graph SHA-256");
+} finally {
+  if (existsSync(resolve(detachedRoot, ".git"))) {
+    execFileSync("git", ["worktree", "remove", detachedRoot], { cwd: repositoryRoot, stdio: "ignore" });
+  } else if (existsSync(detachedRoot)) {
+    rmSync(detachedRoot, { recursive: true });
+  }
+}
+
+const clean = git(["status", "--porcelain=v1"]) === "";
+if (process.argv.includes("--require-clean") && !clean) fail("formal worktree is not clean");
+process.stdout.write(`${JSON.stringify({
+  ok: true,
+  status: authority.status,
+  finalHead,
+  executableTreeSeal: sealCommit,
+  executableTreeSha256: attached.executableTreeSha256,
+  attachedGate: "PASS",
+  detachedGate: "PASS",
+  manifestEntries: manifestEntries.length,
+  proofArtifacts: lstatSync(proofDirectory).isDirectory() ? 5 : 0,
+  imp3Nm01Attempt: 1,
+  h01: authority.findings.H01,
+  h02: authority.findings.H02,
+  clean,
+}, null, 2)}\n`);

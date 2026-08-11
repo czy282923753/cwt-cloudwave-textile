@@ -1190,6 +1190,21 @@ function resolveAcquisition(from: string, acquisition: ParsedAcquisitionV1): Gra
 
 const nodeByPath = new Map(nodes.map((node) => [node.path, node]));
 const executableNodes = nodes.filter((node) => executableExtensions.has(extname(node.path)));
+const historicalEvidenceClass = "diagnostic-documentation";
+const immutableHistoricalProbePath =
+  "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts";
+const immutableHistoricalProbeSha256 = "709129a2eafc4ed284427e1ec0f84f20ee264f13b8993a5dbdd57cefb944bc68";
+
+const immutableHistoricalProbe = nodeByPath.get(immutableHistoricalProbePath);
+if (immutableHistoricalProbe === undefined || immutableHistoricalProbe.classId !== historicalEvidenceClass ||
+  immutableHistoricalProbe.stageStatus !== "evidence_only_not_production" ||
+  !immutableHistoricalProbe.bundleZones.includes("documentation-only") ||
+  immutableHistoricalProbe.contentSha256 !== immutableHistoricalProbeSha256) {
+  fail("immutable historical Reviewer executable is absent, changed, or promoted from evidence-only classification");
+}
+if (actualFiles.some((path) => path === "docs/docs" || path.startsWith("docs/docs/"))) {
+  fail("historical Reviewer import compatibility target or shim exists under docs/docs");
+}
 
 function classForPath(path: string): string {
   return nodeByPath.get(path)?.classId ?? requireSingleClass(path, classDefinitions);
@@ -1343,6 +1358,7 @@ const graphEdges: GraphEdgeV1[] = [];
 for (const node of executableNodes) {
   const absolute = resolve(repositoryRoot, node.path);
   const production = productionClasses.has(node.classId);
+  const currentExecutableGraph = node.classId !== historicalEvidenceClass;
   const source = production
     ? architectureProgram.getSourceFile(absolute)
     : ts.createSourceFile(
@@ -1365,6 +1381,7 @@ for (const node of executableNodes) {
   scan.ordinaryGlobalUrlValues.forEach((position) => ordinaryGlobalUrlValues.push({ path: node.path, position }));
   scan.staticResourceCandidates.forEach((position) => staticResourceCandidates.push({ path: node.path, position }));
   for (const acquisition of scan.acquisitions) {
+    if (!currentExecutableGraph) continue;
     const edge = resolveAcquisition(node.path, acquisition);
     enforceCapabilityEdge(edge);
     graphEdges.push(edge);
@@ -1817,6 +1834,14 @@ const contentSha256 = sha256("cwt-v17-content-v2\n" + nodes
   .map((node) => `${node.path}\0${node.contentSha256}\n`).join(""));
 const classificationSha256 = sha256("cwt-v17-classification-v2\n" + nodes
   .map((node) => `${node.path}\0${node.classId}\0${node.stageStatus}\0${node.bundleZones.join(",")}\n`).join(""));
+const executableTreeMembers = executableNodes.map((node) => ({
+  path: node.path,
+  classId: node.classId,
+  stageStatus: node.stageStatus,
+  bundleZones: node.bundleZones,
+  contentSha256: node.contentSha256,
+}));
+const executableTreeSha256 = sha256(canonical(executableTreeMembers));
 const graphSha256 = sha256(canonical(graphEdges));
 const allowedStaticFormCounts: Record<GraphEdgeForm, number> = {
   import: 0,
@@ -1868,6 +1893,48 @@ function argumentValue(name: string): string | undefined {
   if (value === undefined || value.length === 0) fail(`${name} requires one exact path`);
   return value;
 }
+
+function pathIsBelowExcludedPhysicalRoot(path: string): boolean {
+  return enumeration.excludedPhysicalRoots.some((root) => path === root.slice(0, -1) || path.startsWith(root));
+}
+
+function executablePathsAtCommit(commit: string): readonly string[] {
+  if (!/^[0-9a-f]{40}$/u.test(commit)) fail("proof-bound commit must be one exact lowercase Git object id");
+  const commitCheck = spawnSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
+    cwd: repositoryRoot,
+    stdio: "ignore",
+  });
+  if (commitCheck.status !== 0) fail("proof-bound commit does not resolve to a commit");
+  return execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", commit], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).split("\0").filter((path) => path.length > 0 &&
+    executableExtensions.has(extname(path)) && !pathIsBelowExcludedPhysicalRoot(path)).sort();
+}
+
+function requireExecutableTreeSeal(boundCommit: string): void {
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", boundCommit, exactHead], {
+    cwd: repositoryRoot,
+    stdio: "ignore",
+  });
+  if (ancestor.status !== 0) fail("proof-bound executable-tree commit is not an ancestor of HEAD");
+  const sealedPaths = [...executablePathsAtCommit(boundCommit)];
+  if (nextNode !== undefined && !sealedPaths.includes(nextNode.path)) sealedPaths.push(nextNode.path);
+  sealedPaths.sort();
+  const currentPaths = executableNodes.map((node) => node.path).sort();
+  if (JSON.stringify(sealedPaths) !== JSON.stringify(currentPaths)) {
+    fail(`post-proof executable candidate drift: ${JSON.stringify({ sealedPaths, currentPaths })}`);
+  }
+  const committedSealedPaths = sealedPaths.filter((path) => path !== nextContract.presentPath);
+  const contentDiff = spawnSync("git", ["diff", "--quiet", boundCommit, "--", ...committedSealedPaths], {
+    cwd: repositoryRoot,
+    stdio: "ignore",
+  });
+  if (contentDiff.status !== 0) fail("proof-bound executable candidate content changed after the seal commit");
+}
+
+const proofBoundCommit = argumentValue("--proof-bound-commit");
+if (proofBoundCommit !== undefined) requireExecutableTreeSeal(proofBoundCommit);
 
 function bundleFiles(rootInput: string): readonly { readonly path: string; readonly sha256: string }[] {
   const root = realpathSync(rootInput);
@@ -1951,6 +2018,7 @@ const inputHashes = {
   inventory: inventorySha256,
   content: contentSha256,
   classification: classificationSha256,
+  executableTree: executableTreeSha256,
   staticLanguage: staticLanguageSha256,
   graph: graphSha256,
 };
@@ -1985,6 +2053,11 @@ const actualTreeProof = sealProof({
   excludedPhysicalRoots: excludedStatus,
   candidates: nodes,
   executables: executableNodes.map((node) => node.path),
+  executableTreeMembers,
+  executableTreeHash: executableTreeSha256,
+  historicalEvidenceExecutables: executableNodes
+    .filter((node) => node.classId === historicalEvidenceClass)
+    .map((node) => node.path),
   classMembers: classMembersProof,
   zeroClass,
   ambiguous,
@@ -2002,6 +2075,9 @@ const actualTreeProof = sealProof({
 const staticGraphProof = sealProof({
   nodes: nodes.map((node) => ({ path: node.path, classId: node.classId, contentSha256: node.contentSha256 })),
   edges: graphEdges,
+  currentExecutableGraphExclusions: executableNodes
+    .filter((node) => node.classId === historicalEvidenceClass)
+    .map((node) => ({ path: node.path, classId: node.classId, stageStatus: node.stageStatus })),
   ordinaryUrlZeroEdgeLocations: ordinaryGlobalUrlValues,
   resourceEdges: graphEdges.filter((edge) => edge.edgeKind === "resource"),
   unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved"),
@@ -2068,16 +2144,158 @@ const proofArtifacts = {
   "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": compositionProof,
   "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": bundleProof,
 };
-if (JSON.stringify(Object.keys(proofArtifacts)) !== JSON.stringify([
+const exactProofArtifactNames = [
   "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
   "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
   "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
   "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
   "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
-])) fail("V3.1 proof artifact set is not exactly five");
+] as const;
+if (JSON.stringify(Object.keys(proofArtifacts)) !== JSON.stringify(exactProofArtifactNames)) {
+  fail("V3.1 proof artifact set is not exactly five");
+}
+
+function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string | undefined): void {
+  if (boundCommit === undefined) fail("proof verification requires --proof-bound-commit");
+  const directory = resolve(repositoryRoot, directoryInput);
+  if (directory === repositoryRoot || !directory.startsWith(`${repositoryRoot}${sep}`) ||
+    !existsSync(directory) || !lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink()) {
+    fail("proof verification directory must be one physical repository-contained directory");
+  }
+  const entries = readdirSync(directory).sort();
+  if (JSON.stringify(entries) !== JSON.stringify([...exactProofArtifactNames].sort())) {
+    fail("bound proof directory does not contain exactly the five canonical artifacts");
+  }
+  for (const name of exactProofArtifactNames) {
+    const path = resolve(directory, name);
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) fail(`bound proof is not one physical file: ${name}`);
+    const bytes = readFileSync(path, "utf8");
+    const parsed: unknown = JSON.parse(bytes);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      fail(`bound proof is not an object: ${name}`);
+    }
+    const proof = parsed as Record<string, unknown>;
+    const proofHash = proof.proofHash;
+    const input = proof.inputHashes;
+    if (proof.candidateCommit !== boundCommit || proof.schemaVersion !== 31 ||
+      proof.profileSha256 !== expectedProfileIntegrityHash || typeof proofHash !== "string" ||
+      typeof input !== "object" || input === null || Array.isArray(input) ||
+      (input as Record<string, unknown>).executableTree !== executableTreeSha256) {
+      fail(`stale proof commit or executable-tree binding: ${name}`);
+    }
+    const { proofHash: omitted, ...base } = proof;
+    if (omitted !== sha256(canonical(base)) || bytes !== `${canonical(proof)}\n`) {
+      fail(`bound proof hash or canonical bytes mismatch: ${name}`);
+    }
+  }
+}
+
+const verifyEvidenceDirectoryInput = argumentValue("--verify-evidence-dir");
+if (verifyEvidenceDirectoryInput !== undefined) {
+  verifyBoundProofArtifacts(verifyEvidenceDirectoryInput, proofBoundCommit);
+}
+
+class ExpectedFinalTreeClosureRejection extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+function rejectFinalTreeClosure(code: string): never {
+  throw new ExpectedFinalTreeClosureRejection(code);
+}
+
+function requireHistoricalEvidenceRole(entries: readonly Pick<ClassifiedNode, "path" | "classId" | "stageStatus">[]): void {
+  const probe = entries.find((entry) => entry.path === immutableHistoricalProbePath);
+  if (probe === undefined) rejectFinalTreeClosure("silent_historical_selector_exclusion");
+  if (probe.classId !== historicalEvidenceClass || probe.stageStatus !== "evidence_only_not_production") {
+    rejectFinalTreeClosure("historical_evidence_authority_promotion");
+  }
+}
+
+function requireNoCompatibilityShim(paths: readonly string[]): void {
+  if (paths.some((path) => path === "docs/docs" || path.startsWith("docs/docs/"))) {
+    rejectFinalTreeClosure("historical_import_compatibility_shim");
+  }
+}
+
+function requireSameExecutablePaths(sealed: readonly string[], current: readonly string[]): void {
+  if (JSON.stringify(sealed) !== JSON.stringify(current)) {
+    rejectFinalTreeClosure("post_proof_executable_candidate");
+  }
+}
+
+function requireProofSealBinding(candidateCommit: string, executableHash: string): void {
+  if (candidateCommit !== exactHead || executableHash !== executableTreeSha256) {
+    rejectFinalTreeClosure("stale_five_proof_binding");
+  }
+}
+
+const finalTreeClosureMutationCases = [
+  {
+    id: "post-proof-executable-evidence",
+    expected: "post_proof_executable_candidate",
+    run: () => requireSameExecutablePaths(["sealed.ts"], ["post-proof.ts", "sealed.ts"]),
+  },
+  {
+    id: "unresolved-current-production-import",
+    expected: "unresolved_static_edge",
+    run: () => enforceCapabilityEdge({
+      form: "import",
+      edgeKind: "runtime",
+      specifier: "./missing-current-production-edge",
+      position: 0,
+      nodeKind: "ImportDeclaration",
+      from: "src/ai/canonical-json.ts",
+      resolutionKind: "unresolved",
+    }, "protected-ai"),
+  },
+  {
+    id: "silent-historical-probe-selector-exclusion",
+    expected: "silent_historical_selector_exclusion",
+    run: () => requireHistoricalEvidenceRole([]),
+  },
+  {
+    id: "historical-evidence-production-promotion",
+    expected: "historical_evidence_authority_promotion",
+    run: () => requireHistoricalEvidenceRole([{
+      path: immutableHistoricalProbePath,
+      classId: "other-production-src",
+      stageStatus: "existing_non_ai_production",
+    }]),
+  },
+  {
+    id: "stale-five-proof-commit-tree-binding",
+    expected: "stale_five_proof_binding",
+    run: () => requireProofSealBinding("0000000000000000000000000000000000000000", executableTreeSha256),
+  },
+  {
+    id: "historical-import-compatibility-target",
+    expected: "historical_import_compatibility_shim",
+    run: () => requireNoCompatibilityShim(["docs/docs/review-evidence/compatibility-target.ts"]),
+  },
+] as const;
+
+const finalTreeClosureMutationResults = finalTreeClosureMutationCases.map((mutation) => {
+  try {
+    mutation.run();
+  } catch (error) {
+    const code = error instanceof ExpectedFinalTreeClosureRejection || error instanceof ArchitectureGraphFailure
+      ? error.code
+      : undefined;
+    if (code === mutation.expected) return { id: mutation.id, result: "fail-closed" as const, reason: code };
+    throw error;
+  }
+  fail(`final-tree closure mutation did not fail closed: ${mutation.id}`);
+});
+if (finalTreeClosureMutationResults.length !== 6) fail("final-tree closure mutation count is not six");
 
 const evidenceDirectoryInput = argumentValue("--write-evidence-dir");
 if (evidenceDirectoryInput !== undefined) {
+  if (proofBoundCommit !== undefined || verifyEvidenceDirectoryInput !== undefined) {
+    fail("proof emission and proof-bound verification are mutually exclusive");
+  }
   if (!bundleBoundary.sourceBundleAgreement || execFileSync("git", ["status", "--porcelain=v1"], { encoding: "utf8" }) !== "") {
     fail("proof emission requires clean exact code HEAD and verified bundle inputs");
   }
@@ -2154,5 +2372,9 @@ const report = {
   inventorySha256,
   contentSha256,
   classificationSha256,
+  executableTreeSha256,
+  proofBoundCommit: proofBoundCommit ?? null,
+  verifiedProofDirectory: verifyEvidenceDirectoryInput ?? null,
+  finalTreeClosureMutations: finalTreeClosureMutationResults,
 };
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
