@@ -129,6 +129,9 @@ const sourceTargetBindingSchema = z.discriminatedUnion("targetType", [
     targetType: z.literal("editorial_revision"),
     targetRevisionId: z.string().uuid(),
     expectedTargetVersion: z.number().int().min(1).max(2_147_483_647),
+    authoritativeRevisionVersion: z.number().int().min(1).max(2_147_483_647),
+    revisionEntityType: z.enum(["product", "content"]),
+    revisionEntityId: z.string().uuid(),
   }).strict(),
 ]);
 const sourceDtoFieldSchema = z.object({
@@ -241,7 +244,8 @@ function targetBindingMatchesAssociation(
         binding.targetContentId === association.targetContentId;
     case "editorial_revision":
       return binding.targetType === "editorial_revision" &&
-        binding.targetRevisionId === association.targetRevisionId;
+        binding.targetRevisionId === association.targetRevisionId &&
+        binding.authoritativeRevisionVersion === association.expectedTargetVersion;
   }
 }
 
@@ -270,17 +274,27 @@ function sourceIdentityMatchesSelectionAndTarget(
     !targetBindingMatchesAssociation(source.targetBinding, association)) return false;
   switch (source.sourceClass) {
     case "product_structured":
-      return source.productId === selection.sourceId &&
-        source.recordVersion === source.authoritativeRecordVersion &&
-        (association.targetType !== "product_draft" ||
-          (source.productId === association.targetProductId &&
-            source.authoritativeRecordVersion === association.expectedTargetVersion));
+      if (source.productId !== selection.sourceId ||
+        source.recordVersion !== source.authoritativeRecordVersion) return false;
+      if (association.targetType === "product_draft") {
+        return source.productId === association.targetProductId &&
+          source.authoritativeRecordVersion === association.expectedTargetVersion;
+      }
+      return association.targetType === "editorial_revision" &&
+        source.targetBinding.targetType === "editorial_revision" &&
+        source.targetBinding.revisionEntityType === "product" &&
+        source.targetBinding.revisionEntityId === source.productId;
     case "fabric_knowledge":
-      return source.contentId === selection.sourceId &&
-        source.recordVersion === source.authoritativeRecordVersion &&
-        (association.targetType !== "content_draft" ||
-          source.contentId !== association.targetContentId ||
-          source.authoritativeRecordVersion === association.expectedTargetVersion);
+      if (source.contentId !== selection.sourceId ||
+        source.recordVersion !== source.authoritativeRecordVersion) return false;
+      if (association.targetType === "content_draft") {
+        return source.contentId === association.targetContentId &&
+          source.authoritativeRecordVersion === association.expectedTargetVersion;
+      }
+      return association.targetType !== "editorial_revision" ||
+        (source.targetBinding.targetType === "editorial_revision" &&
+          source.targetBinding.revisionEntityType === "content" &&
+          source.targetBinding.revisionEntityId === source.contentId);
     case "public_company_fact":
       return source.companyFactId === selection.sourceId &&
         source.recordUpdatedAt === source.authoritativeRecordUpdatedAt;

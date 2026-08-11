@@ -297,6 +297,99 @@ describe("Draft reconstructible context", () => {
     });
   });
 
+  it("binds authoritative Revision entity identity/version to Product and Fabric sources", async () => {
+    const revisionId = "55555555-5555-4555-8555-555555555555";
+    const productId = "11111111-1111-4111-8111-111111111111";
+    const contentId = "22222222-2222-4222-8222-222222222222";
+    const productSource = {
+      sourceClass: "product_structured",
+      productId,
+      recordVersion: 9,
+      authoritativeRecordVersion: 9,
+      targetBinding: {
+        targetType: "editorial_revision",
+        targetRevisionId: revisionId,
+        expectedTargetVersion: 7,
+        authoritativeRevisionVersion: 7,
+        revisionEntityType: "product",
+        revisionEntityId: productId,
+      },
+      fields: [{ field: "name", provenance: "structural", value: "SYNTHETIC Product" }],
+    } satisfies DraftContextSourceDtoV1;
+    const correctProduct = await buildContextWithSource({
+      useCase: "product_description_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "product_structured", sourceId: productId, fields: ["name"] },
+      source: productSource,
+    });
+    expect(correctProduct.ok).toBe(true);
+
+    const productMutations: DraftContextSourceDtoV1[] = [
+      {
+        ...productSource,
+        targetBinding: { ...productSource.targetBinding, revisionEntityId: contentId },
+      },
+      {
+        ...productSource,
+        targetBinding: { ...productSource.targetBinding, revisionEntityType: "content" },
+      },
+      {
+        ...productSource,
+        targetBinding: { ...productSource.targetBinding, authoritativeRevisionVersion: 6 },
+      },
+      { ...productSource, recordVersion: 8 },
+      { ...productSource, authoritativeRecordVersion: 8 },
+    ];
+    for (const source of productMutations) {
+      const result = await buildContextWithSource({
+        useCase: "product_description_draft",
+        target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+        selection: { sourceClass: "product_structured", sourceId: productId, fields: ["name"] },
+        source,
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "context_provenance_mismatch" },
+      });
+    }
+
+    const fabricSource = {
+      sourceClass: "fabric_knowledge",
+      contentId,
+      recordVersion: 5,
+      authoritativeRecordVersion: 5,
+      targetBinding: {
+        targetType: "editorial_revision",
+        targetRevisionId: revisionId,
+        expectedTargetVersion: 7,
+        authoritativeRevisionVersion: 7,
+        revisionEntityType: "content",
+        revisionEntityId: contentId,
+      },
+      fields: [{ field: "title", provenance: "provided", value: "SYNTHETIC Fabric" }],
+    } satisfies DraftContextSourceDtoV1;
+    const correctFabric = await buildContextWithSource({
+      useCase: "fabric_knowledge_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "fabric_knowledge", sourceId: contentId, fields: ["title"] },
+      source: fabricSource,
+    });
+    expect(correctFabric.ok).toBe(true);
+    const wrongFabric = await buildContextWithSource({
+      useCase: "fabric_knowledge_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "fabric_knowledge", sourceId: contentId, fields: ["title"] },
+      source: {
+        ...fabricSource,
+        targetBinding: { ...fabricSource.targetBinding, revisionEntityId: productId },
+      },
+    });
+    expect(wrongFabric).toMatchObject({
+      ok: false,
+      error: { code: "context_provenance_mismatch" },
+    });
+  });
+
   it("rejects Fabric and Company Fact selector, version, and target-binding substitutions", async () => {
     const productTarget = {
       type: "product_draft",
