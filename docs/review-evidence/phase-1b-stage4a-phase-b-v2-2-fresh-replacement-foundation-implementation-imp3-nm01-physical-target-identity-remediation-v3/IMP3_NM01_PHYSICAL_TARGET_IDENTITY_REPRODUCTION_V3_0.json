@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "finding": "IMP3-NM01",
+  "attempt": 3,
+  "preCorrection": {
+    "candidate": "d60d5cc2398eeeb06263c58924896250f12f3756",
+    "controlScriptSha256": "156efdbc15910acd1c8156b90631e01384925ea39ea2d99a4c5e1d01b458dabe",
+    "controlOutputSha256": "23078921df6431b358ff4ac170d32fb2d4885bddb8f209d5811acfdc46680fe8",
+    "freshRerunOutputSha256": "c7fff252a5fc6244ea7b92c25e0e6673e11846a007c67824decf19c42642f0b1",
+    "immutableTsCaseVariant": {
+      "gateStatus": 0,
+      "unsafeAcceptance": true,
+      "sameDeviceAndInode": true
+    },
+    "currentJsonCaseVariant": {
+      "gateStatus": 0,
+      "strictTypecheckStatus": 0,
+      "unsafeAcceptance": true,
+      "sameDeviceAndInode": true
+    }
+  },
+  "postCorrection": {
+    "executableTreeSeal": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
+    "freshProbeOutputSha256": "0f2050561cc883db450a9347088fbe635861e570befeafd5c03d8598a23bec02",
+    "baseline": {
+      "gateStatus": 0,
+      "candidateCount": 674,
+      "executableCount": 481
+    },
+    "immutableTsCaseVariant": {
+      "gateStatus": 1,
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true
+    },
+    "freshDirectoryCaseVariant": {
+      "gateStatus": 1,
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true
+    },
+    "currentJsonCaseVariant": {
+      "gateStatus": 1,
+      "reason": "class_capability_violation",
+      "sameDeviceAndInode": true,
+      "strictTypecheckStatus": 0
+    }
+  },
+  "diagnosticRule": "static-target-spelling-must-match-canonical-actual-tree-and-git-identity",
+  "acceptanceClaim": false
+}

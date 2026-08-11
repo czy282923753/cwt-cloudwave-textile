@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 3,
+  "authorityId": "cwt.phase1b.stage4a.phaseb.imp3-nm01.physical-target-identity-and-case-closure-remediation.v3",
+  "status": "IMP3_NM01_ATTEMPT3_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED",
+  "acceptanceClaim": false,
+  "selfApproval": false,
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-imp3-nm01-physical-target-identity-remediation-v3",
+    "finalHeadDerivedAtVerification": true
+  },
+  "failedCandidate": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-imp3-nm01-evidence-isolation-remediation-v2",
+    "head": "d60d5cc2398eeeb06263c58924896250f12f3756",
+    "parent": "4b06f4d8c68a728d94c8afb7b0ee1d7c85fc8a1b",
+    "tree": "fe8645642d1b2d511506e20d269b3250864cc88c",
+    "executableTreeSeal": "627779d294e45f1fb166f70b94067c4b811aaaff",
+    "executableTreeSha256": "a45c8cb0a5d15830d601442ced747067b6718a32f09ccff8c2572f11a4ea06e8"
+  },
+  "executableTreeSeal": {
+    "commit": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
+    "parent": "9c96f17887d5ca0e37e71a335b98d6c48c2dcc48",
+    "tree": "2737abc59c79ddcef6b68144a3d6b84f74d12712",
+    "checkerSha256": "70b66c3351a1b33bac0d3dacfd119c639424fd063a85ee00c9db59c18c1955a5",
+    "verifierSha256": "84fd240bb0052e0452e41bf0a7e37aa1cec98b96ab0938e8cb816fabe7305564",
+    "executableTreeSha256": "b6278307339147e7e93ef8cdafbe461462af95053f7eadb71b9caae5042b45c4",
+    "successorPolicy": "only regular non-executable docs, JSON, text, proof and manifest paths"
+  },
+  "lifecycle": {
+    "sourceClean": {
+      "candidateCount": 683,
+      "executableCount": 481,
+      "edgeCount": 2269,
+      "nextEnvPresent": false
+    },
+    "officialPresent": {
+      "candidateCount": 684,
+      "executableCount": 482,
+      "edgeCount": 2270,
+      "nextEnvPresent": true
+    },
+    "sealGenerationSourceClean": {
+      "candidateCount": 674,
+      "executableCount": 481
+    },
+    "sealGenerationOfficialPresent": {
+      "candidateCount": 675,
+      "executableCount": 482
+    }
+  },
+  "closureMutationIds": [
+    "post-proof-executable-evidence",
+    "unresolved-current-production-import",
+    "production-direct-imports-evidence-only",
+    "production-reexports-evidence-only",
+    "production-type-imports-evidence-only",
+    "production-alias-resolves-to-evidence-only",
+    "production-transitive-node-imports-evidence-only",
+    "production-imports-independent-diagnostic-target",
+    "production-case-variant-immutable-evidence-target",
+    "production-case-variant-current-json-evidence-target",
+    "silent-historical-probe-selector-exclusion",
+    "historical-evidence-production-promotion",
+    "stale-five-proof-commit-tree-binding",
+    "historical-import-compatibility-target"
+  ],
+  "controllingReview": {
+    "reportPath": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_IMP3_NM01_EVIDENCE_ISOLATION_REMEDIATION_V2_INDEPENDENT_REREVIEW_V1_0.md",
+    "reportSha256": "1ea87cbbce5f11bcbbd183e1746a1eb9be82e7c45e374690252aabe91b8ea9bd",
+    "manifestPath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/SHA256SUMS.txt",
+    "manifestSha256": "471f2920733ca0035c3a04099ed76f8968ef900e871a753f420e2e94fca0c424",
+    "manifestCount": "7/7",
+    "challengeSourcePath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_IMP3_NM01_BIDIRECTIONAL_FRESH_CHALLENGE_V1_0.mjs",
+    "challengeSourceSha256": "156efdbc15910acd1c8156b90631e01384925ea39ea2d99a4c5e1d01b458dabe",
+    "challengeOutputPath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_IMP3_NM01_BIDIRECTIONAL_FRESH_CHALLENGE_OUTPUT_V1_0.json",
+    "challengeOutputSha256": "23078921df6431b358ff4ac170d32fb2d4885bddb8f209d5811acfdc46680fe8",
+    "frozenProbePath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_FROZEN_BOUNDARY_PROBE_V1_0.mjs",
+    "frozenProbeSha256": "5c27be01261a532ae2da44a87f2bbada4ea3ded2a5783a5938bb54f0fae6033c",
+    "frozenOutputPath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_FROZEN_BOUNDARY_PROBE_OUTPUT_V1_0.json",
+    "frozenOutputSha256": "b94650f84b0ccd835fc6e6686f33891d349767d4b2431a37d318b9cbc74234ba"
+  },
+  "immutableHistoricalProbe": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts",
+    "sha256": "709129a2eafc4ed284427e1ec0f84f20ee264f13b8993a5dbdd57cefb944bc68",
+    "classId": "diagnostic-documentation",
+    "stageStatus": "evidence_only_not_production"
+  },
+  "currentEvidenceJson": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/IMP3_NM01_EVIDENCE_ISOLATION_AUTHORITY_V2_0.json",
+    "sha256": "4dbca9e4bf72579158a8989704e2d5c4bb3aea6c2b21ac51b4ce09d6d4f5db84"
+  },
+  "currentAuthority": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/IMP3_NM01_PHYSICAL_TARGET_IDENTITY_AUTHORITY_V3_0.json"
+  },
+  "findings": {
+    "IMP3_NM01": "CORRECTED_ATTEMPT3_AWAITING_FRESH_INDEPENDENT_REREVIEW",
+    "H01": "CLOSED_AFTER_ATTEMPT3_NON_REGRESSION",
+    "H02": "CLOSED_AFTER_ATTEMPT1_NON_REGRESSION"
+  },
+  "preservedClosures": [
+    "DB",
+    "M02",
+    "NM01",
+    "M01",
+    "M03",
+    "M05",
+    "L01",
+    "L02",
+    "Provider",
+    "Prompt",
+    "security",
+    "public",
+    "SEO",
+    "URL",
+    "Schema",
+    "Migration",
+    "package-lock",
+    "Phase-B-boundary"
+  ],
+  "manifest": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/SHA256SUMS.txt",
+    "entryCount": 22
+  },
+  "threeStrikePolicy": "if Fresh independent re-review keeps the same IMP3-NM01 root OPEN, THREE-STRIKE is triggered and ordinary attempt 4 is prohibited",
+  "nextGate": "Fresh independent implementation re-review using REMEDIATION_FINDINGS_REVIEW first, then FULL_REVIEW_NECESSITY with rationale"
+}

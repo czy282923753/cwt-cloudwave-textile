@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "baseCandidate": "d60d5cc2398eeeb06263c58924896250f12f3756",
+  "executableTreeSeal": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
+  "allowedProductCodePaths": [
+    "scripts/verify-ai-architecture.ts"
+  ],
+  "actualProductCodePaths": [
+    "scripts/verify-ai-architecture.ts"
+  ],
+  "fixtureChanges": [],
+  "runtimeSourceChanges": [],
+  "postSealExecutableChanges": [],
+  "importedControllingFailArtifacts": {
+    "reportCount": 1,
+    "evidenceFileCount": 7,
+    "byteIdentical": true,
+    "manifestSha256": "471f2920733ca0035c3a04099ed76f8968ef900e871a753f420e2e94fca0c424"
+  },
+  "frozenBoundariesChanged": {
+    "src": false,
+    "database": false,
+    "schemaMigration": false,
+    "config": false,
+    "packageLock": false,
+    "prompt": false,
+    "provider": false,
+    "publicSeoUrl": false,
+    "phaseCDE": false
+  },
+  "successorPolicy": "after the executable seal, only regular non-executable docs, JSON, text, proof and manifest paths"
+}
