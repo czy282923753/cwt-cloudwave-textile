@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "runtime": { "node": "24.14.0", "typescript": "5.9.3", "next": "16.2.12" },
+  "beforeCorrection": {
+    "candidate": "10de3daf142561247e141c140b10966954f8dc9e",
+    "attachedGate": "FAIL unresolved_static_edge",
+    "detachedGate": "FAIL unresolved_static_edge",
+    "witness": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts"
+  },
+  "correctedExecutableTree": {
+    "sealCommit": "87966f118766b60aeacc51ceca61c68ea57a62cf",
+    "sealTree": "c39f57beb85a47decd5a73947270e4c28269b49b",
+    "candidateCountBeforeProofSuccessors": 649,
+    "candidateCountWithFiveProofs": 654,
+    "executableCount": 477,
+    "executableTreeSha256": "8c9579d32caa482687253235d8f2d56831a62a872c2ac26370cafc4bd0331f5f",
+    "currentGraphSha256": "fe82232ac33328b974bcbcb95b6930b0165dee4ee5238bb07107a125ea6e4e14",
+    "ordinaryUrlValues": 21,
+    "zeroClass": 0,
+    "ambiguous": 0,
+    "graphFaultAndTopologyCases": 69,
+    "positiveCases": 10,
+    "inheritedLifecycleMutations": 28,
+    "finalTreeClosureMutations": 6,
+    "attachedBoundGate": "PASS"
+  },
+  "fiveProofArtifacts": {
+    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "66ed4c7d4b678f80a6623e356a9827e507edb358377f2db47a6a31ed016b5833",
+    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "26f8dad4ee597365bf4316d1b7a7ae5f5b0898ceb9d6f187444c4a0ad2e09150",
+    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "1efda1c1925355511f4cc95b693a833b650386f75848a8f5fc4007c6a8640a8a",
+    "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "8d3ad87653c64e927c848b4e5431fc19220234561117892fe74ba17bb65f3053",
+    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "4e14199e56eb813ab4275347fe4b174dd49d45c9596f203246aace5e45a96da1"
+  },
+  "verification": {
+    "allAi": "14 files / 163 tests PASS",
+    "focusedH02DbPublic": "5 files / 16 tests PASS",
+    "phase1bMigrationAndSchema": "2 files / 2 tests PASS",
+    "foundationCandidateVerifier": "PASS",
+    "independentSchemaMapping": "ai_model_config 21/21 and ai_runs 96/96 exact Design/snapshot/Drizzle/Migration order PASS",
+    "promptBundle": "PASS",
+    "promptHistory": "PASS 9aa9735..87966f1",
+    "productionPromptAndProvider": "exact-empty / exact-empty",
+    "lint": "PASS --max-warnings=0",
+    "strictTypecheck": "PASS",
+    "officialNetworkDeniedTypegen": "PASS; next-env.d.ts 247 bytes SHA-256 7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651",
+    "isolatedNetworkDeniedWebpackBundle": "PASS; 51 server files / 16 client chunks; marker and positive leak controls PASS",
+    "postProofExecutableMutation": "FAIL CLOSED post-proof executable candidate drift"
+  },
+  "scope": {
+    "srcRuntimeBusinessChanges": 0,
+    "schemaMigrationConfigPackageLockChanges": 0,
+    "publicSeoUrlProductChanges": 0,
+    "providerNetworkCredentialActions": 0,
+    "installMaterializationDownloadRegistryActions": 0,
+    "fullUnrelatedSuite": "not run; checker/evidence-only causal scope was covered by all AI and affected focused gates",
+    "unchangedOfflineDebt": "Google Font fetch debt remains unchanged; no unrelated full public build claim"
+  },
+  "processExceptions": [
+    "An initial Turbopack fixture build rejected the intentionally external temporary dependency symlink; the required isolated webpack fixture then passed under network denial.",
+    "An initial Vitest reporter option was invalid for the pinned version; the authoritative default-reporter run passed 163/163.",
+    "scripts/verify-database.ts did not yield a usable seeded-database completion capture; the required 0020 foundation verifier, two integration suites, and independent 21/21 plus 96/96 mapping all passed."
+  ]
+}

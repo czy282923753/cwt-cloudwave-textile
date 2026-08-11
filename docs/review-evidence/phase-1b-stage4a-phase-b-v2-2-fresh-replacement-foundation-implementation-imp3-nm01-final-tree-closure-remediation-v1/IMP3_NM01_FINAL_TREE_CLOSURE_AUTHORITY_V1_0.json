@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "authorityId": "cwt.phase1b.stage4a.phaseb.imp3-nm01.final-executable-tree-closure-remediation.v1",
+  "status": "IMP3_NM01_ATTEMPT1_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED",
+  "acceptanceClaim": false,
+  "selfApproval": false,
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-imp3-nm01-final-tree-closure-remediation-v1",
+    "finalHeadDerivedAtVerification": true
+  },
+  "failedCandidate": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-h01-m04-final-remediation-v3",
+    "head": "10de3daf142561247e141c140b10966954f8dc9e",
+    "codeHead": "df3369e5459c9eaf45186ee3140d94495254bf22",
+    "finalTree": "f44f1822165a3688b926abf36e6c3c2bce32cb55"
+  },
+  "executableTreeSeal": {
+    "commit": "87966f118766b60aeacc51ceca61c68ea57a62cf",
+    "parent": "22bc452526513a8e47da6689f0012f45f0d0c0af",
+    "tree": "c39f57beb85a47decd5a73947270e4c28269b49b",
+    "checkerSha256": "b9e7a91ea0f7c95cd9aa5b1f52b87102734ab12d746b0dd8beb6c49394d3a09f",
+    "verifierSha256": "114c4fd66a6296498cf4d1dc4fe8ed85b2676001c1082b1759f182461f0abd40",
+    "executableTreeSha256": "8c9579d32caa482687253235d8f2d56831a62a872c2ac26370cafc4bd0331f5f",
+    "successorPolicy": "only non-executable docs, JSON, text and manifest paths"
+  },
+  "controllingReview": {
+    "reportPath": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_H01_M04_FINAL_REMEDIATION_V3_INDEPENDENT_REREVIEW_V1_0.md",
+    "reportSha256": "b00c5947fee6c75c4312024524005ed8a199d648da60fa22ed38f743b77fd9b6",
+    "manifestPath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/SHA256SUMS.txt",
+    "manifestSha256": "45c4a933dcea1fb086a6451d55f170403d327b2712a262df9ed08954b079eb68",
+    "manifestCount": "6/6"
+  },
+  "immutableHistoricalProbe": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts",
+    "sha256": "709129a2eafc4ed284427e1ec0f84f20ee264f13b8993a5dbdd57cefb944bc68",
+    "classId": "diagnostic-documentation",
+    "stageStatus": "evidence_only_not_production",
+    "currentExecutableEdge": false,
+    "productionAuthority": false
+  },
+  "findings": {
+    "IMP3_NM01": "CORRECTED_ATTEMPT1_AWAITING_FRESH_INDEPENDENT_REREVIEW",
+    "H01": "CLOSED_AFTER_ATTEMPT3_NON_REGRESSION",
+    "H02": "CLOSED_AFTER_ATTEMPT1_NON_REGRESSION"
+  },
+  "preservedClosures": ["DB", "M02", "NM01", "M01", "M03", "M05", "L01", "L02", "Provider", "Prompt", "security", "public", "SEO", "URL", "Schema", "Migration", "package-lock", "Phase-B-boundary"],
+  "manifest": { "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/SHA256SUMS.txt", "entryCount": 20 },
+  "nextGate": "Fresh independent implementation re-review using REMEDIATION_FINDINGS_REVIEW first, then FULL_REVIEW_NECESSITY"
+}

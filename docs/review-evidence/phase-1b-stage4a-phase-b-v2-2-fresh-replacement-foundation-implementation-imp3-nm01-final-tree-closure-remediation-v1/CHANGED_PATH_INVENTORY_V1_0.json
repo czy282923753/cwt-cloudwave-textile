@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "diffBase": "10de3daf142561247e141c140b10966954f8dc9e",
+  "executableTreeSeal": "87966f118766b60aeacc51ceca61c68ea57a62cf",
+  "aggregateDomain": "status-tab-path-tab-sha256-lf in Git name-status order",
+  "aggregateSha256": "afadf78ae2e91af3853d26db82f6713b7aef11bce14ee5503e5e1a5fa51749b6",
+  "deletedPaths": [],
+  "paths": [
+    { "status": "A", "path": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_H01_M04_FINAL_REMEDIATION_V3_INDEPENDENT_REREVIEW_V1_0.md", "sha256": "b00c5947fee6c75c4312024524005ed8a199d648da60fa22ed38f743b77fd9b6" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/IDENTITY_SCOPE_AND_PROCESS_CAPTURE_V1_0.txt", "sha256": "cd36293b9f3e5159bb425b9f507e37141b18ccf8372af4ceb8ba541675a153f2" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md", "sha256": "6b3f351e35f5f21df5a86fe8360815d1e31cfa4e2f2b88f60b540b00c1df5007" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/REVIEWER_FRESH_VERIFICATION_OUTPUT_V1_0.txt", "sha256": "a9f56046329069337e5af439081d8a72e56d786383d109c6bf716c7afbfaf656" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/REVIEWER_H01_FINAL_FRESH_CHALLENGE_MATRIX_V1_0.md", "sha256": "2c0d7641d5a1412cecbe3b4187eb820c78083e94e69c50cea9bfc44ae9e227bc" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/REVIEWER_H02_FRESH_AUTHORIZATION_MATRIX_V1_0.test.ts", "sha256": "6c1921ac09a3093b1283d95762dc769c74b532d2e7c416d8048782224f45f472" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/SHA256SUMS.txt", "sha256": "45c4a933dcea1fb086a6451d55f170403d327b2712a262df9ed08954b079eb68" },
+    { "status": "A", "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/VERIFY_IMP3_NM01_FINAL_TREE_CLOSURE_REMEDIATION_V1_0.mjs", "sha256": "114c4fd66a6296498cf4d1dc4fe8ed85b2676001c1082b1759f182461f0abd40" },
+    { "status": "M", "path": "scripts/verify-ai-architecture.ts", "sha256": "b9e7a91ea0f7c95cd9aa5b1f52b87102734ab12d746b0dd8beb6c49394d3a09f" }
+  ]
+}
