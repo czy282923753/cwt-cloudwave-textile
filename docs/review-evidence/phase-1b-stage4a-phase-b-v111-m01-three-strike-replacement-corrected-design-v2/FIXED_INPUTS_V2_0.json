@@ -1,0 +1,100 @@
+{
+  "acceptedAnalysis": {
+    "commit": "c103682e63e9a2cb62b6581d7d62773ddcab1a99",
+    "manifestEntries": 12,
+    "manifestSha256": "8ec01bd6b0263e2cd71cb5c765f9ba535fac02ad052be5ced291613232fef7a0",
+    "minimalReproCaptureSha256": "9ae5ad930221858d7f832b9c856cbc0215560b56d23176f374ae28f9bf9cd75c",
+    "packageVerifierCaptureSha256": "6fe79f0a6192a975e489ad5dc80decaee531360eb54d8d135807618f7802ba99",
+    "planSha256": "32e4b54f1cd6aeb1d16a9ae779067368e880c43c84353da3b71d4956a65393c7",
+    "rootCauseAnalysisSha256": "ef0ca1952b2e218ad3e905132c928e6c58a81c053163b7d955e52d41998b5122",
+    "selectedOption": "A-SEALED-STRUCTURED-ROOT-PLUS-EXTERNAL-CONSUMED-REVIEW-ENVELOPE"
+  },
+  "acceptedV110": {
+    "commit": "234cd90211c45c6cc86c988d02c8d5dc2f7858d2",
+    "designPath": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_CORRECTED_EXACT_DESIGN_V1_10.md",
+    "designSha256": "039c26e3026bddff4b398fd516005cb2e2a664e7fd914be6cf31ff8ed1f0ea22",
+    "independentPassPath": "docs/PHASE_1B_STAGE4A_PHASE_B_INDEPENDENT_CORRECTED_EXACT_DESIGN_REVIEW_V1_10.md",
+    "machineProfilePath": "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/V18_M01_M03_ATTEMPT_2_MACHINE_PROFILE_V2_0.json",
+    "machineProfileSha256": "8f1c7c9c023ed98477cfe9420ceac3648e3e20d2e59032493a1d9f8db15aba83",
+    "reviewDisposition": "PASS_0_BLOCKER_0_HIGH_0_MEDIUM_0_LOW"
+  },
+  "checkpoint": {
+    "branch": "codex/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-design-v1",
+    "checkpointRef": "codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-replacement-design-pre-l3-v1",
+    "checkpointTarget": "c103682e63e9a2cb62b6581d7d62773ddcab1a99",
+    "recordCommit": "3aaad46b1627191a18fb82763a9627c1e2292d73",
+    "recordParent": "c103682e63e9a2cb62b6581d7d62773ddcab1a99",
+    "recordPath": "docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_THREE_STRIKE_REPLACEMENT_DESIGN_PRE_L3_CHECKPOINT_V1_0.md",
+    "recordSha256": "8fad6235143a9550d8992d2db7462c9f6dcd57362e9db67db712c80aa02c72d7",
+    "recordTree": "6bb0e810b81e1c8cae3bf537fe4023f105f951a5",
+    "worktree": "/Users/calvin/.codex/worktrees/c883/CWT（CloudWave Textile）项目"
+  },
+  "frozen": {
+    "acceptedV110": "234cd90211c45c6cc86c988d02c8d5dc2f7858d2",
+    "fullRollback": "3f475e13d73d9d68a4dfb9a040941c57f1ee92e6",
+    "implementationEntryCheckpoint": "0793948ad115c19f852a9590387ed9ba06738a39",
+    "tagName": "phase-1b-stage3-approved-2026-08-09",
+    "tagObject": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "tagPeeledCommit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4"
+  },
+  "historicalFailedAttempts": [
+    {
+      "attempt": 1,
+      "commit": "901edf7b8207afb39970e8507c86d53668c27196",
+      "nonExecutable": true,
+      "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-12"
+    },
+    {
+      "attempt": 2,
+      "commit": "de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d",
+      "nonExecutable": true,
+      "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-13"
+    },
+    {
+      "attempt": 3,
+      "commit": "aac9169c507f0976a492d61a30d415a27c95e4b1",
+      "nonExecutable": true,
+      "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-14"
+    }
+  ],
+  "packageInventory": [
+    "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_THREE_STRIKE_REPLACEMENT_CORRECTED_EXACT_DESIGN_V2_0.md",
+    "docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_THREE_STRIKE_REPLACEMENT_DESIGN_DERIVATION_AUDIT_V1_0.md",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/FIXED_INPUTS_V2_0.json",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/HISTORICAL_FIXED_MANIFESTS_OUTPUT_V2_0.txt",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/LEGACY_MECHANISM_ABSENCE_OUTPUT_V2_0.txt",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/PACKAGE_ONLY_VERIFICATION_OUTPUT_V2_0.txt",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_0.json",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/README.md",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/SCHEMA_PROPERTY_MUTATION_OUTPUT_V2_0.txt",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_0.json",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_0.json",
+    "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/VERIFY_V111_M01_REPLACEMENT_CORRECTED_DESIGN_V2_0.mjs"
+  ],
+  "process": {
+    "dependencyInstalls": 0,
+    "externalEnvelopeCandidateCommitted": false,
+    "networkCalls": 0,
+    "node": "24.14.0",
+    "packageMaterializations": 0,
+    "providerCalls": 0,
+    "secondSealManifest": false
+  },
+  "prohibitedActions": [
+    "self-approval",
+    "ordinary Attempt 4",
+    "Product implementation",
+    "merge or cherry-pick failed authority mechanisms",
+    "Push or Deploy",
+    "Publish or Index",
+    "formal import",
+    "Phase C/D/E",
+    "starting independent review or implementation"
+  ],
+  "technicalSuccessors": {
+    "m02A08Sha256": "3a42cb453b12406bd48c28722bdc6192ca832bc014fd0ffe095d62bb69a46b8e",
+    "m03V22Sha256": "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173",
+    "m04V31Sha256": "5d353ab7f53831d50cdc2d3d0c3a9b67f246866ab3168f039cb18330af4c7356",
+    "status": "current-only-through-successor-root-and-future-fresh-pass"
+  }
+}
