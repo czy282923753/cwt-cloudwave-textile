@@ -625,7 +625,7 @@
     "deniedProductionCapabilityOrigins": {
       "ambientAndComputed": [
         "capture, alias, destructuring, computed access or any direct named member of globalThis except exact direct globalThis.cwtDatabaseConnection access in src/db/client.ts",
-        "within protected-ai and phase-b-outer-composition Production classes, TypeChecker-resolved ambient runtime capabilities fetch, WebSocket, EventSource and XMLHttpRequest plus ambient capability roots global, window, self and navigator at every value-reference origin; repository-local declarations and explicit import aliases with the same identifier text are not ambient origins",
+        "within protected-ai and phase-b-outer-composition Production classes, TypeChecker-resolved ambient runtime capabilities fetch, WebSocket, EventSource and XMLHttpRequest plus ambient capability roots global, window, self and navigator at every value-reference origin; only declaration sets containing an actual runtime-emitting local binding or value import are safe shadows, while declare, ambient, declaration-file, global-augmentation, type-only and overload-only declarations fail closed",
         "non-literal element access on globalThis, process, import.meta or another ambient capability root",
         "any literal or statically folded computed property equal to require, createRequire, module, exports, getBuiltinModule, binding, _linkedBinding, mainModule or constructor",
         "import.meta outside the exact static-resource base import.meta.url",
@@ -1215,7 +1215,7 @@
       "literal relative global URL resource with exact unaliased import.meta.url and canonical permitted target",
       "21 sealed Production global URL-value constructors with non-import.meta.url base; zero resource edges and no Product/public/SEO/URL edits",
       "safe shadowed/local URL construction without import.meta or another denied origin; zero resource edges",
-      "repository-local declarations and explicit local imports named fetch or WebSocket remain ordinary local bindings rather than ambient runtime capability origins",
+      "runtime-emitting repository-local variables, parameters, function/class implementations and explicit value imports named fetch or WebSocket remain ordinary local bindings rather than ambient runtime capability origins; non-emitting declarations do not create a safe shadow",
       "safe nested class/decorator/static-block/IIFE and plain-data reflection forms"
     ],
     "profileId": "cwt.phase1b.stage4a.phaseb.m04-static-capability-boundary.v3_1_candidate",
@@ -1249,7 +1249,7 @@
         "/implementationAllowlist",
         "/impactAssessment"
       ],
-      "sha256": "84dc5dd7b95e391524a7dc657a9473d24afeb8ae6f82e2067dabc2ffa410c869"
+      "sha256": "ef984a8366dbf837d941694fe79e03638d8c597b9a91e0daf761d5ae2fc42985"
     },
     "profileVersion": "3.1.0-candidate",
     "proofArtifactContracts": {
@@ -1414,7 +1414,7 @@
       "computed/globalThis/Reflect NewExpression capability recovery",
       "dynamic import, ImportEquals, require/module/exports/createRequire/getBuiltinModule",
       "eval/Function-family/node:vm/reflection/Proxy/constructor origin bypass",
-      "TypeChecker-resolved bare ambient fetch/WebSocket and capture/bind/call/apply/class/static/container/IIFE origin forms, with repository-local and imported shadow positives",
+      "TypeChecker-resolved bare ambient fetch/WebSocket and capture/bind/call/apply/class/static/container/IIFE origin forms, including non-emitting declare/ambient/declaration-file/global-augmentation/type-only/overload-only disguises, with runtime-emitting local, parameter, function, class, overload-implementation and value-import shadow positives",
       "unresolved static edge, forbidden composition edge and public/client reachability",
       "safe ordinary URL and nested positive controls"
     ],
@@ -1543,8 +1543,8 @@
       },
       "urlBindingResolution": {
         "authority": "the one installed TypeScript 5.9.3 Program and TypeChecker for the complete Production file set",
-        "globalUrl": "Identifier URL resolves to the ambient global URL constructor symbol at both site and global scope and has no repository declaration",
-        "shadowedOrLocalUrl": "Identifier URL resolves to an import, parameter, variable, function, class, namespace, merged declaration or any repository-local declaration",
+        "globalUrl": "Identifier URL resolves to a declaration set with no runtime-emitting binding, including the ambient global constructor and any non-emitting repository declaration disguise",
+        "shadowedOrLocalUrl": "Identifier URL resolves to a declaration set containing an actual runtime-emitting value import, parameter, variable, function, class, namespace or merged implementation",
         "textNameAloneIsNeverGlobalAuthority": true,
         "unresolvedOrAmbiguous": "fail_closed_bind_failed"
       }
@@ -1943,6 +1943,104 @@
       "expectedNodeKind": "Identifier"
     },
     {
+      "id": "runtime-origin-non-emitting-combined-reviewer-witness",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare function fetch(url: string): Promise<unknown>;\ndeclare class WebSocket { constructor(url: string); }\ndeclare const window: { fetch: typeof fetch };\nvoid fetch(\"https://api.deepseek.com\");\nvoid new WebSocket(\"wss://api.deepseek.com\");\nvoid window.fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-declare-var",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare var fetch: (url: string) => Promise<unknown>;\nvoid fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-declare-let",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare let fetch: (url: string) => Promise<unknown>;\nvoid fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-declare-const",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare const fetch: (url: string) => Promise<unknown>;\nvoid fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-declare-function",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare function fetch(url: string): Promise<unknown>;\nvoid fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-declare-class",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare class WebSocket { constructor(url: string); }\nvoid new WebSocket(\"wss://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-global-augmentation",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "export {};\ndeclare global { function fetch(url: string): Promise<unknown>; }\nvoid fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-ambient-namespace-property",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare namespace window { function fetch(url: string): Promise<unknown>; }\nvoid window.fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-type-only-import",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "import type { SafeAiError as fetch } from \"@/ai/errors\";\nvoid fetch;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-property-container",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare const fetch: (url: string) => Promise<unknown>;\nconst container = { fetch };\nvoid container.fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-bind",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare function fetch(url: string): Promise<unknown>;\nconst request = fetch.bind(undefined);\nvoid request;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-call",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare function fetch(url: string): Promise<unknown>;\nvoid fetch.call(undefined, \"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-apply",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare function fetch(url: string): Promise<unknown>;\nvoid fetch.apply(undefined, [\"https://api.deepseek.com\"]);\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "runtime-origin-non-emitting-iife",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "declare function fetch(url: string): Promise<unknown>;\n((request: typeof fetch) => void request)(fetch);\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
       "id": "computed-global-loader",
       "sourcePath": "src/app/page.tsx",
       "source": "globalThis[\"require\"](\"@/public-site/data\");\n",
@@ -2088,6 +2186,27 @@
       "id": "repository-imported-ambient-name-shadows",
       "sourcePath": "src/ai/canonical-json.ts",
       "source": "import { aiFailure as fetch, aiSuccess as WebSocket } from \"@/ai/errors\";\nvoid fetch;\nvoid WebSocket;\n",
+      "ordinaryGlobalUrlValues": 0,
+      "resourceEdges": 0
+    },
+    {
+      "id": "runtime-emitting-parameter-shadow",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "function invoke(fetch: (url: string) => string): string {\n  const container = { fetch };\n  return container.fetch(\"local\");\n}\nvoid invoke((url) => url);\n",
+      "ordinaryGlobalUrlValues": 0,
+      "resourceEdges": 0
+    },
+    {
+      "id": "runtime-emitting-function-shadow",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "function fetch(url: string): string { return url; }\nvoid fetch(\"local\");\n",
+      "ordinaryGlobalUrlValues": 0,
+      "resourceEdges": 0
+    },
+    {
+      "id": "runtime-emitting-overload-implementation-shadow",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "function fetch(url: URL): string;\nfunction fetch(url: string): string;\nfunction fetch(url: URL | string): string { return String(url); }\nvoid fetch(\"local\");\n",
       "ordinaryGlobalUrlValues": 0,
       "resourceEdges": 0
     }

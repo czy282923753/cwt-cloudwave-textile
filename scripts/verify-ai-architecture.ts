@@ -16,8 +16,8 @@ import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.v3_1.json";
-const expectedProfileFileHash = "766c10d8170276f4eaf51f3609ae02b9cf8f31776dc65634a9e4c4f1a36066f4";
-const expectedProfileIntegrityHash = "84dc5dd7b95e391524a7dc657a9473d24afeb8ae6f82e2067dabc2ffa410c869";
+const expectedProfileFileHash = "3a5ad42377740ee9072900b6b050ca4ec61ebba716a2238a41f963a63c6b7d45";
+const expectedProfileIntegrityHash = "ef984a8366dbf837d941694fe79e03638d8c597b9a91e0daf761d5ae2fc42985";
 const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -746,15 +746,65 @@ function exactImportMetaUrl(expression: ts.Expression): ts.MetaProperty | undefi
   return expression.expression;
 }
 
-function repositoryDeclaration(symbol: ts.Symbol): boolean {
-  return (symbol.declarations ?? []).some((declaration) => {
-    const filename = realpathOrSelf(declaration.getSourceFile().fileName);
-    return filename === repositoryRoot || filename.startsWith(`${repositoryRoot}${sep}`);
-  });
-}
-
 function realpathOrSelf(path: string): string {
   return existsSync(path) ? realpathSync(path) : path;
+}
+
+function declarationIsInsideRepository(declaration: ts.Declaration): boolean {
+  const filename = realpathOrSelf(declaration.getSourceFile().fileName);
+  return filename === repositoryRoot || filename.startsWith(`${repositoryRoot}${sep}`);
+}
+
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
+  return ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) === true;
+}
+
+function declarationIsAmbientOrErased(declaration: ts.Declaration): boolean {
+  if (declaration.getSourceFile().isDeclarationFile) return true;
+  let current: ts.Node | undefined = declaration;
+  while (current !== undefined && !ts.isSourceFile(current)) {
+    if ((current.flags & ts.NodeFlags.GlobalAugmentation) !== 0 ||
+      (ts.isModuleDeclaration(current) && ts.isStringLiteral(current.name)) ||
+      hasModifier(current, ts.SyntaxKind.DeclareKeyword)) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function valueImportDeclarationEmitsBinding(declaration: ts.Declaration): boolean {
+  if (ts.isImportClause(declaration)) return !declaration.isTypeOnly;
+  if (ts.isNamespaceImport(declaration)) {
+    return !declaration.parent.isTypeOnly;
+  }
+  if (ts.isImportSpecifier(declaration)) {
+    return !declaration.isTypeOnly && !declaration.parent.parent.parent.importClause?.isTypeOnly;
+  }
+  if (ts.isImportEqualsDeclaration(declaration)) return !declaration.isTypeOnly;
+  return false;
+}
+
+function declarationEmitsRuntimeBinding(declaration: ts.Declaration): boolean {
+  if (declarationIsAmbientOrErased(declaration)) return false;
+  if (ts.isImportClause(declaration) || ts.isNamespaceImport(declaration) ||
+    ts.isImportSpecifier(declaration) || ts.isImportEqualsDeclaration(declaration)) {
+    return valueImportDeclarationEmitsBinding(declaration);
+  }
+  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration) ||
+    ts.isGetAccessorDeclaration(declaration) || ts.isSetAccessorDeclaration(declaration)) {
+    return declaration.body !== undefined;
+  }
+  if (ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration) ||
+    ts.isFunctionExpression(declaration) || ts.isArrowFunction(declaration) ||
+    ts.isVariableDeclaration(declaration) || ts.isParameter(declaration) ||
+    ts.isBindingElement(declaration)) return true;
+  if (ts.isEnumDeclaration(declaration)) {
+    return !hasModifier(declaration, ts.SyntaxKind.ConstKeyword);
+  }
+  return ts.isModuleDeclaration(declaration) && declaration.body !== undefined;
+}
+
+function symbolHasRuntimeEmittingBinding(symbol: ts.Symbol): boolean {
+  return (symbol.declarations ?? []).some(declarationEmitsRuntimeBinding);
 }
 
 function resolvedGlobalUrl(identifier: ts.Identifier, checker: ts.TypeChecker): boolean {
@@ -765,7 +815,7 @@ function resolvedGlobalUrl(identifier: ts.Identifier, checker: ts.TypeChecker): 
     position: identifier.getStart(),
     reason: "global_url_binding_unresolved",
   }));
-  return !repositoryDeclaration(symbol);
+  return !symbolHasRuntimeEmittingBinding(symbol);
 }
 
 const forbiddenAmbientRuntimeCapabilityNames = new Set([
@@ -800,18 +850,22 @@ function identifierIsRuntimeValueReference(identifier: ts.Identifier): boolean {
 function ambientRuntimeCapabilityOrigin(
   identifier: ts.Identifier,
   checker: ts.TypeChecker,
-): "typescript_resolved_ambient_global" | "unresolved_runtime_capability_binding" | undefined {
+): "typescript_resolved_ambient_global" | "typescript_resolved_non_emitting_repository_declaration" |
+  "unresolved_runtime_capability_binding" | undefined {
   if (!forbiddenAmbientRuntimeCapabilityNames.has(identifier.text) ||
     !identifierIsRuntimeValueReference(identifier)) return undefined;
   const symbol = ts.isShorthandPropertyAssignment(identifier.parent)
     ? checker.getShorthandAssignmentValueSymbol(identifier.parent)
     : checker.getSymbolAtLocation(identifier);
   if (symbol === undefined) return "unresolved_runtime_capability_binding";
-  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0 || repositoryDeclaration(symbol)) return undefined;
+  if (symbolHasRuntimeEmittingBinding(symbol)) return undefined;
   const declarations = symbol.declarations ?? [];
+  if (declarations.some(declarationIsInsideRepository)) {
+    return "typescript_resolved_non_emitting_repository_declaration";
+  }
   return declarations.length > 0 && declarations.every((declaration) => declaration.getSourceFile().isDeclarationFile)
     ? "typescript_resolved_ambient_global"
-    : undefined;
+    : "unresolved_runtime_capability_binding";
 }
 
 function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
@@ -1581,6 +1635,15 @@ for (const fault of graphFaultCases) {
     !observed.detail.includes(`"nodeKind":"${fault.expectedNodeKind}"`) ||
     !observed.detail.includes('"reason":')) {
     fail(`graph fault ${fault.id} lacks exact path/node/reason diagnostics`);
+  }
+  const exactNonEmittingOrigin =
+    observed.detail.includes('"origin":"typescript_resolved_non_emitting_repository_declaration"') ||
+    observed.detail.includes('"origin":"typescript_resolved_ambient_global"');
+  if (fault.id.startsWith("runtime-origin-non-emitting-") &&
+    (!observed.detail.includes('"rule":"protected-phase-b-runtime-global-capability-origin-denied"') ||
+      !exactNonEmittingOrigin || !observed.detail.includes('"capability":') ||
+      !observed.detail.includes('"ast":'))) {
+    fail(`graph fault ${fault.id} lacks exact rule/origin/capability/AST diagnostics: ${observed.detail}`);
   }
   graphFaultResults.push({ id: fault.id, code: observed.code, detail: observed.detail });
 }
