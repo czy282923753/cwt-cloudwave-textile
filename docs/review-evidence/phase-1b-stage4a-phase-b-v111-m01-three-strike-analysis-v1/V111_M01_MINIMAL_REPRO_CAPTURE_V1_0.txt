@@ -1,0 +1,101 @@
+{
+  "baseline": {
+    "commit": "aac9169c507f0976a492d61a30d415a27c95e4b1",
+    "parent": "089a49367999c7a30e807320257d40fdbabca835",
+    "tree": "0057dbb7aef80f8d54649405d60a16baae94b08e",
+    "cleanDetachedExactSnapshot": true,
+    "designSha256": "663e42ea2591702ef13ef6848fe176f367116f3b7483f5e77ade5fb7ee29cd08",
+    "subjectFileSha256": "a45ff5b825728acbac682b1ad93423693f13fdc5e70f5e7534da3c932c26a5b8",
+    "identityFileSha256": "ccd4a5b0537b64fb81184ddbd901ecb38f55b8688894b5c877df20d38d2e43f6",
+    "verifierSha256": "1c81c96971b88b144d2818d92b0652cf22a6738be2e53056877618dda2537694"
+  },
+  "commonMark": {
+    "boundedStructuralRule": "CommonMark fenced blocks relevant here: opening and closing indentation 0..3 spaces; closing delimiter length >= opener; backtick and tilde fences",
+    "shippedFunctionSourceSha256": "17ccbe7fc0fb68ea544dd6d0006125e8d665f0a2b29367092c7416511a41ae3a",
+    "witnesses": [
+      {
+        "id": "one-space-indented-exact-machine-view",
+        "commonMarkExactMachineViews": 2,
+        "commonMarkReservedDeclarations": 0,
+        "requiredContractResult": "reject",
+        "shippedGateAccepted": true
+      },
+      {
+        "id": "three-space-indented-exact-machine-view",
+        "commonMarkExactMachineViews": 2,
+        "commonMarkReservedDeclarations": 0,
+        "requiredContractResult": "reject",
+        "shippedGateAccepted": true
+      },
+      {
+        "id": "longer-valid-closing-fence",
+        "commonMarkExactMachineViews": 2,
+        "commonMarkReservedDeclarations": 0,
+        "requiredContractResult": "reject",
+        "shippedGateAccepted": true
+      },
+      {
+        "id": "indented-tilde-exact-machine-view",
+        "commonMarkExactMachineViews": 2,
+        "commonMarkReservedDeclarations": 0,
+        "requiredContractResult": "reject",
+        "shippedGateAccepted": true
+      },
+      {
+        "id": "indented-reserved-second-seal-json",
+        "commonMarkExactMachineViews": 1,
+        "commonMarkReservedDeclarations": 1,
+        "requiredContractResult": "reject",
+        "shippedGateAccepted": true
+      }
+    ]
+  },
+  "gitAndReviewIdentity": {
+    "actualVerifierExit": 0,
+    "actualVerifierOutputSha256": "6bb75954946d411fc1fc85923a2fac08bfbc0c37cd0c0dd763b1bd719fcc9f17",
+    "argsExpectedRef": "refs/heads/codex/v111-m01-repro-actual-review",
+    "sealedCandidateRef": "refs/heads/codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-14",
+    "envelopeExpectedRef": "refs/heads/codex/v111-m01-repro-envelope-copy",
+    "allThreeRefCopiesDiffer": true,
+    "observedGit": {
+      "ref": "refs/heads/codex/v111-m01-repro-actual-review",
+      "head": "87c22c5cd34efdeeac6c2e2d7866f788f55ec31e",
+      "tree": "96c216719661d9274692d64c4e44fbd4a719938d",
+      "parent": "aac9169c507f0976a492d61a30d415a27c95e4b1",
+      "clean": true
+    },
+    "mutatedEnvelope": {
+      "commit": "0000000000000000000000000000000000000000",
+      "tree": "2222222222222222222222222222222222222222",
+      "parent": "1111111111111111111111111111111111111111",
+      "allGitFieldsMismatchObserved": true
+    },
+    "verifierReadsEnvelopeFilename": false,
+    "verifierHasEnvelopePathBinding": false,
+    "conclusion": "PASS proves the shipped verifier accepts divergent sealed-ref, args-ref, envelope-ref, HEAD/tree/parent and envelope authority hashes"
+  },
+  "renderedGateDrift": {
+    "section": "20.0.5",
+    "v113Manifest": {
+      "rendered": "d266152168236187f4038ee19d70dab341ef68cb5159681197f6287311376bc7",
+      "actual": "d2661521e510e4435e9b8244b4ac24618f1c1b9075442b164670e9a011eae34a",
+      "drift": true
+    },
+    "v113Seal": {
+      "rendered": "cb9577e525c8c343d4753fa3116a576998232f99b529f30114969afc68ed6e9b",
+      "actual": "cb9577e5fb74ab9d5524abc5fd6f1715b51cac895addd82aeaa242fe321a6af9",
+      "drift": true
+    }
+  },
+  "isolation": {
+    "dependencyInstallCalls": 0,
+    "networkCalls": 0,
+    "packageManagerCalls": 0,
+    "providerCalls": 0,
+    "sourceRepositoryStatusStable": true,
+    "checkpointRefUnchanged": true,
+    "disposableRepositoriesRemovedOnExit": true
+  },
+  "ok": true,
+  "rootDisposition": "all eight required witnesses are different manifestations of presentation-sensitive scanning plus an unclosed multi-copy identity graph"
+}

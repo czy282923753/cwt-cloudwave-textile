@@ -1,0 +1,204 @@
+{
+  "analysisBoundary": {
+    "allowedMutations": [
+      "docs/",
+      "docs/review-evidence/",
+      "disposable temporary repositories"
+    ],
+    "forbiddenActions": [
+      "ordinary Attempt 4",
+      "Corrected Design",
+      "implementation",
+      "dependency install or materialization",
+      "network or Provider access",
+      "merge or cherry-pick",
+      "Push or Deploy",
+      "Phase C/D/E",
+      "self-approval"
+    ],
+    "role": "Independent Technical Root-Cause Analyst",
+    "status": "three-strike-analysis-only"
+  },
+  "checkpoint": {
+    "acceptedV110": "234cd90211c45c6cc86c988d02c8d5dc2f7858d2",
+    "analysisBranch": "codex/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1",
+    "analysisCheckpointRef": "codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-pre-l3-v1",
+    "analysisCheckpointTarget": "0793948ad115c19f852a9590387ed9ba06738a39",
+    "fullImplementationRollback": "3f475e13d73d9d68a4dfb9a040941c57f1ee92e6",
+    "recordCommit": "c19e7163e9a02655461a07dce1ddb1099c6e55a6",
+    "recordPath": "docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_THREE_STRIKE_ANALYSIS_PRE_L3_CHECKPOINT_V1_0.md",
+    "recordSha256": "d8222dc354511b5dd259226647263e17287a8938f96bb6c2008036553961b558",
+    "sourceRef": "codex/checkpoint/phase-1b-stage4a-phase-b-implementation-attempt3-pre-l3-v1",
+    "targetParent": "234cd90211c45c6cc86c988d02c8d5dc2f7858d2",
+    "targetTree": "affecff8bc55e00d533f08e9d29d1449aa7993ca",
+    "worktree": "/Users/calvin/.codex/worktrees/e4be/CWT（CloudWave Textile）项目"
+  },
+  "dependencyInventory": {
+    "commonmarkParsersDeclared": [],
+    "commonmarkParsersResolved": [],
+    "node": "24.14.0",
+    "nodeProvidesCommonMarkAstParser": false,
+    "packageJsonSha256": "8fd1c992f765ee23472a2a850b219c7ff06eb0a3f39ce322c0de8e43d12f567f",
+    "packagesChecked": [
+      "commonmark",
+      "markdown-it",
+      "remark-parse",
+      "micromark",
+      "unified"
+    ],
+    "pnpmLockSha256": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb",
+    "typescript": "5.9.3"
+  },
+  "failedAttempts": [
+    {
+      "attempt": 1,
+      "candidateCommit": "901edf7b8207afb39970e8507c86d53668c27196",
+      "candidateParent": "2f0b179ac1b744e88bbf9e3c314a803c73478563",
+      "candidateRef": "codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-12",
+      "candidateTree": "2f7353f69a5a8d750d7f43d608fdfe8db731798a",
+      "controllingEvidenceSha256": "044736082dd4717c25d4fe63237e859c5dc4804b1df77cbbc8123b0000d986ae",
+      "controllingManifestSha256": "d3fb1baccdec0e165d5cc3c45797dc1ba02ee7056303c136835ca7cbf54e9eea",
+      "controllingReportSha256": "e8d1dd777802b441929776d201888e3f8c2ca0cfe068164444c552627cd42313",
+      "disposition": "FAIL / V111-M01 OPEN after correction attempt 1",
+      "witness": "standalone Design retained stale V3.0 proof names and V1.11 verifier/capture despite the V3.1 current profile"
+    },
+    {
+      "attempt": 2,
+      "candidateCommit": "de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d",
+      "candidateParent": "2f115e426efe7249449db446daf37ddc06160e6b",
+      "candidateRef": "codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-13",
+      "candidateTree": "9d84878f0070775f02b359ce2e2b5baf5f4cad41",
+      "controllingEvidenceSha256": "90df59221f693d2d775cf1434033877fc96037dd413f5c504e67aaba100212af",
+      "controllingManifestSha256": "e7079fa4b219ceae707ef8d587d0de4170f5d28e7d76c742b3018f44136a88a2",
+      "controllingReportSha256": "3058f126c8f2d7a2fc5f160e8686ee92b6b39761c32776a56da984b7caf85fe8",
+      "disposition": "FAIL / V111-M01 OPEN after correction attempt 2",
+      "witness": "exact literal/marker scanner accepted semantic Markdown/case/fence/marker variants and unbound bundle pointers; detached exact HEAD failed"
+    },
+    {
+      "attempt": 3,
+      "candidateCommit": "aac9169c507f0976a492d61a30d415a27c95e4b1",
+      "candidateParent": "089a49367999c7a30e807320257d40fdbabca835",
+      "candidateRef": "codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-14",
+      "candidateTree": "0057dbb7aef80f8d54649405d60a16baae94b08e",
+      "controllingEvidenceSha256": "eec29d671079d3585da022e3103270ba221bf602fec9a10e5c22532a2cf1809e",
+      "controllingManifestSha256": "b002f737ee67009ce2004aa926bade41ef3880dd443595d6bbf9c131a3543dc0",
+      "controllingReportSha256": "cfe1ab0c849b1466edcf6ffed3ffeef3fc181eb1a1c293480bfee96bc68a2f93",
+      "disposition": "FAIL / V111-M01 OPEN after final correction attempt 3 / THREE-STRIKE TRIGGERED",
+      "witness": "valid CommonMark declarations bypassed the regex; sealed ref, expectedRef and nominal review envelope were not cross-bound"
+    }
+  ],
+  "frozenTag": {
+    "name": "phase-1b-stage3-approved-2026-08-09",
+    "object": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "peeledCommit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4"
+  },
+  "processActions": {
+    "dependencyInstalls": 0,
+    "deploys": 0,
+    "merges": 0,
+    "networkCalls": 0,
+    "packageMaterializations": 0,
+    "providerCalls": 0,
+    "pushes": 0
+  },
+  "reviewerV114Control": {
+    "directory": "/Users/calvin/.codex/worktrees/2a07/CWT（CloudWave Textile）项目/docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-14",
+    "files": [
+      {
+        "path": "/Users/calvin/.codex/worktrees/2a07/CWT（CloudWave Textile）项目/docs/PHASE_1B_STAGE4A_PHASE_B_INDEPENDENT_CORRECTED_EXACT_DESIGN_REVIEW_V1_14.md",
+        "role": "report",
+        "sha256": "cfe1ab0c849b1466edcf6ffed3ffeef3fc181eb1a1c293480bfee96bc68a2f93"
+      },
+      {
+        "filename": "INDEPENDENT_CORRECTED_DESIGN_REVIEW_EVIDENCE_V1_14.md",
+        "role": "evidence",
+        "sha256": "eec29d671079d3585da022e3103270ba221bf602fec9a10e5c22532a2cf1809e"
+      },
+      {
+        "filename": "REVIEWER_V114_FRESH_CANONICAL_AUTHORITY_CHALLENGE_V1_0.mjs",
+        "role": "challenge",
+        "sha256": "ba96041980f7b58f18c4148b45afec3c7d199e9c74d1e96d7ecb1d402fbf4c2d"
+      },
+      {
+        "filename": "REVIEWER_V114_FRESH_CANONICAL_AUTHORITY_CHALLENGE_OUTPUT_V1_0.txt",
+        "role": "challengeOutput",
+        "sha256": "8021f010ebefb1482fa3eb44613855a3153d4e326bf24e6caffc16d3c937293b"
+      },
+      {
+        "filename": "IDENTITY_SCOPE_AND_PROCESS_CAPTURE_V1_0.txt",
+        "role": "identityCapture",
+        "sha256": "39e29fcb84ec10ede6406ff165e059ab1b7190261e263ad09aac281ff4f81429"
+      },
+      {
+        "filename": "AUTHOR_VERIFIER_ATTACHED_DETACHED_NORMALIZED_FRESH_OUTPUT_V1_0.txt",
+        "role": "normalizedAuthorOutput",
+        "sha256": "6bb75954946d411fc1fc85923a2fac08bfbc0c37cd0c0dd763b1bd719fcc9f17"
+      },
+      {
+        "filename": "SHA256SUMS.txt",
+        "manifestEntries": 6,
+        "role": "manifest",
+        "sha256": "b002f737ee67009ce2004aa926bade41ef3880dd443595d6bbf9c131a3543dc0"
+      }
+    ],
+    "manifestResult": "6/6 PASS"
+  },
+  "v114CandidateControl": {
+    "evidenceDirectory": "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-14-v111-m01-final-attempt-3-v1",
+    "files": [
+      {
+        "path": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_CORRECTED_EXACT_DESIGN_V1_14.md",
+        "role": "Design",
+        "sha256": "663e42ea2591702ef13ef6848fe176f367116f3b7483f5e77ade5fb7ee29cd08"
+      },
+      {
+        "filename": "CURRENT_AUTHORITY_SUBJECT_V1_0.json",
+        "jcsSha256": "06e8fb9503170daa35a9d35ca06024699bef448946ea78a4f11d1c498892a7b5",
+        "role": "subject",
+        "sha256": "a45ff5b825728acbac682b1ad93423693f13fdc5e70f5e7534da3c932c26a5b8"
+      },
+      {
+        "filename": "CURRENT_AUTHORITY_IDENTITY_V1_0.json",
+        "jcsSha256": "76097f07477c686f57449c07b41f15d5a3630820fafe46022aca037c666519f4",
+        "role": "authorityIdentity",
+        "sha256": "ccd4a5b0537b64fb81184ddbd901ecb38f55b8688894b5c877df20d38d2e43f6"
+      },
+      {
+        "filename": "CORRECTED_EXACT_DESIGN_REVIEWED_PROFILE_CANDIDATE_V1_14.json",
+        "role": "profileBundle",
+        "sha256": "089d568c1b09aebee0a7b4f8a1930814686beed66c6e4edf49a709ab4d514761"
+      },
+      {
+        "filename": "V111_M01_CANONICAL_AUTHORITY_FIXED_VECTORS_V1_14.json",
+        "role": "vectors",
+        "sha256": "3b255a849e8998450166d1b666332f55be314965926d10719ba6e619cc71d712"
+      },
+      {
+        "filename": "VERIFY_CORRECTED_EXACT_DESIGN_V1_14.mjs",
+        "role": "verifier",
+        "sha256": "1c81c96971b88b144d2818d92b0652cf22a6738be2e53056877618dda2537694"
+      },
+      {
+        "filename": "CANDIDATE_REVIEW_ENVELOPE_V1_0.json",
+        "role": "nominalReviewEnvelope",
+        "sha256": "9e36ae12f1573fb0906d81ae38cf3982bb9785a1639d0a6bdd8b072f509c29d9"
+      },
+      {
+        "filename": "SHA256SUMS.txt",
+        "manifestEntries": 15,
+        "role": "mainManifest",
+        "sha256": "0d196914aff052bc9303c5b65f33191aeefc9c869aaffe421329188f811f59ea"
+      },
+      {
+        "filename": "SEAL_SHA256SUMS.txt",
+        "manifestEntries": 3,
+        "role": "sealManifest",
+        "sha256": "b9a12b6a7474aa82342cc7cc0c52812dff4567ed7f2ca783b18b99a23ba01c28"
+      }
+    ],
+    "formalWorktree": "/Users/calvin/.codex/worktrees/43e5/CWT（CloudWave Textile）项目",
+    "mainManifestResult": "15/15 PASS",
+    "ref": "codex/phase-1b-stage4a-phase-b-corrected-exact-design-v1-14",
+    "sealManifestResult": "3/3 PASS"
+  }
+}

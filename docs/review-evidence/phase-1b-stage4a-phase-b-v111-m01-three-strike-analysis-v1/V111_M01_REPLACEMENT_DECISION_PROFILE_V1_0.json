@@ -1,0 +1,305 @@
+{
+  "alternatives": [
+    {
+      "decisionImpactIfSelected": "Owner plus dependency/license/offline-CI decision required; package and lock changes require separately authorized scope",
+      "id": "B-STRUCTURED-AUTHORITY-PLUS-COMMONMARK-AST-LINT",
+      "reasonNotSelected": "A CommonMark AST lint can improve prose hygiene but cannot strengthen the selected trust boundary because Markdown is non-authoritative; no parser is currently declared or locally resolvable",
+      "status": "not-recommended"
+    },
+    {
+      "decisionImpactIfSelected": "prohibited ordinary Attempt 4 and continued open-ended case accumulation",
+      "id": "C-HANDWRITTEN-MARKDOWN-SCANNER",
+      "reasonNotSelected": "regex, exact-string, marker, fence, case, indentation and path variants are an open presentation class and cannot prove unique authority",
+      "status": "rejected"
+    }
+  ],
+  "decision": {
+    "coordinatorPlanAcceptanceRequired": true,
+    "dependencyDecisionRequired": false,
+    "newAdrRequired": false,
+    "ownerArchitectureDecisionRequired": false,
+    "persistentComplexityApprovalRequired": false,
+    "selectedOption": "A-SEALED-STRUCTURED-ROOT-PLUS-EXTERNAL-CONSUMED-REVIEW-ENVELOPE",
+    "selectionBasis": "replace multiple presentation and pointer authorities with one closed structured candidate root; keep the final Git expectation outside the candidate to avoid a self-commit hash cycle; consume and cross-bind that reviewer-owned expectation"
+  },
+  "dependencyAssessment": {
+    "commonmarkPackagesDeclared": [],
+    "commonmarkPackagesLocallyResolved": [],
+    "investigatedPackages": [
+      "commonmark",
+      "markdown-it",
+      "remark-parse",
+      "micromark",
+      "unified"
+    ],
+    "newDependency": null,
+    "node": "24.14.0",
+    "nodeProvidesCommonMarkAstParser": false,
+    "operationsImpact": "one dependency-free Node verifier plus one reviewer-owned external envelope; no install, cache, license or bundle impact",
+    "packageJsonSha256": "8fd1c992f765ee23472a2a850b219c7ff06eb0a3f39ce322c0de8e43d12f567f",
+    "pnpmLockSha256": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb"
+  },
+  "guaranteeBoundary": {
+    "deliberateFalsePositives": [
+      "unknown or extra machine roles, keys, paths or aliases reject even when a human believes them equivalent",
+      "an attached worktree on a different branch rejects even when its HEAD bytes equal the expected commit",
+      "non-canonical JSON bytes reject even when JSON.parse would produce the same value"
+    ],
+    "notGuaranteed": [
+      "semantic agreement between human prose and the structured root; Fresh independent human review remains required",
+      "future immobility of a mutable branch after the point-in-time verifier run",
+      "remote-host authenticity, actor authorization or cryptographic signing beyond the local Git/object and fixed-input trust boundary",
+      "Product/runtime correctness, Provider behavior or Phase B implementation behavior"
+    ],
+    "positiveGuarantees": [
+      "every executable/current role is enumerated exactly once by one duplicate-aware canonical structured root",
+      "no Markdown, heading, marker, fence, indentation, case or prose token can create or change machine authority",
+      "the consumed reviewer envelope's expected ref is equal to the sealed subject ref and resolves to the reviewer-pinned exact HEAD",
+      "HEAD, tree, single parent, cleanliness and attached/detached state are observed and cross-bound in one verifier run",
+      "role/path/hash/JCS/DAG/current-history/physical-alias mutations fail closed"
+    ]
+  },
+  "profileId": "cwt.phase1b.stage4a.phaseb.v111-m01.three-strike.replacement-decision.v1",
+  "profileVersion": "1.0.0",
+  "requiredRemovals": {
+    "algorithms": [
+      "V1.12 exact stale/current string inventory as acceptance authority",
+      "V1.13 markedBlock",
+      "V1.13 withoutHistoricalBlocks",
+      "V1.13 scanCurrentAuthority",
+      "V1.14 markdownAuthorityView",
+      "V1.14 expectedView and designViewContract machine-view projection",
+      "all handwritten or regex CommonMark/fence/currentness parsers",
+      "bundle pointer validation that permits a second current path namespace",
+      "validateEnvelopePure when driven by synthetic local values rather than the consumed reviewer envelope"
+    ],
+    "candidateCommittedArtifacts": [
+      "CURRENT_AUTHORITY_SUBJECT_V1_0.json as a separate subject copy",
+      "CURRENT_AUTHORITY_IDENTITY_V1_0.json as a separate seal copy",
+      "CORRECTED_EXACT_DESIGN_REVIEWED_PROFILE_CANDIDATE_V1_14.json as a generated pointer bundle",
+      "CANDIDATE_REVIEW_ENVELOPE_V1_0.json as a candidate-committed nominal envelope",
+      "SEAL_SHA256SUMS.txt as a second package manifest",
+      "the cwt-current-authority-view-v1 Markdown machine fence",
+      "the cwtCurrentAuthorityMachineDeclaration reserved Markdown key"
+    ],
+    "compatibilityLayerAllowed": false,
+    "failedArtifactsDisposition": "immutable evidence only; do not copy, merge, cherry-pick or make them authority"
+  },
+  "requiredRetentions": [
+    "duplicate-aware JSON decoding before value consumption",
+    "RFC8785-compatible JCS and SHA-256 self/subject hashes",
+    "closed top-level and nested schemas with exact cardinalities",
+    "repo-relative POSIX NFC case-exact tracked regular-file paths",
+    "no absolute, dot, dot-dot, duplicate-slash, backslash, percent, control or out-of-root paths",
+    "symlink rejection and device/inode hard-link alias rejection across all role paths",
+    "acyclic one-way role graph",
+    "no current/history role or path overlap",
+    "exact proof role/path/contract hashes",
+    "immutable failed-attempt and controlling-review identities as history only",
+    "detached exact-HEAD support"
+  ],
+  "rootCause": {
+    "causalRootId": "V111-M01.one-fail-closed-executable-authority",
+    "caseAccumulationIsRootCorrection": false,
+    "chronology": [
+      {
+        "attempt": 1,
+        "candidate": "901edf7b8207afb39970e8507c86d53668c27196",
+        "mechanism": "manually synchronized Design/profile/bundle/verifier identifiers",
+        "result": "V1.12 literal stale V3.0/V1.11 current authority remained"
+      },
+      {
+        "attempt": 2,
+        "candidate": "de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d",
+        "mechanism": "exact case-sensitive strings plus one exact history marker pair and unbound generated pointer paths",
+        "result": "V1.13 Markdown/case/marker/code-fence/path aliases passed; detached exact HEAD failed"
+      },
+      {
+        "attempt": 3,
+        "candidate": "aac9169c507f0976a492d61a30d415a27c95e4b1",
+        "mechanism": "separate subject, identity seal, rendered machine view, pointer bundle, nominal envelope and CLI Git arguments",
+        "result": "V1.14 valid CommonMark declarations bypassed the regex; sealed ref, CLI ref and ignored envelope were not cross-bound"
+      }
+    ],
+    "diagnosis": "human presentation and multiple copied projections were treated as machine authority; every correction widened recognized cases without relocating authority to one closed structured root and one reviewer expectation boundary",
+    "sameRootWitnessFamilies": [
+      "exact string, regex and presentation-sensitive Markdown scanning",
+      "handwritten approximate CommonMark parsing",
+      "fence length, indentation, marker and case variants",
+      "generated path and pointer aliases",
+      "separate subject/seal/view/envelope/ref copies",
+      "unconsumed review envelope",
+      "rendered V1.13 manifest/seal hash drift"
+    ]
+  },
+  "scope": {
+    "allowedForFutureCorrectedDesign": [
+      "docs/",
+      "docs/review-evidence/"
+    ],
+    "forbidden": [
+      "src/",
+      "scripts/",
+      "test-fixtures/",
+      "config",
+      "Schema",
+      "Migration",
+      "ADR",
+      "package.json",
+      "pnpm-lock.yaml",
+      "Prompt",
+      "Product",
+      "public",
+      "SEO",
+      "URL",
+      "dependency installation or materialization",
+      "network or Provider access",
+      "merge, cherry-pick, Push or Deploy",
+      "Phase C, D or E"
+    ],
+    "productArchitectureExpansion": false
+  },
+  "selectedArchitecture": {
+    "authorityArtifact": {
+      "canonicalBytes": "UTF-8 RFC8785-compatible JCS followed by one LF; safe-integer numeric domain; duplicate decoded member names rejected before parsing",
+      "embeddedSubjectKeys": [
+        "candidateRef",
+        "markdownAuthority",
+        "renderedDesignRole",
+        "subjectId",
+        "technicalProfileRole",
+        "verifierRole"
+      ],
+      "exactCardinality": {
+        "authorityRoot": 1,
+        "checkpoints": 2,
+        "currentExecutableRoles": 2,
+        "currentRoles": 3,
+        "embeddedSubject": 1,
+        "failedAttemptHistory": 3,
+        "proofContracts": 5,
+        "seal": 1
+      },
+      "exactCheckpointRoles": [
+        "checkpoint.analysisPreL3",
+        "checkpoint.correctedDesignPreL3"
+      ],
+      "exactCurrentRoles": [
+        "renderedDesign",
+        "currentTechnicalProfile",
+        "currentVerifier"
+      ],
+      "exactTopLevelKeys": [
+        "authorityId",
+        "authorityVersion",
+        "canonicalization",
+        "checkpoints",
+        "currentRoles",
+        "frozenInputs",
+        "historicalEvidence",
+        "proofContracts",
+        "roleGraph",
+        "rolePolicy",
+        "seal",
+        "status",
+        "subject"
+      ],
+      "futureFilename": "V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_0.json",
+      "pathContract": "repo-relative POSIX NFC case-exact tracked regular file; no absolute/empty/dot/dot-dot/duplicate-slash/backslash/percent/control/out-of-root path; no symlink or physical hard-link alias",
+      "selfHash": "seal.authorityJcsSha256 = SHA-256(JCS(root with only seal.authorityJcsSha256 omitted))",
+      "subjectHash": "seal.subjectJcsSha256 = SHA-256(JCS(embedded subject))",
+      "unknownKeysAllowed": false
+    },
+    "derivedEvidence": {
+      "candidateManifest": "one SHA256SUMS.txt generated last; it lists every candidate package file except itself and never acts as a second semantic authority",
+      "packageCapture": "derived deterministic package output; not a current role and not hashed by the authority root",
+      "reviewCapture": "generated only after final Candidate commit and stored by the independent reviewer, never fed back into the Candidate seal"
+    },
+    "gitIdentityClosure": {
+      "attached": "symbolic HEAD is permitted only when its exact full ref equals externalEnvelope.expectedGit.ref; otherwise reject",
+      "clean": "git status --porcelain=v1 --untracked-files=all must be empty",
+      "detached": "empty symbolic HEAD is valid when exact HEAD/ref/tree/parent checks pass",
+      "expectedRefBinding": "externalEnvelope.expectedGit.ref must equal root.subject.candidateRef before resolving either",
+      "head": "externalEnvelope.expectedGit.head must equal ref target and observed HEAD",
+      "parent": "exactly one parent; external expected parent, expected HEAD^ and observed HEAD^ must agree",
+      "tree": "external expected tree, expected HEAD^{tree} and observed HEAD^{tree} must agree"
+    },
+    "markdown": {
+      "astLintRequired": false,
+      "machineAuthority": false,
+      "parserInstalled": false,
+      "policy": "rendered human documentation only; verifier may hash its bytes as renderedDesign but must not parse headings, markers, code fences, info strings, JSON blocks, paths or prose to enumerate authority",
+      "reservedDeclarationLint": "deleted with the reserved declaration concept; no blocking CommonMark lint remains"
+    },
+    "reviewEnvelope": {
+      "candidateCommitted": false,
+      "consumption": "future verifier accepts --authority and --review-envelope only; it duplicate-aware parses and JCS-hashes the external envelope, binds it to the root, and uses every expectedGit field",
+      "createdAfterFinalCandidateCommit": true,
+      "exactAuthorityBindingKeys": [
+        "authorityJcsSha256",
+        "fileSha256",
+        "path",
+        "role"
+      ],
+      "exactExpectedGitKeys": [
+        "attachmentPolicy",
+        "cleanRequired",
+        "head",
+        "parent",
+        "ref",
+        "tree"
+      ],
+      "exactTopLevelKeys": [
+        "authorityBinding",
+        "expectedGit",
+        "provenance",
+        "schemaId",
+        "status",
+        "version"
+      ],
+      "futureFilename": "CANDIDATE_REVIEW_ENVELOPE_V2_0.json",
+      "location": "reviewer-owned disposable path or independent-review evidence, outside the Candidate commit",
+      "selfCycle": false
+    },
+    "roleGraph": {
+      "edges": {
+        "authorityRoot": [
+          "embeddedSubject",
+          "renderedDesign",
+          "currentTechnicalProfile",
+          "currentVerifier",
+          "proofContracts",
+          "checkpoints",
+          "frozenInputs",
+          "historicalEvidence"
+        ],
+        "checkpoints": [],
+        "currentTechnicalProfile": [],
+        "currentVerifier": [],
+        "embeddedSubject": [
+          "renderedDesign",
+          "currentTechnicalProfile",
+          "currentVerifier"
+        ],
+        "frozenInputs": [],
+        "historicalEvidence": [],
+        "proofContracts": [
+          "currentTechnicalProfile"
+        ],
+        "renderedDesign": []
+      },
+      "generationOrder": [
+        "renderedDesign",
+        "currentTechnicalProfile",
+        "currentVerifier",
+        "embeddedSubject",
+        "authorityRoot",
+        "packageCapture",
+        "SHA256SUMS"
+      ],
+      "selfBindingAllowed": false
+    }
+  },
+  "status": "analysis-complete-replacement-recommended-not-approved-not-corrected-design-not-implementation-eligible",
+  "terminalCondition": "callback to coordinator and stop; no Corrected Design or implementation begins in this task"
+}

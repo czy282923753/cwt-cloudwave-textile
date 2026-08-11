@@ -1,0 +1,61 @@
+CWT Stage 4A Phase B V111-M01 three-strike analysis identity and scope capture V1.0
+date=2026-08-11
+timezone=Asia/Shanghai
+role=Independent Technical Root-Cause Analyst
+status=analysis-complete-not-corrected-design-not-implementation-eligible
+
+analysis.branch=codex/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1
+analysis.worktree=/Users/calvin/.codex/worktrees/e4be/CWT（CloudWave Textile）项目
+analysis.finalHead=reported-after-atomic-package-commit-in-coordinator-callback
+
+checkpoint.ref=codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-pre-l3-v1
+checkpoint.target=0793948ad115c19f852a9590387ed9ba06738a39
+checkpoint.parent=234cd90211c45c6cc86c988d02c8d5dc2f7858d2
+checkpoint.tree=affecff8bc55e00d533f08e9d29d1449aa7993ca
+checkpoint.recordCommit=c19e7163e9a02655461a07dce1ddb1099c6e55a6
+checkpoint.recordParent=0793948ad115c19f852a9590387ed9ba06738a39
+checkpoint.recordPath=docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_THREE_STRIKE_ANALYSIS_PRE_L3_CHECKPOINT_V1_0.md
+checkpoint.recordSha256=d8222dc354511b5dd259226647263e17287a8938f96bb6c2008036553961b558
+checkpoint.recordPathCount=1
+
+start.sourceRef=codex/checkpoint/phase-1b-stage4a-phase-b-implementation-attempt3-pre-l3-v1
+start.acceptedV110=234cd90211c45c6cc86c988d02c8d5dc2f7858d2
+start.fullImplementationRollback=3f475e13d73d9d68a4dfb9a040941c57f1ee92e6
+
+frozenTag.name=phase-1b-stage3-approved-2026-08-09
+frozenTag.object=1c626f9b788e4c6ed0480a7040aa54ccef3e6c76
+frozenTag.peeledCommit=31c0e405acfdd0d05200d0fb2531e897a541a2c4
+
+failed.v112=901edf7b8207afb39970e8507c86d53668c27196 evidence-only non-ancestor no-merge no-cherry-pick
+failed.v113=de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d evidence-only non-ancestor no-merge no-cherry-pick
+failed.v114=aac9169c507f0976a492d61a30d415a27c95e4b1 evidence-only non-ancestor no-merge no-cherry-pick
+
+reviewerV114.manifest=6/6 PASS
+candidateV114.mainManifest=15/15 PASS
+candidateV114.sealManifest=3/3 PASS
+minimalRepro.captureSha256=9ae5ad930221858d7f832b9c856cbc0215560b56d23176f374ae28f9bf9cd75c
+minimalRepro.actualV114VerifierExitWithDivergentGraph=0
+minimalRepro.actualV114VerifierOutputSha256=6bb75954946d411fc1fc85923a2fac08bfbc0c37cd0c0dd763b1bd719fcc9f17
+
+scope.expectedChangedPathCount=13
+scope.allowedPrefix=docs/
+scope.productSourceChanges=0
+scope.scriptDirectoryChanges=0
+scope.testFixtureChanges=0
+scope.configChanges=0
+scope.schemaMigrationAdrChanges=0
+scope.packageLockChanges=0
+scope.promptProductPublicSeoUrlChanges=0
+
+process.networkCalls=0
+process.providerCalls=0
+process.packageManagerCalls=0
+process.dependencyInstalls=0
+process.packageMaterializations=0
+process.merges=0
+process.cherryPicks=0
+process.pushes=0
+process.deploys=0
+
+nextGate=coordinator-verification-and-acceptance-then-separate-corrected-design-task-and-fresh-independent-design-review
+stopCondition=callback-coordinator-and-stop

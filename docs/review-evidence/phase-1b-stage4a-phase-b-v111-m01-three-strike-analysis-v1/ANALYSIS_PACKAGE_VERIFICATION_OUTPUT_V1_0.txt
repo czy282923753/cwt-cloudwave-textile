@@ -1,0 +1,49 @@
+{
+  "baseline": {
+    "checkpoint": "0793948ad115c19f852a9590387ed9ba06738a39",
+    "checkpointParent": "234cd90211c45c6cc86c988d02c8d5dc2f7858d2",
+    "checkpointRecord": "c19e7163e9a02655461a07dce1ddb1099c6e55a6",
+    "checkpointTree": "affecff8bc55e00d533f08e9d29d1449aa7993ca",
+    "failedAttemptsAreNonAncestors": true,
+    "frozenTagObject": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "frozenTagPeeledCommit": "31c0e405acfdd0d05200d0fb2531e897a541a2c4"
+  },
+  "decision": {
+    "markdownMachineAuthority": false,
+    "newAdrRequired": false,
+    "newDependencyRequired": false,
+    "ownerArchitectureDecisionRequired": false,
+    "selectedOption": "A-SEALED-STRUCTURED-ROOT-PLUS-EXTERNAL-CONSUMED-REVIEW-ENVELOPE"
+  },
+  "evidence": {
+    "reviewerV114Manifest": "6/6 PASS",
+    "v114MainManifest": "15/15 PASS",
+    "v114SealManifest": "3/3 PASS"
+  },
+  "package": {
+    "evidenceFileCount": 10,
+    "expectedChangedPathCount": 13,
+    "manifestEntries": 12,
+    "scope": "docs-only",
+    "strictJsonDocuments": 3
+  },
+  "proofMatrix": {
+    "negative": 42,
+    "positive": 10,
+    "properties": 10
+  },
+  "reproduction": {
+    "commonMarkWitnesses": 5,
+    "divergentIdentityGraphAcceptedByV114Verifier": true,
+    "outputSha256": "9ae5ad930221858d7f832b9c856cbc0215560b56d23176f374ae28f9bf9cd75c",
+    "repeatedByteIdentical": true,
+    "renderedHashDrifts": 2
+  },
+  "runtime": {
+    "arch": "arm64",
+    "node": "24.14.0",
+    "v8": "13.6.233.17-node.41"
+  },
+  "ok": true,
+  "disposition": "ANALYSIS COMPLETE / REPLACEMENT RECOMMENDED / NOT CORRECTED DESIGN / NOT IMPLEMENTATION ELIGIBLE"
+}

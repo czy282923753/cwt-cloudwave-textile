@@ -1,0 +1,339 @@
+{
+  "acceptance": {
+    "freshIndependentDesignReviewRequired": true,
+    "implementationMaySelfApprove": false,
+    "ordinaryAttempt4Allowed": false,
+    "requiredDisposition": "Fresh independent PASS before a different new gpt-5.6-sol/xhigh implementation task",
+    "threeStrike": true
+  },
+  "executionOrder": [
+    "verify immutable checkpoint and fixed inputs",
+    "prove old mechanisms absent",
+    "duplicate-aware parse canonical root and external envelope",
+    "verify canonical bytes, JCS subject/self hashes and closed schemas",
+    "verify role/path/hash/physical identity/cardinality/current-history/DAG",
+    "cross-bind external envelope authority hash and expected ref to root",
+    "verify ref target, exact HEAD, derived and external tree/parent, clean state and attachment policy",
+    "verify single candidate manifest and deterministic package output",
+    "run mutation matrix twice byte-identically",
+    "request Fresh independent Design review"
+  ],
+  "legacyRemoval": {
+    "deleteOrDoNotImport": [
+      "CURRENT_AUTHORITY_SUBJECT_V1_0.json",
+      "CURRENT_AUTHORITY_IDENTITY_V1_0.json",
+      "CORRECTED_EXACT_DESIGN_REVIEWED_PROFILE_CANDIDATE_V1_14.json",
+      "candidate-committed CANDIDATE_REVIEW_ENVELOPE_V1_0.json",
+      "SEAL_SHA256SUMS.txt",
+      "markdownAuthorityView",
+      "expectedView",
+      "designViewContract",
+      "markedBlock",
+      "withoutHistoricalBlocks",
+      "scanCurrentAuthority",
+      "semanticMarkdownVariants acceptance vectors",
+      "rejectedMachineBlocks fence-case vectors",
+      "generatedPointerAliases currentAuthority/components compatibility vectors"
+    ],
+    "replacementTestRule": "do not port fence/case/indent/marker fixtures as acceptance cases; replace them with a source/dataflow assertion that the verifier has zero Markdown parser and zero Markdown-to-role edge"
+  },
+  "matrixId": "cwt.phase1b.stage4a.phaseb.v111-m01.replacement-proof-matrix.v1",
+  "matrixVersion": "1.0.0",
+  "negative": [
+    {
+      "expected": "reject duplicate decoded member name before JSON.parse value consumption",
+      "id": "root-duplicate-json-key",
+      "mutation": "duplicate authorityId with identical spelling"
+    },
+    {
+      "expected": "reject duplicate decoded member name",
+      "id": "root-escaped-duplicate-json-key",
+      "mutation": "authorityId plus equivalent Unicode escape spelling"
+    },
+    {
+      "expected": "reject closed top-level schema",
+      "id": "root-unknown-top-level-key",
+      "mutation": "add currentAuthorityAlias"
+    },
+    {
+      "expected": "reject exact current-role cardinality",
+      "id": "root-missing-current-verifier",
+      "mutation": "remove currentVerifier"
+    },
+    {
+      "expected": "reject unknown current-like role",
+      "id": "root-extra-current-role",
+      "mutation": "add currentVerifierCopy"
+    },
+    {
+      "expected": "reject duplicate role identity",
+      "id": "root-duplicate-proof-role",
+      "mutation": "copy proof role with a second path"
+    },
+    {
+      "expected": "reject proof cardinality 4 instead of 5",
+      "id": "root-missing-proof-role",
+      "mutation": "remove one proof contract"
+    },
+    {
+      "expected": "reject checkpoint cardinality 1 instead of 2",
+      "id": "root-missing-checkpoint",
+      "mutation": "remove correctedDesignPreL3 checkpoint"
+    },
+    {
+      "expected": "reject historical failure cardinality and closed IDs",
+      "id": "root-missing-v113-history",
+      "mutation": "remove V1.13 failed attempt evidence"
+    },
+    {
+      "expected": "reject JCS self hash",
+      "id": "root-authority-jcs-mutation",
+      "mutation": "change authorityJcsSha256"
+    },
+    {
+      "expected": "reject embedded subject hash",
+      "id": "root-subject-jcs-mutation",
+      "mutation": "change candidateRef without resealing subject"
+    },
+    {
+      "expected": "reject current/history overlap",
+      "id": "root-current-history-path-overlap",
+      "mutation": "point history verifier role at currentVerifier path"
+    },
+    {
+      "expected": "reject content hash mismatch",
+      "id": "root-verifier-profile-hash-swap",
+      "mutation": "swap verifier and technical-profile SHA-256 values"
+    },
+    {
+      "expected": "reject path-role mismatch",
+      "id": "root-proof-output-path-swap",
+      "mutation": "swap two proof output paths"
+    },
+    {
+      "expected": "reject DAG cycle",
+      "id": "root-seal-cycle",
+      "mutation": "add currentVerifier -> authorityRoot edge"
+    },
+    {
+      "expected": "reject absolute path",
+      "id": "path-absolute",
+      "mutation": "/docs/review-evidence/profile.json"
+    },
+    {
+      "expected": "reject non-POSIX path",
+      "id": "path-backslash",
+      "mutation": "docs\\review-evidence\\profile.json"
+    },
+    {
+      "expected": "reject dot segment",
+      "id": "path-dot",
+      "mutation": "docs/./review-evidence/profile.json"
+    },
+    {
+      "expected": "reject dot-dot segment",
+      "id": "path-dot-dot",
+      "mutation": "docs/review-evidence/../profile.json"
+    },
+    {
+      "expected": "reject duplicate slash",
+      "id": "path-duplicate-slash",
+      "mutation": "docs//review-evidence/profile.json"
+    },
+    {
+      "expected": "reject percent encoding",
+      "id": "path-percent",
+      "mutation": "docs/review-evidence/%70rofile.json"
+    },
+    {
+      "expected": "reject control character",
+      "id": "path-control",
+      "mutation": "docs/review-evidence/profile\u0001.json"
+    },
+    {
+      "expected": "reject non-NFC path",
+      "id": "path-nfd",
+      "mutation": "docs/review-evidence/café.json"
+    },
+    {
+      "expected": "reject alternate case on existing path",
+      "id": "path-case-alias",
+      "mutation": "Docs/PHASE_1B_STAGE4A_PHASE_B_DESIGN.md"
+    },
+    {
+      "expected": "reject symbolic link role",
+      "id": "physical-symlink-alias",
+      "mutation": "replace currentVerifier path with symlink"
+    },
+    {
+      "expected": "reject duplicate device/inode identity",
+      "id": "physical-hardlink-alias",
+      "mutation": "hard-link history verifier to current verifier"
+    },
+    {
+      "expected": "reject duplicate envelope member name",
+      "id": "envelope-duplicate-json-key",
+      "mutation": "duplicate expectedGit.ref"
+    },
+    {
+      "expected": "reject before Git resolution",
+      "id": "envelope-ref-versus-sealed-ref",
+      "mutation": "external expected ref differs from root.subject.candidateRef"
+    },
+    {
+      "expected": "reject missing ref",
+      "id": "git-missing-ref",
+      "mutation": "external ref does not resolve"
+    },
+    {
+      "expected": "reject ref target mismatch",
+      "id": "git-moved-ref",
+      "mutation": "external ref resolves to a commit other than expectedGit.head"
+    },
+    {
+      "expected": "reject observed HEAD mismatch",
+      "id": "git-wrong-head",
+      "mutation": "worktree HEAD differs from expectedGit.head"
+    },
+    {
+      "expected": "reject external/derived/observed tree mismatch",
+      "id": "git-wrong-tree",
+      "mutation": "expectedGit.tree differs from expectedGit.head^{tree}"
+    },
+    {
+      "expected": "reject external/derived/observed parent mismatch",
+      "id": "git-wrong-parent",
+      "mutation": "expectedGit.parent differs from expectedGit.head^"
+    },
+    {
+      "expected": "reject merge commit; final Candidate requires exactly one parent",
+      "id": "git-multiple-parents",
+      "mutation": "expected HEAD is a merge commit"
+    },
+    {
+      "expected": "reject non-empty porcelain status including untracked files",
+      "id": "git-dirty",
+      "mutation": "add one untracked file"
+    },
+    {
+      "expected": "reject attachment mismatch",
+      "id": "git-attached-wrong-branch",
+      "mutation": "symbolic HEAD names another ref at the same commit"
+    },
+    {
+      "expected": "reject authority file hash mismatch",
+      "id": "envelope-authority-file-hash",
+      "mutation": "change authorityBinding.fileSha256"
+    },
+    {
+      "expected": "reject authority JCS hash mismatch",
+      "id": "envelope-authority-jcs-hash",
+      "mutation": "change authorityBinding.authorityJcsSha256"
+    },
+    {
+      "expected": "reject and prove every envelope field is consumed",
+      "id": "envelope-consumption-completeness",
+      "mutation": "mutate each authorityBinding and expectedGit leaf one at a time"
+    },
+    {
+      "expected": "reject manifest omission",
+      "id": "manifest-missing-file",
+      "mutation": "remove canonical root entry from SHA256SUMS"
+    },
+    {
+      "expected": "reject unlisted package file",
+      "id": "manifest-extra-file",
+      "mutation": "add an undeclared JSON pointer file"
+    },
+    {
+      "expected": "reject duplicate physical manifest target",
+      "id": "manifest-path-alias",
+      "mutation": "two manifest paths resolve to one inode"
+    }
+  ],
+  "positive": [
+    {
+      "expected": "pass with exact role/path/hash/cardinality/JCS/DAG values",
+      "id": "canonical-root-baseline"
+    },
+    {
+      "expected": "pass when symbolic HEAD is empty and exact ref/HEAD/tree/parent/clean checks agree",
+      "id": "git-detached-exact-head"
+    },
+    {
+      "expected": "pass when symbolic HEAD exactly equals expectedGit.ref and all exact checks agree",
+      "id": "git-attached-exact-ref"
+    },
+    {
+      "expected": "pass and produce the same normalized semantic payload as attached mode after attachment diagnostics are excluded",
+      "id": "attached-detached-normalized-equivalence"
+    },
+    {
+      "expected": "pass because Markdown is read only for its bound file hash and creates zero machine roles",
+      "id": "commonmark-one-space-machine-like-fence-is-non-authoritative"
+    },
+    {
+      "expected": "pass because Markdown is read only for its bound file hash and creates zero machine roles",
+      "id": "commonmark-three-space-machine-like-fence-is-non-authoritative"
+    },
+    {
+      "expected": "pass because Markdown is read only for its bound file hash and creates zero machine roles",
+      "id": "commonmark-longer-closing-fence-is-non-authoritative"
+    },
+    {
+      "expected": "pass because Markdown is read only for its bound file hash and creates zero machine roles",
+      "id": "commonmark-indented-tilde-fence-is-non-authoritative"
+    },
+    {
+      "expected": "pass because no reserved Markdown declaration concept exists; only canonical JSON roles are enumerable",
+      "id": "commonmark-indented-json-declaration-is-non-authoritative"
+    },
+    {
+      "expected": "pass twice with byte-identical output",
+      "id": "offline-deterministic-repeat"
+    }
+  ],
+  "properties": [
+    {
+      "id": "one-root-only",
+      "statement": "machine current-role enumeration is a pure projection of one canonical root and has no Markdown, bundle or generated-pointer input"
+    },
+    {
+      "id": "closed-cardinality",
+      "statement": "every accepted root has exactly 1 subject, 1 seal, 3 current roles, 2 executable current roles, 5 proof contracts, 2 checkpoints and 3 failed-attempt history records"
+    },
+    {
+      "id": "path-physical-injectivity",
+      "statement": "distinct roles map to distinct canonical paths and distinct device/inode identities"
+    },
+    {
+      "id": "dag-acyclic",
+      "statement": "topological traversal visits every declared node exactly once and never returns to authorityRoot"
+    },
+    {
+      "id": "ref-closure",
+      "statement": "sealed subject ref = external envelope ref; ref target = external expected HEAD = observed HEAD"
+    },
+    {
+      "id": "git-object-derivation",
+      "statement": "external tree and parent equal values derived from external expected HEAD and values observed from HEAD"
+    },
+    {
+      "id": "attachment-orthogonality",
+      "statement": "detached versus exactly attached state cannot change semantic acceptance or normalized output"
+    },
+    {
+      "id": "envelope-no-cycle",
+      "statement": "review envelope is created after final Candidate commit, is outside Candidate content and points one-way to the authority root and Git objects"
+    },
+    {
+      "id": "manifest-is-derived",
+      "statement": "SHA256SUMS lists package bytes but is not referenced by the root seal and cannot create a semantic role"
+    },
+    {
+      "id": "presentation-independence",
+      "statement": "the verifier source and runtime dataflow contain zero Markdown-to-authority parser edge"
+    }
+  ],
+  "status": "replacement-proof-obligations-defined-not-implemented-not-reviewed"
+}
