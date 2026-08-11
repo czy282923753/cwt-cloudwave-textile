@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "diffBase": "b48f33f35d5d46824a8c4dec6b40d4a093050285",
+  "executableTreeSeal": "627779d294e45f1fb166f70b94067c4b811aaaff",
+  "aggregateDomain": "status-tab-path-tab-sha256-lf in Git name-status order",
+  "aggregateSha256": "bfc20cbced26e7e83a75b52576e7a234048a5df3ec4d9edeb264fd1f3ce30a2e",
+  "deletedPaths": [],
+  "paths": [
+    {
+      "status": "A",
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_IMP3_NM01_FINAL_TREE_CLOSURE_REMEDIATION_V1_INDEPENDENT_REREVIEW_V1_0.md",
+      "sha256": "1dda53a1e25e909eada6ab79f7e9e0b4f94be05f615f1237e03da8c042d3a357"
+    },
+    {
+      "status": "A",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/VERIFY_IMP3_NM01_EVIDENCE_ISOLATION_REMEDIATION_V2_0.mjs",
+      "sha256": "3ec401cfedfde85308acadd2bb2a472711d1de950a33f2230f04fd16b51da4d0"
+    },
+    {
+      "status": "A",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/IDENTITY_SCOPE_AND_VERIFICATION_CAPTURE_V1_0.txt",
+      "sha256": "1824667a7b74d0b515a0d7f1270fe69b45247c0497b8ef41bb00077643acf004"
+    },
+    {
+      "status": "A",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "sha256": "d0a8d0b8528e32d914fbc838d387e8697d3f5c8ec99d12b8a43f03fe3d157882"
+    },
+    {
+      "status": "A",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_OUTPUT_V1_0.json",
+      "sha256": "76f5984035d33bba59b89a054e88046679fa93f0c43ec630045d3552df1bef23"
+    },
+    {
+      "status": "A",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_V1_0.mjs",
+      "sha256": "5d806c9e9a920d00507387b98d718bbddd4a635b36ca3e77ce4399b152d884e1"
+    },
+    {
+      "status": "A",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/SHA256SUMS.txt",
+      "sha256": "7d24251717d6c4aa9e65f33ecd6fea78c8289e648c0186ca41fcfe0e7a311d19"
+    },
+    {
+      "status": "M",
+      "path": "scripts/verify-ai-architecture.ts",
+      "sha256": "89fc60805358a3aa6e7597e68fd7607e268ea5169e39ff170c970b8ac7119a3b"
+    }
+  ]
+}

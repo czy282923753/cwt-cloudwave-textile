@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 2,
+  "runtime": {
+    "node": "24.14.0",
+    "typescript": "5.9.3",
+    "next": "16.2.12"
+  },
+  "beforeCorrection": {
+    "candidate": "b48f33f35d5d46824a8c4dec6b40d4a093050285",
+    "executableTreeSeal": "87966f118766b60aeacc51ceca61c68ea57a62cf",
+    "reviewerChallengeSourceSha256": "5d806c9e9a920d00507387b98d718bbddd4a635b36ca3e77ce4399b152d884e1",
+    "reviewerChallengeOutputSha256": "76f5984035d33bba59b89a054e88046679fa93f0c43ec630045d3552df1bef23",
+    "freshReproductionOutputSha256": "1def5847f1047a17a8f093874db9490e763ab764635fef6049521faf7277f33a",
+    "productionToDiagnosticImport": "EXIT_0_UNSAFE_ACCEPTANCE",
+    "unresolvedProductionControl": "EXIT_1_unresolved_static_edge"
+  },
+  "correctedExecutableTree": {
+    "sealCommit": "627779d294e45f1fb166f70b94067c4b811aaaff",
+    "sealParent": "3c9bb6cbebde6b17351c38951c63b47d49a67e19",
+    "sealTree": "f99ef5c47ba4be828a8232682a6ee3a8d3776efd",
+    "checkerSha256": "89fc60805358a3aa6e7597e68fd7607e268ea5169e39ff170c970b8ac7119a3b",
+    "verifierSha256": "3ec401cfedfde85308acadd2bb2a472711d1de950a33f2230f04fd16b51da4d0",
+    "sourceCleanCandidateCount": 668,
+    "sourceCleanExecutableCount": 478,
+    "officialPresentCandidateCount": 669,
+    "officialPresentExecutableCount": 479,
+    "executableTreeSha256": "a45c8cb0a5d15830d601442ced747067b6718a32f09ccff8c2572f11a4ea06e8",
+    "currentGraphSha256": "fe82232ac33328b974bcbcb95b6930b0165dee4ee5238bb07107a125ea6e4e14",
+    "ordinaryUrlValues": 21,
+    "graphEdges": 2270,
+    "zeroClass": 0,
+    "ambiguous": 0,
+    "graphFaultAndTopologyCases": 69,
+    "positiveCases": 10,
+    "inheritedLifecycleMutations": 28,
+    "evidenceIsolationClosureMutations": 12,
+    "immutableHistoricalProbe": {
+      "sha256": "709129a2eafc4ed284427e1ec0f84f20ee264f13b8993a5dbdd57cefb944bc68",
+      "class": "diagnostic-documentation",
+      "stage": "evidence_only_not_production",
+      "enumeratedOnce": true,
+      "productionIncomingAuthority": false,
+      "diagnosticOutgoingAuthority": false
+    }
+  },
+  "fiveProofArtifacts": {
+    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "b2e63ef16529909e9ca9fa8137bdce01648630342b39a29773f76955a1f007bb",
+    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "310731168a91a0160f34b3973721353d245db855fb9bf356726eebbaa4b56571",
+    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "aa500fa1cb8bcdba60f2b632fcda57083c9ea7c01669d280b86af45cd482735a",
+    "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "fb4de22b1a409fe7a74d37b992bfe4678682745ac44090c0c291c786d22e177c",
+    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "328914054d5ee43b15d66ca69ad2bfbe2bc6417ff180ce5b3e89b38390e88b07"
+  },
+  "verification": {
+    "exactBeforeWitness": "PASS reproduced EXIT 0 unsafe acceptance",
+    "exactAfterWitness": "PASS rejected class_capability_violation with source/target/class/rule/edge diagnostics",
+    "allAi": "14 files / 163 tests PASS",
+    "focusedH02Fresh": "2 files / 7 tests PASS",
+    "focusedDbPublicSeo": "5 files / 10 tests PASS",
+    "phase1bDbSchema": "2 files / 3 tests PASS",
+    "foundationCandidateVerifier": "PASS; 40 historical artifacts and accepted 0020 closure",
+    "independentSchemaMapping": "ai_model_config 21/21 and ai_runs 96/96 exact order PASS",
+    "promptBundle": "PASS",
+    "promptHistory": "PASS 9aa9735..627779d",
+    "productionPromptAndProvider": "exact-empty / exact-empty",
+    "lint": "PASS --max-warnings=0",
+    "strictTypecheck": "PASS",
+    "officialNetworkDeniedTypegen": "PASS; next-env.d.ts SHA-256 7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651",
+    "isolatedNetworkDeniedWebpackBundle": "PASS; 51 server files / 16 client chunks; marker and positive leak controls PASS",
+    "postSealExecutableMutation": "FAIL CLOSED post-proof executable candidate drift",
+    "attachedDetachedFinalVerifier": "required after final docs commit"
+  },
+  "scope": {
+    "soleProductCodePath": "scripts/verify-ai-architecture.ts",
+    "srcRuntimeBusinessChanges": 0,
+    "graphFixtureChanges": 0,
+    "schemaMigrationConfigPackageLockChanges": 0,
+    "publicSeoUrlProductChanges": 0,
+    "providerNetworkCredentialActions": 0,
+    "packageManagerInstallMaterializeDownloadRegistryActions": 0,
+    "fullUnrelatedSuite": "not run; causal scope is the sole checker and all AI plus affected DB/authorization/public gates passed",
+    "unchangedOfflineDebt": "Google Font network fetch debt remains unchanged; no unrelated full public build claim"
+  },
+  "processExceptions": [
+    "A preliminary proof emission rejected stale ignored .next build output; it was preserved outside the worktree and exact official typegen state was regenerated.",
+    "A preliminary bundle-proof input included the standalone node_modules symlink and failed closed; the authoritative input used the same build's physical server tree and physical static-chunks tree.",
+    "Strict typecheck found the internal mutation label export-from instead of the accepted re-export form; it was corrected in a new linear commit and the executable seal and all five proofs were regenerated.",
+    "The legacy V1.8 mapping verifier required the already-installed tsx loader under Node 24 for JSON/TypeScript imports; the loader-backed run passed 21/21 and 96/96."
+  ]
+}

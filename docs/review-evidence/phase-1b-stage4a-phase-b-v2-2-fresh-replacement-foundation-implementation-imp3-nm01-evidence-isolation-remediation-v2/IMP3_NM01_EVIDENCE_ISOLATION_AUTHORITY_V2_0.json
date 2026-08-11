@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 2,
+  "authorityId": "cwt.phase1b.stage4a.phaseb.imp3-nm01.evidence-isolation-bidirectional-closure-remediation.v2",
+  "status": "IMP3_NM01_ATTEMPT2_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED",
+  "acceptanceClaim": false,
+  "selfApproval": false,
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-imp3-nm01-evidence-isolation-remediation-v2",
+    "finalHeadDerivedAtVerification": true
+  },
+  "failedCandidate": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-imp3-nm01-final-tree-closure-remediation-v1",
+    "head": "b48f33f35d5d46824a8c4dec6b40d4a093050285",
+    "parentExecutableTreeSeal": "87966f118766b60aeacc51ceca61c68ea57a62cf",
+    "finalTree": "15f642e9d910d9625ff786d829986da6cfa7221e",
+    "executableTreeSha256": "8c9579d32caa482687253235d8f2d56831a62a872c2ac26370cafc4bd0331f5f"
+  },
+  "executableTreeSeal": {
+    "commit": "627779d294e45f1fb166f70b94067c4b811aaaff",
+    "parent": "3c9bb6cbebde6b17351c38951c63b47d49a67e19",
+    "tree": "f99ef5c47ba4be828a8232682a6ee3a8d3776efd",
+    "checkerSha256": "89fc60805358a3aa6e7597e68fd7607e268ea5169e39ff170c970b8ac7119a3b",
+    "verifierSha256": "3ec401cfedfde85308acadd2bb2a472711d1de950a33f2230f04fd16b51da4d0",
+    "executableTreeSha256": "a45c8cb0a5d15830d601442ced747067b6718a32f09ccff8c2572f11a4ea06e8",
+    "successorPolicy": "only regular non-executable docs, JSON, text and manifest paths"
+  },
+  "lifecycle": {
+    "sourceClean": {
+      "candidateCount": 668,
+      "executableCount": 478,
+      "nextEnvPresent": false
+    },
+    "officialPresent": {
+      "candidateCount": 669,
+      "executableCount": 479,
+      "nextEnvPresent": true
+    },
+    "derivation": "exact source-clean and official-present reports from the completed final Candidate; no inherited 657 constant"
+  },
+  "closureMutationIds": [
+    "post-proof-executable-evidence",
+    "unresolved-current-production-import",
+    "production-direct-imports-evidence-only",
+    "production-reexports-evidence-only",
+    "production-type-imports-evidence-only",
+    "production-alias-resolves-to-evidence-only",
+    "production-transitive-node-imports-evidence-only",
+    "production-imports-independent-diagnostic-target",
+    "silent-historical-probe-selector-exclusion",
+    "historical-evidence-production-promotion",
+    "stale-five-proof-commit-tree-binding",
+    "historical-import-compatibility-target"
+  ],
+  "controllingReview": {
+    "reportPath": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_IMP3_NM01_FINAL_TREE_CLOSURE_REMEDIATION_V1_INDEPENDENT_REREVIEW_V1_0.md",
+    "reportSha256": "1dda53a1e25e909eada6ab79f7e9e0b4f94be05f615f1237e03da8c042d3a357",
+    "manifestPath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/SHA256SUMS.txt",
+    "manifestSha256": "7d24251717d6c4aa9e65f33ecd6fea78c8289e648c0186ca41fcfe0e7a311d19",
+    "manifestCount": "5/5",
+    "challengeSourcePath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_V1_0.mjs",
+    "challengeSourceSha256": "5d806c9e9a920d00507387b98d718bbddd4a635b36ca3e77ce4399b152d884e1",
+    "challengeOutputPath": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_OUTPUT_V1_0.json",
+    "challengeOutputSha256": "76f5984035d33bba59b89a054e88046679fa93f0c43ec630045d3552df1bef23"
+  },
+  "immutableHistoricalProbe": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts",
+    "sha256": "709129a2eafc4ed284427e1ec0f84f20ee264f13b8993a5dbdd57cefb944bc68",
+    "classId": "diagnostic-documentation",
+    "stageStatus": "evidence_only_not_production",
+    "productionIncomingAuthority": false,
+    "diagnosticOutgoingAuthority": false
+  },
+  "findings": {
+    "IMP3_NM01": "CORRECTED_ATTEMPT2_AWAITING_FRESH_INDEPENDENT_REREVIEW",
+    "H01": "CLOSED_AFTER_ATTEMPT3_NON_REGRESSION",
+    "H02": "CLOSED_AFTER_ATTEMPT1_NON_REGRESSION"
+  },
+  "preservedClosures": [
+    "DB",
+    "M02",
+    "NM01",
+    "M01",
+    "M03",
+    "M05",
+    "L01",
+    "L02",
+    "Provider",
+    "Prompt",
+    "security",
+    "public",
+    "SEO",
+    "URL",
+    "Schema",
+    "Migration",
+    "package-lock",
+    "Phase-B-boundary"
+  ],
+  "manifest": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/SHA256SUMS.txt",
+    "entryCount": 20
+  },
+  "nextGate": "Fresh independent implementation re-review using REMEDIATION_FINDINGS_REVIEW first, then FULL_REVIEW_NECESSITY"
+}
