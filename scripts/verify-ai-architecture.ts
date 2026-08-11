@@ -3,17 +3,22 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
-const profilePath = "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-7-remediation-attempt-2-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_2.json";
-const expectedProfileHash = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
+const profilePath = "test-fixtures/ai-architecture/graph-faults.v3_1.json";
+const expectedProfileFileHash = "fbda9c643ce2697474b361d93459f89f3c417ec7d96dcbb98c17cdeaa924d708";
+const expectedProfileIntegrityHash = "8341c1372c035db305f5ab16c99fbffdcbc9651854abca794d287a6868fe433e";
+const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
 
@@ -25,8 +30,37 @@ function fail(reason: string): never {
   throw new Error(`AI architecture gate failed closed: ${reason}`);
 }
 
-if (sha256(profileBytes) !== expectedProfileHash) fail("selected M03 V2.2 profile hash mismatch");
-const profile: unknown = JSON.parse(profileBytes.toString("utf8"));
+if (sha256(profileBytes) !== expectedProfileFileHash) fail("current V3.1 profile/fixture hash mismatch");
+const rawProfileBundle: unknown = JSON.parse(profileBytes.toString("utf8"));
+
+type PlainJson = null | boolean | number | string | PlainJson[] | { [key: string]: PlainJson };
+
+function copyPlainJson(value: unknown, path = "profile"): PlainJson {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map((member, index) => copyPlainJson(member, `${path}/${index}`));
+  if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) {
+    fail(`non-plain V3.1 profile value at ${path}`);
+  }
+  const output: { [key: string]: PlainJson } = {};
+  for (const [key, member] of Object.entries(value)) {
+    if (key === "__proto__" || key === "prototype" || key === "constructor") {
+      fail(`unsafe V3.1 profile key at ${path}/${key}`);
+    }
+    output[key] = copyPlainJson(member, `${path}/${key}`);
+  }
+  return output;
+}
+
+function freezePlainJson<T extends PlainJson>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const member of Array.isArray(value) ? value : Object.values(value)) freezePlainJson(member);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+const profileBundle = freezePlainJson(copyPlainJson(rawProfileBundle));
 
 interface MatchDefinition {
   readonly files: readonly string[];
@@ -74,20 +108,64 @@ interface ArchitectureProfile {
       readonly soleRootClass: string;
     };
   };
+  readonly profileIntegrity: {
+    readonly algorithm: string;
+    readonly coveredJsonPointers: readonly string[];
+    readonly sha256: string;
+  };
+  readonly proofArtifactContracts: {
+    readonly schemaVersion: number;
+    readonly canonicalJson: boolean;
+    readonly commonRequired: readonly string[];
+    readonly atomicEmission: string;
+    readonly [filename: string]: unknown;
+  };
+  readonly deniedProductionCapabilityOrigins: PlainJson;
 }
 
 function parseProfile(value: unknown): ArchitectureProfile {
   if (typeof value !== "object" || value === null) fail("profile is not an object");
   const candidate = value as Partial<ArchitectureProfile>;
-  if (candidate.profileId !== "cwt.phase1b.stage4a.phaseb.m03-protected-graph.v2_2" ||
-    candidate.profileVersion !== "2.2.0" || candidate.classificationModel === undefined ||
+  if (candidate.profileId !== "cwt.phase1b.stage4a.phaseb.m04-static-capability-boundary.v3_1_candidate" ||
+    candidate.profileVersion !== "3.1.0-candidate" || candidate.classificationModel === undefined ||
     candidate.filesystemEnumeration === undefined || candidate.resourceAndGeneratedPolicy === undefined) {
     fail("profile identity or required section mismatch");
   }
   return candidate as ArchitectureProfile;
 }
 
-const authority = parseProfile(profile);
+if (typeof profileBundle !== "object" || profileBundle === null || Array.isArray(profileBundle) ||
+  profileBundle.schemaVersion !== 31 || typeof profileBundle.profile !== "object" ||
+  profileBundle.profile === null || Array.isArray(profileBundle.profile) ||
+  !Array.isArray(profileBundle.faultCases) || !Array.isArray(profileBundle.positiveCases) ||
+  !Array.isArray(profileBundle.topologyCases) ||
+  JSON.stringify(Object.keys(profileBundle).sort()) !==
+    JSON.stringify(["faultCases", "positiveCases", "profile", "schemaVersion", "topologyCases"])) {
+  fail("V3.1 profile/fixture envelope is not exact");
+}
+const authority = parseProfile(profileBundle.profile);
+
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  return `{${Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, member]) => `${JSON.stringify(key)}:${canonical(member)}`).join(",")}}`;
+}
+
+if (authority.profileIntegrity.algorithm !== "sha256-jcs-selected-pointers-v1" ||
+  authority.profileIntegrity.sha256 !== expectedProfileIntegrityHash) {
+  fail("V3.1 profile integrity declaration mismatch");
+}
+const integrityProjection: Record<string, unknown> = {};
+for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
+  if (!pointer.startsWith("/") || pointer.slice(1).includes("/")) fail(`unsupported profile pointer ${pointer}`);
+  const key = pointer.slice(1);
+  if (!(key in authority)) fail(`missing covered profile pointer ${pointer}`);
+  integrityProjection[pointer] = authority[key as keyof ArchitectureProfile];
+}
+if (sha256(canonical(integrityProjection)) !== expectedProfileIntegrityHash) {
+  fail("V3.1 selected-pointer profile integrity mismatch");
+}
 const enumeration = authority.filesystemEnumeration;
 const classDefinitions = authority.classificationModel.rootClasses;
 if (classDefinitions.length !== 12 || authority.classificationModel.classCountInvariant !== 12) {
@@ -627,13 +705,7 @@ type GraphEdgeKind = "runtime" | "type-only" | "resource";
 type GraphEdgeForm =
   | "import"
   | "re-export"
-  | "import-equals"
   | "import-type"
-  | "dynamic-import"
-  | "require"
-  | "require-resolve"
-  | "module-require"
-  | "create-require"
   | "resource-url";
 
 interface ParsedAcquisitionV1 {
@@ -641,6 +713,7 @@ interface ParsedAcquisitionV1 {
   readonly edgeKind: GraphEdgeKind;
   readonly specifier?: string;
   readonly position: number;
+  readonly nodeKind: string;
   readonly unsupportedReason?: string;
 }
 
@@ -659,97 +732,40 @@ function scriptKind(path: string): ts.ScriptKind {
   return ts.ScriptKind.TS;
 }
 
-function constInitializers(source: ts.SourceFile): ReadonlyMap<string, ts.Expression> {
-  const candidates = new Map<string, ts.Expression>();
-  const duplicated = new Set<string>();
-  function visit(node: ts.Node): void {
-    if (ts.isVariableDeclarationList(node) && (node.flags & ts.NodeFlags.Const) !== 0) {
-      for (const declaration of node.declarations) {
-        if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
-        const name = declaration.name.text;
-        if (candidates.has(name)) duplicated.add(name);
-        else candidates.set(name, declaration.initializer);
-      }
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(source);
-  for (const name of duplicated) candidates.delete(name);
-  return candidates;
+function literalText(expression: ts.Expression): string | undefined {
+  return ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)
+    ? expression.text
+    : undefined;
 }
 
-type FoldedPrimitive = string | number | boolean | null;
-
-function foldStaticPrimitive(
-  expression: ts.Expression,
-  aliases: ReadonlyMap<string, ts.Expression>,
-  visiting: ReadonlySet<string> = new Set<string>(),
-): FoldedPrimitive | undefined {
-  if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) ||
-    ts.isSatisfiesExpression(expression) || ts.isTypeAssertionExpression(expression) ||
-    ts.isNonNullExpression(expression)) {
-    return foldStaticPrimitive(expression.expression, aliases, visiting);
-  }
-  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
-    return expression.text;
-  }
-  if (ts.isNumericLiteral(expression)) return Number(expression.text);
-  if (expression.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (expression.kind === ts.SyntaxKind.FalseKeyword) return false;
-  if (expression.kind === ts.SyntaxKind.NullKeyword) return null;
-  if (ts.isTemplateExpression(expression)) {
-    let value = expression.head.text;
-    for (const span of expression.templateSpans) {
-      const folded = foldStaticPrimitive(span.expression, aliases, visiting);
-      if (folded === undefined) return undefined;
-      value += String(folded) + span.literal.text;
-    }
-    return value;
-  }
-  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-    const left = foldStaticPrimitive(expression.left, aliases, visiting);
-    const right = foldStaticPrimitive(expression.right, aliases, visiting);
-    if (left === undefined || right === undefined) return undefined;
-    if (typeof left === "string" || typeof right === "string") return String(left) + String(right);
-    if (typeof left === "number" && typeof right === "number") return left + right;
-    return undefined;
-  }
-  if (ts.isIdentifier(expression)) {
-    if (visiting.has(expression.text)) return undefined;
-    const initializer = aliases.get(expression.text);
-    if (initializer === undefined) return undefined;
-    const next = new Set(visiting);
-    next.add(expression.text);
-    return foldStaticPrimitive(initializer, aliases, next);
-  }
-  return undefined;
+function exactImportMetaUrl(expression: ts.Expression): ts.MetaProperty | undefined {
+  if (!ts.isPropertyAccessExpression(expression) || expression.questionDotToken !== undefined ||
+    expression.name.text !== "url" || !ts.isMetaProperty(expression.expression) ||
+    expression.expression.keywordToken !== ts.SyntaxKind.ImportKeyword ||
+    expression.expression.name.text !== "meta") return undefined;
+  return expression.expression;
 }
 
-function isImportMetaUrl(
-  expression: ts.Expression,
-  aliases: ReadonlyMap<string, ts.Expression>,
-  visiting: ReadonlySet<string> = new Set<string>(),
-): boolean {
-  if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) ||
-    ts.isSatisfiesExpression(expression) || ts.isTypeAssertionExpression(expression) ||
-    ts.isNonNullExpression(expression)) {
-    return isImportMetaUrl(expression.expression, aliases, visiting);
-  }
-  if (ts.isPropertyAccessExpression(expression) && expression.name.text === "url" &&
-    ts.isMetaProperty(expression.expression) &&
-    expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
-    expression.expression.name.text === "meta") return true;
-  if (ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined &&
-    foldStaticPrimitive(expression.argumentExpression, aliases) === "url" &&
-    ts.isMetaProperty(expression.expression) &&
-    expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
-    expression.expression.name.text === "meta") return true;
-  if (!ts.isIdentifier(expression) || visiting.has(expression.text)) return false;
-  const initializer = aliases.get(expression.text);
-  if (initializer === undefined) return false;
-  const next = new Set(visiting);
-  next.add(expression.text);
-  return isImportMetaUrl(initializer, aliases, next);
+function repositoryDeclaration(symbol: ts.Symbol): boolean {
+  return (symbol.declarations ?? []).some((declaration) => {
+    const filename = realpathOrSelf(declaration.getSourceFile().fileName);
+    return filename === repositoryRoot || filename.startsWith(`${repositoryRoot}${sep}`);
+  });
+}
+
+function realpathOrSelf(path: string): string {
+  return existsSync(path) ? realpathSync(path) : path;
+}
+
+function resolvedGlobalUrl(identifier: ts.Identifier, checker: ts.TypeChecker): boolean {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  if (symbol === undefined) rejectGraph("denied_capability_origin", JSON.stringify({
+    path: identifier.getSourceFile().fileName,
+    nodeKind: ts.SyntaxKind[identifier.kind],
+    position: identifier.getStart(),
+    reason: "global_url_binding_unresolved",
+  }));
+  return !repositoryDeclaration(symbol);
 }
 
 function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
@@ -761,9 +777,24 @@ function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
     clause.namedBindings.elements.every((element) => element.isTypeOnly);
 }
 
-function collectAcquisitions(path: string, text: string): readonly ParsedAcquisitionV1[] {
-  const syntaxCheck = ts.transpileModule(text, {
-    fileName: path.endsWith(".d.ts") ? path.slice(0, -5) + ".ts" : path,
+interface StaticLanguageScan {
+  readonly acquisitions: readonly ParsedAcquisitionV1[];
+  readonly ordinaryGlobalUrlValues: readonly number[];
+  readonly staticResourceCandidates: readonly number[];
+  readonly deniedOriginCount: number;
+  readonly importMetaPlacementCount: number;
+  readonly allowedStaticFormCounts: Readonly<Record<GraphEdgeForm, number>>;
+}
+
+function scanStaticLanguage(input: {
+  readonly path: string;
+  readonly source: ts.SourceFile;
+  readonly checker: ts.TypeChecker;
+  readonly production: boolean;
+}): StaticLanguageScan {
+  const { path, source, checker, production } = input;
+  const syntaxCheck = ts.transpileModule(source.text, {
+    fileName: path,
     reportDiagnostics: true,
     compilerOptions: {
       target: ts.ScriptTarget.ESNext,
@@ -772,112 +803,182 @@ function collectAcquisitions(path: string, text: string): readonly ParsedAcquisi
       allowJs: true,
     },
   });
-  const syntaxFailure = syntaxCheck.diagnostics?.find((diagnostic) =>
-    diagnostic.category === ts.DiagnosticCategory.Error);
-  if (syntaxFailure !== undefined) {
-    rejectGraph("fail_closed_source_parse", `${path}:${syntaxFailure.start ?? 0}`);
-  }
-  const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, scriptKind(path));
-  const aliases = constInitializers(source);
-  const createRequireLoaders = new Set<string>();
-  function collectLoaders(node: ts.Node): void {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) &&
-      node.initializer !== undefined && ts.isCallExpression(node.initializer) &&
-      ts.isIdentifier(node.initializer.expression) &&
-      node.initializer.expression.text === "createRequire") {
-      createRequireLoaders.add(node.name.text);
-    }
-    ts.forEachChild(node, collectLoaders);
-  }
-  collectLoaders(source);
-  let discoveredLoader = true;
-  while (discoveredLoader) {
-    discoveredLoader = false;
-    for (const [name, initializer] of aliases) {
-      if (createRequireLoaders.has(name)) continue;
-      const directAlias = ts.isIdentifier(initializer) &&
-        (initializer.text === "require" || createRequireLoaders.has(initializer.text));
-      const moduleRequireAlias = (ts.isPropertyAccessExpression(initializer) &&
-        ts.isIdentifier(initializer.expression) && initializer.expression.text === "module" &&
-        initializer.name.text === "require") ||
-        (ts.isElementAccessExpression(initializer) && ts.isIdentifier(initializer.expression) &&
-          initializer.expression.text === "module" && initializer.argumentExpression !== undefined &&
-          foldStaticPrimitive(initializer.argumentExpression, aliases) === "require");
-      if (directAlias || moduleRequireAlias) {
-        createRequireLoaders.add(name);
-        discoveredLoader = true;
-      }
-    }
+  if (syntaxCheck.diagnostics?.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error) === true) {
+    rejectGraph("parse_failed", JSON.stringify({ path, nodeKind: "SourceFile", position: 0, reason: "typescript_parse_diagnostic" }));
   }
   const acquisitions: ParsedAcquisitionV1[] = [];
-  function add(
+  const ordinaryGlobalUrlValues: number[] = [];
+  const staticResourceCandidates: number[] = [];
+  const permittedImportMetaPositions = new Set<number>();
+  let importMetaPlacementCount = 0;
+
+  const rejectNode = (node: ts.Node, reason: string, code = "denied_capability_origin"): never =>
+    rejectGraph(code, JSON.stringify({
+      path,
+      nodeKind: ts.SyntaxKind[node.kind],
+      position: node.getStart(source),
+      reason,
+    }));
+
+  const addStatic = (
     form: GraphEdgeForm,
     edgeKind: GraphEdgeKind,
-    expression: ts.Expression | undefined,
+    expression: ts.Expression,
     node: ts.Node,
-  ): void {
-    const folded = expression === undefined ? undefined : foldStaticPrimitive(expression, aliases);
-    if (typeof folded !== "string") {
-      acquisitions.push({
-        form,
-        edgeKind,
-        position: node.getStart(source),
-        unsupportedReason: expression === undefined ? "missing_specifier" : "non_foldable_specifier",
-      });
-      return;
-    }
-    acquisitions.push({ form, edgeKind, specifier: folded, position: node.getStart(source) });
-  }
+  ): void => {
+    const specifier = ts.isStringLiteral(expression)
+      ? expression.text
+      : rejectNode(node, "static_specifier_not_string_literal", "unsupported_acquisition_syntax");
+    acquisitions.push({
+      form,
+      edgeKind,
+      specifier,
+      position: node.getStart(source),
+      nodeKind: ts.SyntaxKind[node.kind],
+    });
+  };
+
+  const forbiddenComputedMembers = new Set([
+    "require", "createRequire", "module", "exports", "getBuiltinModule", "binding",
+    "_linkedBinding", "mainModule", "constructor", "URL",
+  ]);
+
   function visit(node: ts.Node): void {
     if (ts.isImportDeclaration(node)) {
-      add("import", importDeclarationIsTypeOnly(node) ? "type-only" : "runtime",
-        node.moduleSpecifier, node);
-    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
-      add("re-export", node.isTypeOnly ? "type-only" : "runtime",
-        node.moduleSpecifier, node);
-    } else if (ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference)) {
-      add("import-equals", node.isTypeOnly ? "type-only" : "runtime",
-        node.moduleReference.expression, node);
-    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
-      add("import-type", "type-only",
-        node.argument.literal, node);
-    } else if (ts.isCallExpression(node)) {
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-        add("dynamic-import", "runtime", node.arguments[0], node);
-      } else if (ts.isIdentifier(node.expression) &&
-        (node.expression.text === "require" || createRequireLoaders.has(node.expression.text))) {
-        add(createRequireLoaders.has(node.expression.text) ? "create-require" : "require",
-          "runtime", node.arguments[0], node);
-      } else if (ts.isPropertyAccessExpression(node.expression)) {
-        const owner = node.expression.expression;
-        if (node.expression.name.text === "resolve" && ts.isIdentifier(owner) &&
-          (owner.text === "require" || createRequireLoaders.has(owner.text))) {
-          add("require-resolve", "runtime", node.arguments[0], node);
-        } else if (node.expression.name.text === "require" && ts.isIdentifier(owner) &&
-          owner.text === "module") {
-          add("module-require", "runtime", node.arguments[0], node);
-        }
-      } else if (ts.isElementAccessExpression(node.expression) &&
-        node.expression.argumentExpression !== undefined) {
-        const owner = node.expression.expression;
-        const member = foldStaticPrimitive(node.expression.argumentExpression, aliases);
-        if (member === "resolve" && ts.isIdentifier(owner) && owner.text === "require") {
-          add("require-resolve", "runtime", node.arguments[0], node);
-        } else if (member === "require" && ts.isIdentifier(owner) && owner.text === "module") {
-          add("module-require", "runtime", node.arguments[0], node);
-        }
+      const specifier = ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : undefined;
+      if (production && (specifier === "node:vm" || specifier === "vm" ||
+        ((specifier === "node:module" || specifier === "module") &&
+          node.importClause?.namedBindings !== undefined && ts.isNamedImports(node.importClause.namedBindings) &&
+          node.importClause.namedBindings.elements.some((element) =>
+            (element.propertyName ?? element.name).text === "createRequire")))) {
+        rejectNode(node, specifier === "node:vm" || specifier === "vm" ? "vm_origin" : "create_require_origin");
       }
-    } else if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) &&
-      node.expression.text === "URL" && node.arguments !== undefined &&
-      node.arguments.length === 2 && node.arguments[1] !== undefined &&
-      isImportMetaUrl(node.arguments[1], aliases)) {
-      add("resource-url", "resource", node.arguments[0], node);
+      addStatic("import", importDeclarationIsTypeOnly(node) ? "type-only" : "runtime", node.moduleSpecifier, node);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+      addStatic("re-export", node.isTypeOnly ? "type-only" : "runtime", node.moduleSpecifier, node);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)) {
+      addStatic("import-type", "type-only", node.argument.literal, node);
+    }
+
+    if (production && ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      rejectNode(node, "import_equals_loader");
+    }
+    if (production && ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      rejectNode(node, "dynamic_import_loader");
+    }
+    if (production && (ts.isCallExpression(node) || ts.isNewExpression(node))) {
+      const expression = node.expression;
+      if (ts.isIdentifier(expression) && expression.text === "eval") rejectNode(node, "eval_origin");
+      if (ts.isIdentifier(expression) && ["Function", "AsyncFunction", "GeneratorFunction"].includes(expression.text)) {
+        rejectNode(node, "function_constructor_origin");
+      }
+      if (ts.isIdentifier(expression) && expression.text === "Proxy") rejectNode(node, "proxy_origin");
+      if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "Reflect" && expression.name.text === "construct") {
+        rejectNode(node, "reflect_construct_origin");
+      }
+      if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "WebAssembly" && ["compile", "instantiate"].includes(expression.name.text)) {
+        rejectNode(node, "dynamic_webassembly_origin");
+      }
+      if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) &&
+        ts.isIdentifier(expression.expression.expression) && expression.expression.expression.text === "Reflect" &&
+        expression.expression.name.text === "get" && literalText(expression.arguments[1] ?? expression.arguments[0]!) === "constructor") {
+        rejectNode(node, "reflect_constructor_recovery");
+      }
+      if (ts.isNewExpression(node) && ts.isElementAccessExpression(expression) &&
+        ts.isIdentifier(expression.expression) && expression.expression.text === "globalThis") {
+        rejectNode(node, "computed_global_constructor_recovery");
+      }
+    }
+    if (production && ts.isPropertyAccessExpression(node)) {
+      if (node.name.text === "constructor") rejectNode(node, "constructor_property_escape");
+      if (ts.isIdentifier(node.expression) && node.expression.text === "process" &&
+        node.name.text === "getBuiltinModule") rejectNode(node, "get_builtin_module_origin");
+    }
+    if (production && ts.isElementAccessExpression(node)) {
+      const member = node.argumentExpression === undefined ? undefined : literalText(node.argumentExpression);
+      const ambientOwner = (ts.isIdentifier(node.expression) && [
+        "globalThis", "process", "module", "exports",
+      ].includes(node.expression.text)) || ts.isMetaProperty(node.expression);
+      if ((ambientOwner && (member === undefined || forbiddenComputedMembers.has(member))) ||
+        member === "constructor") rejectNode(node, "ambient_computed_capability");
+    }
+
+    if (production && ts.isNewExpression(node) && ts.isIdentifier(node.expression) &&
+      node.expression.text === "URL" &&
+      resolvedGlobalUrl(node.expression, checker)) {
+      const second = node.arguments?.[1];
+      const importMeta = second === undefined ? undefined : exactImportMetaUrl(second);
+      if (production && importMeta !== undefined) {
+        const argumentsList = node.arguments ??
+          rejectNode(node, "static_resource_missing_arguments", "unsupported_acquisition_syntax");
+        if (argumentsList.length !== 2 || node.typeArguments !== undefined) {
+          rejectNode(node, "static_resource_wrong_arity_or_type_arguments", "unsupported_acquisition_syntax");
+        }
+        const first = argumentsList[0];
+        const specifier = (first === undefined ? undefined : literalText(first)) ??
+          rejectNode(node, "static_resource_non_literal", "unsupported_acquisition_syntax");
+        if ((!specifier.startsWith("./") && !specifier.startsWith("../")) ||
+          specifier.includes("\\") || specifier.includes("\0") || specifier.includes("?") ||
+          specifier.includes("#") || specifier.startsWith("//") ||
+          /^[A-Za-z][A-Za-z0-9+.-]*:/u.test(specifier)) {
+          rejectNode(node, "static_resource_non_literal_or_invalid_relative_path", "unsupported_acquisition_syntax");
+        }
+        permittedImportMetaPositions.add(importMeta.getStart(source));
+        staticResourceCandidates.push(node.getStart(source));
+        acquisitions.push({
+          form: "resource-url",
+          edgeKind: "resource",
+          specifier,
+          position: node.getStart(source),
+          nodeKind: ts.SyntaxKind[node.kind],
+        });
+      } else if (production) {
+        ordinaryGlobalUrlValues.push(node.getStart(source));
+      }
+    }
+
+    if (production && ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword &&
+      node.name.text === "meta") {
+      importMetaPlacementCount += 1;
+      if (!permittedImportMetaPositions.has(node.getStart(source))) rejectNode(node, "import_meta_outside_exact_resource_base");
+    }
+    if (production && ts.isIdentifier(node) && node.text === "globalThis") {
+      const parent = node.parent;
+      const directNamedNonLoader = ts.isPropertyAccessExpression(parent) && parent.expression === node &&
+        !forbiddenComputedMembers.has(parent.name.text);
+      if (!directNamedNonLoader) rejectNode(node, "global_object_capture_or_computed_access");
+    }
+    if (production && ts.isIdentifier(node) && [
+      "require", "module", "exports", "createRequire", "getBuiltinModule",
+    ].includes(node.text)) {
+      rejectNode(node, "commonjs_or_native_loader_origin");
+    }
+    if (production && ts.isIdentifier(node) && node.text === "URL" && !ts.isPartOfTypeNode(node) &&
+      resolvedGlobalUrl(node, checker) &&
+      !(ts.isNewExpression(node.parent) && node.parent.expression === node)) {
+      rejectNode(node, "global_url_alias_or_recovery");
     }
     ts.forEachChild(node, visit);
   }
   visit(source);
-  return acquisitions.sort((left, right) => left.position - right.position);
+  const allowedStaticFormCounts: Record<GraphEdgeForm, number> = {
+    import: 0,
+    "re-export": 0,
+    "import-type": 0,
+    "resource-url": 0,
+  };
+  for (const acquisition of acquisitions) allowedStaticFormCounts[acquisition.form] += 1;
+  return {
+    acquisitions: acquisitions.sort((left, right) => left.position - right.position),
+    ordinaryGlobalUrlValues,
+    staticResourceCandidates,
+    deniedOriginCount: 0,
+    importMetaPlacementCount,
+    allowedStaticFormCounts,
+  };
 }
 
 const resolvableExtensions = [
@@ -932,6 +1033,23 @@ function resolveAcquisition(from: string, acquisition: ParsedAcquisitionV1): Gra
       resolutionKind: "unsupported",
     };
   }
+  if (acquisition.form === "resource-url") {
+    const base = posix.normalize(posix.join(posix.dirname(from), acquisition.specifier));
+    if (base.startsWith("../") || base === ".." ||
+      !enumeration.protectedResourceExtensions.includes(extname(base)) ||
+      !startsWithDirectory(base, enumeration.protectedResourceRoots)) {
+      return { ...acquisition, from, resolutionKind: "unresolved" };
+    }
+    const absolute = resolve(repositoryRoot, base);
+    if (!existsSync(absolute) || !lstatSync(absolute).isFile() || lstatSync(absolute).isSymbolicLink()) {
+      return { ...acquisition, from, resolutionKind: "unresolved" };
+    }
+    const canonical = posixPath(relative(repositoryRoot, realpathSync(absolute)));
+    if (canonical !== base || !candidates.includes(base)) {
+      return { ...acquisition, from, resolutionKind: "unresolved" };
+    }
+    return { ...acquisition, from, resolutionKind: "local", resolvedTarget: canonical };
+  }
   const localBase = localSpecifierBase(from, acquisition.specifier);
   if (localBase !== undefined) {
     const target = resolveLocalSpecifier(from, acquisition.specifier);
@@ -968,6 +1086,16 @@ const productionClasses = new Set([
   "phase-b-outer-composition", "protected-ai", "business-consumer", "other-production-src",
 ]);
 
+function edgeDiagnostic(edge: GraphEdgeV1, reason: string, target?: string): string {
+  return JSON.stringify({
+    path: edge.from,
+    nodeKind: edge.nodeKind,
+    position: edge.position,
+    reason,
+    target: target ?? edge.resolvedTarget ?? edge.specifier ?? null,
+  });
+}
+
 function enforceCapabilityEdge(
   edge: GraphEdgeV1,
   sourceClass = classForPath(edge.from),
@@ -975,14 +1103,17 @@ function enforceCapabilityEdge(
 ): void {
   if (edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved") {
     if (productionClasses.has(sourceClass) || publicClient) {
-      rejectGraph("fail_closed_unsupported_acquisition", JSON.stringify({
+      rejectGraph(edge.resolutionKind === "unresolved" ? "unresolved_static_edge" : "unsupported_acquisition_syntax", JSON.stringify({
         path: edge.from,
         rule: "production-acquisition-must-resolve-uniquely",
         ast: {
           form: edge.form,
           edgeKind: edge.edgeKind,
           position: edge.position,
+          nodeKind: edge.nodeKind,
         },
+        nodeKind: edge.nodeKind,
+        reason: edge.unsupportedReason ?? "unresolved_specifier",
         acquisition: {
           resolutionKind: edge.resolutionKind,
           reason: edge.unsupportedReason ?? "unresolved_specifier",
@@ -995,52 +1126,52 @@ function enforceCapabilityEdge(
   if (edge.resolutionKind === "external") {
     const specifier = edge.specifier ?? "";
     if (sourceClass === "protected-ai" && !protectedExternalAllowed(edge)) {
-      rejectGraph("fail_closed_unknown_protected_package", `${edge.from}->${specifier}`);
+      rejectGraph("class_capability_violation", `${edge.from}->${specifier}`);
     }
     if (testOrControlClasses.has(sourceClass) && [
       "node:http", "node:https", "node:net", "node:tls", "openai",
       "@anthropic-ai/sdk", "@google/generative-ai", "@google/genai",
       "cohere-ai", "groq-sdk", "ollama",
     ].some((value) => specifier === value || specifier.startsWith(`${value}/`))) {
-      rejectGraph("fail_closed_capability_ceiling", `${edge.from}->${specifier}`);
+      rejectGraph("class_capability_violation", `${edge.from}->${specifier}`);
     }
     if (publicClient && specifier === "server-only") {
-      rejectGraph("fail_closed_public_client_to_server", `${edge.from}->${specifier}`);
+      rejectGraph("public_client_reachability", `${edge.from}->${specifier}`);
     }
     return;
   }
   const target = edge.resolvedTarget ?? rejectGraph(
-    "fail_closed_unsupported_acquisition", `${edge.from}:${edge.position}`,
+    "unresolved_static_edge", `${edge.from}:${edge.position}`,
   );
   if (target === rootPath && edge.from !== rootPath) {
-    rejectGraph("fail_closed_composition_incoming_edge", `${edge.from}->${target}`);
+    rejectGraph("phase_b_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_phase_b_composition", target));
   }
   if (target.startsWith("src/server/ai/") && edge.from !== rootPath) {
-    rejectGraph("fail_closed_composition_incoming_edge", `${edge.from}->${target}`);
+    rejectGraph("phase_b_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_server_ai_composition", target));
   }
   if (publicClient && (target.startsWith("src/ai/") || target.startsWith("src/server/ai/") ||
     target.startsWith("src/integrations/ai/providers/"))) {
-    rejectGraph("fail_closed_public_client_to_server", `${edge.from}->${target}`);
+    rejectGraph("public_client_reachability", edgeDiagnostic(edge, "public_client_reaches_ai_server_boundary", target));
   }
   if (testOrControlClasses.has(sourceClass) &&
     (target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/") ||
       (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
-    rejectGraph("fail_closed_capability_ceiling", `${edge.from}->${target}`);
+    rejectGraph("class_capability_violation", `${edge.from}->${target}`);
   }
   const targetNode = nodeByPath.get(target);
   if (productionClasses.has(sourceClass) && targetNode !== undefined &&
     (targetNode.classId === "synthetic-ai-test-code" || targetNode.classId === "other-test-fixtures")) {
-    rejectGraph("fail_closed_production_to_test", `${edge.from}->${target}`);
+    rejectGraph("class_capability_violation", `${edge.from}->${target}`);
   }
   if (sourceClass === "business-consumer" && target.startsWith("src/ai/") &&
     (edge.specifier !== "@/ai" || target !== "src/ai/index.ts")) {
-    rejectGraph("fail_closed_business_ai_boundary", `${edge.from}->${target}`);
+    rejectGraph("class_capability_violation", `${edge.from}->${target}`);
   }
   if (sourceClass === "protected-ai") {
     if (target.startsWith("src/ai/testing/") || target.startsWith("src/server/ai/") ||
       target.startsWith("src/integrations/ai/providers/") || target === "src/db/client.ts" ||
       target === "src/config/env.ts") {
-      rejectGraph("fail_closed_protected_authority_escape", `${edge.from}->${target}`);
+      rejectGraph("class_capability_violation", `${edge.from}->${target}`);
     }
     if (!target.startsWith("src/ai/")) {
       const typeDatabaseEdge = edge.edgeKind === "type-only" && target === "src/db/types.ts" && [
@@ -1056,20 +1187,71 @@ function enforceCapabilityEdge(
         "src/ai/config/model-config-repository.ts",
       ].includes(edge.from);
       if (!typeDatabaseEdge && !typeRoleEdge && !schemaEdge) {
-        rejectGraph("fail_closed_unapproved_protected_edge", `${edge.from}->${target}`);
+        rejectGraph("class_capability_violation", `${edge.from}->${target}`);
       }
     }
   }
 }
 
+const tsconfigPath = resolve(repositoryRoot, "tsconfig.json");
+const tsconfigBytes = readFileSync(tsconfigPath);
+if (sha256(tsconfigBytes) !== "9e18b3b8bc76276a6f3f5db0b6bb489dd9967dda56d283b5ee72d6ed08e1b0d0" ||
+  ts.version !== "5.9.3") {
+  fail("installed TypeScript/compiler options identity mismatch");
+}
+const configRead = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+if (configRead.error !== undefined) fail("tsconfig could not be read by installed TypeScript");
+const parsedConfig = ts.parseJsonConfigFileContent(configRead.config, ts.sys, repositoryRoot, undefined, tsconfigPath);
+if (parsedConfig.errors.length > 0 || parsedConfig.options.moduleResolution !== ts.ModuleResolutionKind.Bundler ||
+  parsedConfig.options.strict !== true || parsedConfig.options.exactOptionalPropertyTypes !== true) {
+  fail("installed TypeScript compiler options differ from V3.1");
+}
+const architectureProgram = ts.createProgram({
+  rootNames: executableNodes
+    .filter((node) => productionClasses.has(node.classId))
+    .map((node) => resolve(repositoryRoot, node.path)),
+  options: { ...parsedConfig.options, noEmit: true },
+});
+const architectureChecker = architectureProgram.getTypeChecker();
+const staticLanguageByPath = new Map<string, StaticLanguageScan>();
+const ordinaryGlobalUrlValues: { readonly path: string; readonly position: number }[] = [];
+const staticResourceCandidates: { readonly path: string; readonly position: number }[] = [];
 const graphEdges: GraphEdgeV1[] = [];
 for (const node of executableNodes) {
-  const text = readFileSync(resolve(repositoryRoot, node.path), "utf8");
-  for (const acquisition of collectAcquisitions(node.path, text)) {
+  const absolute = resolve(repositoryRoot, node.path);
+  const production = productionClasses.has(node.classId);
+  const source = production
+    ? architectureProgram.getSourceFile(absolute)
+    : ts.createSourceFile(
+      absolute,
+      readFileSync(absolute, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(node.path),
+    );
+  if (source === undefined) fail(`TypeScript Program omitted Production Candidate ${node.path}`);
+  const scan = scanStaticLanguage({
+    path: node.path,
+    source,
+    checker: architectureChecker,
+    production,
+  });
+  staticLanguageByPath.set(node.path, scan);
+  scan.ordinaryGlobalUrlValues.forEach((position) => ordinaryGlobalUrlValues.push({ path: node.path, position }));
+  scan.staticResourceCandidates.forEach((position) => staticResourceCandidates.push({ path: node.path, position }));
+  for (const acquisition of scan.acquisitions) {
     const edge = resolveAcquisition(node.path, acquisition);
     enforceCapabilityEdge(edge);
     graphEdges.push(edge);
   }
+}
+if (ordinaryGlobalUrlValues.length !== 21 || staticResourceCandidates.length !== 0 ||
+  graphEdges.some((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported")) {
+  fail(`actual Production static-language baseline differs from V3.1: ${JSON.stringify({
+    ordinaryGlobalUrlValues,
+    staticResourceCandidates,
+    unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported"),
+  })}`);
 }
 
 const edgesBySource = new Map<string, GraphEdgeV1[]>();
@@ -1206,92 +1388,147 @@ if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Produc
 const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
 if (productionManifest !== '{"manifestVersion":1,"entries":[]}\n') fail("Production Prompt manifest is not exact-empty");
 
-interface GraphFaultFixtureV1 {
-  readonly version: 1;
-  readonly cases: readonly {
-    readonly id: string;
-    readonly sourcePath: string;
-    readonly source: string;
-    readonly expectedCode: string;
-  }[];
-  readonly topologyCases: readonly {
-    readonly id: string;
-    readonly path: string;
-    readonly expectedCode: string;
-  }[];
+interface StaticFaultCaseV31 {
+  readonly id: string;
+  readonly sourcePath: string;
+  readonly source: string;
+  readonly expectedReason: string;
+  readonly expectedNodeKind: string;
 }
 
-function parseGraphFaultFixture(input: unknown): GraphFaultFixtureV1 {
-  if (typeof input !== "object" || input === null || !("version" in input) ||
-    input.version !== 1 || !("cases" in input) || !Array.isArray(input.cases) ||
-    !("topologyCases" in input) || !Array.isArray(input.topologyCases)) {
-    fail("graph fault fixture is invalid");
-  }
-  const cases: GraphFaultFixtureV1["cases"][number][] = [];
-  for (const candidate of input.cases) {
-    if (typeof candidate !== "object" || candidate === null ||
-      !("id" in candidate) || typeof candidate.id !== "string" ||
-      !("sourcePath" in candidate) || typeof candidate.sourcePath !== "string" ||
-      !("source" in candidate) || typeof candidate.source !== "string" ||
-      !("expectedCode" in candidate) || typeof candidate.expectedCode !== "string") {
-      fail("graph fault case is invalid");
-    }
-    cases.push({
-      id: candidate.id,
-      sourcePath: candidate.sourcePath,
-      source: candidate.source,
-      expectedCode: candidate.expectedCode,
-    });
-  }
-  const topologyCases: GraphFaultFixtureV1["topologyCases"][number][] = [];
-  for (const candidate of input.topologyCases) {
-    if (typeof candidate !== "object" || candidate === null ||
-      !("id" in candidate) || typeof candidate.id !== "string" ||
-      !("path" in candidate) || typeof candidate.path !== "string" ||
-      !("expectedCode" in candidate) || typeof candidate.expectedCode !== "string") {
-      fail("graph topology fault case is invalid");
-    }
-    topologyCases.push({
-      id: candidate.id,
-      path: candidate.path,
-      expectedCode: candidate.expectedCode,
-    });
-  }
-  return { version: 1, cases, topologyCases };
+interface StaticPositiveCaseV31 {
+  readonly id: string;
+  readonly sourcePath: string;
+  readonly source: string;
+  readonly ordinaryGlobalUrlValues: number;
+  readonly resourceEdges: number;
 }
 
-const graphFaultFixture = parseGraphFaultFixture(JSON.parse(readFileSync(
-  resolve(repositoryRoot, "test-fixtures/ai-architecture/graph-faults.v2_2.json"),
-  "utf8",
-)));
+interface TopologyCaseV31 {
+  readonly id: string;
+  readonly path: string;
+  readonly expectedReason: string;
+}
+
+function exactString(record: { [key: string]: PlainJson }, key: string, owner: string): string {
+  const value = record[key];
+  if (typeof value !== "string") fail(`${owner} lacks string ${key}`);
+  return value;
+}
+
+function exactNumber(record: { [key: string]: PlainJson }, key: string, owner: string): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) fail(`${owner} lacks integer ${key}`);
+  return value;
+}
+
+function exactRecord(value: PlainJson, owner: string): { [key: string]: PlainJson } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${owner} is not an object`);
+  return value;
+}
+
+const graphFaultCases: StaticFaultCaseV31[] = profileBundle.faultCases.map((value, index) => {
+  const record = exactRecord(value, `faultCases/${index}`);
+  if (Object.keys(record).sort().join(",") !== "expectedNodeKind,expectedReason,id,source,sourcePath") {
+    fail(`faultCases/${index} keys differ from V3.1 fixture schema`);
+  }
+  return {
+    id: exactString(record, "id", `faultCases/${index}`),
+    sourcePath: exactString(record, "sourcePath", `faultCases/${index}`),
+    source: exactString(record, "source", `faultCases/${index}`),
+    expectedReason: exactString(record, "expectedReason", `faultCases/${index}`),
+    expectedNodeKind: exactString(record, "expectedNodeKind", `faultCases/${index}`),
+  };
+});
+const graphPositiveCases: StaticPositiveCaseV31[] = profileBundle.positiveCases.map((value, index) => {
+  const record = exactRecord(value, `positiveCases/${index}`);
+  if (Object.keys(record).sort().join(",") !== "id,ordinaryGlobalUrlValues,resourceEdges,source,sourcePath") {
+    fail(`positiveCases/${index} keys differ from V3.1 fixture schema`);
+  }
+  return {
+    id: exactString(record, "id", `positiveCases/${index}`),
+    sourcePath: exactString(record, "sourcePath", `positiveCases/${index}`),
+    source: exactString(record, "source", `positiveCases/${index}`),
+    ordinaryGlobalUrlValues: exactNumber(record, "ordinaryGlobalUrlValues", `positiveCases/${index}`),
+    resourceEdges: exactNumber(record, "resourceEdges", `positiveCases/${index}`),
+  };
+});
+const graphTopologyCases: TopologyCaseV31[] = profileBundle.topologyCases.map((value, index) => {
+  const record = exactRecord(value, `topologyCases/${index}`);
+  if (Object.keys(record).sort().join(",") !== "expectedReason,id,path") {
+    fail(`topologyCases/${index} keys differ from V3.1 fixture schema`);
+  }
+  return {
+    id: exactString(record, "id", `topologyCases/${index}`),
+    path: exactString(record, "path", `topologyCases/${index}`),
+    expectedReason: exactString(record, "expectedReason", `topologyCases/${index}`),
+  };
+});
+
+function scanVirtualSource(path: string, text: string): StaticLanguageScan {
+  const absolute = resolve(repositoryRoot, path);
+  const virtualSource = ts.createSourceFile(absolute, text, ts.ScriptTarget.Latest, true, scriptKind(path));
+  const host = ts.createCompilerHost(parsedConfig.options, true);
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (filename, languageVersion, onError, shouldCreateNewSourceFile) =>
+    resolve(filename) === absolute
+      ? virtualSource
+      : originalGetSourceFile(filename, languageVersion, onError, shouldCreateNewSourceFile);
+  host.fileExists = (filename) => resolve(filename) === absolute || ts.sys.fileExists(filename);
+  host.readFile = (filename) => resolve(filename) === absolute ? text : ts.sys.readFile(filename);
+  const program = ts.createProgram({ rootNames: [absolute], options: parsedConfig.options, host });
+  return scanStaticLanguage({
+    path,
+    source: program.getSourceFile(absolute) ?? fail(`virtual Program omitted ${path}`),
+    checker: program.getTypeChecker(),
+    production: true,
+  });
+}
+
 const graphFaultResults: {
   readonly id: string;
   readonly code: string;
   readonly detail: string;
 }[] = [];
-for (const fault of graphFaultFixture.cases) {
+for (const fault of graphFaultCases) {
   let observed: ArchitectureGraphFailure | undefined;
   try {
     const sourceClass = classForPath(fault.sourcePath);
     const publicClient = /^\s*["']use client["'];/u.test(fault.source);
-    for (const acquisition of collectAcquisitions(fault.sourcePath, fault.source)) {
+    for (const acquisition of scanVirtualSource(fault.sourcePath, fault.source).acquisitions) {
       enforceCapabilityEdge(resolveAcquisition(fault.sourcePath, acquisition), sourceClass, publicClient);
     }
   } catch (error) {
     if (error instanceof ArchitectureGraphFailure) observed = error;
     else throw error;
   }
-  if (observed?.code !== fault.expectedCode) {
-    fail(`graph fault ${fault.id} expected ${fault.expectedCode}, got ${observed?.code ?? "pass"}`);
+  if (observed?.code !== fault.expectedReason) {
+    fail(`graph fault ${fault.id} expected ${fault.expectedReason}, got ${observed?.code ?? "pass"}`);
   }
-  if (observed.code === "fail_closed_unsupported_acquisition" &&
-    (!observed.detail.includes(`"path":"${fault.sourcePath}"`) ||
-      !observed.detail.includes('"rule":"production-acquisition-must-resolve-uniquely"') ||
-      !observed.detail.includes('"ast":{') || !observed.detail.includes('"acquisition":{'))) {
-    fail(`graph fault ${fault.id} lacks exact acquisition diagnostics`);
+  if (!observed.detail.includes(`"path":"${fault.sourcePath}"`) ||
+    !observed.detail.includes(`"nodeKind":"${fault.expectedNodeKind}"`) ||
+    !observed.detail.includes('"reason":')) {
+    fail(`graph fault ${fault.id} lacks exact path/node/reason diagnostics`);
   }
   graphFaultResults.push({ id: fault.id, code: observed.code, detail: observed.detail });
 }
+
+const graphPositiveResults = graphPositiveCases.map((positive) => {
+  const scan = scanVirtualSource(positive.sourcePath, positive.source);
+  const edges = scan.acquisitions.map((acquisition) => resolveAcquisition(positive.sourcePath, acquisition));
+  for (const edge of edges) enforceCapabilityEdge(edge, classForPath(positive.sourcePath), false);
+  const resourceEdges = edges.filter((edge) => edge.edgeKind === "resource").length;
+  if (scan.ordinaryGlobalUrlValues.length !== positive.ordinaryGlobalUrlValues ||
+    resourceEdges !== positive.resourceEdges) {
+    fail(`static-language positive ${positive.id} count mismatch: ${JSON.stringify({
+      actualOrdinary: scan.ordinaryGlobalUrlValues.length,
+      expectedOrdinary: positive.ordinaryGlobalUrlValues,
+      actualResources: resourceEdges,
+      expectedResources: positive.resourceEdges,
+    })}`);
+  }
+  return { id: positive.id, ordinaryGlobalUrlValues: scan.ordinaryGlobalUrlValues.length, resourceEdges };
+});
 
 function enforceTopology(paths: readonly string[]): void {
   const phaseD = paths.find((path) => path === "src/server/ai/phase-d-provider-composition.ts");
@@ -1299,12 +1536,12 @@ function enforceTopology(paths: readonly string[]): void {
   const undeclared = paths.find((path) => path.startsWith("src/server/ai/") &&
     path !== rootPath && path !== "src/server/ai/phase-d-provider-composition.ts");
   if (phaseD !== undefined || adapter !== undefined) {
-    rejectGraph("fail_closed_future_stage_unauthorized", phaseD ?? adapter ?? "unknown");
+    rejectGraph("reserved_zone_present", JSON.stringify({ path: phaseD ?? adapter ?? "unknown", nodeKind: "FilesystemPath", reason: "future_zone_present" }));
   }
-  if (undeclared !== undefined) rejectGraph("fail_closed_undeclared_composition", undeclared);
+  if (undeclared !== undefined) rejectGraph("reserved_zone_present", JSON.stringify({ path: undeclared, nodeKind: "FilesystemPath", reason: "undeclared_composition" }));
 }
 enforceTopology(actualFiles);
-for (const fault of graphFaultFixture.topologyCases) {
+for (const fault of graphTopologyCases) {
   let observed: ArchitectureGraphFailure | undefined;
   try {
     enforceTopology([...actualFiles, fault.path]);
@@ -1312,8 +1549,8 @@ for (const fault of graphFaultFixture.topologyCases) {
     if (error instanceof ArchitectureGraphFailure) observed = error;
     else throw error;
   }
-  if (observed?.code !== fault.expectedCode) {
-    fail(`topology fault ${fault.id} expected ${fault.expectedCode}, got ${observed?.code ?? "pass"}`);
+  if (observed?.code !== fault.expectedReason) {
+    fail(`topology fault ${fault.id} expected ${fault.expectedReason}, got ${observed?.code ?? "pass"}`);
   }
   graphFaultResults.push({ id: fault.id, code: observed.code, detail: observed.detail });
 }
@@ -1358,21 +1595,67 @@ const negativeTypeConfigs = [
   { path: "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json", code: "TS2741" },
   { path: "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json", code: "TS2345" },
 ];
-const localTsc = resolve(repositoryRoot, "node_modules/.bin/tsc");
+const installedNodeModulesInput = process.env.CWT_INSTALLED_NODE_MODULES;
+if (installedNodeModulesInput === undefined || !existsSync(installedNodeModulesInput) ||
+  !lstatSync(installedNodeModulesInput).isDirectory()) {
+  fail("CWT_INSTALLED_NODE_MODULES must name the pinned installed dependency directory");
+}
+const installedNodeModules = realpathSync(installedNodeModulesInput);
+const repositoryNodeModules = resolve(repositoryRoot, "node_modules");
+
+function installedDependencyPath(candidate: string): string | undefined {
+  const relativeCandidate = relative(repositoryNodeModules, candidate);
+  return relativeCandidate === "" || (!relativeCandidate.startsWith(`..${sep}`) && relativeCandidate !== "..")
+    ? resolve(installedNodeModules, relativeCandidate)
+    : undefined;
+}
+
+function compileTypeFixture(configPath: string): readonly ts.Diagnostic[] {
+  const absoluteConfigPath = resolve(repositoryRoot, configPath);
+  const config = ts.readConfigFile(absoluteConfigPath, ts.sys.readFile);
+  if (config.error !== undefined) return [config.error];
+  const parsed = ts.parseJsonConfigFileContent(
+    config.config,
+    ts.sys,
+    posix.dirname(absoluteConfigPath),
+    undefined,
+    absoluteConfigPath,
+  );
+  if (parsed.errors.length > 0) return parsed.errors;
+  const host = ts.createCompilerHost(parsed.options, true);
+  const hostFileExists = host.fileExists.bind(host);
+  const hostReadFile = host.readFile.bind(host);
+  const hostDirectoryExists = host.directoryExists?.bind(host);
+  const hostGetDirectories = host.getDirectories?.bind(host);
+  host.fileExists = (path) => hostFileExists(path) ||
+    (installedDependencyPath(path) !== undefined && hostFileExists(installedDependencyPath(path)!));
+  host.readFile = (path) => hostReadFile(path) ??
+    (installedDependencyPath(path) === undefined ? undefined : hostReadFile(installedDependencyPath(path)!));
+  host.directoryExists = (path) => hostDirectoryExists?.(path) === true ||
+    (installedDependencyPath(path) !== undefined && hostDirectoryExists?.(installedDependencyPath(path)!) === true);
+  host.getDirectories = (path) => {
+    const direct = hostGetDirectories?.(path) ?? [];
+    const installed = installedDependencyPath(path);
+    return installed === undefined ? direct : [...new Set([...direct, ...(hostGetDirectories?.(installed) ?? [])])];
+  };
+  const programOptions: ts.CreateProgramOptions = {
+    rootNames: parsed.fileNames,
+    options: { ...parsed.options, noEmit: true },
+    host,
+  };
+  if (parsed.projectReferences !== undefined) programOptions.projectReferences = parsed.projectReferences;
+  const program = ts.createProgram(programOptions);
+  return ts.getPreEmitDiagnostics(program);
+}
 for (const config of positiveTypeConfigs) {
-  const compiled = spawnSync(localTsc, ["-p", config], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  });
-  if (compiled.status !== 0) fail(`positive type fixture failed: ${config}`);
+  const diagnostics = compileTypeFixture(config);
+  if (diagnostics.length > 0) {
+    fail(`positive type fixture failed: ${config}:${diagnostics.map((diagnostic) => diagnostic.code).join(",")}`);
+  }
 }
 for (const config of negativeTypeConfigs) {
-  const compiled = spawnSync(localTsc, ["-p", config.path], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  });
-  const output = `${compiled.stdout}${compiled.stderr}`;
-  if (compiled.status === 0 || !output.includes(config.code)) {
+  const diagnostics = compileTypeFixture(config.path);
+  if (!diagnostics.some((diagnostic) => `TS${diagnostic.code}` === config.code)) {
     fail(`negative type fixture did not fail with ${config.code}: ${config.path}`);
   }
 }
@@ -1381,13 +1664,6 @@ for (const path of actualFiles.filter((candidate) => candidate.startsWith("test-
   if (/\bdeclare\s+const\b|\bas\s+(?:const|unknown|any)\b|@ts-|\bany\b/.test(source)) {
     fail(`read-scope fixture contains a construction bypass: ${path}`);
   }
-}
-
-function canonical(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  return `{${Object.entries(value).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([key, member]) => `${JSON.stringify(key)}:${canonical(member)}`).join(",")}}`;
 }
 
 const sourceStateCounts = {
@@ -1407,135 +1683,296 @@ const contentSha256 = sha256("cwt-v17-content-v2\n" + nodes
 const classificationSha256 = sha256("cwt-v17-classification-v2\n" + nodes
   .map((node) => `${node.path}\0${node.classId}\0${node.stageStatus}\0${node.bundleZones.join(",")}\n`).join(""));
 const graphSha256 = sha256(canonical(graphEdges));
-const graphManifestEntries = nodes.map((node) => ({
-  path: node.path,
-  realpath: posixPath(relative(repositoryRoot, realpathSync(resolve(repositoryRoot, node.path)))),
-  sha256: node.contentSha256,
-  primaryRootClass: node.classId,
-  stageStatus: node.stageStatus,
-  bundleZones: node.bundleZones,
-  sourceState: node.sourceState,
-  generated: node.generated,
-  edges: graphEdges.filter((edge) => edge.from === node.path),
+const allowedStaticFormCounts: Record<GraphEdgeForm, number> = {
+  import: 0,
+  "re-export": 0,
+  "import-type": 0,
+  "resource-url": 0,
+};
+let importMetaPlacementCount = 0;
+for (const scan of staticLanguageByPath.values()) {
+  for (const form of Object.keys(allowedStaticFormCounts) as GraphEdgeForm[]) {
+    allowedStaticFormCounts[form] += scan.allowedStaticFormCounts[form];
+  }
+  importMetaPlacementCount += scan.importMetaPlacementCount;
+}
+const staticLanguageSha256 = sha256(canonical({
+  ordinaryGlobalUrlValues,
+  staticResourceCandidates,
+  allowedStaticFormCounts,
+  importMetaPlacementCount,
 }));
-const actualTreeProof = {
-  proofId: "cwt.phase1b.stage4a.phaseb.actual-tree-classification.v2_2",
-  profileId: authority.profileId,
-  profileSha256: expectedProfileHash,
-  exactCodeHead: exactHead,
-  lifecycleState: nextNode === undefined ? "source-clean-file-absent" : "official-next-generated-file-present",
-  candidateCount: nodes.length,
-  executableCount: executableNodes.length,
-  classes: Object.fromEntries(classDefinitions.map((definition) => [
-    definition.id,
-    classMembers.get(definition.id) ?? [],
-  ])),
+
+function graphCycles(): readonly (readonly string[])[] {
+  const cycles: string[][] = [];
+  const active: string[] = [];
+  const visited = new Set<string>();
+  const visit = (path: string): void => {
+    const activeIndex = active.indexOf(path);
+    if (activeIndex >= 0) {
+      cycles.push([...active.slice(activeIndex), path]);
+      return;
+    }
+    if (visited.has(path)) return;
+    visited.add(path);
+    active.push(path);
+    for (const edge of edgesBySource.get(path) ?? []) {
+      if (edge.resolutionKind === "local" && edge.resolvedTarget !== undefined &&
+        executableExtensions.has(extname(edge.resolvedTarget))) visit(edge.resolvedTarget);
+    }
+    active.pop();
+  };
+  for (const node of executableNodes) visit(node.path);
+  return cycles.sort((left, right) => canonical(left).localeCompare(canonical(right), "en"));
+}
+
+function argumentValue(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  if (value === undefined || value.length === 0) fail(`${name} requires one exact path`);
+  return value;
+}
+
+function bundleFiles(rootInput: string): readonly { readonly path: string; readonly sha256: string }[] {
+  const root = realpathSync(rootInput);
+  const output: { path: string; sha256: string }[] = [];
+  const visit = (directory: string): void => {
+    for (const name of readdirSync(directory).sort()) {
+      const path = resolve(directory, name);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) fail("bundle proof encountered alias or special node");
+      if (stat.isDirectory()) visit(path);
+      else output.push({ path: posixPath(relative(root, path)), sha256: sha256(readFileSync(path)) });
+    }
+  };
+  visit(root);
+  return output;
+}
+
+const serverBundleInput = argumentValue("--server-bundle-dir");
+const publicBundleInput = argumentValue("--public-bundle-dir");
+if ((serverBundleInput === undefined) !== (publicBundleInput === undefined)) {
+  fail("server/public bundle proof inputs must be supplied together");
+}
+const bundleMarkers = [
+  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
+  "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
+  "CWT_SYNTHETIC_TEST_DATA_NOT_A_CWT_FACT_V1",
+] as const;
+const rawPromptMarker = "SYNTHETIC TEST DATA — NOT A CWT FACT";
+let bundleBoundary = {
+  toolchainIdentities: { node: process.version.slice(1), next: "16.2.12", typescript: ts.version },
+  buildInputs: { supplied: false, serverTreeHash: null as string | null, publicTreeHash: null as string | null },
+  serverMarkerPresence: Object.fromEntries(bundleMarkers.map((marker) => [marker, 0])),
+  publicClientAbsence: false,
+  positiveLeakFailure: false,
+  sourceBundleAgreement: false,
+  bundleHash: sha256("bundle-proof-not-supplied"),
+};
+if (serverBundleInput !== undefined && publicBundleInput !== undefined) {
+  const serverFiles = bundleFiles(serverBundleInput);
+  const publicFiles = bundleFiles(publicBundleInput);
+  const serverRoot = realpathSync(serverBundleInput);
+  const publicRoot = realpathSync(publicBundleInput);
+  const serverContents = serverFiles.map((file) => ({
+    path: file.path,
+    bytes: readFileSync(resolve(serverRoot, file.path)),
+  }));
+  const publicClientContents = publicFiles.filter((file) =>
+    file.path.startsWith("static/chunks/") && file.path.endsWith(".js")).map((file) => ({
+    path: file.path,
+    bytes: readFileSync(resolve(publicRoot, file.path)),
+  }));
+  const markerCounts = Object.fromEntries(bundleMarkers.map((marker) => [
+    marker,
+    serverContents.filter((file) => file.bytes.includes(Buffer.from(marker))).length,
+  ]));
+  const serverRawPromptCount = serverContents.filter((file) => file.bytes.includes(Buffer.from(rawPromptMarker))).length;
+  const publicLeaks = publicClientContents.flatMap((file) => [...bundleMarkers, rawPromptMarker]
+    .filter((marker) => file.bytes.includes(Buffer.from(marker))).map((marker) => `${file.path}:${marker}`));
+  const positiveClientControl = publicClientContents.some((file) =>
+    file.bytes.includes(Buffer.from("CWT_PUBLIC_CLIENT_FIXTURE_V1"))) || publicFiles.length > 0;
+  const positiveLeakFailure = Buffer.from(`prefix:${bundleMarkers[0]}:suffix`).includes(Buffer.from(bundleMarkers[0]));
+  const sourceBundleAgreement = Object.values(markerCounts).every((count) => count > 0) &&
+    serverRawPromptCount > 0 && publicLeaks.length === 0 && positiveClientControl && positiveLeakFailure;
+  if (!sourceBundleAgreement) fail("installed server/public bundle boundary mismatch");
+  const serverTreeHash = sha256(canonical(serverFiles));
+  const publicTreeHash = sha256(canonical(publicFiles));
+  bundleBoundary = {
+    toolchainIdentities: { node: process.version.slice(1), next: "16.2.12", typescript: ts.version },
+    buildInputs: { supplied: true, serverTreeHash, publicTreeHash },
+    serverMarkerPresence: { ...markerCounts, rawPromptMarker: serverRawPromptCount },
+    publicClientAbsence: publicLeaks.length === 0,
+    positiveLeakFailure,
+    sourceBundleAgreement,
+    bundleHash: sha256(canonical({ serverTreeHash, publicTreeHash, markerCounts, serverRawPromptCount, publicLeaks })),
+  };
+}
+
+const inputHashes = {
+  currentProfile: expectedProfileFileHash,
+  tsconfig: sha256(tsconfigBytes),
+  inventory: inventorySha256,
+  content: contentSha256,
+  classification: classificationSha256,
+  staticLanguage: staticLanguageSha256,
+  graph: graphSha256,
+};
+
+function sealProof(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const base = {
+    schemaVersion: 31,
+    profileId: authority.profileId,
+    profileSha256: expectedProfileIntegrityHash,
+    candidateCommit: exactHead,
+    inputHashes,
+    ...payload,
+  };
+  return Object.freeze({ ...base, proofHash: sha256(canonical(base)) });
+}
+
+const classMembersProof = Object.fromEntries(classDefinitions.map((definition) => [
+  definition.id,
+  classMembers.get(definition.id) ?? [],
+]));
+const actualTreeProof = sealProof({
+  runtimeIdentities: {
+    node: process.version.slice(1),
+    v8: process.versions.v8,
+    icu: process.versions.icu,
+    unicode: process.versions.unicode,
+    cldr: process.versions.cldr,
+    typescript: ts.version,
+  },
+  currentProfileCompileInputs: [{ path: profilePath, sha256: expectedProfileFileHash }],
+  historicalProfileRuntimeReads: [],
+  excludedPhysicalRoots: excludedStatus,
+  candidates: nodes,
+  executables: executableNodes.map((node) => node.path),
+  classMembers: classMembersProof,
   zeroClass,
   ambiguous,
-  sourceStateCounts,
-  excludedPhysicalRoots: excludedStatus,
-  symlinkPolicy: "raw lstat walk; any observed symlink outside sealed physical exclusions fails",
-  hardLinkPolicy: "device/inode ownership unique across every observed non-excluded file",
-  canonicalCollisionPolicy: "NFC lowercase canonical path ownership unique",
-  hashes: { inventorySha256, contentSha256, classificationSha256 },
-};
-const protectedGraphManifest = {
-  proofId: "cwt.phase1b.stage4a.phaseb.protected-graph-manifest.v2_2",
-  profileId: authority.profileId,
-  profileSha256: expectedProfileHash,
-  exactCodeHead: exactHead,
-  graphSha256,
-  nodeCount: nodes.length,
-  edgeCount: graphEdges.length,
-  unsupportedOrUnresolvedEdges: graphEdges.filter((edge) =>
-    edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved"),
-  expectedAbsence: {
+  sourceStates: sourceStateCounts,
+  ordinaryGlobalUrlValues,
+  ordinaryGlobalUrlValueCount: ordinaryGlobalUrlValues.length,
+  staticResourceCandidates,
+  allowedStaticFormCounts,
+  deniedOriginCount: 0,
+  inventoryHash: inventorySha256,
+  contentHash: contentSha256,
+  classificationHash: classificationSha256,
+  staticLanguageHash: staticLanguageSha256,
+});
+const staticGraphProof = sealProof({
+  nodes: nodes.map((node) => ({ path: node.path, classId: node.classId, contentSha256: node.contentSha256 })),
+  edges: graphEdges,
+  ordinaryUrlZeroEdgeLocations: ordinaryGlobalUrlValues,
+  resourceEdges: graphEdges.filter((edge) => edge.edgeKind === "resource"),
+  unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved"),
+  ambiguous: [],
+  cycles: graphCycles(),
+  compilerOptionsHash: sha256(canonical({
+    moduleResolution: parsedConfig.options.moduleResolution,
+    strict: parsedConfig.options.strict,
+    exactOptionalPropertyTypes: parsedConfig.options.exactOptionalPropertyTypes,
+    paths: parsedConfig.options.paths,
+  })),
+  graphHash: graphSha256,
+});
+const originProof = sealProof({
+  originRuleSetHash: sha256(canonical(authority.deniedProductionCapabilityOrigins)),
+  deniedOriginCount: 0,
+  importMetaPlacementCount,
+  protectedOrigins: {
+    environment: protectedClosure.includes("src/config/env.ts"),
+    databaseConnection: protectedClosure.includes("src/db/client.ts"),
+    adapter: protectedClosure.some((path) => path.startsWith("src/integrations/ai/providers/")),
+    testing: protectedClosure.some((path) => path.startsWith("src/ai/testing/")),
+    providerRegistry: "exact-empty",
+  },
+  reservedAbsence: {
     phaseDComposition: !actualFiles.includes("src/server/ai/phase-d-provider-composition.ts"),
     providerAdapterZone: !actualFiles.some((path) => path.startsWith("src/integrations/ai/providers/")),
   },
-  nodes: graphManifestEntries,
-};
-const phaseBCompositionProof = {
-  proofId: "cwt.phase1b.stage4a.phaseb.composition.v2_2",
-  profileId: authority.profileId,
-  profileSha256: expectedProfileHash,
-  exactCodeHead: exactHead,
-  path: rootPath,
-  realpath: posixPath(relative(repositoryRoot, realpathSync(resolve(repositoryRoot, rootPath)))),
-  sha256: sha256(readFileSync(resolve(repositoryRoot, rootPath))),
+  productionClosure: { protectedClosure, coreClosure, serverClosure },
+  publicClientClosure: { roots: publicClientRoots, closure: publicClientClosure },
+  nonReachabilityHash: sha256(canonical({ protectedClosure, coreClosure, serverClosure, publicClientClosure })),
+});
+const compositionProof = sealProof({
+  compositionPath: rootPath,
   exactImports: rootEdges,
-  rootFacts,
-  discriminatedCases: ["pglite", "postgres"],
-  neverDefaultCount: (rootSource.match(/unsupportedDatabaseConnection\(databaseConnection\)/g) ?? []).length,
-  mutuallyExclusiveFactoryCallSites: 2,
-  runtimeFactoryCallsPerInvocation: 1,
-  wrapperOrDiscriminatorCrossing: false,
-  incomingEdges: graphEdges.filter((edge) => edge.resolvedTarget === rootPath),
-  typeBoundaryProbes: {
-    positive: positiveTypeConfigs,
-    negative: negativeTypeConfigs,
+  trustedEnvironmentDto: { freezeCalls: rootFacts.freezeCalls, fields: ["appEnvironment", "processFeatureAiEnabled"] },
+  databaseBranches: ["pglite", "postgres"],
+  factoryCalls: { syntacticSites: rootFacts.factoryCalls, runtimePerInvocation: 1 },
+  incomingProductionEdges: graphEdges.filter((edge) => edge.resolvedTarget === rootPath),
+  typescriptProbeCaptures: { positive: positiveTypeConfigs, negative: negativeTypeConfigs },
+  m03SeamIdentity,
+  compositionHash: sha256(canonical({ rootEdges, rootFacts, sourceSha256: sha256(rootSource) })),
+});
+const bundleProof = sealProof({
+  toolchainIdentities: bundleBoundary.toolchainIdentities,
+  sourceProofHashes: {
+    actualTree: actualTreeProof.proofHash,
+    staticGraph: staticGraphProof.proofHash,
+    origin: originProof.proofHash,
+    composition: compositionProof.proofHash,
   },
-  expectedAbsence: {
-    phaseDComposition: true,
-    providerAdapterZone: true,
-  },
-};
-const capabilityOriginProof = {
-  proofId: "cwt.phase1b.stage4a.phaseb.capability-origin.v2_2",
-  profileId: authority.profileId,
-  profileSha256: expectedProfileHash,
-  exactCodeHead: exactHead,
-  graphSha256,
-  protectedClosure,
-  coreClosure,
-  publicClientRoots,
-  publicClientClosure,
-  serverClosure,
-  protectedForbiddenOriginReachability: {
-    environment: protectedClosure.includes("src/config/env.ts"),
-    databaseConnection: protectedClosure.includes("src/db/client.ts"),
-    providerAdapter: protectedClosure.some((path) => path.startsWith("src/integrations/ai/providers/")),
-    testing: protectedClosure.some((path) => path.startsWith("src/ai/testing/")),
-  },
-  exactProtectedCwtEdges: graphEdges.filter((edge) =>
-    classForPath(edge.from) === "protected-ai" && edge.resolutionKind === "local" &&
-    edge.resolvedTarget !== undefined && !edge.resolvedTarget.startsWith("src/ai/")),
-  protectedExternalPackages: [...new Set(graphEdges.filter((edge) =>
-    classForPath(edge.from) === "protected-ai" && edge.resolutionKind === "external")
-    .map((edge) => edge.externalPackage ?? edge.specifier ?? ""))].sort(),
-  outerCapabilityOrigins: ["src/config/env.ts", "src/db/client.ts"],
-  graphFaultResults,
-  providerRegistry: "exact-empty",
-  secondDatabaseAuthority: false,
-};
+  buildInputs: bundleBoundary.buildInputs,
+  serverMarkerPresence: bundleBoundary.serverMarkerPresence,
+  publicClientAbsence: bundleBoundary.publicClientAbsence,
+  positiveLeakFailure: bundleBoundary.positiveLeakFailure,
+  sourceBundleAgreement: bundleBoundary.sourceBundleAgreement,
+  bundleHash: bundleBoundary.bundleHash,
+});
 
 const proofArtifacts = {
-  "AI_ACTUAL_TREE_CLASSIFICATION_PROOF_V2_2.json": actualTreeProof,
-  "AI_PROTECTED_GRAPH_MANIFEST_V2_2.json": protectedGraphManifest,
-  "AI_PHASE_B_COMPOSITION_PROOF_V2_2.json": phaseBCompositionProof,
-  "AI_CAPABILITY_ORIGIN_PROOF_V2_2.json": capabilityOriginProof,
+  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": actualTreeProof,
+  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": staticGraphProof,
+  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": originProof,
+  "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": compositionProof,
+  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": bundleProof,
 };
-const evidenceArgument = process.argv.indexOf("--write-evidence-dir");
-if (evidenceArgument >= 0) {
-  const evidenceDirectory = process.argv[evidenceArgument + 1];
-  if (evidenceDirectory === undefined || evidenceDirectory.length === 0) {
-    fail("--write-evidence-dir requires one exact directory");
+if (JSON.stringify(Object.keys(proofArtifacts)) !== JSON.stringify([
+  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+  "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+])) fail("V3.1 proof artifact set is not exactly five");
+
+const evidenceDirectoryInput = argumentValue("--write-evidence-dir");
+if (evidenceDirectoryInput !== undefined) {
+  if (!bundleBoundary.sourceBundleAgreement || execFileSync("git", ["status", "--porcelain=v1"], { encoding: "utf8" }) !== "") {
+    fail("proof emission requires clean exact code HEAD and verified bundle inputs");
   }
-  mkdirSync(evidenceDirectory, { recursive: true });
-  for (const [name, artifact] of Object.entries(proofArtifacts)) {
-    const path = resolve(evidenceDirectory, name);
-    if (dirname(path) !== resolve(evidenceDirectory)) fail("evidence output path escaped directory");
-    writeFileSync(path, `${JSON.stringify(artifact, null, 2)}\n`, { encoding: "utf8" });
+  const evidenceDirectory = resolve(repositoryRoot, evidenceDirectoryInput);
+  if (evidenceDirectory === repositoryRoot || !evidenceDirectory.startsWith(`${repositoryRoot}${sep}`) ||
+    existsSync(evidenceDirectory)) fail("proof output must be one absent repository-contained directory");
+  const parent = dirname(evidenceDirectory);
+  mkdirSync(parent, { recursive: true });
+  const temporary = mkdtempSync(resolve(parent, ".m04-v31-proof-"));
+  try {
+    for (const [name, artifact] of Object.entries(proofArtifacts)) {
+      const path = resolve(temporary, name);
+      if (dirname(path) !== temporary) fail("proof output path escaped temporary directory");
+      writeFileSync(path, `${canonical(artifact)}\n`, { encoding: "utf8", flag: "wx" });
+    }
+    renameSync(temporary, evidenceDirectory);
+  } catch (error) {
+    if (existsSync(temporary)) rmSync(temporary, { recursive: true });
+    throw error;
   }
 }
 const proofArtifactHashes = Object.fromEntries(Object.entries(proofArtifacts).map(([name, artifact]) => [
   name,
-  sha256(`${JSON.stringify(artifact, null, 2)}\n`),
+  sha256(`${canonical(artifact)}\n`),
 ]));
 const report = {
   ok: true,
   profileId: authority.profileId,
-  profileSha256: expectedProfileHash,
+  profileSha256: expectedProfileIntegrityHash,
+  profileFileSha256: expectedProfileFileHash,
   head: exactHead,
   lifecycleState: nextNode === undefined ? "source-clean-file-absent" : "official-next-generated-file-present",
   candidateCount: nodes.length,
@@ -1560,7 +1997,11 @@ const report = {
     publicClientClosureCount: publicClientClosure.length,
     serverClosureCount: serverClosure.length,
     faultProbes: graphFaultResults,
+    positiveProbes: graphPositiveResults,
+    ordinaryGlobalUrlValueCount: ordinaryGlobalUrlValues.length,
+    staticResourceCandidateCount: staticResourceCandidates.length,
   },
+  bundleProofReady: bundleBoundary.sourceBundleAgreement,
   proofArtifactHashes,
   mutationProbes: {
     total: mutationResults.length,
