@@ -1,0 +1,7 @@
+TASK=V1.10 independent Fresh challenge
+CANDIDATE=candidate:profile_sha256_8f1c7c9c023ed98477cfe9420ceac3648e3e20d2e59032493a1d9f8db15aba83
+V18_M01_RUNTIME=69/69:mutations_12/12:missing_code,extra_code,reordered_codes,duplicate_code,category_drift,retry_drift,manual_drift,message_drift,traversal_missing,traversal_extra,traversal_reordered,traversal_duplicate
+V18_M01_TYPES=positive_1/1:negative_3/3:{"fresh_positive":0,"fresh_unknown_negative":2,"fresh_json_widening_negative":2,"fresh_inverse_negative":2}
+V18_M02_NON_REGRESSION=CR01..CR14:mutations_4/4:swap_CR05_CR06,context_after_config,missing_CR08,second_adapter_call
+V18_M03_LIFECYCLE=getter_source_single_read_detached:source_replacement_detached:independent_products:lookalike_product_rejected:multiple_validation_3/3
+FRESH_CHALLENGE=PASS
