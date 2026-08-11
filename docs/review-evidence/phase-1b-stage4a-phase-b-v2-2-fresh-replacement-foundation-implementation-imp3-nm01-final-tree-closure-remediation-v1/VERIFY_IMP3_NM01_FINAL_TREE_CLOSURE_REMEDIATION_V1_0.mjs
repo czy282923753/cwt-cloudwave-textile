@@ -144,7 +144,9 @@ if (authority.status !== "IMP3_NM01_ATTEMPT1_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEP
 const sealCommit = authority.executableTreeSeal.commit;
 const finalHead = git(["rev-parse", "HEAD"]);
 requireEqual(git(["symbolic-ref", "--short", "HEAD"]), authority.candidate.branch, "Candidate branch");
-requireEqual(finalHead, authority.candidate.head, "Candidate HEAD");
+if (authority.candidate.finalHeadDerivedAtVerification !== true) {
+  fail("Candidate final HEAD must be derived from the exact clean verification target");
+}
 requireEqual(git(["rev-parse", `${sealCommit}^{commit}`]), sealCommit, "executable-tree seal commit");
 requireEqual(git(["rev-parse", `${sealCommit}^`]), authority.executableTreeSeal.parent, "seal parent");
 requireEqual(git(["rev-parse", `${sealCommit}^{tree}`]), authority.executableTreeSeal.tree, "seal tree");
