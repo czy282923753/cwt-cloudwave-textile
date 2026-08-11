@@ -20,7 +20,8 @@
     }
   },
   "postCorrection": {
-    "executableTreeSeal": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
+    "verifiedCheckerCommit": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
+    "finalExecutableTreeSeal": "9b5be5792bbb7f863740dca3168081ad92ced868",
     "freshProbeOutputSha256": "0f2050561cc883db450a9347088fbe635861e570befeafd5c03d8598a23bec02",
     "baseline": {
       "gateStatus": 0,

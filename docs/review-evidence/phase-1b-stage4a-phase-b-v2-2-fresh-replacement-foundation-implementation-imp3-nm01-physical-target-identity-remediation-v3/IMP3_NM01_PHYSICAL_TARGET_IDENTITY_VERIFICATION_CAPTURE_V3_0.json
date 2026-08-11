@@ -8,10 +8,10 @@
   },
   "identity": {
     "failedCandidate": "d60d5cc2398eeeb06263c58924896250f12f3756",
-    "executableTreeSeal": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
-    "sealParent": "9c96f17887d5ca0e37e71a335b98d6c48c2dcc48",
-    "sealTree": "2737abc59c79ddcef6b68144a3d6b84f74d12712",
-    "executableTreeSha256": "b6278307339147e7e93ef8cdafbe461462af95053f7eadb71b9caae5042b45c4"
+    "executableTreeSeal": "9b5be5792bbb7f863740dca3168081ad92ced868",
+    "sealParent": "aa00b82bc0694e5d33308e951307d0cc5fbd5af4",
+    "sealTree": "59557e980b8d90a64795bed3f5942535a4148567",
+    "executableTreeSha256": "067a5e2ec41b1809b38091972e362b0d5dd9fc559abf1a50545ecac05bc26674"
   },
   "prePost": {
     "preCorrectionExactTs": "EXIT_0_UNSAFE_SAME_DEVICE_INODE",
@@ -36,11 +36,11 @@
     "fiveProofs": "PASS_BOUND_TO_EXACT_SEAL"
   },
   "proofHashes": {
-    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "2c0b23f39dc25bd4ae9a52f79d4077decbdb69eeb30c4370726ae03902c1165e",
-    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "8a64b543368dcccb537856a1588d3b06901c9246a83c15d878abe1ca04030fe9",
-    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "79898db4dbe49863a278ea17af98a98b8167318a2a208c3e0e96858d5ebed708",
-    "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "c283bca19dd697f84ca318e32d6f00c115a2a2dd7569beba00c7f4e1ddaf6f64",
-    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "81079bb0d4885a9840cf6f42ea63ff990b4051f965cc82966c7cf064734530c0"
+    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "dfa4908a512f2013cd7f5497e838effb0fae2b4daeff9eabea35b3e3a139d87b",
+    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "6edd67b9bb3dfbdc0be898d6672587d94dd048232cc0ea4b7412cf2037e807d5",
+    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "cef134589f589fd77cfd60cc50eafd2b1ae514c325aadb509af648aefc009ed3",
+    "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "498c5ed99715d463939cc2e1aa7f9a40dbc87552c74a7fde052f252ef2d39e93",
+    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "58b6ba1a7fc6205857473d4d5d486783bc186af9b6413f49757b2dc8f10d587c"
   },
   "verification": {
     "allAi": "14 files / 163 tests PASS",
@@ -59,7 +59,8 @@
   "fullSuiteDecision": "not run: sole Product-code change is the architecture checker; all AI and every affected DB, authorization, public/SEO, schema, Prompt, type, lifecycle, proof and bundle boundary were run",
   "processExceptions": [
     "The first direct Reviewer frozen-probe invocation lacked the local dependency bridge and exited before verification; the pinned installed dependency bridge run then passed byte-identically.",
-    "The first bundle command named a workdir before that temporary directory existed and did not start; the directory was created and the same network-denied build then passed."
+    "The first bundle command named a workdir before that temporary directory existed and did not start; the directory was created and the same network-denied build then passed.",
+    "The preliminary verifier run exposed its own missing node:path relative import before completing case reproduction; the executable verifier was corrected linearly, re-sealed, and all five proofs were regenerated against the new seal."
   ],
   "acceptanceClaim": false
 }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "baseCandidate": "d60d5cc2398eeeb06263c58924896250f12f3756",
-  "executableTreeSeal": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
+  "executableTreeSeal": "9b5be5792bbb7f863740dca3168081ad92ced868",
   "allowedProductCodePaths": [
     "scripts/verify-ai-architecture.ts"
   ],

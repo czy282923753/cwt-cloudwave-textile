@@ -17,12 +17,12 @@
     "executableTreeSha256": "a45c8cb0a5d15830d601442ced747067b6718a32f09ccff8c2572f11a4ea06e8"
   },
   "executableTreeSeal": {
-    "commit": "2aa05f43f58be4c4f29f5defcfe0d9c6fede2ed5",
-    "parent": "9c96f17887d5ca0e37e71a335b98d6c48c2dcc48",
-    "tree": "2737abc59c79ddcef6b68144a3d6b84f74d12712",
+    "commit": "9b5be5792bbb7f863740dca3168081ad92ced868",
+    "parent": "aa00b82bc0694e5d33308e951307d0cc5fbd5af4",
+    "tree": "59557e980b8d90a64795bed3f5942535a4148567",
     "checkerSha256": "70b66c3351a1b33bac0d3dacfd119c639424fd063a85ee00c9db59c18c1955a5",
-    "verifierSha256": "84fd240bb0052e0452e41bf0a7e37aa1cec98b96ab0938e8cb816fabe7305564",
-    "executableTreeSha256": "b6278307339147e7e93ef8cdafbe461462af95053f7eadb71b9caae5042b45c4",
+    "verifierSha256": "d0d7d2558d1fe9cc63af4103eb1cf1dc7e5b19c118660ee557711ebc08baa116",
+    "executableTreeSha256": "067a5e2ec41b1809b38091972e362b0d5dd9fc559abf1a50545ecac05bc26674",
     "successorPolicy": "only regular non-executable docs, JSON, text, proof and manifest paths"
   },
   "lifecycle": {
@@ -39,11 +39,11 @@
       "nextEnvPresent": true
     },
     "sealGenerationSourceClean": {
-      "candidateCount": 674,
+      "candidateCount": 678,
       "executableCount": 481
     },
     "sealGenerationOfficialPresent": {
-      "candidateCount": 675,
+      "candidateCount": 679,
       "executableCount": 482
     }
   },
