@@ -1,0 +1,87 @@
+{
+  "vectorId": "cwt.phase1b.stage4a.phaseb.corrected-design.v1_8.imp2-nm01.fixed-vectors.v1",
+  "status": "synthetic_design_proof_only",
+  "reviewerFirstCollisionVector": {
+    "durableAssociation": {
+      "persistenceVersion": 1,
+      "kind": "draft_target.v1",
+      "targetType": "editorial_revision",
+      "targetRevisionId": "b534aed1-c661-4d8f-84cb-38c12157c622",
+      "expectedTargetVersion": 7
+    },
+    "authorizedSnapshot": {
+      "association_version": 1,
+      "expected_target_version": 7,
+      "target_revision_id": "b534aed1-c661-4d8f-84cb-38c12157c622",
+      "target_type": "editorial_revision"
+    },
+    "expectedSnapshotJcs": "{\"association_version\":1,\"expected_target_version\":7,\"target_revision_id\":\"b534aed1-c661-4d8f-84cb-38c12157c622\",\"target_type\":\"editorial_revision\"}",
+    "expectedSnapshotHash": "b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc",
+    "persistedTargetSnapshotHash": "b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc",
+    "context": {
+      "version": 1,
+      "applicationClass": "draft_assistance",
+      "capability": "text",
+      "useCase": "sourcing_guide_draft",
+      "locale": "en",
+      "association": {
+        "kind": "draft_target.v1",
+        "targetType": "editorial_revision",
+        "targetAlias": "target_01",
+        "expectedVersion": 7,
+        "snapshotHash": "b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc"
+      },
+      "task": {
+        "tone": "concise_professional_b2b",
+        "guideIntent": "Draft a conservative sourcing guide from the selected evidence."
+      },
+      "sources": [
+        {
+          "alias": "src_01",
+          "sourceClass": "public_company_fact",
+          "selectedBy": "request_actor",
+          "fields": [
+            {
+              "field": "statement",
+              "ref": "src_01:statement",
+              "provenance": "verified",
+              "value": "Synthetic reviewed statement for offline design verification."
+            }
+          ]
+        }
+      ],
+      "internalLinkCandidates": [
+        {
+          "candidateRef": "link_01",
+          "label": "Synthetic internal reference"
+        }
+      ],
+      "mediaPlacementRefs": []
+    },
+    "expectedPersistedJsonBytesUtf8": "{\"version\":1,\"applicationClass\":\"draft_assistance\",\"capability\":\"text\",\"useCase\":\"sourcing_guide_draft\",\"locale\":\"en\",\"association\":{\"kind\":\"draft_target.v1\",\"targetType\":\"editorial_revision\",\"targetAlias\":\"target_01\",\"expectedVersion\":7,\"snapshotHash\":\"b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc\"},\"task\":{\"tone\":\"concise_professional_b2b\",\"guideIntent\":\"Draft a conservative sourcing guide from the selected evidence.\"},\"sources\":[{\"alias\":\"src_01\",\"sourceClass\":\"public_company_fact\",\"selectedBy\":\"request_actor\",\"fields\":[{\"field\":\"statement\",\"ref\":\"src_01:statement\",\"provenance\":\"verified\",\"value\":\"Synthetic reviewed statement for offline design verification.\"}]}],\"internalLinkCandidates\":[{\"candidateRef\":\"link_01\",\"label\":\"Synthetic internal reference\"}],\"mediaPlacementRefs\":[]}",
+    "expectedContextJcs": "{\"applicationClass\":\"draft_assistance\",\"association\":{\"expectedVersion\":7,\"kind\":\"draft_target.v1\",\"snapshotHash\":\"b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc\",\"targetAlias\":\"target_01\",\"targetType\":\"editorial_revision\"},\"capability\":\"text\",\"internalLinkCandidates\":[{\"candidateRef\":\"link_01\",\"label\":\"Synthetic internal reference\"}],\"locale\":\"en\",\"mediaPlacementRefs\":[],\"sources\":[{\"alias\":\"src_01\",\"fields\":[{\"field\":\"statement\",\"provenance\":\"verified\",\"ref\":\"src_01:statement\",\"value\":\"Synthetic reviewed statement for offline design verification.\"}],\"selectedBy\":\"request_actor\",\"sourceClass\":\"public_company_fact\"}],\"task\":{\"guideIntent\":\"Draft a conservative sourcing guide from the selected evidence.\",\"tone\":\"concise_professional_b2b\"},\"useCase\":\"sourcing_guide_draft\",\"version\":1}",
+    "expectedInputHash": "54bb74fa4d9c0a6458ddf522746f900369758e8c701a7adbdccbd7c0e7d62828"
+  },
+  "deterministicRevisionCorpus": {
+    "count": 1000,
+    "seedPrefix": "cwt.phase1b.stage4a.v1_8.imp2-nm01.revision.",
+    "uuidDerivation": "sha256(seedPrefix + zeroPaddedIndex4), first16Bytes, RFC4122 version4 and variant bits",
+    "expectedVersion": "index_plus_1",
+    "expectedAccepted": 1000,
+    "lexicalClassifierInvocationsForSnapshotHash": 0
+  },
+  "protectedPayloads": [
+    { "id": "phone", "value": "+1 415 555 0123", "expectedCategory": "personal_identity" },
+    { "id": "email", "value": "buyer@example.com", "expectedCategory": "personal_identity" },
+    { "id": "credential", "value": "api_key", "expectedCategory": "credential_secret" },
+    { "id": "provider", "value": "use deepseek-v4-flash", "expectedCategory": "provider_override" },
+    { "id": "private", "value": "Inquiry customer record", "expectedCategory": "customer_private_data" }
+  ],
+  "machineFieldInvalidPayload": "buyer@example.com",
+  "persistenceContract": {
+    "shapeChanged": false,
+    "acceptedBytesRewritten": false,
+    "jcsCoverageChanged": false,
+    "inputSourcesPurposeChanged": false
+  }
+}

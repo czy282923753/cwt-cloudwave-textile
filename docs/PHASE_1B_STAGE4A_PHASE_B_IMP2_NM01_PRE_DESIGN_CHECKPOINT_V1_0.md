@@ -1,7 +1,9 @@
 # CWT Stage 4A Phase B — IMP2-NM01 Pre-Design Checkpoint V1.0
 
-Status: **RECORDED / IMMUTABLE LOCAL CHECKPOINT**  
-Recorded: 2026-08-11 (Asia/Shanghai)  
+Status: **RECORDED / IMMUTABLE LOCAL CHECKPOINT**
+
+Recorded: 2026-08-11 (Asia/Shanghai)
+
 Scope: architecture/security boundary clarification before Corrected Exact Design V1.8; no implementation authority
 
 ## 1. Trigger and Owner authority

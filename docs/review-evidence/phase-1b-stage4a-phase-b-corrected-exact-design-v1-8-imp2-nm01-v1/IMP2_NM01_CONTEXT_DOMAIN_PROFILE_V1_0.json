@@ -1,0 +1,249 @@
+{
+  "profileId": "cwt.phase1b.stage4a.phaseb.corrected-design.v1_8.imp2-nm01.context-domain.v1",
+  "profileVersion": "1.0.0",
+  "status": "candidate_not_approved_implementation_not_authorized",
+  "decision": "IMP2-NM01-STRUCTURAL-INTEGRITY-DOMAIN",
+  "authority": {
+    "ownerDecisionRecord": "docs/PHASE_1B_STAGE4A_PHASE_B_IMP2_NM01_OWNER_DECISION_RECORD_V1_0.md",
+    "correctedDesign": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_CORRECTED_EXACT_DESIGN_V1_8.md",
+    "checkpointRef": "codex/checkpoint/phase-1b-stage4a-phase-b-nm01-pre-design-v1",
+    "checkpointCommit": "b7ad96b24da45de00cae2cdb961a9aefcbc99496",
+    "acceptedV17Commit": "3f475e13d73d9d68a4dfb9a040941c57f1ee92e6"
+  },
+  "traversalAuthority": {
+    "id": "ctx.draft-assistance.v1.field-domain-traversal.v1",
+    "applicationOwned": true,
+    "closed": true,
+    "strictUnknownKeys": true,
+    "patternLanguage": {
+      "root": "/",
+      "separator": "/",
+      "singleArrayIndex": "*",
+      "recursiveEvidenceSubtree": "**",
+      "recursiveUse": "only_as_final_segment_after_sources_star_fields_star_value"
+    },
+    "zeroMatches": "fail_closed_context_domain_unclassified",
+    "multipleMatches": "fail_closed_context_domain_ambiguous",
+    "pathExceptionLists": 0,
+    "compatibilityTraversals": 0,
+    "consumerLocalBypasses": 0
+  },
+  "domains": [
+    {
+      "id": "closed_container",
+      "purpose": "Strict object/array shape, cardinality, ordering and unknown-key rejection; never a lexical exemption for descendant evidence."
+    },
+    {
+      "id": "machine_structural_integrity",
+      "purpose": "Application-generated literals, enums, opaque aliases/refs, bounded versions and recomputed integrity hashes."
+    },
+    {
+      "id": "protected_human_business_provider_evidence",
+      "purpose": "Human narrative, business-source values and labels, and every Provider-evidence string/key; invoke the selected M02 classifier and fail closed."
+    }
+  ],
+  "protectedClassifier": {
+    "registryPath": "src/ai/context/protected-data-registry.v2_1.json",
+    "evidenceRegistryPath": "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+    "registryId": "cwt.phase1b.stage4a.phaseb.m02-grammar-registry.include-deepseek.v2_1",
+    "registryVersion": "2.1.0",
+    "sha256": "264ca6358dcec00da5bc17e134c89e52d5321c87683212b8c32ba12756700b66",
+    "ruleCount": 32,
+    "commonRules": 30,
+    "deepSeekOnlyRules": 2,
+    "runtime": {
+      "node": "24.14.0",
+      "v8": "13.6.233.17-node.41",
+      "icu": "78.2",
+      "unicode": "17.0",
+      "cldr": "48.0",
+      "platform": "darwin",
+      "arch": "arm64"
+    },
+    "consumers": [
+      "ctx.draft-assistance.v1.field-domain-traversal.v1:protected_human_business_provider_evidence",
+      "output-policy:A-07"
+    ],
+    "sameCompiledIdentityRequired": true,
+    "secondClassifierAllowed": false,
+    "consumerExceptionAllowed": false
+  },
+  "associationIntegrity": {
+    "algorithm": "sha256",
+    "canonicalization": "RFC8785-JCS-accepted-domain",
+    "snapshotVersion": 1,
+    "contextObjectFieldsInOrder": [
+      "kind",
+      "targetType",
+      "targetAlias",
+      "expectedVersion",
+      "snapshotHash"
+    ],
+    "authorizedSnapshotVariants": {
+      "product_draft": [
+        "association_version",
+        "expected_target_version",
+        "target_locale",
+        "target_product_id",
+        "target_type"
+      ],
+      "content_draft": [
+        "association_version",
+        "expected_target_version",
+        "target_content_id",
+        "target_locale",
+        "target_type"
+      ],
+      "editorial_revision": [
+        "association_version",
+        "expected_target_version",
+        "target_revision_id",
+        "target_type"
+      ]
+    },
+    "acceptanceOrder": [
+      "strict_context_shape",
+      "strict_durable_association_decode",
+      "authorized_target_snapshot_rebuild",
+      "jcs_canonicalize_snapshot",
+      "sha256_lowercase_hex_recompute",
+      "context_association_tuple_compare",
+      "persisted_target_snapshot_hash_compare",
+      "context_snapshot_hash_compare"
+    ],
+    "failClosedCases": [
+      "tamper",
+      "uppercase",
+      "wrong_length",
+      "wrong_algorithm",
+      "wrong_snapshot_version",
+      "wrong_target_type",
+      "wrong_target_identity",
+      "wrong_expected_version",
+      "replay_mismatch"
+    ]
+  },
+  "contextNodeAssignments": [
+    { "pattern": "/", "node": "object", "domain": "closed_container", "validator": "context_root_exact_keys" },
+    { "pattern": "/version", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:1" },
+    { "pattern": "/applicationClass", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:draft_assistance" },
+    { "pattern": "/capability", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:text" },
+    { "pattern": "/useCase", "node": "scalar", "domain": "machine_structural_integrity", "validator": "enum:production_use_cases_4" },
+    { "pattern": "/locale", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:en" },
+
+    { "pattern": "/association", "node": "object", "domain": "closed_container", "validator": "association_exact_keys" },
+    { "pattern": "/association/kind", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:draft_target.v1" },
+    { "pattern": "/association/targetType", "node": "scalar", "domain": "machine_structural_integrity", "validator": "enum:draft_target_types_3" },
+    { "pattern": "/association/targetAlias", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:target_01" },
+    { "pattern": "/association/expectedVersion", "node": "scalar", "domain": "machine_structural_integrity", "validator": "integer:1..2147483647" },
+    { "pattern": "/association/snapshotHash", "node": "scalar", "domain": "machine_structural_integrity", "validator": "recomputed_sha256_lowercase_hex_64" },
+
+    { "pattern": "/task", "node": "object", "domain": "closed_container", "validator": "task_exact_use_case_keys" },
+    { "pattern": "/task/tone", "node": "scalar", "domain": "machine_structural_integrity", "validator": "enum:task_tones_2" },
+    { "pattern": "/task/pageIntent", "node": "scalar", "domain": "protected_human_business_provider_evidence", "validator": "bounded_text:500_scalars_500_utf8", "scanRoot": true },
+    { "pattern": "/task/primaryPhrase", "node": "scalar", "domain": "protected_human_business_provider_evidence", "validator": "bounded_text:200_scalars_200_utf8", "scanRoot": true },
+    { "pattern": "/task/topic", "node": "scalar", "domain": "protected_human_business_provider_evidence", "validator": "bounded_text:300_scalars_300_utf8", "scanRoot": true },
+    { "pattern": "/task/guideIntent", "node": "scalar", "domain": "protected_human_business_provider_evidence", "validator": "bounded_text:500_scalars_500_utf8", "scanRoot": true },
+
+    { "pattern": "/sources", "node": "array", "domain": "closed_container", "validator": "array:max32_ordered" },
+    { "pattern": "/sources/*", "node": "object", "domain": "closed_container", "validator": "source_entry_exact_keys" },
+    { "pattern": "/sources/*/alias", "node": "scalar", "domain": "machine_structural_integrity", "validator": "sequential_source_alias:^src_[0-9]{2}$" },
+    { "pattern": "/sources/*/sourceClass", "node": "scalar", "domain": "machine_structural_integrity", "validator": "enum:source_classes_4" },
+    { "pattern": "/sources/*/selectedBy", "node": "scalar", "domain": "machine_structural_integrity", "validator": "literal:request_actor" },
+    { "pattern": "/sources/*/fields", "node": "array", "domain": "closed_container", "validator": "array:1..32_ordered" },
+    { "pattern": "/sources/*/fields/*", "node": "object", "domain": "closed_container", "validator": "source_field_exact_keys" },
+    { "pattern": "/sources/*/fields/*/field", "node": "scalar", "domain": "protected_human_business_provider_evidence", "validator": "source_class_field_allowlist_and_identifier", "scanRoot": true },
+    { "pattern": "/sources/*/fields/*/ref", "node": "scalar", "domain": "machine_structural_integrity", "validator": "exact_alias_colon_field_ref" },
+    { "pattern": "/sources/*/fields/*/provenance", "node": "scalar", "domain": "machine_structural_integrity", "validator": "enum:structural_provided_verified" },
+    { "pattern": "/sources/*/fields/*/value/**", "node": "json_subtree", "domain": "protected_human_business_provider_evidence", "validator": "accepted_json_primitive_array_or_record", "scanRoot": true },
+
+    { "pattern": "/internalLinkCandidates", "node": "array", "domain": "closed_container", "validator": "array:max32_ordered" },
+    { "pattern": "/internalLinkCandidates/*", "node": "object", "domain": "closed_container", "validator": "internal_link_exact_keys" },
+    { "pattern": "/internalLinkCandidates/*/candidateRef", "node": "scalar", "domain": "machine_structural_integrity", "validator": "unique_opaque_ref:^link_[0-9]{2}$" },
+    { "pattern": "/internalLinkCandidates/*/label", "node": "scalar", "domain": "protected_human_business_provider_evidence", "validator": "bounded_text:300_scalars_300_utf8", "scanRoot": true },
+
+    { "pattern": "/mediaPlacementRefs", "node": "array", "domain": "closed_container", "validator": "array:max32_ordered" },
+    { "pattern": "/mediaPlacementRefs/*", "node": "scalar", "domain": "machine_structural_integrity", "validator": "unique_opaque_ref:^media_[0-9]{2}$" }
+  ],
+  "sourceFieldAllowlists": {
+    "public_company_fact": ["factKey", "subject", "statement", "relationshipToCwt"],
+    "product_structured": [
+      "name",
+      "primaryCategoryLabel",
+      "additionalCategoryLabels",
+      "applicationLabels",
+      "composition",
+      "weightGsm",
+      "widthCm",
+      "moqValue",
+      "moqUnit",
+      "fabricStyle",
+      "colorOptions",
+      "moqNote",
+      "customAvailable",
+      "sampleAvailable"
+    ],
+    "fabric_knowledge": ["title", "excerpt", "narrativeText"],
+    "explicit_human_input": ["text"]
+  },
+  "promptProjections": {
+    "seo_content_draft": {
+      "locale": "/locale",
+      "page_intent": "/task/pageIntent",
+      "primary_phrase": "/task/primaryPhrase",
+      "selected_context_json": "/sources",
+      "internal_link_candidates_json": "/internalLinkCandidates",
+      "requested_tone": "/task/tone"
+    },
+    "fabric_knowledge_draft": {
+      "locale": "/locale",
+      "topic": "/task/topic",
+      "selected_context_json": "/sources",
+      "requested_tone": "/task/tone"
+    },
+    "product_description_draft": {
+      "locale": "/locale",
+      "product_context_json": "/sources",
+      "media_placement_refs_json": "/mediaPlacementRefs",
+      "requested_tone": "/task/tone"
+    },
+    "sourcing_guide_draft": {
+      "locale": "/locale",
+      "guide_intent": "/task/guideIntent",
+      "selected_context_json": "/sources",
+      "requested_tone": "/task/tone"
+    }
+  },
+  "providerLeakDenyPrefixes": [
+    "/association",
+    "/input_sources_json",
+    "/actor",
+    "/configuration",
+    "/endpoint",
+    "/credential"
+  ],
+  "persistence": {
+    "inputContextJsonShape": "unchanged_ReconstructibleDraftContextV1",
+    "inputContextBytes": "preserve_original_accepted_bytes_no_rewrite",
+    "jcsInputHashCoverage": "entire_input_context_json_including_association",
+    "inputSourcesJsonPurpose": "bounded_internal_provenance_not_provider_payload_unchanged",
+    "newColumns": 0,
+    "schemaMigrationChange": false
+  },
+  "replayOrder": [
+    "strict_durable_projection",
+    "decode_and_recompute_association_integrity",
+    "typed_context_domain_traversal",
+    "recompute_full_context_jcs_input_hash",
+    "rebuild_prompt_projection",
+    "reload_and_verify_prompt_config_envelope_policy_hashes",
+    "adapter_resolution"
+  ],
+  "phaseBoundary": {
+    "phaseB": "contracts_profiles_offline_proof_empty_production_provider_registry",
+    "phaseC": "later_durable_runtime_only_after_separate_authorization",
+    "phaseD": "absent_provider_adapter_zone",
+    "phaseE": "later_business_integration_and_human_review_only",
+    "implementationAuthorized": false
+  }
+}
