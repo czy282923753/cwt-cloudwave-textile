@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "failedRemediationCandidate": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+  "failedRemediationCodeHead": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+  "correctedCodeHead": "75c77797d64636d303cea2e8683c7a093fe8ec1f",
+  "aggregate": {
+    "added": 0,
+    "deleted": 0,
+    "modified": 2,
+    "total": 2
+  },
+  "paths": [
+    {
+      "status": "M",
+      "path": "scripts/verify-ai-architecture.ts",
+      "failedCandidateSha256": "81e2578a1f8aff9e0c6dd090e5ad2c393e5e8d680a2afb828ac04637b1663945",
+      "correctedSha256": "63b159055a537d4ec24ed28f53c0ac1dae5498b814689560474fb49fff3eebff",
+      "finding": "H-01/M04",
+      "purpose": "replace spelling-only ambient capability detection with TypeChecker-resolved protected Phase B runtime-global origin denial"
+    },
+    {
+      "status": "M",
+      "path": "test-fixtures/ai-architecture/graph-faults.v3_1.json",
+      "failedCandidateSha256": "1005dd96a372b3ef87417b11ac8c0f1f3530a728c9840448ffd89b4ad153d339",
+      "correctedSha256": "766c10d8170276f4eaf51f3609ae02b9cf8f31776dc65634a9e4c4f1a36066f4",
+      "finding": "H-01/M04",
+      "purpose": "replace V3.1 graph faults with semantic ambient-origin faults and local/import shadow positives"
+    }
+  ],
+  "addedOrDeletedProductPaths": [],
+  "preservedNoDiffFromFailedRemediationCodeHead": {
+    "H02Nh01CompositionAndTests": true,
+    "srcDbAll": true,
+    "m02Nm01M01M03M05L01L02ProductCode": true,
+    "publicProductSeoUrlRedirectFontPagination": true,
+    "productionPromptAndProviderRegistry": true,
+    "schemaMigrationSnapshotJournalSeedPackageLockConfig": true
+  }
+}

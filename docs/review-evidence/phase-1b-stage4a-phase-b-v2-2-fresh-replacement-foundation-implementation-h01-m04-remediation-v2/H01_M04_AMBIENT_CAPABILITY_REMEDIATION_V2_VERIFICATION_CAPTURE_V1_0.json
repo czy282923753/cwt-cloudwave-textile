@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_remediation_evidence_not_acceptance",
+  "runtime": {
+    "node": "24.14.0",
+    "next": "16.2.12",
+    "typescript": "5.9.3",
+    "packageInstallOrMaterialization": false,
+    "providerNetworkOrSpend": false
+  },
+  "identity": {
+    "failedRemediationCandidate": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+    "failedRemediationCandidateParent": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+    "failedRemediationCandidateTree": "d241b7df5cb57d6419dfa07b4a6bbe86bc422d94",
+    "correctedCodeHead": "75c77797d64636d303cea2e8683c7a093fe8ec1f",
+    "correctedCodeParent": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+    "correctedCodeTree": "018d872a3544bbfc9d0f6aa84b08911d262ee2b9",
+    "linearCorrectionCommits": [
+      "75c77797d64636d303cea2e8683c7a093fe8ec1f"
+    ],
+    "mergeCommits": 0
+  },
+  "beforeCorrectionReproduction": {
+    "witness": "void fetch(\"https://api.deepseek.com\");",
+    "protectedSourcePath": "src/ai/canonical-json.ts",
+    "observedGateExit": 0,
+    "observedGateOk": true,
+    "observedGateHead": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+    "rawCaptureSha256": "43d2b6502ec723de4f68dd263ae9e8c942483a66a7a0f0e69ae570c40aae5101",
+    "sourceRestoredSha256": "f728ecb41f1536a6bb17c2eaa1c00fab0de69827803ecfcfd57a52adee5751cb",
+    "result": "exact_reviewer_failure_reproduced"
+  },
+  "afterCorrection": {
+    "soleGate": "scripts/verify-ai-architecture.ts",
+    "semanticBoundary": "TypeScript Program/TypeChecker resolved value-reference origins in protected-ai and phase-b-outer-composition Production classes",
+    "allowedGlobalThis": {
+      "path": "src/db/client.ts",
+      "member": "cwtDatabaseConnection",
+      "form": "direct_non_optional_named_property_access_only"
+    },
+    "forbiddenResolvedAmbientNames": [
+      "EventSource",
+      "WebSocket",
+      "XMLHttpRequest",
+      "fetch",
+      "global",
+      "navigator",
+      "self",
+      "window"
+    ],
+    "faultProbeCount": 55,
+    "semanticAmbientFaultProbeCount": 16,
+    "positiveProbeCount": 7,
+    "newFailClosedProbeIds": [
+      "bare-fetch-reviewer-witness",
+      "bare-websocket-construction",
+      "bare-event-source-construction",
+      "bare-xml-http-request-construction",
+      "bare-fetch-alias-capture",
+      "bare-fetch-bind",
+      "bare-fetch-call",
+      "bare-fetch-apply",
+      "bare-fetch-static-field",
+      "bare-fetch-container-destructure",
+      "bare-fetch-iife-argument",
+      "ambient-window-fetch-member",
+      "ambient-self-computed-fetch-member",
+      "ambient-window-destructured-fetch",
+      "ambient-global-websocket-member",
+      "ambient-navigator-send-beacon-member"
+    ],
+    "newPositiveProbeIds": [
+      "repository-local-ambient-name-shadows",
+      "repository-imported-ambient-name-shadows"
+    ],
+    "diagnosticContract": {
+      "deterministicPath": true,
+      "rule": "protected-phase-b-runtime-global-capability-origin-denied",
+      "astKindAndPosition": true,
+      "typescriptResolvedOrigin": true,
+      "capabilityName": true
+    },
+    "ordinaryGlobalUrlValues": 21,
+    "staticResourceCandidates": 0,
+    "lifecycleMutations": 28,
+    "proofArtifactCount": 5,
+    "architectureRawCaptureSha256": "54d6208a38d04746f9367044f1001711f7bba2efb7c6fa541a058ec7616a0e17"
+  },
+  "architectureAtCorrectedCodeHead": {
+    "passed": true,
+    "profileSelectedPointerSha256": "84dc5dd7b95e391524a7dc657a9473d24afeb8ae6f82e2067dabc2ffa410c869",
+    "profileFileSha256": "766c10d8170276f4eaf51f3609ae02b9cf8f31776dc65634a9e4c4f1a36066f4",
+    "lifecycle": "official-next-generated-file-present",
+    "candidates": 623,
+    "executables": 471,
+    "unclassified": 0,
+    "ambiguous": 0,
+    "ordinaryUrlValues": 21,
+    "faultProbes": 55,
+    "positiveProbes": 7,
+    "typePositive": 2,
+    "typeExpectedNegative": 6,
+    "lifecycleMutations": 28,
+    "bundleProofReady": true
+  },
+  "verification": {
+    "allSrcAi": {
+      "filesPassed": 14,
+      "testsPassed": 163,
+      "captureSha256": "61bee5d7fdcd272eed72b881170568c5fc1c8b4c8a48aae2b7e3455db740caf2",
+      "passed": true
+    },
+    "h02Nh01NonRegression": {
+      "file": "src/ai/provider-neutral-foundation.integration.test.ts",
+      "testsPassed": 6,
+      "realServiceMatrixInvocations": 21,
+      "productionBytesChangedFromFailedRemediationCodeHead": false,
+      "outcome": "CLOSED"
+    },
+    "frozenDbSchemaNoindexPublicFocused": {
+      "filesPassed": 7,
+      "testsPassed": 8,
+      "captureSha256": "e1d454356921cd0f9f6dde91276f95a26569584f793933d2984f5bbf1cabba62",
+      "passed": true
+    },
+    "eslintRepositoryZeroWarnings": true,
+    "strictTypecheckSourceClean": true,
+    "strictTypecheckOfficialTypegenState": true,
+    "aiFoundation0020": {
+      "passed": true,
+      "captureSha256": "a7f5039da3842354a63c268260a4ee4fbb85a6f54584b63f14a2b5384ffd2617"
+    },
+    "acceptedV22Package": {
+      "disposition": "PACKAGE_CONSISTENCY_PASS_NOT_INDEPENDENT_ACCEPTANCE",
+      "captureSha256": "a7dff9ae647ed3f928c3abdd2949b83bca088a842070797f5c1bae07682ca164"
+    },
+    "schemaMapping": {
+      "aiModelConfig": "21/21",
+      "aiRuns": "96/96",
+      "orderExact": true,
+      "captureSha256": "74354612e3c5fe9f94ba2d0bc2a6d30c524a57dbc137db9ad1ee83fcf565d8bb"
+    },
+    "promptBundle": {
+      "passed": true,
+      "captureSha256": "1d89bff4e6ae03b5642b6df2d190fc1209e1dfe34eb4526ee973c99b7d022177"
+    },
+    "promptHistoryFromAcceptedStart": {
+      "passed": true,
+      "captureSha256": "d58f7c2ff36028b82f72ac696e82cb12af69afe090d4b1398c3740cdfabb28cd"
+    },
+    "productionPromptManifest": "exact-empty",
+    "productionProviderRegistry": "exact-empty",
+    "fullSuite": {
+      "run": false,
+      "rationale": "The only Product-code mutation is the non-runtime architecture checker and its sole V3.1 fixture. The executable actual-tree gate, all 163 AI tests, focused DB/schema/public frozen tests, repository lint and strict typecheck directly cover the affected and preserved risk; unrelated full-suite execution would not exercise the semantic checker further."
+    }
+  },
+  "officialNextTypegenNetworkDenied": {
+    "passed": true,
+    "files": {
+      ".next/types/cache-life.d.ts": "d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7",
+      ".next/types/routes.d.ts": "e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4",
+      ".next/types/validator.ts": "8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df"
+    },
+    "nextEnvSha256": "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651"
+  },
+  "isolatedServerPublicBundleNetworkDenied": {
+    "passed": true,
+    "builder": "Next 16.2.12 webpack",
+    "serverFiles": 51,
+    "publicClientChunkFiles": 16,
+    "serverMarkers": 3,
+    "rawPromptMarkerServerOnly": true,
+    "positiveLeakControl": true,
+    "captureSha256": "a7f1c5162369ad439909ab6360ef32b961fee2d4030bbb8f534dd698f0525dc2"
+  },
+  "m04ProofArtifactHashes": {
+    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "37cc54fb0b9a5641d172e4ff88db4b9793a8020ea8d5e54ddf9f35868c72cf02",
+    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "d27e4610fdb7e1c3a9e8dbfc9810f7b842d78247f55fefe5d5b3ee9824cde87b",
+    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "596050436a5ae5f8605aaa55055b64bcd30a71866251d25c05a22d8742c57a4c",
+    "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "433c72c6980478905bbdb07d3aee719bf667625805b5e16cb69b5cb69ffd7c5b",
+    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "7c18082918474e83dbc08e13ae4d82ca804110b1da87572b226396b430aea195"
+  },
+  "processExceptions": [
+    "A temporary root node_modules symlink used for preliminary lint/typecheck was rejected by the sealed architecture root check as intended; it was removed before the exact code-HEAD architecture proof.",
+    "The first proof-emission attempt correctly refused because server/public bundle inputs were not supplied; the isolated network-denied bundle was then built and the bound proof passed.",
+    "The Next standalone tracer generated an untracked dependency trace and fixture next-env.d.ts; those generated outputs were moved outside the repository before exact clean-code proof emission and were not committed.",
+    "The unchanged full public build retains its previously disclosed offline Google Font debt; no public/font code changed and no unrelated full public build is claimed."
+  ]
+}

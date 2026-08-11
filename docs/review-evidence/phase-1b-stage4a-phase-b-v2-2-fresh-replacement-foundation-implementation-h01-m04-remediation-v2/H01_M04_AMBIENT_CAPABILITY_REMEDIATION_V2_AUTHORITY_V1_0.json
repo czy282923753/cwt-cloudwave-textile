@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "authorityId": "cwt.phase1b.stage4a.phaseb.v2_2.fresh_replacement_implementation.h01_m04_ambient_capability_remediation.v2",
+  "status": "CORRECTED_CANDIDATE_REVIEW_REQUIRED_NOT_ACCEPTED",
+  "acceptanceClaim": false,
+  "selfApproval": false,
+  "branch": "codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-h01-m04-remediation-v2",
+  "worktree": "/Users/calvin/.codex/worktrees/b62f/CWT（CloudWave Textile）项目",
+  "failedRemediationCandidate": {
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-implementation-remediation-v1",
+    "commit": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+    "parentAndCodeHead": "8cd768fada5da140d62aa48b7efc02d60cf1758b",
+    "tree": "d241b7df5cb57d6419dfa07b4a6bbe86bc422d94",
+    "preserved": true
+  },
+  "correctedCode": {
+    "head": "75c77797d64636d303cea2e8683c7a093fe8ec1f",
+    "parent": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+    "tree": "018d872a3544bbfc9d0f6aa84b08911d262ee2b9",
+    "successorsMustBeDocsOnly": true
+  },
+  "linearCommits": [
+    {
+      "commit": "75c77797d64636d303cea2e8683c7a093fe8ec1f",
+      "parent": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+      "finding": "H-01/M04 correction attempt 2"
+    }
+  ],
+  "attempts": {
+    "H-01": 2,
+    "H-02": 1
+  },
+  "findings": {
+    "H-01": {
+      "root": "M04 ambient capability origin",
+      "outcome": "corrected_candidate_awaiting_independent_rereview",
+      "correction": "The sole V3.1 checker resolves protected Phase B executable value references through the installed TypeScript Program/TypeChecker and rejects forbidden runtime-global capabilities before reachability, independent of bare/member/alias/container placement.",
+      "reviewerBareFetchWitness": "denied_capability_origin",
+      "semanticFaultVariants": 16,
+      "shadowPositiveVariants": 2,
+      "singleChecker": true,
+      "profileFileSha256": "766c10d8170276f4eaf51f3609ae02b9cf8f31776dc65634a9e4c4f1a36066f4",
+      "profileSelectedPointerSha256": "84dc5dd7b95e391524a7dc657a9473d24afeb8ae6f82e2067dabc2ffa410c869"
+    },
+    "H-02": {
+      "root": "NH01 authorization ordering",
+      "outcome": "CLOSED_non_regression_only",
+      "productionBytesChangedInAttempt2": false,
+      "realServiceDisposableDatabaseMatrixPassed": true,
+      "oneTargetRead": true,
+      "zeroAvailabilityLock": true,
+      "oneAuthorizationAuthority": true
+    }
+  },
+  "changedPathBoundary": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/CHANGED_PATH_INVENTORY_V2_0.json",
+    "sha256": "0191473799ee1aea2a70a4ad182e8a36cbc5ff0c38975194fc3668a67fd17c09",
+    "modified": 2,
+    "added": 0,
+    "deleted": 0
+  },
+  "verificationCapture": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/H01_M04_AMBIENT_CAPABILITY_REMEDIATION_V2_VERIFICATION_CAPTURE_V1_0.json",
+    "sha256": "1bb0fbbd0fd1e55010efb9a3528a8dfec5b11fc941fe66bd025a472573b11eb9"
+  },
+  "controllingFailImport": {
+    "report": {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_REPLACEMENT_FOUNDATION_IMPLEMENTATION_REMEDIATION_V1_INDEPENDENT_REREVIEW_V1_0.md",
+      "sha256": "971a7a05afb8f370775e41e9768edd836e92bfe87cb4085dd860e67e5abd5968"
+    },
+    "evidenceRoot": "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1-independent-rereview-v1",
+    "evidenceNarrativeSha256": "01cf8f0293449c0b1524b609879c80015d1212bd97f2a6476c577e7060c8184e",
+    "manifestSha256": "d1e66f0a1ffdfb898e62508643c6488027ad98eb79eddff05e4543cf66776cd7",
+    "manifestEntriesVerified": 7,
+    "byteIdentical": true
+  },
+  "m04ProofArtifacts": {
+    "count": 5,
+    "hashes": {
+      "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": "37cc54fb0b9a5641d172e4ff88db4b9793a8020ea8d5e54ddf9f35868c72cf02",
+      "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": "d27e4610fdb7e1c3a9e8dbfc9810f7b842d78247f55fefe5d5b3ee9824cde87b",
+      "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": "596050436a5ae5f8605aaa55055b64bcd30a71866251d25c05a22d8742c57a4c",
+      "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": "433c72c6980478905bbdb07d3aee719bf667625805b5e16cb69b5cb69ffd7c5b",
+      "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": "7c18082918474e83dbc08e13ae4d82ca804110b1da87572b226396b430aea195"
+    }
+  },
+  "preservedClosures": {
+    "dbConvergence": "byte-identical to failed remediation code HEAD; direct named globalThis.cwtDatabaseConnection test passes",
+    "M02": "byte-identical Production authority; only the M04 profile fixture changed",
+    "NM01": "byte-identical",
+    "M01": "byte-identical",
+    "NH01": "H-02 CLOSED and byte-identical in attempt 2; real-service matrix passes",
+    "M03": "2 positive and 6 expected-negative seams pass",
+    "M05": "public blobs and pagination byte-identical",
+    "L01": "availability-only; no callable request path",
+    "L02": "exact corrected code HEAD and docs-only successor boundary",
+    "schema": "21/21 and 96/96 exact order",
+    "productionProviderRegistry": "exact-empty",
+    "productionPromptManifest": "exact-empty",
+    "promptHistory": "byte-identical from accepted start",
+    "phaseCPhaseDPhaseEAdded": false,
+    "providerAdapterSdkEndpointCredentialNetworkAdded": false
+  },
+  "checkpoints": {
+    "acceptedStart": "9aa9735f422975780585e62eaec1a4759f9894c9",
+    "freshImplementationPreL3": "9aa9735f422975780585e62eaec1a4759f9894c9",
+    "dbConvergencePreL3": "d83cfb69a2abb51b95e43db3ea23c87c0410692b",
+    "newCheckpointForBoundedRemediation": false,
+    "movedOrPushed": false
+  },
+  "rollback": {
+    "failedRemediationCandidate": "49f789a9e4c5c7f2a3dbd7eaddba17e6a248832b",
+    "method": "create a new branch at the failed remediation Candidate or apply explicit linear revert commits; never move checkpoint or failed Candidate refs and never rewrite history"
+  },
+  "nextGate": {
+    "name": "Fresh Independent Implementation Re-review",
+    "first": "REMEDIATION_FINDINGS_REVIEW for H-01 attempt 2, including semantic ambient origins and DB exception; confirm H-02 remains CLOSED and audit affected/preserved closures",
+    "then": "FULL_REVIEW_NECESSITY decision with rationale",
+    "alwaysMandatory": [
+      "identity",
+      "checkpoint",
+      "manifest",
+      "frozen boundaries",
+      "security"
+    ]
+  }
+}

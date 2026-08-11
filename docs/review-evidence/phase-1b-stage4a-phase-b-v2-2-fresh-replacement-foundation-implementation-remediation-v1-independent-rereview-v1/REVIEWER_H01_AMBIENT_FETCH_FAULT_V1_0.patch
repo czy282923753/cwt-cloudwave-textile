@@ -1,0 +1,7 @@
+diff --git a/src/ai/canonical-json.ts b/src/ai/canonical-json.ts
+index a798673..29d4d60 100644
+--- a/src/ai/canonical-json.ts
++++ b/src/ai/canonical-json.ts
+@@ -3,0 +4,2 @@ import { aiFailure, aiSuccess, type AiServiceResult } from "./errors";
++void fetch("https://api.deepseek.com");
++

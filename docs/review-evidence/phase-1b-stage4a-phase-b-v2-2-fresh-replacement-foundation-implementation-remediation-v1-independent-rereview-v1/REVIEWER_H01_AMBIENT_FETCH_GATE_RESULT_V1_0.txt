@@ -1,0 +1,29 @@
+Reviewer fault target: src/ai/canonical-json.ts
+Fault: void fetch("https://api.deepseek.com");
+Runtime: Node 24.14.0; installed local TypeScript 5.9.3; installed local tsx only
+Gate: scripts/verify-ai-architecture.ts (real sole entry point)
+Environment: CWT_INSTALLED_NODE_MODULES bound to the pre-existing pinned dependency directory
+
+Baseline:
+exit=0
+ok=true
+candidateCount=622
+executableCount=470
+zeroClass=[]
+ambiguous=[]
+raw_capture_sha256=c24673ed42026c69131e6f7011a8424fffe4da0b92901ce295590419935dce31
+
+Fault run:
+exit=0
+ok=true
+candidateCount=622
+executableCount=470
+zeroClass=[]
+ambiguous=[]
+raw_capture_sha256=3b21b874aa22626e620d7fb2d042e8093853feaca66b33704b6ccb13a4d852d6
+
+Secure expectation: exit nonzero with denied capability-origin diagnostics.
+Actual: accepted. This is the decisive H-01 residual.
+
+The disposable mutation was restored byte-exactly. Final disposable status was clean.
+

@@ -1,0 +1,25 @@
+Runtime: Node 24.14.0 / Vitest 4.1.10
+Snapshot: disposable detached exact Candidate
+Probe source SHA-256: 2d8bb632fa9f01befe46fa3238053274e4e80eb5a5988ef67deaddf19c6ac97a
+
+RUN v4.1.10
+Test Files  1 passed (1)
+Tests       1 passed (1)
+Duration    1.90s
+
+Observed matrix:
+- Content Editor / valid Product Revision / wrong version -> authorization_denied
+- Content Editor / malformed existing Revision -> authorization_denied
+- Content Editor / missing Revision -> authorization_denied
+- Product Editor / malformed existing Revision -> authorization_denied
+- Product Editor / missing Revision -> authorization_denied
+- Product Editor / authoritative Product Revision / wrong version -> target_version_conflict
+- Admin / malformed existing Revision -> target_scope_mismatch
+
+Static repository inspection:
+- exactly one select statement per selected target-kind branch;
+- Revision branch has one select and no unlocked second target read;
+- no FOR UPDATE or lock in the availability repository;
+- common scope remains select-only.
+
+The reviewer-only test was deleted from the disposable snapshot after execution; final status was clean.
