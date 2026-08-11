@@ -1,0 +1,725 @@
+{
+  "candidate": {
+    "head": "156cbafc061d36ce2395529a3150b0c974f3c603",
+    "parent": "626552c4b3eb2ef3f0dbeadddcf5202444102368",
+    "ref": "refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-replacement-design-remediation-v2",
+    "tree": "00a2cf04c8834339f917ba67c05e719acb67108c"
+  },
+  "environment": {
+    "node": "24.14.0",
+    "network": false,
+    "packageManager": false
+  },
+  "baseline": {
+    "packageOnly": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "a7dff9ae647ed3f928c3abdd2949b83bca088a842070797f5c1bae07682ca164"
+    },
+    "packageAcceptanceEligible": false,
+    "detachedFullReview": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "94420f63ee94a329bc52ff546f44f078731d25098a4c564143408a6f3ab4c045"
+    },
+    "attachedFullReview": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "ce20eff7512159e06550d2b4b91c4d083e871004354d194d90e1ee4481143cc4"
+    },
+    "attachedDetachedNormalizedEquivalent": true
+  },
+  "rawCli": {
+    "absoluteRealpath": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "dotPrefix": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "doubledDotPrefix": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "embeddedDot": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "cancellingDotDot": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "nonCancellingDotDot": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "leadingDotDotCancellation": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "duplicateSlash": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tripleSlash": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "trailingSlash": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "backslash": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "percentEncoded": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "percentLiteral": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "lowerCase": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "upperDocs": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "nfd": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fullwidthSolidus": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "divisionSlash": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "zeroWidth": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "bidiControl": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "leadingSpace": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "trailingSpace": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "leadingTab": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "trailingNewline": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "carriageReturn": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "tilde": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "homeLiteral": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "envAssignment": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fileUrl": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "empty": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ordinaryLookalike": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "nul": {
+      "errorCode": "ERR_INVALID_ARG_VALUE",
+      "rejectedBeforeCli": true
+    }
+  },
+  "ordering": {
+    "invalidOutsideGit": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "canonicalOutsideGit": {
+      "diagnostic": "Command failed: git rev-parse --show-toplevel",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "9780769f92cfcfc68c035400734a66b1d2ebd1d0e95ad3d9efb8d479c34bad1d",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "oldDefect": {
+    "exact": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "012fb82abfa3097f543075a061ba7679b507cde9bc2cfc30a6ba6a7f268c594c"
+    },
+    "dotPrefix": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "012fb82abfa3097f543075a061ba7679b507cde9bc2cfc30a6ba6a7f268c594c"
+    },
+    "duplicateSlash": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "012fb82abfa3097f543075a061ba7679b507cde9bc2cfc30a6ba6a7f268c594c"
+    },
+    "absoluteRealpath": {
+      "diagnostic": null,
+      "errorCode": null,
+      "exit": 0,
+      "pidObserved": true,
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdoutEmpty": false,
+      "stdoutSha256": "012fb82abfa3097f543075a061ba7679b507cde9bc2cfc30a6ba6a7f268c594c"
+    }
+  },
+  "envelopeLeaves": [
+    {
+      "leaf": "authorityBinding.authorityJcsSha256",
+      "outcome": {
+        "diagnostic": "envelope-authority-cross-binding",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "8d9a0acec17af9e38479ddac390d716aae6fdee2214b380ef41d229b66bf1718",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "d55952ac35fa5a5a24b45be47b66cd06c1d71ed565a8ba689ee2005c286c9361"
+    },
+    {
+      "leaf": "authorityBinding.fileSha256",
+      "outcome": {
+        "diagnostic": "envelope-authority-cross-binding",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "8d9a0acec17af9e38479ddac390d716aae6fdee2214b380ef41d229b66bf1718",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "08d9e44cd7f6d0acbe100743ee42d882b35a425119a3e290df43b256d7042dbc"
+    },
+    {
+      "leaf": "authorityBinding.path",
+      "outcome": {
+        "diagnostic": "envelope-authority-path-not-canonical:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json-reviewer-fresh-mutation",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "90cf1b052ec2cca121f2ccd62b5bbd2cbb3f17b5b0ebda52a8fe85e30c9d5632",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "1dfc8dc7785c9ae79f595c113fdbf98d9a8195ecfaee96ec496c7a42ea5604b5"
+    },
+    {
+      "leaf": "authorityBinding.role",
+      "outcome": {
+        "diagnostic": "envelope-authority-role",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "e79ee6c7ee3af73298e32016bb865c4f6a4002f6ca19e5ace2eb2f53dc8c106e",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "2b4708ceacee3d295e75a45da9283ad8a090a6cddd4167eabc5aa12eaed05c63"
+    },
+    {
+      "leaf": "expectedGit.attachmentPolicy",
+      "outcome": {
+        "diagnostic": "envelope-git-policy",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "9132dfa00eac9dbdda9efc944f58c039fb3cec582c2e56e20c1553546b92522a",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "370f55ee32db9cc1ad20c6d621688b27c2719c0a26b77ef8732068a9e6034981"
+    },
+    {
+      "leaf": "expectedGit.cleanRequired",
+      "outcome": {
+        "diagnostic": "envelope-git-policy",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "9132dfa00eac9dbdda9efc944f58c039fb3cec582c2e56e20c1553546b92522a",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "6e07a30b3cb2393b5df728d1c53a33640f30ad9523703c77fae53c8a9b0ed6cd"
+    },
+    {
+      "leaf": "expectedGit.head",
+      "outcome": {
+        "diagnostic": "Command failed: git rev-list --parents -n 1 156cbafc061d36ce2395529a3150b0c974f3c600",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "8d70cf6aabe8c7002331a4c07672b0360f65c9c479663dcb33de25a72c85475c",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "de23348ee4acd67f2df4a42f954c59bb005ea360635eefaad05663acbed587a5"
+    },
+    {
+      "leaf": "expectedGit.parent",
+      "outcome": {
+        "diagnostic": "git-parent",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "05d36b33e7ff885e28cb4ecf8908d1ba2dd52cc83db72885e19e4534258cdc2f",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "33bd56aa28e50c10d902c7047435a72ba7c70af69b1cf90867ce578314cac1d7"
+    },
+    {
+      "leaf": "expectedGit.ref",
+      "outcome": {
+        "diagnostic": "envelope-ref-sealed-ref",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "416690a4d7e8a74cdb1aed6e2953ded34ddd9c595ff83626fa263a8a540e8673",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "59149ab083d1e351abf7d884f07bd3228f46d237a4ca57c59b7bd06addfa54d8"
+    },
+    {
+      "leaf": "expectedGit.tree",
+      "outcome": {
+        "diagnostic": "git-tree",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "6b4eb1f9609efcc3d21b06286ab3f12f4cb13c1e121f250179fccc2f830a0e4e",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "152e87fe8698ceb306bf94675ae65a05b81a151c2118dafe917bc00b80efa6f2"
+    },
+    {
+      "leaf": "provenance.createdAfterCandidateCommit",
+      "outcome": {
+        "diagnostic": "envelope-provenance-value",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "e9d2b934b76e8675b8efd88972d51db61c40bac8b7a7e649be0152435259e6e3",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "4031b394f6343eb3cb482347316d299d654ae5a562aa1cc95e0650f05095f36c"
+    },
+    {
+      "leaf": "provenance.ownerRole",
+      "outcome": {
+        "diagnostic": null,
+        "errorCode": null,
+        "exit": 0,
+        "pidObserved": true,
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdoutEmpty": false,
+        "stdoutSha256": "14c9de0ecb90979930cf1d4c908629f5acdbc21b9f5e31fac5011dd7024ca9fe"
+      },
+      "jcsInputSha256": "644b777911ad003a446512434704f7b1432da13c919b7661905d40221a9b7796"
+    },
+    {
+      "leaf": "provenance.statement",
+      "outcome": {
+        "diagnostic": null,
+        "errorCode": null,
+        "exit": 0,
+        "pidObserved": true,
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdoutEmpty": false,
+        "stdoutSha256": "f461e2de5c94ecd598c4e0d53dc0e6d2206a82fa7048769b56c77eebb2bd4e69"
+      },
+      "jcsInputSha256": "4983c00fbc3a11d8fd29b6c7a43e8129d6a11e8f68fec7f9114f76e1ff7a1c62"
+    },
+    {
+      "leaf": "schemaId",
+      "outcome": {
+        "diagnostic": "envelope-identity",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "9e2ca54b9d12dcc46cd47a8b9ef0874a30a2d11f5128206e506ff659bc78dfcb",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "870cf9b0db322768d425b16c1da330d28fd2754512d7094d084181e680494247"
+    },
+    {
+      "leaf": "status",
+      "outcome": {
+        "diagnostic": "envelope-identity",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "9e2ca54b9d12dcc46cd47a8b9ef0874a30a2d11f5128206e506ff659bc78dfcb",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "f873d2c88749043f43009d4b4359847c7629bec60de2e51a18aab7f11d508c81"
+    },
+    {
+      "leaf": "version",
+      "outcome": {
+        "diagnostic": "envelope-identity",
+        "errorCode": null,
+        "exit": 1,
+        "pidObserved": true,
+        "stderrSha256": "9e2ca54b9d12dcc46cd47a8b9ef0874a30a2d11f5128206e506ff659bc78dfcb",
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "jcsInputSha256": "8e522ae2973075d40e35976a1418dff9acdaceaab140d94ac90411fd74488a4f"
+    }
+  ],
+  "gitAndMembership": {
+    "dirty": {
+      "diagnostic": "git-dirty",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "118a584d58502ea6406513ce0ef5f9a6d68434be1f8d83c526e4dcfeccad17c5",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "movedRef": {
+      "diagnostic": "git-ref-target",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "45ca197bacd6d532fc1facb73473668f643bbc47652d2ac8479dc80af76eb581",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "wrongAttachment": {
+      "diagnostic": "git-attachment",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "cef814cd793d254e6da2e6276ee833304fb93ccb28747177c2aa3df10f9d1370",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "unstagedRootDrift": {
+      "diagnostic": "authority-worktree-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "a37d49d2617ecb497b7048f32c2283754d8c118b1c682bf7b2725c2939ad081d",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stagedRootDrift": {
+      "diagnostic": "authority-index-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "96fd8025ba032c5503017908471be6b2716eae99d2c8f60383ed70d29d711b52",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "manifestDrift": {
+      "diagnostic": "manifest-worktree-differs-head:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/SHA256SUMS.txt",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "9c88bef8aa0b28559f487481d2f37af4abc8d61735653c70948cb70b832d6a21",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "rootSymlink": {
+      "diagnostic": "authority-worktree-symlink:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "d28df5a13efec2a6e96a8f045bafa292744019777413496eab4790e4a9c6f4c6",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "rootProfileHardlink": {
+      "diagnostic": "closed-schema:technical-profile:authorityId,authorityVersion,canonicalization,checkpoints,closedReplacementEvidence,currentRoles,frozenInputs,historicalEvidence,proofContracts,roleGraph,rolePolicy,seal,status,subject",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "42018163e886f3f23b9bdee2acbef3f687f7014ad0ce7236b90db37603e4e928",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "alternateRoots": {
+    "ignoredCopy": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ignoredHardlink": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "ignoredResealed": {
+      "diagnostic": "raw_authority_spelling_not_canonical",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "ce281dec6b4aa20469255e2b1d0dd944228b3e95597ab5457be12d6bb8dacabd",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "mutationKill": {
+    "resolveBeforeValidation": {
+      "diagnostic": "current-role-file-hash:currentVerifier",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "65c9f0f4bfb11b9f7b62754a676b5fd4f9fef34be153522c28eabc98708f0fc2",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "helperOnly": {
+      "diagnostic": "current-role-file-hash:currentVerifier",
+      "errorCode": null,
+      "exit": 1,
+      "pidObserved": true,
+      "stderrSha256": "65c9f0f4bfb11b9f7b62754a676b5fd4f9fef34be153522c28eabc98708f0fc2",
+      "stdoutEmpty": true,
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "finalState": {
+    "cloneClean": true,
+    "formalSourceHead": "156cbafc061d36ce2395529a3150b0c974f3c603",
+    "formalSourceStatusClean": true
+  }
+}

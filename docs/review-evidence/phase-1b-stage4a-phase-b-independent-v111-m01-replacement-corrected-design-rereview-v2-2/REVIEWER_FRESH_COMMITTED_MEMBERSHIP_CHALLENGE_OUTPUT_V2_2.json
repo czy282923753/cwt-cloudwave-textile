@@ -1,0 +1,117 @@
+{
+  "candidate": "156cbafc061d36ce2395529a3150b0c974f3c603",
+  "runtime": "24.14.0",
+  "cases": {
+    "manifestMissingRoot": {
+      "fullReview": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-root-entry-cardinality:0",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "packageOnly": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-root-entry-cardinality:0",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "manifestDuplicateRoot": {
+      "fullReview": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-duplicate-path",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "packageOnly": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-duplicate-path",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "manifestWrongRootHash": {
+      "fullReview": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-root-hash:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "packageOnly": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-root-hash:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "manifestReordered": {
+      "fullReview": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-order",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "packageOnly": {
+        "acceptanceEligible": null,
+        "diagnostic": "manifest-order",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "rootWrongMode": {
+      "fullReview": {
+        "acceptanceEligible": null,
+        "diagnostic": "authority-head-mode:100755",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "packageOnly": {
+        "acceptanceEligible": null,
+        "diagnostic": "authority-head-mode:100755",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "rootMissing": {
+      "fullReview": {
+        "acceptanceEligible": null,
+        "diagnostic": "authority-head-missing:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "packageOnly": {
+        "acceptanceEligible": null,
+        "diagnostic": "authority-head-missing:docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+        "exit": 1,
+        "pidObserved": true,
+        "stdoutEmpty": true,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  },
+  "packageManager": false,
+  "network": false,
+  "finalClean": true
+}

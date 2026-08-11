@@ -1,0 +1,549 @@
+{
+  "runtime": {
+    "node": "24.14.0",
+    "v8": "13.6.233.17-node.41",
+    "icu": "78.2",
+    "unicode": "17.0",
+    "arch": "arm64"
+  },
+  "identity": {
+    "head": "156cbafc061d36ce2395529a3150b0c974f3c603",
+    "parent": "626552c4b3eb2ef3f0dbeadddcf5202444102368",
+    "tree": "00a2cf04c8834339f917ba67c05e719acb67108c",
+    "fullRef": "156cbafc061d36ce2395529a3150b0c974f3c603",
+    "detached": true,
+    "clean": true
+  },
+  "checkpoints": {
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-implementation-attempt3-pre-l3-v1": {
+      "actual": "0793948ad115c19f852a9590387ed9ba06738a39",
+      "expected": "0793948ad115c19f852a9590387ed9ba06738a39",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-m02-m04-pre-corrected-design-v1": {
+      "actual": "521525bf02394ab49727aca9f8ea00bbb91e487b",
+      "expected": "521525bf02394ab49727aca9f8ea00bbb91e487b",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-nm01-pre-design-v1": {
+      "actual": "b7ad96b24da45de00cae2cdb961a9aefcbc99496",
+      "expected": "b7ad96b24da45de00cae2cdb961a9aefcbc99496",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-pre-corrected-design-v1": {
+      "actual": "66bfd0bb8dd5a0f398bd2a70ee5672acc127a100",
+      "expected": "66bfd0bb8dd5a0f398bd2a70ee5672acc127a100",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-replacement-design-pre-l3-v1": {
+      "actual": "c103682e63e9a2cb62b6581d7d62773ddcab1a99",
+      "expected": "c103682e63e9a2cb62b6581d7d62773ddcab1a99",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-pre-l3-v1": {
+      "actual": "0793948ad115c19f852a9590387ed9ba06738a39",
+      "expected": "0793948ad115c19f852a9590387ed9ba06738a39",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-v2-m01-remediation-pre-l3-v1": {
+      "actual": "4b626fc9278f4c49957ecf165d7d5c5fc4058dca",
+      "expected": "4b626fc9278f4c49957ecf165d7d5c5fc4058dca",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v111-m01-v21-cli-remediation-pre-l3-v1": {
+      "actual": "3d424821aab67c03c3b8ec02a62b5577044837c9",
+      "expected": "3d424821aab67c03c3b8ec02a62b5577044837c9",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v112-v111-m01-attempt2-pre-design-v1": {
+      "actual": "901edf7b8207afb39970e8507c86d53668c27196",
+      "expected": "901edf7b8207afb39970e8507c86d53668c27196",
+      "exact": true
+    },
+    "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-b-v113-v111-m01-attempt3-pre-design-v1": {
+      "actual": "de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d",
+      "expected": "de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d",
+      "exact": true
+    }
+  },
+  "newCheckpointRecord": {
+    "parent": "3d424821aab67c03c3b8ec02a62b5577044837c9",
+    "tree": "be9141a4062fe450b799222bc2c28c5407ef8a0e",
+    "paths": [
+      "A\tdocs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_V21_CLI_REMEDIATION_PRE_L3_CHECKPOINT_V1_0.md"
+    ],
+    "pathSha256": "53da981aede0d4e1e0a96c0d9a64cc6ceff7966965b8acade8dc12946a2e699b"
+  },
+  "tag": {
+    "object": "1c626f9b788e4c6ed0480a7040aa54ccef3e6c76",
+    "peel": "31c0e405acfdd0d05200d0fb2531e897a541a2c4"
+  },
+  "scope": {
+    "v21ToHeadPathCount": 27,
+    "contentPathCount": 15,
+    "contentPaths": [
+      "A\tdocs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_THREE_STRIKE_REPLACEMENT_CORRECTED_EXACT_DESIGN_V2_2.md",
+      "A\tdocs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_V21_RAW_CLI_BOUNDARY_REMEDIATION_DERIVATION_AUDIT_V1_0.md",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/ACTUAL_CLI_ENTRY_BOUNDARY_OUTPUT_V2_2.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/FIXED_INPUTS_V2_2.json",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/HISTORICAL_FIXED_MANIFESTS_OUTPUT_V2_2.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/IDENTITY_JOIN_FRESH_NEGATIVE_OUTPUT_V2_2.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/LEGACY_MECHANISM_ABSENCE_OUTPUT_V2_2.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/PACKAGE_ONLY_VERIFICATION_OUTPUT_V2_2.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_2.json",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/README.md",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/SCHEMA_PROPERTY_MUTATION_OUTPUT_V2_2.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/SHA256SUMS.txt",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_2.json",
+      "A\tdocs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/VERIFY_V111_M01_REPLACEMENT_CORRECTED_DESIGN_V2_2.mjs"
+    ],
+    "contentAllDocs": true,
+    "allAdded": true,
+    "allMode100644Blob": true,
+    "modes": [
+      {
+        "path": "docs/PHASE_1B_STAGE4A_PHASE_B_PROVIDER_NEUTRAL_FOUNDATION_THREE_STRIKE_REPLACEMENT_CORRECTED_EXACT_DESIGN_V2_2.md",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/PHASE_1B_STAGE4A_PHASE_B_V111_M01_V21_RAW_CLI_BOUNDARY_REMEDIATION_DERIVATION_AUDIT_V1_0.md",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/ACTUAL_CLI_ENTRY_BOUNDARY_OUTPUT_V2_2.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/FIXED_INPUTS_V2_2.json",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/HISTORICAL_FIXED_MANIFESTS_OUTPUT_V2_2.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/IDENTITY_JOIN_FRESH_NEGATIVE_OUTPUT_V2_2.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/LEGACY_MECHANISM_ABSENCE_OUTPUT_V2_2.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/PACKAGE_ONLY_VERIFICATION_OUTPUT_V2_2.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_2.json",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/README.md",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/SCHEMA_PROPERTY_MUTATION_OUTPUT_V2_2.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/SHA256SUMS.txt",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_2.json",
+        "mode": "100644",
+        "type": "blob"
+      },
+      {
+        "path": "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/VERIFY_V111_M01_REPLACEMENT_CORRECTED_DESIGN_V2_2.mjs",
+        "mode": "100644",
+        "type": "blob"
+      }
+    ],
+    "disallowedPathCount": 0,
+    "diffCheckV21ToHead": 0,
+    "diffCheckContent": 0
+  },
+  "manifests": {
+    "candidate": {
+      "count": 14,
+      "fileSha256": "44f9f7bbcd5c9338338ba2bf6265b0044b2b3f7e50061edcd49377a9d09a5986",
+      "ok": true
+    },
+    "priorReview": {
+      "count": 10,
+      "fileSha256": "7a6ff7781bd43ef7658fa78e5d29c9a19910e6bf1df02132d1b8a9e19e4ebc57",
+      "ok": true
+    },
+    "maxAnalysis": {
+      "count": 12,
+      "fileSha256": "8ec01bd6b0263e2cd71cb5c765f9ba535fac02ad052be5ced291613232fef7a0",
+      "ok": true
+    },
+    "v110": {
+      "count": 35,
+      "fileSha256": "c28ad59a3ae89f18970c58c87cb50e29e4a43bfe98c322adb8dfb055f712d3f0",
+      "ok": true
+    },
+    "v110Independent": {
+      "count": 7,
+      "fileSha256": "d40a115288d2aefc5bb83c5a8bca3d63b2482ed3a1bfecb7591343cca401357e",
+      "ok": true
+    }
+  },
+  "canonicalRoot": {
+    "fileSha256": "9e532330f9b2920969a45f7547627bbd581fa573ac74932608dce5c6a249f4ff",
+    "canonicalBytes": true,
+    "authorityJcsSha256": "5a8d15eabf057e7e972c00898adff7db2fa80ce6b74b444ca0b2a867dc152edc",
+    "declaredAuthorityJcsSha256": "5a8d15eabf057e7e972c00898adff7db2fa80ce6b74b444ca0b2a867dc152edc",
+    "subjectJcsSha256": "bacda3349ae1a826f1fc3d0654cf62722f9bf437648a9cdcb83f25c8740d58a1",
+    "declaredSubjectJcsSha256": "bacda3349ae1a826f1fc3d0654cf62722f9bf437648a9cdcb83f25c8740d58a1",
+    "topLevelKeys": [
+      "authorityId",
+      "authorityVersion",
+      "canonicalization",
+      "checkpoints",
+      "closedReplacementEvidence",
+      "currentRoles",
+      "frozenInputs",
+      "historicalEvidence",
+      "proofContracts",
+      "roleGraph",
+      "rolePolicy",
+      "seal",
+      "status",
+      "subject"
+    ],
+    "rootCount": 1
+  },
+  "selectedAuthorities": {
+    "acceptedV110": {
+      "sourceFileSha256": "8f1c7c9c023ed98477cfe9420ceac3648e3e20d2e59032493a1d9f8db15aba83",
+      "declaredFileSha256": "8f1c7c9c023ed98477cfe9420ceac3648e3e20d2e59032493a1d9f8db15aba83",
+      "sourceEqualsEmbeddedByJcs": true,
+      "embeddedValueJcsSha256": "aadd12e9c08dc107847e5a4cf5c0ef9855e255addb51f64ae4b291dda7708e0e",
+      "declaredValueJcsSha256": "aadd12e9c08dc107847e5a4cf5c0ef9855e255addb51f64ae4b291dda7708e0e",
+      "v21EmbeddedValueEqual": true
+    },
+    "m02A08Successor": {
+      "sourceFileSha256": "3a42cb453b12406bd48c28722bdc6192ca832bc014fd0ffe095d62bb69a46b8e",
+      "declaredFileSha256": "3a42cb453b12406bd48c28722bdc6192ca832bc014fd0ffe095d62bb69a46b8e",
+      "sourceEqualsEmbeddedByJcs": true,
+      "embeddedValueJcsSha256": "9de2e52c4e1dafd829ec25cdd73a4a867a5c5b89b2ab5b6ad337b3d9aacbb9d2",
+      "declaredValueJcsSha256": "9de2e52c4e1dafd829ec25cdd73a4a867a5c5b89b2ab5b6ad337b3d9aacbb9d2",
+      "v21EmbeddedValueEqual": true
+    },
+    "m03DiscriminatedSeam": {
+      "sourceFileSha256": "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173",
+      "declaredFileSha256": "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173",
+      "sourceEqualsEmbeddedByJcs": true,
+      "embeddedValueJcsSha256": "7c11085fd6fbf9c36791e894c3b4953dfd3379b5ad651a88b0b6649028ddd32a",
+      "declaredValueJcsSha256": "7c11085fd6fbf9c36791e894c3b4953dfd3379b5ad651a88b0b6649028ddd32a",
+      "v21EmbeddedValueEqual": true
+    },
+    "m04StaticCapabilityBoundaryV31": {
+      "sourceFileSha256": "5d353ab7f53831d50cdc2d3d0c3a9b67f246866ab3168f039cb18330af4c7356",
+      "declaredFileSha256": "5d353ab7f53831d50cdc2d3d0c3a9b67f246866ab3168f039cb18330af4c7356",
+      "sourceEqualsEmbeddedByJcs": true,
+      "embeddedValueJcsSha256": "78952c05c3601212706044f825ccbc3d6669c9a7dba2e07a76f1a4384032ed3d",
+      "declaredValueJcsSha256": "78952c05c3601212706044f825ccbc3d6669c9a7dba2e07a76f1a4384032ed3d",
+      "v21EmbeddedValueEqual": true
+    }
+  },
+  "schemaMapping": {
+    "aiModelConfig": {
+      "sql": [
+        "id",
+        "capability",
+        "use_case",
+        "provider",
+        "model",
+        "parameters_json",
+        "max_input_tokens",
+        "max_output_tokens",
+        "max_attempts",
+        "run_cost_limit_microusd",
+        "prompt_id",
+        "prompt_version",
+        "prompt_hash",
+        "enabled",
+        "is_default",
+        "fallback_config_id",
+        "record_version",
+        "created_by_user_id",
+        "updated_by_user_id",
+        "created_at",
+        "updated_at"
+      ],
+      "profile": [
+        "id",
+        "capability",
+        "use_case",
+        "provider",
+        "model",
+        "parameters_json",
+        "max_input_tokens",
+        "max_output_tokens",
+        "max_attempts",
+        "run_cost_limit_microusd",
+        "prompt_id",
+        "prompt_version",
+        "prompt_hash",
+        "enabled",
+        "is_default",
+        "fallback_config_id",
+        "record_version",
+        "created_by_user_id",
+        "updated_by_user_id",
+        "created_at",
+        "updated_at"
+      ],
+      "equal": true
+    },
+    "aiRuns": {
+      "sql": [
+        "id",
+        "application_class",
+        "capability",
+        "use_case",
+        "requested_by_user_id",
+        "idempotency_key",
+        "request_fingerprint_version",
+        "request_fingerprint",
+        "target_type",
+        "target_product_id",
+        "target_content_id",
+        "target_revision_id",
+        "target_locale",
+        "expected_target_version",
+        "target_snapshot_hash",
+        "model_config_id",
+        "model_config_version",
+        "resolved_config_hash",
+        "requested_provider",
+        "actual_provider",
+        "requested_model",
+        "returned_model",
+        "parameters_snapshot_json",
+        "max_input_tokens",
+        "max_output_tokens",
+        "max_attempts",
+        "prompt_id",
+        "prompt_version",
+        "prompt_hash",
+        "provider_envelope_version",
+        "provider_envelope_hash",
+        "input_schema_version",
+        "output_schema_version",
+        "policy_version",
+        "input_sources_json",
+        "input_context_json",
+        "input_hash",
+        "attempt_history_json",
+        "candidate_json",
+        "candidate_hash",
+        "status",
+        "retry_state",
+        "attempt_count",
+        "next_attempt_at",
+        "lease_owner",
+        "lease_token",
+        "lease_acquired_at",
+        "lease_expires_at",
+        "active_attempt_dispatched_at",
+        "state_version",
+        "cancelled_lease_token",
+        "cancelled_by_user_id",
+        "cancellation_reason",
+        "cancelled_at",
+        "queued_at",
+        "provider_dispatched_at",
+        "generated_at",
+        "completed_at",
+        "generation_duration_ms",
+        "updated_at",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "provider_response_status",
+        "provider_http_status",
+        "provider_error_code",
+        "provider_request_id",
+        "failure_code",
+        "failure_detail",
+        "execution_environment",
+        "budget_policy_version",
+        "budget_timezone",
+        "budget_currency",
+        "text_concurrency_limit",
+        "budget_charge_day",
+        "budget_charge_month",
+        "run_cost_limit_microusd",
+        "daily_hard_limit_microusd",
+        "monthly_warning_limit_microusd",
+        "monthly_hard_limit_microusd",
+        "estimated_max_cost_microusd",
+        "actual_cost_microusd",
+        "actual_cost_complete",
+        "budget_accounted_cost_microusd",
+        "budget_reserved_cost_microusd",
+        "cost_accounting_state",
+        "pricing_snapshot_json",
+        "human_disposition",
+        "quality_rating",
+        "quality_labels",
+        "quality_comment",
+        "evaluated_by_user_id",
+        "evaluated_at",
+        "applied_target_version",
+        "applied_revision_id",
+        "applied_revision_version"
+      ],
+      "profile": [
+        "id",
+        "application_class",
+        "capability",
+        "use_case",
+        "requested_by_user_id",
+        "idempotency_key",
+        "request_fingerprint_version",
+        "request_fingerprint",
+        "target_type",
+        "target_product_id",
+        "target_content_id",
+        "target_revision_id",
+        "target_locale",
+        "expected_target_version",
+        "target_snapshot_hash",
+        "model_config_id",
+        "model_config_version",
+        "resolved_config_hash",
+        "requested_provider",
+        "actual_provider",
+        "requested_model",
+        "returned_model",
+        "parameters_snapshot_json",
+        "max_input_tokens",
+        "max_output_tokens",
+        "max_attempts",
+        "prompt_id",
+        "prompt_version",
+        "prompt_hash",
+        "provider_envelope_version",
+        "provider_envelope_hash",
+        "input_schema_version",
+        "output_schema_version",
+        "policy_version",
+        "input_sources_json",
+        "input_context_json",
+        "input_hash",
+        "attempt_history_json",
+        "candidate_json",
+        "candidate_hash",
+        "status",
+        "retry_state",
+        "attempt_count",
+        "next_attempt_at",
+        "lease_owner",
+        "lease_token",
+        "lease_acquired_at",
+        "lease_expires_at",
+        "active_attempt_dispatched_at",
+        "state_version",
+        "cancelled_lease_token",
+        "cancelled_by_user_id",
+        "cancellation_reason",
+        "cancelled_at",
+        "queued_at",
+        "provider_dispatched_at",
+        "generated_at",
+        "completed_at",
+        "generation_duration_ms",
+        "updated_at",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "provider_response_status",
+        "provider_http_status",
+        "provider_error_code",
+        "provider_request_id",
+        "failure_code",
+        "failure_detail",
+        "execution_environment",
+        "budget_policy_version",
+        "budget_timezone",
+        "budget_currency",
+        "text_concurrency_limit",
+        "budget_charge_day",
+        "budget_charge_month",
+        "run_cost_limit_microusd",
+        "daily_hard_limit_microusd",
+        "monthly_warning_limit_microusd",
+        "monthly_hard_limit_microusd",
+        "estimated_max_cost_microusd",
+        "actual_cost_microusd",
+        "actual_cost_complete",
+        "budget_accounted_cost_microusd",
+        "budget_reserved_cost_microusd",
+        "cost_accounting_state",
+        "pricing_snapshot_json",
+        "human_disposition",
+        "quality_rating",
+        "quality_labels",
+        "quality_comment",
+        "evaluated_by_user_id",
+        "evaluated_at",
+        "applied_target_version",
+        "applied_revision_id",
+        "applied_revision_version"
+      ],
+      "equal": true
+    }
+  },
+  "priorLoopNonAncestors": {
+    "901edf7b8207afb39970e8507c86d53668c27196": true,
+    "de6c10d9ffc23fefcb1a5bcfd57b2906d4c2d16d": true,
+    "aac9169c507f0976a492d61a30d415a27c95e4b1": true
+  },
+  "physicalInjectivity": {
+    "count": 19,
+    "uniquePathCount": 19,
+    "uniqueDeviceInodeCount": 19,
+    "allRegularNoSymlink": true
+  },
+  "verifierStaticBoundary": {
+    "rawCheckBeforeRepoDiscovery": true,
+    "actualCliSpawnPresent": true,
+    "legacyCurrentLoaderSymbolsAbsent": true,
+    "candidateCurrentEnvelopeAbsent": true,
+    "oneVerifierRole": 1,
+    "oneRootManifestEntry": 1,
+    "proofMatrixCounts": {
+      "positive": 10,
+      "negative": 91,
+      "properties": 16
+    }
+  },
+  "process": {
+    "packageManager": false,
+    "network": false
+  }
+}

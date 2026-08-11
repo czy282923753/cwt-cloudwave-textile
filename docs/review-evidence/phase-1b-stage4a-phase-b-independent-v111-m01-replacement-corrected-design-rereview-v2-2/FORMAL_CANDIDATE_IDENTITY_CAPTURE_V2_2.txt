@@ -1,0 +1,29 @@
+Fresh Reviewer point-in-time formal Candidate identity capture
+Date: 2026-08-11 Asia/Shanghai
+Formal worktree: /Users/calvin/.codex/worktrees/c883/CWT（CloudWave Textile）项目
+
+git status --porcelain=v2 --branch
+# branch.oid 156cbafc061d36ce2395529a3150b0c974f3c603
+# branch.head codex/phase-1b-stage4a-phase-b-v111-m01-replacement-design-remediation-v2
+
+git symbolic-ref HEAD
+refs/heads/codex/phase-1b-stage4a-phase-b-v111-m01-replacement-design-remediation-v2
+
+git rev-parse HEAD HEAD^ HEAD^{tree}
+156cbafc061d36ce2395529a3150b0c974f3c603
+626552c4b3eb2ef3f0dbeadddcf5202444102368
+00a2cf04c8834339f917ba67c05e719acb67108c
+
+failed V2.1 ref
+3d424821aab67c03c3b8ec02a62b5577044837c9
+
+pre-L3 checkpoint ref
+3d424821aab67c03c3b8ec02a62b5577044837c9
+
+frozen tag object / peel
+1c626f9b788e4c6ed0480a7040aa54ccef3e6c76
+31c0e405acfdd0d05200d0fb2531e897a541a2c4
+
+Runtime: Node 24.14.0; V8 13.6.233.17-node.41; ICU 78.2; Unicode 17.0; darwin arm64.
+Package manager/install/materialization/download/registry/network/Provider/API/credential actions: zero.
+Formal Candidate modifications: zero.
