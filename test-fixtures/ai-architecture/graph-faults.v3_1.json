@@ -625,6 +625,7 @@
     "deniedProductionCapabilityOrigins": {
       "ambientAndComputed": [
         "capture, alias, destructuring, computed access or any direct named member of globalThis except exact direct globalThis.cwtDatabaseConnection access in src/db/client.ts",
+        "within protected-ai and phase-b-outer-composition Production classes, TypeChecker-resolved ambient runtime capabilities fetch, WebSocket, EventSource and XMLHttpRequest plus ambient capability roots global, window, self and navigator at every value-reference origin; repository-local declarations and explicit import aliases with the same identifier text are not ambient origins",
         "non-literal element access on globalThis, process, import.meta or another ambient capability root",
         "any literal or statically folded computed property equal to require, createRequire, module, exports, getBuiltinModule, binding, _linkedBinding, mainModule or constructor",
         "import.meta outside the exact static-resource base import.meta.url",
@@ -1214,6 +1215,7 @@
       "literal relative global URL resource with exact unaliased import.meta.url and canonical permitted target",
       "21 sealed Production global URL-value constructors with non-import.meta.url base; zero resource edges and no Product/public/SEO/URL edits",
       "safe shadowed/local URL construction without import.meta or another denied origin; zero resource edges",
+      "repository-local declarations and explicit local imports named fetch or WebSocket remain ordinary local bindings rather than ambient runtime capability origins",
       "safe nested class/decorator/static-block/IIFE and plain-data reflection forms"
     ],
     "profileId": "cwt.phase1b.stage4a.phaseb.m04-static-capability-boundary.v3_1_candidate",
@@ -1247,7 +1249,7 @@
         "/implementationAllowlist",
         "/impactAssessment"
       ],
-      "sha256": "68cbb7f1105995919d0e26a81d20b0be7331812995307da55f5e7e01603acdb5"
+      "sha256": "84dc5dd7b95e391524a7dc657a9473d24afeb8ae6f82e2067dabc2ffa410c869"
     },
     "profileVersion": "3.1.0-candidate",
     "proofArtifactContracts": {
@@ -1412,6 +1414,7 @@
       "computed/globalThis/Reflect NewExpression capability recovery",
       "dynamic import, ImportEquals, require/module/exports/createRequire/getBuiltinModule",
       "eval/Function-family/node:vm/reflection/Proxy/constructor origin bypass",
+      "TypeChecker-resolved bare ambient fetch/WebSocket and capture/bind/call/apply/class/static/container/IIFE origin forms, with repository-local and imported shadow positives",
       "unresolved static edge, forbidden composition edge and public/client reachability",
       "safe ordinary URL and nested positive controls"
     ],
@@ -1828,6 +1831,118 @@
       "expectedNodeKind": "Identifier"
     },
     {
+      "id": "bare-fetch-reviewer-witness",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-websocket-construction",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void new WebSocket(\"wss://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-event-source-construction",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void new EventSource(\"https://api.deepseek.com/events\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-xml-http-request-construction",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void new XMLHttpRequest();\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-alias-capture",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "const request = fetch;\nvoid request;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-bind",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "const request = fetch.bind(undefined);\nvoid request;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-call",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void fetch.call(undefined, \"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-apply",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void fetch.apply(undefined, [\"https://api.deepseek.com\"]);\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-static-field",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "class Fault { static request = fetch; }\nvoid Fault;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-container-destructure",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "const container = { fetch };\nconst { fetch: request } = container;\nvoid request;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "bare-fetch-iife-argument",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "((request: typeof fetch) => void request)(fetch);\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "ambient-window-fetch-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void window.fetch(\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "ambient-self-computed-fetch-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void self[\"fetch\"](\"https://api.deepseek.com\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "ambient-window-destructured-fetch",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "const { fetch: request } = window;\nvoid request;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "ambient-global-websocket-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void global.WebSocket;\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
+      "id": "ambient-navigator-send-beacon-member",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "void navigator.sendBeacon(\"https://api.deepseek.com\", \"probe\");\n",
+      "expectedReason": "denied_capability_origin",
+      "expectedNodeKind": "Identifier"
+    },
+    {
       "id": "computed-global-loader",
       "sourcePath": "src/app/page.tsx",
       "source": "globalThis[\"require\"](\"@/public-site/data\");\n",
@@ -1959,6 +2074,20 @@
       "id": "plain-data-reflection",
       "sourcePath": "src/app/page.tsx",
       "source": "const value = Reflect.ownKeys({ alpha: 1 });\nvoid value;\n",
+      "ordinaryGlobalUrlValues": 0,
+      "resourceEdges": 0
+    },
+    {
+      "id": "repository-local-ambient-name-shadows",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "export {};\nconst fetch = (_url: string): string => \"local\";\nclass WebSocket { constructor(_url: string) {} }\nconst window = { fetch };\nconst container = { fetch };\nvoid fetch(\"local\");\nvoid new WebSocket(\"local\");\nvoid window.fetch(\"local\");\nvoid container;\n",
+      "ordinaryGlobalUrlValues": 0,
+      "resourceEdges": 0
+    },
+    {
+      "id": "repository-imported-ambient-name-shadows",
+      "sourcePath": "src/ai/canonical-json.ts",
+      "source": "import { aiFailure as fetch, aiSuccess as WebSocket } from \"@/ai/errors\";\nvoid fetch;\nvoid WebSocket;\n",
       "ordinaryGlobalUrlValues": 0,
       "resourceEdges": 0
     }

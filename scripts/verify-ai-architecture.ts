@@ -16,8 +16,8 @@ import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.v3_1.json";
-const expectedProfileFileHash = "1005dd96a372b3ef87417b11ac8c0f1f3530a728c9840448ffd89b4ad153d339";
-const expectedProfileIntegrityHash = "68cbb7f1105995919d0e26a81d20b0be7331812995307da55f5e7e01603acdb5";
+const expectedProfileFileHash = "766c10d8170276f4eaf51f3609ae02b9cf8f31776dc65634a9e4c4f1a36066f4";
+const expectedProfileIntegrityHash = "84dc5dd7b95e391524a7dc657a9473d24afeb8ae6f82e2067dabc2ffa410c869";
 const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -768,6 +768,52 @@ function resolvedGlobalUrl(identifier: ts.Identifier, checker: ts.TypeChecker): 
   return !repositoryDeclaration(symbol);
 }
 
+const forbiddenAmbientRuntimeCapabilityNames = new Set([
+  "EventSource",
+  "WebSocket",
+  "XMLHttpRequest",
+  "fetch",
+  "global",
+  "navigator",
+  "self",
+  "window",
+]);
+
+function identifierIsRuntimeValueReference(identifier: ts.Identifier): boolean {
+  const parent = identifier.parent;
+  if (ts.isShorthandPropertyAssignment(parent) && parent.name === identifier) return true;
+  if (ts.isPartOfTypeNode(identifier) || ts.isTypeNode(parent) ||
+    ts.getNameOfDeclaration(parent as ts.Declaration) === identifier) return false;
+  if (ts.isPropertyAccessExpression(parent) && parent.name === identifier) return false;
+  if (ts.isQualifiedName(parent) ||
+    (ts.isBindingElement(parent) && (parent.name === identifier || parent.propertyName === identifier)) ||
+    (ts.isPropertyAssignment(parent) && parent.name === identifier) ||
+    (ts.isImportSpecifier(parent) && (parent.name === identifier || parent.propertyName === identifier)) ||
+    (ts.isExportSpecifier(parent) && (parent.name === identifier || parent.propertyName === identifier)) ||
+    (ts.isLabeledStatement(parent) && parent.label === identifier) ||
+    ((ts.isBreakStatement(parent) || ts.isContinueStatement(parent)) && parent.label === identifier)) {
+    return false;
+  }
+  return true;
+}
+
+function ambientRuntimeCapabilityOrigin(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+): "typescript_resolved_ambient_global" | "unresolved_runtime_capability_binding" | undefined {
+  if (!forbiddenAmbientRuntimeCapabilityNames.has(identifier.text) ||
+    !identifierIsRuntimeValueReference(identifier)) return undefined;
+  const symbol = ts.isShorthandPropertyAssignment(identifier.parent)
+    ? checker.getShorthandAssignmentValueSymbol(identifier.parent)
+    : checker.getSymbolAtLocation(identifier);
+  if (symbol === undefined) return "unresolved_runtime_capability_binding";
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0 || repositoryDeclaration(symbol)) return undefined;
+  const declarations = symbol.declarations ?? [];
+  return declarations.length > 0 && declarations.every((declaration) => declaration.getSourceFile().isDeclarationFile)
+    ? "typescript_resolved_ambient_global"
+    : undefined;
+}
+
 function importDeclarationIsTypeOnly(node: ts.ImportDeclaration): boolean {
   const clause = node.importClause;
   if (clause === undefined) return false;
@@ -791,8 +837,9 @@ function scanStaticLanguage(input: {
   readonly source: ts.SourceFile;
   readonly checker: ts.TypeChecker;
   readonly production: boolean;
+  readonly denyAmbientRuntimeCapabilities: boolean;
 }): StaticLanguageScan {
-  const { path, source, checker, production } = input;
+  const { path, source, checker, production, denyAmbientRuntimeCapabilities } = input;
   if (!source.isDeclarationFile) {
     const syntaxCheck = ts.transpileModule(source.text, {
       fileName: path,
@@ -954,6 +1001,24 @@ function scanStaticLanguage(input: {
         ts.isPropertyAccessExpression(parent) && parent.expression === node &&
         parent.questionDotToken === undefined && parent.name.text === "cwtDatabaseConnection";
       if (!exactAuthorizedDatabaseCacheAccess) rejectNode(node, "ambient_global_capability_not_authorized");
+    }
+    if (production && denyAmbientRuntimeCapabilities && ts.isIdentifier(node)) {
+      const origin = ambientRuntimeCapabilityOrigin(node, checker);
+      if (origin !== undefined) {
+        rejectGraph("denied_capability_origin", JSON.stringify({
+          path,
+          rule: "protected-phase-b-runtime-global-capability-origin-denied",
+          nodeKind: ts.SyntaxKind[node.kind],
+          position: node.getStart(source),
+          reason: "ambient_runtime_capability_not_authorized",
+          origin,
+          capability: node.text,
+          ast: {
+            nodeKind: ts.SyntaxKind[node.kind],
+            position: node.getStart(source),
+          },
+        }));
+      }
     }
     if (production && ts.isIdentifier(node) && [
       "require", "module", "exports", "createRequire", "getBuiltinModule",
@@ -1239,6 +1304,8 @@ for (const node of executableNodes) {
     source,
     checker: architectureChecker,
     production,
+    denyAmbientRuntimeCapabilities: node.classId === "protected-ai" ||
+      node.classId === "phase-b-outer-composition",
   });
   staticLanguageByPath.set(node.path, scan);
   scan.ordinaryGlobalUrlValues.forEach((position) => ordinaryGlobalUrlValues.push({ path: node.path, position }));
@@ -1486,6 +1553,7 @@ function scanVirtualSource(path: string, text: string): StaticLanguageScan {
     source: program.getSourceFile(absolute) ?? fail(`virtual Program omitted ${path}`),
     checker: program.getTypeChecker(),
     production: true,
+    denyAmbientRuntimeCapabilities: ["protected-ai", "phase-b-outer-composition"].includes(classForPath(path)),
   });
 }
 
