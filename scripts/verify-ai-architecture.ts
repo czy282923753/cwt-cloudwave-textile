@@ -186,6 +186,7 @@ const excludedRoots = new Set(enumeration.excludedPhysicalRoots.map((path) => pa
 const excludedStatus: Record<string, "absent" | "present-not-walked"> = {};
 const actualFiles: string[] = [];
 const inodeOwners = new Map<string, string>();
+const validatedExcludedInodeOwners = new Map<string, string>();
 const canonicalOwners = new Map<string, string>();
 
 function posixPath(path: string): string {
@@ -669,7 +670,13 @@ if (nextNode !== undefined) {
         fail(`invalid generated-root node ${relativePath}`);
       }
       if (stat.isDirectory()) walkGenerated(path);
-      else observedGeneratedFiles.push(relativePath);
+      else {
+        const physicalIdentity = `${stat.dev}:${stat.ino}`;
+        const existingOwner = inodeOwners.get(physicalIdentity) ?? validatedExcludedInodeOwners.get(physicalIdentity);
+        if (existingOwner !== undefined) fail(`generated-root physical alias: ${existingOwner} and ${relativePath}`);
+        validatedExcludedInodeOwners.set(physicalIdentity, relativePath);
+        observedGeneratedFiles.push(relativePath);
+      }
     }
   }
   walkGenerated(nextRoot);
@@ -1234,6 +1241,93 @@ function edgeDiagnostic(edge: GraphEdgeV1, reason: string, target?: string): str
   });
 }
 
+interface CanonicalStaticTargetIdentity {
+  readonly path: string;
+  readonly node: ClassifiedNode | undefined;
+  readonly physicalIdentity: string;
+  readonly sourceState: "tracked" | "untracked-not-ignored" | "untracked-ignored" | "non-candidate";
+}
+
+function canonicalStaticTargetIdentity(
+  edge: GraphEdgeV1,
+  sourceClass: string,
+  requestedTarget: string,
+): CanonicalStaticTargetIdentity {
+  const absolute = resolve(repositoryRoot, requestedTarget);
+  const relativeAbsolute = posixPath(relative(repositoryRoot, absolute));
+  if (relativeAbsolute.startsWith("../") || relativeAbsolute === ".." || relativeAbsolute !== requestedTarget ||
+    !existsSync(absolute)) {
+    rejectGraph("unresolved_static_edge", JSON.stringify({
+      path: edge.from,
+      rule: "static-target-must-resolve-to-actual-tree-physical-identity",
+      source: { path: edge.from, classId: sourceClass },
+      target: { requestedPath: requestedTarget, canonicalPath: null },
+      nodeKind: edge.nodeKind,
+      reason: "resolved_target_absent_from_actual_tree",
+    }));
+  }
+  const stat = lstatSync(absolute);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    rejectGraph("class_capability_violation", JSON.stringify({
+      path: edge.from,
+      rule: "static-target-must-use-canonical-physical-file",
+      source: { path: edge.from, classId: sourceClass },
+      target: { requestedPath: requestedTarget, canonicalPath: null },
+      nodeKind: edge.nodeKind,
+      reason: stat.isSymbolicLink() ? "static_target_symbolic_alias" : "static_target_not_regular_file",
+    }));
+  }
+  const physicalIdentity = `${stat.dev}:${stat.ino}`;
+  const canonicalPath = inodeOwners.get(physicalIdentity) ?? validatedExcludedInodeOwners.get(physicalIdentity);
+  if (canonicalPath === undefined) {
+    rejectGraph("unresolved_static_edge", JSON.stringify({
+      path: edge.from,
+      rule: "static-target-must-resolve-to-actual-tree-physical-identity",
+      source: { path: edge.from, classId: sourceClass },
+      target: { requestedPath: requestedTarget, canonicalPath: null, physicalIdentity },
+      nodeKind: edge.nodeKind,
+      reason: "resolved_target_physical_identity_absent_from_actual_tree",
+    }));
+  }
+  const canonicalNode = nodeByPath.get(canonicalPath);
+  const canonicalTracked = tracked.has(canonicalPath);
+  const requestedTracked = tracked.has(requestedTarget);
+  if (canonicalPath !== requestedTarget || canonicalTracked !== requestedTracked) {
+    rejectGraph("class_capability_violation", JSON.stringify({
+      path: edge.from,
+      rule: "static-target-spelling-must-match-canonical-actual-tree-and-git-identity",
+      source: { path: edge.from, classId: sourceClass },
+      target: {
+        requestedPath: requestedTarget,
+        canonicalPath,
+        requestedTracked,
+        canonicalTracked,
+        physicalIdentity,
+      },
+      ast: {
+        form: edge.form,
+        edgeKind: edge.edgeKind,
+        position: edge.position,
+        nodeKind: edge.nodeKind,
+      },
+      acquisition: {
+        resolutionKind: edge.resolutionKind,
+        specifier: edge.specifier ?? null,
+      },
+      nodeKind: edge.nodeKind,
+      reason: canonicalPath !== requestedTarget
+        ? "non_case_exact_or_physical_alias_target_spelling"
+        : "resolved_target_git_membership_identity_mismatch",
+    }));
+  }
+  return {
+    path: canonicalPath,
+    node: canonicalNode,
+    physicalIdentity,
+    sourceState: canonicalNode?.sourceState ?? "non-candidate",
+  };
+}
+
 function enforceProductionTargetClassCeiling(
   edge: GraphEdgeV1,
   sourceClass: string,
@@ -1322,9 +1416,11 @@ function enforceCapabilityEdge(
     }
     return;
   }
-  const target = edge.resolvedTarget ?? rejectGraph(
+  const requestedTarget = edge.resolvedTarget ?? rejectGraph(
     "unresolved_static_edge", `${edge.from}:${edge.position}`,
   );
+  const canonicalTarget = canonicalStaticTargetIdentity(edge, sourceClass, requestedTarget);
+  const target = canonicalTarget.path;
   if (target === rootPath && edge.from !== rootPath) {
     rejectGraph("phase_b_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_phase_b_composition", target));
   }
@@ -1340,7 +1436,7 @@ function enforceCapabilityEdge(
       (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
     rejectGraph("class_capability_violation", `${edge.from}->${target}`);
   }
-  const targetNode = nodeByPath.get(target);
+  const targetNode = canonicalTarget.node;
   enforceProductionTargetClassCeiling(edge, sourceClass, targetNode);
   if (sourceClass === "business-consumer" && target.startsWith("src/ai/") &&
     (edge.specifier !== "@/ai" || target !== "src/ai/index.ts")) {
@@ -2367,6 +2463,40 @@ const finalTreeClosureMutationCases = [
     },
   },
   {
+    id: "production-case-variant-immutable-evidence-target",
+    expected: "class_capability_violation",
+    run: () => enforceCapabilityEdge({
+      form: "import",
+      edgeKind: "runtime",
+      specifier: `../../${immutableHistoricalProbePath.replace("REVIEWER_H02", "reviewer_H02")}`,
+      position: 0,
+      nodeKind: "ImportDeclaration",
+      from: "src/storage/index.ts",
+      resolutionKind: "local",
+      resolvedTarget: immutableHistoricalProbePath.replace("REVIEWER_H02", "reviewer_H02"),
+    }, "other-production-src"),
+  },
+  {
+    id: "production-case-variant-current-json-evidence-target",
+    expected: "class_capability_violation",
+    run: () => {
+      const canonicalTarget =
+        "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/IMP3_NM01_EVIDENCE_ISOLATION_AUTHORITY_V2_0.json";
+      const caseVariantTarget =
+        "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/imp3_nm01_evidence_isolation_authority_v2_0.json";
+      enforceCapabilityEdge({
+        form: "import",
+        edgeKind: "runtime",
+        specifier: `../../${caseVariantTarget}`,
+        position: 0,
+        nodeKind: "ImportDeclaration",
+        from: "src/storage/index.ts",
+        resolutionKind: "local",
+        resolvedTarget: caseVariantTarget,
+      }, "other-production-src");
+    },
+  },
+  {
     id: "silent-historical-probe-selector-exclusion",
     expected: "silent_historical_selector_exclusion",
     run: () => requireHistoricalEvidenceRole([]),
@@ -2413,6 +2543,8 @@ const exactFinalTreeClosureMutationIds = [
   "production-alias-resolves-to-evidence-only",
   "production-transitive-node-imports-evidence-only",
   "production-imports-independent-diagnostic-target",
+  "production-case-variant-immutable-evidence-target",
+  "production-case-variant-current-json-evidence-target",
   "silent-historical-probe-selector-exclusion",
   "historical-evidence-production-promotion",
   "stale-five-proof-commit-tree-binding",

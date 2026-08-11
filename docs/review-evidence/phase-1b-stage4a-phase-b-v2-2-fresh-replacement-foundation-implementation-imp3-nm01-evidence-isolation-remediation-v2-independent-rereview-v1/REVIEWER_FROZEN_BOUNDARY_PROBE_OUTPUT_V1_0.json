@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "node": "24.14.0",
+  "typescript": "5.9.3",
+  "schema": {
+    "aiModelConfig": "21/21/21",
+    "aiRuns": "96/96/96",
+    "exactOrder": true
+  },
+  "productionPromptManifest": "exact-empty",
+  "productionProviderRegistry": "exact-empty",
+  "productionDraftUseCases": [
+    "seo_content_draft",
+    "fabric_knowledge_draft",
+    "product_description_draft",
+    "sourcing_guide_draft"
+  ]
+}

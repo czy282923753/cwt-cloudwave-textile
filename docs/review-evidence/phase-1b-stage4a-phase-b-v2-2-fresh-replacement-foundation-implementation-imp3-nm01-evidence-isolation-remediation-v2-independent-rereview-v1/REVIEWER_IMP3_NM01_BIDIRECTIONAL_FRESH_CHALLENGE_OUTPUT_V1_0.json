@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "candidate": "d60d5cc2398eeeb06263c58924896250f12f3756",
+  "failed": "b48f33f35d5d46824a8c4dec6b40d4a093050285",
+  "seal": "627779d294e45f1fb166f70b94067c4b811aaaff",
+  "node": "24.14.0",
+  "typescript": "5.9.3",
+  "results": [
+    {
+      "id": "attempt1-production-to-evidence-unsafe-pass",
+      "status": 0,
+      "reason": "PASS",
+      "unsafeAcceptance": true
+    },
+    {
+      "id": "candidate-source-clean-baseline",
+      "status": 0,
+      "reason": "PASS",
+      "candidateCount": 668,
+      "executableCount": 478,
+      "edgeCount": 2269
+    },
+    {
+      "id": "h01-ambient-fetch-alias-negative",
+      "status": 1,
+      "reason": "ambient_runtime_capability_not_authorized"
+    },
+    {
+      "id": "h01-runtime-emitted-local-shadow-positive",
+      "status": 0,
+      "reason": "PASS"
+    },
+    {
+      "id": "other-production-side-effect-import",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "other-production-reexport",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "other-production-type-import",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "other-production-type-reexport",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "protected-ai-side-effect-import",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "phase-b-root-side-effect-import",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "business-consumer-side-effect-import",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "transitive-production-helper",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "visible-untracked-evidence-target",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "ignored-untracked-evidence-target",
+      "status": 1,
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "evidence-observes-production-positive",
+      "status": 0,
+      "reason": "PASS"
+    },
+    {
+      "id": "case-drift-physical-evidence-alias",
+      "status": 0,
+      "reason": "PASS",
+      "unsafeAcceptance": true,
+      "canonicalRealpath": "/private/var/folders/92/hxgc72zs74sfz5zm1wn5br500000gn/T/cwt-reviewer-imp3-nm01-r2-UszAzG/docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts",
+      "caseVariantRealpath": "/private/var/folders/92/hxgc72zs74sfz5zm1wn5br500000gn/T/cwt-reviewer-imp3-nm01-r2-UszAzG/docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/reviewer_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts",
+      "sameDeviceAndInode": true
+    },
+    {
+      "id": "case-drift-current-json-physical-evidence-alias",
+      "status": 0,
+      "reason": "PASS",
+      "unsafeAcceptance": true,
+      "strictTypecheckStatus": 0,
+      "canonicalRealpath": "/private/var/folders/92/hxgc72zs74sfz5zm1wn5br500000gn/T/cwt-reviewer-imp3-nm01-r2-BopGuP/docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/IMP3_NM01_EVIDENCE_ISOLATION_AUTHORITY_V2_0.json",
+      "caseVariantRealpath": "/private/var/folders/92/hxgc72zs74sfz5zm1wn5br500000gn/T/cwt-reviewer-imp3-nm01-r2-BopGuP/docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/imp3_nm01_evidence_isolation_authority_v2_0.json",
+      "sameDeviceAndInode": true
+    },
+    {
+      "id": "symlink-evidence-alias",
+      "status": 1,
+      "reason": "symlink"
+    },
+    {
+      "id": "hardlink-evidence-alias",
+      "status": 1,
+      "reason": "hard-link"
+    },
+    {
+      "id": "post-seal-executable-drift",
+      "status": 1,
+      "reason": "post-proof executable candidate drift"
+    },
+    {
+      "id": "stale-proof-binding",
+      "status": 1,
+      "reason": "stale proof commit or executable-tree binding"
+    },
+    {
+      "id": "compatibility-shim",
+      "status": 1,
+      "reason": "historical Reviewer import compatibility target or shim exists under docs/docs"
+    },
+    {
+      "id": "silent-historical-probe-exclusion",
+      "status": 1,
+      "reason": "immutable historical Reviewer executable is absent, changed, or promoted"
+    }
+  ],
+  "summary": {
+    "total": 23,
+    "expectedPositive": 5,
+    "expectedNegative": 17,
+    "priorUnsafePassReproduced": true,
+    "candidateUnsafeAcceptance": true
+  },
+  "conclusion": "FAIL: case-variant physical evidence target bypasses the Production target-class ceiling"
+}
