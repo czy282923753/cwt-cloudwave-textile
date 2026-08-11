@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "status": "implementation_evidence_not_acceptance",
+  "base": "9aa9735f422975780585e62eaec1a4759f9894c9",
+  "candidate": "4ce25e422b79bda62d0489d906e3e871a6279af9",
+  "nameStatusSha256": "888d7a6870601890b4c527702baae0d725d431b421095c7fcb27c006e3cf12ea",
+  "aggregate": {
+    "added": 8,
+    "modified": 16,
+    "deleted": 1,
+    "total": 25,
+    "insertions": 5476,
+    "deletions": 741
+  },
+  "entries": [
+    {"status":"A","path":"docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_DB_CLIENT_GLOBALTHIS_CONVERGENCE_OWNER_APPROVAL_AND_PRE_L3_CHECKPOINT_V1_0.md","sha256":"421a4c97a67101dac9570b62a4e21bf06307c77b035b17b2a0bc3229cb33d695"},
+    {"status":"A","path":"docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_IMPLEMENTATION_NEEDS_OWNER_DECISION_V1_0.md","sha256":"23380114fd528bbcdb987532b7b65d5b92ea81fdec477e3c41dcba2f9e067155"},
+    {"status":"A","path":"docs/PHASE_1B_STAGE4A_PHASE_B_V2_2_FRESH_IMPLEMENTATION_PRE_L3_CHECKPOINT_V1_0.md","sha256":"6d18656ca5e0210d142e06da51e2efbd136bb3fe1dda07b6aab16b31c75c939b"},
+    {"status":"M","path":"scripts/verify-ai-architecture.ts","sha256":"1efdc796992d13e107a2025ccfe2d7e3c2e51a6dd89d2ce33aa2a9fa282247d8"},
+    {"status":"M","path":"src/ai/applications/contracts.ts","sha256":"3db7bdd4bd474dfb0586cb9ff970d5a422e994616a31c90eb2ee34e2a8928cc9"},
+    {"status":"M","path":"src/ai/applications/draft-assistance/association.test.ts","sha256":"6f1e16399152b9b1182badbc603d4c1d593502ce6b58042cb93c57226fd6f2b8"},
+    {"status":"M","path":"src/ai/applications/draft-assistance/association.ts","sha256":"da35cb9f22d74d50ac08385abbea46f90656931eddcd5af23423ad6686e1a904"},
+    {"status":"A","path":"src/ai/applications/draft-assistance/context-integrity-profile.v2_0.json","sha256":"8d59892c9c631230993efd41419c8a372440459c5a346854998442e37c89738c"},
+    {"status":"A","path":"src/ai/applications/draft-assistance/context-integrity.test.ts","sha256":"dac867533fc15bf02b5d06f4dd0380831e5b9a206f495d8fac41dcc23657e9ab"},
+    {"status":"A","path":"src/ai/applications/draft-assistance/context-integrity.ts","sha256":"b8a1baaf45ba574ee798baa2d382336af87e0d4c96bae21be7506f252b7a1e7c"},
+    {"status":"M","path":"src/ai/applications/draft-assistance/context.test.ts","sha256":"9f257d053599fa5d91482ec1a3080ed5f116d607b1a96370f0ff3937e933e54d"},
+    {"status":"M","path":"src/ai/applications/draft-assistance/context.ts","sha256":"ee870f8103206ef611f85c178a4167b84a25e9a04316b669c4bca57f7f33831d"},
+    {"status":"M","path":"src/ai/context/contracts.ts","sha256":"c109aebaddcb41c6fdbc3f595c6cc1d8783a96b0cbc35eee7885826ae46a316d"},
+    {"status":"M","path":"src/ai/core/claimed-execution.integration.test.ts","sha256":"778c3f54675a5797d7fb5de921dc9b77e7e1d8dbe014ed5bbd2c9f7770fd2952"},
+    {"status":"M","path":"src/ai/core/contracts.ts","sha256":"2c5e6161ddf094982d73e0057cf66941e817ba794695292f69b265090a9102e7"},
+    {"status":"M","path":"src/ai/internal/claimed-run-authority.ts","sha256":"8450bfde99f33efc8f95cf324e3ae1514decc06466b5c26661cd48cec6c01ee3"},
+    {"status":"M","path":"src/ai/output/common.test.ts","sha256":"f475f3a50ad347448f6e1f05f28810ca3c842e771ba486fd6fa3ba5bf7967c38"},
+    {"status":"M","path":"src/ai/output/common.ts","sha256":"2c480b1ffee43b572b5198d1aa974f4e6c1c850f92d7a3689535da2ef5a745da"},
+    {"status":"M","path":"src/ai/provider-neutral-foundation.integration.test.ts","sha256":"2013731ed30f1441cee88bc87133bac5af68642b04d4c9bd5913caa0af593c28"},
+    {"status":"M","path":"src/ai/registry/production-use-cases.ts","sha256":"6a4663851e807d98b783f6e221cfbb68b3c515acc657458110ae36db6f42a400"},
+    {"status":"M","path":"src/ai/testing/synthetic-application/definition.ts","sha256":"9f995154819708851d55cc950fd3e9fbd4daec746bc089924e822838cf60a306"},
+    {"status":"A","path":"src/db/client.global-cache.test.ts","sha256":"0a7d648b4713cb17d3f588084ae5b16d3e300cb7e06de0f2d7072d31d1e2a666"},
+    {"status":"M","path":"src/db/client.ts","sha256":"a42da2fc83ed1bd72afe4823cf61266d2da31e779f5817a2ff7c518f092e183b"},
+    {"status":"D","path":"test-fixtures/ai-architecture/graph-faults.v2_2.json","baselineSha256":"9c2042989594fa4cd49197703d9a7aa1832407d56a386246f3a73b5f7605a7c3"},
+    {"status":"A","path":"test-fixtures/ai-architecture/graph-faults.v3_1.json","sha256":"fbda9c643ce2697474b361d93459f89f3c417ec7d96dcbb98c17cdeaa924d708"}
+  ],
+  "ownerAllowlistExpansionAudit": {
+    "newPaths": [
+      "src/db/client.ts",
+      "src/db/client.global-cache.test.ts"
+    ],
+    "otherSrcDbPathsChanged": [],
+    "schemaMigrationConfigPackageLockPathsChanged": []
+  }
+}
