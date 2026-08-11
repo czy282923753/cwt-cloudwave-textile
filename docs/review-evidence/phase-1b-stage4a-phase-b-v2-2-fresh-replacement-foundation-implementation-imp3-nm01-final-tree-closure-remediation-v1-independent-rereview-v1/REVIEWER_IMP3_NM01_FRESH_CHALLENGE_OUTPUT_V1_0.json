@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "candidate": "b48f33f35d5d46824a8c4dec6b40d4a093050285",
+  "seal": "87966f118766b60aeacc51ceca61c68ea57a62cf",
+  "pinnedNode": "24.14.0",
+  "results": [
+    {
+      "id": "failed-attached-equivalent-unresolved-probe",
+      "status": 1,
+      "reason": "unresolved_static_edge on immutable historical Reviewer probe"
+    },
+    {
+      "id": "exact-candidate-proof-bound-baseline",
+      "status": 0,
+      "reason": "none"
+    },
+    {
+      "id": "production-current-imports-diagnostic-evidence",
+      "status": 0,
+      "reason": "none",
+      "unsafeAcceptance": true
+    },
+    {
+      "id": "production-unresolved-control",
+      "status": 1,
+      "reason": "unresolved_static_edge"
+    },
+    {
+      "id": "post-seal-executable-evidence",
+      "status": 1,
+      "reason": "post-proof executable candidate drift"
+    },
+    {
+      "id": "docs-docs-compatibility-shim",
+      "status": 1,
+      "reason": "historical Reviewer import compatibility target or shim exists under docs/docs"
+    },
+    {
+      "id": "stale-proof-binding",
+      "status": 1,
+      "reason": "stale proof commit or executable-tree binding"
+    },
+    {
+      "id": "historical-evidence-symlink",
+      "status": 1,
+      "reason": "symlink"
+    },
+    {
+      "id": "historical-evidence-hardlink",
+      "status": 1,
+      "reason": "hard-link"
+    }
+  ],
+  "conclusion": "FAIL: Production/current can import diagnostic evidence; evidence-only isolation is one-sided"
+}

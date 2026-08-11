@@ -1234,6 +1234,50 @@ function edgeDiagnostic(edge: GraphEdgeV1, reason: string, target?: string): str
   });
 }
 
+function enforceProductionTargetClassCeiling(
+  edge: GraphEdgeV1,
+  sourceClass: string,
+  targetNode: ClassifiedNode | undefined,
+): void {
+  if (!productionClasses.has(sourceClass) || targetNode === undefined) return;
+  const evidenceOnlyTarget = targetNode.classId === historicalEvidenceClass ||
+    targetNode.stageStatus === "evidence_only_not_production" ||
+    targetNode.bundleZones.includes("documentation-only");
+  const testOnlyTarget = targetNode.classId === "synthetic-ai-test-code" ||
+    targetNode.classId === "other-test-fixtures";
+  if (!evidenceOnlyTarget && !testOnlyTarget) return;
+  rejectGraph("class_capability_violation", JSON.stringify({
+    path: edge.from,
+    rule: evidenceOnlyTarget
+      ? "production-current-must-not-reach-evidence-only"
+      : "production-current-must-not-reach-test-only",
+    source: {
+      path: edge.from,
+      classId: sourceClass,
+    },
+    target: {
+      path: targetNode.path,
+      classId: targetNode.classId,
+      stageStatus: targetNode.stageStatus,
+      bundleZones: targetNode.bundleZones,
+    },
+    ast: {
+      form: edge.form,
+      edgeKind: edge.edgeKind,
+      position: edge.position,
+      nodeKind: edge.nodeKind,
+    },
+    acquisition: {
+      resolutionKind: edge.resolutionKind,
+      specifier: edge.specifier ?? null,
+    },
+    nodeKind: edge.nodeKind,
+    reason: evidenceOnlyTarget
+      ? "production_current_edge_to_evidence_only_class"
+      : "production_current_edge_to_test_only_class",
+  }));
+}
+
 function enforceCapabilityEdge(
   edge: GraphEdgeV1,
   sourceClass = classForPath(edge.from),
@@ -1297,10 +1341,7 @@ function enforceCapabilityEdge(
     rejectGraph("class_capability_violation", `${edge.from}->${target}`);
   }
   const targetNode = nodeByPath.get(target);
-  if (productionClasses.has(sourceClass) && targetNode !== undefined &&
-    (targetNode.classId === "synthetic-ai-test-code" || targetNode.classId === "other-test-fixtures")) {
-    rejectGraph("class_capability_violation", `${edge.from}->${target}`);
-  }
+  enforceProductionTargetClassCeiling(edge, sourceClass, targetNode);
   if (sourceClass === "business-consumer" && target.startsWith("src/ai/") &&
     (edge.specifier !== "@/ai" || target !== "src/ai/index.ts")) {
     rejectGraph("class_capability_violation", `${edge.from}->${target}`);
@@ -2251,6 +2292,80 @@ const finalTreeClosureMutationCases = [
       resolutionKind: "unresolved",
     }, "protected-ai"),
   },
+  ...([
+    {
+      id: "production-direct-imports-evidence-only",
+      form: "import",
+      edgeKind: "runtime",
+      specifier: `../../${immutableHistoricalProbePath}`,
+      nodeKind: "ImportDeclaration",
+    },
+    {
+      id: "production-reexports-evidence-only",
+      form: "export-from",
+      edgeKind: "runtime",
+      specifier: `../../${immutableHistoricalProbePath}`,
+      nodeKind: "ExportDeclaration",
+    },
+    {
+      id: "production-type-imports-evidence-only",
+      form: "import-type",
+      edgeKind: "type-only",
+      specifier: `../../${immutableHistoricalProbePath}`,
+      nodeKind: "ImportTypeNode",
+    },
+    {
+      id: "production-alias-resolves-to-evidence-only",
+      form: "import",
+      edgeKind: "runtime",
+      specifier: "@/reviewer-evidence-alias",
+      nodeKind: "ImportDeclaration",
+    },
+  ] as const).map((variant) => ({
+    id: variant.id,
+    expected: "class_capability_violation",
+    run: () => enforceCapabilityEdge({
+      form: variant.form,
+      edgeKind: variant.edgeKind,
+      specifier: variant.specifier,
+      position: 0,
+      nodeKind: variant.nodeKind,
+      from: "src/storage/index.ts",
+      resolutionKind: "local",
+      resolvedTarget: immutableHistoricalProbePath,
+    }, "other-production-src"),
+  })),
+  {
+    id: "production-transitive-node-imports-evidence-only",
+    expected: "class_capability_violation",
+    run: () => enforceCapabilityEdge({
+      form: "import",
+      edgeKind: "runtime",
+      specifier: `../../${immutableHistoricalProbePath}`,
+      position: 0,
+      nodeKind: "ImportDeclaration",
+      from: "src/storage/index.ts",
+      resolutionKind: "local",
+      resolvedTarget: immutableHistoricalProbePath,
+    }, classForPath("src/storage/index.ts")),
+  },
+  {
+    id: "production-imports-independent-diagnostic-target",
+    expected: "class_capability_violation",
+    run: () => {
+      const target = "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_V1_0.mjs";
+      enforceCapabilityEdge({
+        form: "import",
+        edgeKind: "runtime",
+        specifier: `../../${target}`,
+        position: 0,
+        nodeKind: "ImportDeclaration",
+        from: "src/storage/index.ts",
+        resolutionKind: "local",
+        resolvedTarget: target,
+      }, "other-production-src");
+    },
+  },
   {
     id: "silent-historical-probe-selector-exclusion",
     expected: "silent_historical_selector_exclusion",
@@ -2289,7 +2404,24 @@ const finalTreeClosureMutationResults = finalTreeClosureMutationCases.map((mutat
   }
   fail(`final-tree closure mutation did not fail closed: ${mutation.id}`);
 });
-if (finalTreeClosureMutationResults.length !== 6) fail("final-tree closure mutation count is not six");
+const exactFinalTreeClosureMutationIds = [
+  "post-proof-executable-evidence",
+  "unresolved-current-production-import",
+  "production-direct-imports-evidence-only",
+  "production-reexports-evidence-only",
+  "production-type-imports-evidence-only",
+  "production-alias-resolves-to-evidence-only",
+  "production-transitive-node-imports-evidence-only",
+  "production-imports-independent-diagnostic-target",
+  "silent-historical-probe-selector-exclusion",
+  "historical-evidence-production-promotion",
+  "stale-five-proof-commit-tree-binding",
+  "historical-import-compatibility-target",
+] as const;
+if (JSON.stringify(finalTreeClosureMutationResults.map((result) => result.id)) !==
+  JSON.stringify(exactFinalTreeClosureMutationIds)) {
+  fail("final-tree closure mutation identity differs from bidirectional evidence-isolation authority");
+}
 
 const evidenceDirectoryInput = argumentValue("--write-evidence-dir");
 if (evidenceDirectoryInput !== undefined) {
