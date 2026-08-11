@@ -75,6 +75,33 @@ function installDependencyBridge(root, installedNodeModules) {
   return () => rmSync(local, { recursive: true });
 }
 
+function generateOfficialTypegen(root, installedNodeModules) {
+  const local = resolve(root, "node_modules");
+  if (existsSync(local)) fail(`official typegen dependency bridge target already exists: ${local}`);
+  symlinkSync(installedNodeModules, local, "dir");
+  try {
+    const result = spawnSync("/usr/bin/sandbox-exec", [
+      "-p", "(version 1)(allow default)(deny network*)",
+      process.execPath, "node_modules/next/dist/bin/next", "typegen", ".",
+    ], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+    });
+    if (result.status !== 0) fail(`official network-denied typegen failed at ${root}: ${result.stderr || result.stdout}`);
+  } finally {
+    rmSync(local);
+  }
+  const generated = [
+    ["next-env.d.ts", "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651"],
+    [".next/types/cache-life.d.ts", "d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7"],
+    [".next/types/routes.d.ts", "e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4"],
+    [".next/types/validator.ts", "8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df"],
+  ];
+  for (const [path, hash] of generated) requireEqual(sha256(readFileSync(resolve(root, path))), hash,
+    `official typegen hash ${path}`);
+}
+
 function runGate(root, installedNodeModules, sealCommit) {
   const removeBridge = installDependencyBridge(root, installedNodeModules);
   try {
@@ -141,6 +168,7 @@ requireEqual(sha256(readFileSync(authority.immutableHistoricalProbe.path)),
   authority.immutableHistoricalProbe.sha256, "immutable historical probe SHA-256");
 requireEqual(sha256(readFileSync(checkerPath)), authority.executableTreeSeal.checkerSha256, "sole checker SHA-256");
 
+generateOfficialTypegen(repositoryRoot, installedNodeModules);
 const attached = runGate(repositoryRoot, installedNodeModules, sealCommit);
 requireEqual(attached.executableTreeSha256, authority.executableTreeSeal.executableTreeSha256,
   "attached executable-tree SHA-256");
@@ -151,6 +179,7 @@ try {
     cwd: repositoryRoot,
     stdio: ["ignore", "ignore", "pipe"],
   });
+  generateOfficialTypegen(detachedRoot, installedNodeModules);
   detached = runGate(detachedRoot, installedNodeModules, sealCommit);
   requireEqual(detached.executableTreeSha256, attached.executableTreeSha256,
     "attached/detached executable-tree SHA-256");
