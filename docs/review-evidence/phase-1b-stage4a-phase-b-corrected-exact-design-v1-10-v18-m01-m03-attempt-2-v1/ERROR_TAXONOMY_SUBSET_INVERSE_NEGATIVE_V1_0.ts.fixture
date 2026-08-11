@@ -1,0 +1,15 @@
+import type { AiErrorCode } from "../../../src/ai/errors";
+
+type AssertNever<T extends never> = T;
+type TraversalReturnCode =
+  | "context_provenance_mismatch"
+  | "context_prohibited_data"
+  | "context_too_large"
+  | "canonicalization_failed"
+  | "internal_failure";
+
+// Must fail: the full 69-code authority is intentionally not the five-code
+// traversal subset. Restoring this inverse would recreate the V1.9 false claim.
+type _ForbiddenFullAuthorityToTraversalInverse = AssertNever<
+  Exclude<AiErrorCode, TraversalReturnCode>
+>;

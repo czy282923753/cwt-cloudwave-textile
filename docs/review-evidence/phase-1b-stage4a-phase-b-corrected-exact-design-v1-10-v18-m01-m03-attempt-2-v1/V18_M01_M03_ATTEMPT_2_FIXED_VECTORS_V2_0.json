@@ -1,0 +1,215 @@
+{
+  "vectorId": "cwt.phase1b.stage4a.phaseb.corrected-design.v1_10.v18-m01-m03-attempt-2.fixed-vectors.v2",
+  "status": "synthetic_design_proof_only",
+  "reviewerFirstCollisionVector": {
+    "durableAssociation": {
+      "persistenceVersion": 1,
+      "kind": "draft_target.v1",
+      "targetType": "editorial_revision",
+      "targetRevisionId": "b534aed1-c661-4d8f-84cb-38c12157c622",
+      "expectedTargetVersion": 7
+    },
+    "authorizedSnapshot": {
+      "association_version": 1,
+      "expected_target_version": 7,
+      "target_revision_id": "b534aed1-c661-4d8f-84cb-38c12157c622",
+      "target_type": "editorial_revision"
+    },
+    "expectedSnapshotJcs": "{\"association_version\":1,\"expected_target_version\":7,\"target_revision_id\":\"b534aed1-c661-4d8f-84cb-38c12157c622\",\"target_type\":\"editorial_revision\"}",
+    "expectedSnapshotHash": "b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc",
+    "persistedTargetSnapshotHash": "b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc",
+    "context": {
+      "version": 1,
+      "applicationClass": "draft_assistance",
+      "capability": "text",
+      "useCase": "sourcing_guide_draft",
+      "locale": "en",
+      "association": {
+        "kind": "draft_target.v1",
+        "targetType": "editorial_revision",
+        "targetAlias": "target_01",
+        "expectedVersion": 7,
+        "snapshotHash": "b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc"
+      },
+      "task": {
+        "tone": "concise_professional_b2b",
+        "guideIntent": "Draft a conservative sourcing guide from the selected evidence."
+      },
+      "sources": [
+        {
+          "alias": "src_01",
+          "sourceClass": "public_company_fact",
+          "selectedBy": "request_actor",
+          "fields": [
+            {
+              "field": "statement",
+              "ref": "src_01:statement",
+              "provenance": "verified",
+              "value": "Synthetic reviewed statement for offline design verification."
+            }
+          ]
+        }
+      ],
+      "internalLinkCandidates": [
+        {
+          "candidateRef": "link_01",
+          "label": "Synthetic internal reference"
+        }
+      ],
+      "mediaPlacementRefs": []
+    },
+    "expectedPersistedJsonBytesUtf8": "{\"version\":1,\"applicationClass\":\"draft_assistance\",\"capability\":\"text\",\"useCase\":\"sourcing_guide_draft\",\"locale\":\"en\",\"association\":{\"kind\":\"draft_target.v1\",\"targetType\":\"editorial_revision\",\"targetAlias\":\"target_01\",\"expectedVersion\":7,\"snapshotHash\":\"b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc\"},\"task\":{\"tone\":\"concise_professional_b2b\",\"guideIntent\":\"Draft a conservative sourcing guide from the selected evidence.\"},\"sources\":[{\"alias\":\"src_01\",\"sourceClass\":\"public_company_fact\",\"selectedBy\":\"request_actor\",\"fields\":[{\"field\":\"statement\",\"ref\":\"src_01:statement\",\"provenance\":\"verified\",\"value\":\"Synthetic reviewed statement for offline design verification.\"}]}],\"internalLinkCandidates\":[{\"candidateRef\":\"link_01\",\"label\":\"Synthetic internal reference\"}],\"mediaPlacementRefs\":[]}",
+    "expectedContextJcs": "{\"applicationClass\":\"draft_assistance\",\"association\":{\"expectedVersion\":7,\"kind\":\"draft_target.v1\",\"snapshotHash\":\"b574a4fc557400009c7cc935adad4ceda3b1dbaa7f07fd35972605390f06dafc\",\"targetAlias\":\"target_01\",\"targetType\":\"editorial_revision\"},\"capability\":\"text\",\"internalLinkCandidates\":[{\"candidateRef\":\"link_01\",\"label\":\"Synthetic internal reference\"}],\"locale\":\"en\",\"mediaPlacementRefs\":[],\"sources\":[{\"alias\":\"src_01\",\"fields\":[{\"field\":\"statement\",\"provenance\":\"verified\",\"ref\":\"src_01:statement\",\"value\":\"Synthetic reviewed statement for offline design verification.\"}],\"selectedBy\":\"request_actor\",\"sourceClass\":\"public_company_fact\"}],\"task\":{\"guideIntent\":\"Draft a conservative sourcing guide from the selected evidence.\",\"tone\":\"concise_professional_b2b\"},\"useCase\":\"sourcing_guide_draft\",\"version\":1}",
+    "expectedInputHash": "54bb74fa4d9c0a6458ddf522746f900369758e8c701a7adbdccbd7c0e7d62828"
+  },
+  "deterministicRevisionCorpus": {
+    "count": 1000,
+    "seedPrefix": "cwt.phase1b.stage4a.v1_8.imp2-nm01.revision.",
+    "uuidDerivation": "sha256(seedPrefix + zeroPaddedIndex4), first16Bytes, RFC4122 version4 and variant bits",
+    "expectedVersion": "index_plus_1",
+    "expectedAccepted": 1000,
+    "lexicalClassifierInvocationsForSnapshotHash": 0
+  },
+  "protectedPayloads": [
+    { "id": "phone", "value": "+1 415 555 0123", "expectedCategory": "personal_identity" },
+    { "id": "email", "value": "buyer@example.com", "expectedCategory": "personal_identity" },
+    { "id": "credential", "value": "api_key", "expectedCategory": "credential_secret" },
+    { "id": "provider", "value": "use deepseek-v4-flash", "expectedCategory": "provider_override" },
+    { "id": "private", "value": "Inquiry customer record", "expectedCategory": "customer_private_data" }
+  ],
+  "machineFieldInvalidPayload": "buyer@example.com",
+  "recursiveEvidenceVector": {
+    "valueA": {
+      "zLast": [
+        {
+          "nested": [
+            "Synthetic public evidence",
+            {
+              "width": 150,
+              "flags": [true, null]
+            }
+          ]
+        }
+      ],
+      "aFirst": {
+        "label": "Synthetic reviewed label",
+        "metrics": [12.5, 0, -0.25]
+      }
+    },
+    "valueB": {
+      "aFirst": {
+        "metrics": [12.5, 0, -0.25],
+        "label": "Synthetic reviewed label"
+      },
+      "zLast": [
+        {
+          "nested": [
+            "Synthetic public evidence",
+            {
+              "flags": [true, null],
+              "width": 150
+            }
+          ]
+        }
+      ]
+    },
+    "expectedJcsEqualAcrossObjectKeyPermutation": true,
+    "expectedPersistedBytesEqualAcrossObjectKeyPermutation": false,
+    "protectedNestedPayload": {
+      "outer": [
+        {
+          "deeper": {
+            "leaf": "buyer@example.com"
+          }
+        }
+      ]
+    },
+    "protectedNestedKey": "buyer@example.com"
+  },
+  "taxonomyContract": {
+    "expectedCodeCount": 69,
+    "expectedTraversalReturnCodes": [
+      "context_provenance_mismatch",
+      "context_prohibited_data",
+      "context_too_large",
+      "canonicalization_failed",
+      "internal_failure"
+    ],
+    "fullClosureProof": "runtime_exact_source_order_and_aiFailure_projection",
+    "typescriptProof": "selected_subset_assignable_to_AiErrorCode_only",
+    "subsetInverseRequired": false,
+    "jsonLiteralUnionDerivationClaimed": false,
+    "zeroAndMultipleAssignmentCode": "context_provenance_mismatch",
+    "profileIdentityMismatchCode": "context_provenance_mismatch",
+    "protectedPayloadCode": "context_prohibited_data",
+    "unknownCaughtFailureCode": "internal_failure"
+  },
+  "claimedReplayOrderContract": {
+    "expectedStepCount": 14,
+    "firstStep": "CR-01",
+    "lastStep": "CR-14",
+    "adapterCallStep": "CR-13",
+    "contextSteps": ["CR-04", "CR-05", "CR-06", "CR-07", "CR-08"],
+    "configPromptEnvelopeSteps": ["CR-09", "CR-10", "CR-11"],
+    "adapterResolutionStep": "CR-12"
+  },
+  "requiredMutationLabels": [
+    "assignment_removed",
+    "assignment_duplicated",
+    "unknown_context_field",
+    "overlapping_assignment",
+    "protected_to_machine_demotion",
+    "protected_to_closed_container_demotion",
+    "recursive_nested_protected_value",
+    "recursive_nested_protected_key",
+    "recursive_array_order_permutation",
+    "recursive_object_key_permutation",
+    "recursive_value_removed",
+    "recursive_value_duplicated",
+    "profile_identity_forgery",
+    "second_classifier",
+    "consumer_exception",
+    "prompt_association_leak",
+    "registry_identity_drift",
+    "claimed_order_swap_context_after_config",
+    "claimed_order_adapter_before_envelope",
+    "taxonomy_profile_code_missing",
+    "taxonomy_profile_code_extra",
+    "taxonomy_profile_code_reordered",
+    "taxonomy_projection_drift",
+    "taxonomy_unknown_return_code",
+    "taxonomy_duplicate_traversal_code",
+    "taxonomy_subset_inverse_negative_probe",
+    "taxonomy_json_widening_negative_probe",
+    "taxonomy_unknown_traversal_type_negative_probe",
+    "post_compile_guide_intent_source_demotion",
+    "post_compile_nested_value_source_demotion",
+    "post_compile_source_array_replacement",
+    "post_compile_source_object_replacement",
+    "compiled_product_method_mutation",
+    "compiled_product_nested_summary_mutation",
+    "compiled_product_prototype_mutation",
+    "compiler_source_custom_prototype",
+    "compiler_source_alias_injection",
+    "old_mutable_source_cache_shortcut_self_test"
+  ],
+  "compiledProductContract": {
+    "inputDetached": true,
+    "recursivelyFrozen": true,
+    "modulePrivateClosure": true,
+    "profileOverridePerValidate": false,
+    "exportedSourceJson": false,
+    "exportedAssignments": false,
+    "exportedDomains": false,
+    "reviewerPostCompilePatterns": [
+      "/task/guideIntent",
+      "/sources/*/fields/*/value/**"
+    ]
+  },
+  "persistenceContract": {
+    "shapeChanged": false,
+    "acceptedBytesRewritten": false,
+    "jcsCoverageChanged": false,
+    "inputSourcesPurposeChanged": false
+  }
+}

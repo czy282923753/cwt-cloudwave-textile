@@ -1,0 +1,9 @@
+import type { AiErrorCode } from "../../../src/ai/errors";
+
+// Must fail: an unknown traversal result cannot enter the closed source union.
+const traversalReturnCodes = [
+  "context_provenance_mismatch",
+  "context_domain_unclassified",
+] as const satisfies readonly AiErrorCode[];
+
+export { traversalReturnCodes };

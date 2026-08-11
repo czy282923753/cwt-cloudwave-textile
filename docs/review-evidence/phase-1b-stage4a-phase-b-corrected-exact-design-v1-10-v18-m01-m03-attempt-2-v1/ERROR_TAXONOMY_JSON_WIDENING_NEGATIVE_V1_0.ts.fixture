@@ -1,0 +1,8 @@
+import profile from "./V18_M01_M03_ATTEMPT_2_MACHINE_PROFILE_V2_0.json";
+import type { AiErrorCode } from "../../../src/ai/errors";
+
+// Must fail under normal resolveJsonModule: JSON string values are widened to
+// string, so this import cannot honestly manufacture the 69-member literal union.
+const falselyDerivedLiteral: AiErrorCode = profile.errorTaxonomy.codes[0].code;
+
+export { falselyDerivedLiteral };
