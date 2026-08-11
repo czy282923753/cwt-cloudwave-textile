@@ -2480,8 +2480,6 @@ const finalTreeClosureMutationCases = [
     id: "production-case-variant-current-json-evidence-target",
     expected: "class_capability_violation",
     run: () => {
-      const canonicalTarget =
-        "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/IMP3_NM01_EVIDENCE_ISOLATION_AUTHORITY_V2_0.json";
       const caseVariantTarget =
         "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/imp3_nm01_evidence_isolation_authority_v2_0.json";
       enforceCapabilityEdge({
