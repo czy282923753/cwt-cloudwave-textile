@@ -1,0 +1,156 @@
+diff --git a/src/ai/reviewer-remediation-v2-fresh.test.ts b/src/ai/reviewer-remediation-v2-fresh.test.ts
+new file mode 100644
+--- /dev/null
++++ b/src/ai/reviewer-remediation-v2-fresh.test.ts
+@@
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++
++import { createTestDatabase } from "@/test/database";
++import type { ReadonlyJsonObject } from "@/ai/canonical-json";
++import { buildAuthorizedDraftAssociationV1, prepareDraftAssociationV1 } from "./applications/draft-assistance/association";
++import { createDraftContextPolicy, type ReconstructibleDraftContextV1 } from "./applications/draft-assistance/context";
++import { withReadOnlyDraftAvailabilityScope } from "./applications/draft-assistance/read-scopes";
++import { draftOutputDefinitionV1 } from "./output/registry";
++
++const TARGET_REVISION_ID = "5b1890ce-bc48-4171-9a61-a407cc8c26e9";
++const UNRELATED_PRODUCT_ID = "22222222-2222-4222-8222-222222222222";
++
++describe("independent Remediation V2 causal challenges", () => {
++  let database: Awaited<ReturnType<typeof createTestDatabase>>;
++  beforeAll(async () => { database = await createTestDatabase(); });
++  afterAll(async () => { await database.close(); });
++
++  it("accepts a Product that is not mechanically bound to the Editorial Revision entity", async () => {
++    const target = {
++      type: "editorial_revision" as const,
++      revisionId: TARGET_REVISION_ID,
++      expectedVersion: 7,
++    };
++    const association = prepareDraftAssociationV1(target);
++    expect(association.ok).toBe(true);
++    if (!association.ok) return;
++    const authorized = buildAuthorizedDraftAssociationV1(association.value);
++    expect(authorized.ok).toBe(true);
++    if (!authorized.ok) return;
++    const policy = createDraftContextPolicy({
++      async readSelectedSource() {
++        return {
++          ok: true as const,
++          value: {
++            sourceClass: "product_structured" as const,
++            productId: UNRELATED_PRODUCT_ID,
++            recordVersion: 5,
++            authoritativeRecordVersion: 5,
++            targetBinding: {
++              targetType: "editorial_revision" as const,
++              targetRevisionId: TARGET_REVISION_ID,
++              expectedTargetVersion: 7,
++            },
++            fields: [{
++              field: "fabricStyle" as const,
++              provenance: "provided" as const,
++              value: "plain weave",
++            }],
++          },
++        };
++      },
++    });
++    const result = await withReadOnlyDraftAvailabilityScope(database.db, (scope) =>
++      policy.buildReconstructibleContext({
++        actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
++        command: {
++          useCase: "product_description_draft",
++          actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
++          target,
++          idempotencyKey: "reviewer-unrelated-product-revision",
++          contextSelections: [{
++            sourceClass: "product_structured",
++            sourceId: UNRELATED_PRODUCT_ID,
++            fields: ["fabricStyle"],
++          }],
++        },
++        association: authorized.value,
++        scope,
++      }));
++    console.log("M01_REVISION_RESULT", JSON.stringify(result));
++    expect(result.ok).toBe(true);
++  });
++
++  it("accepts 30 equivalent blocks with one alternating middle token", () => {
++    const context: ReconstructibleDraftContextV1 = {
++      version: 1,
++      applicationClass: "draft_assistance",
++      capability: "text",
++      useCase: "product_description_draft",
++      locale: "en",
++      association: {
++        kind: "draft_target.v1",
++        targetType: "product_draft",
++        targetAlias: "target_01",
++        expectedVersion: 7,
++        snapshotHash: "a".repeat(64),
++      },
++      task: { tone: "concise_professional_b2b" },
++      sources: [{
++        alias: "src_01",
++        sourceClass: "product_structured",
++        selectedBy: "request_actor",
++        fields: [{
++          field: "fabricStyle",
++          ref: "src_01:fabricStyle",
++          provenance: "provided",
++          value: "plain weave",
++        }],
++      }],
++      internalLinkCandidates: [],
++      mediaPlacementRefs: [],
++    };
++    const variants = [
++      "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
++      "india", "juliet", "kilo", "lima", "mike", "maple", "oscar", "papa",
++      "quebec", "romeo", "sierra", "tango", "uniform", "victor", "whiskey", "xray",
++      "yankee", "zulu", "amber", "birch", "cedar", "dahlia",
++    ];
++    const rawObject: ReadonlyJsonObject = {
++      schemaVersion: 1,
++      useCase: "product_description_draft",
++      locale: "en",
++      summaryProposal: {
++        text: "A conservative textile narrative.",
++        sourceRefs: ["src_01:fabricStyle"],
++      },
++      descriptionBlocks: variants.map((variant) => ({
++        type: "paragraph",
++        text: {
++          text: `Repeated plain ${variant} weave narrative.`,
++          sourceRefs: ["src_01:fabricStyle"],
++        },
++      })),
++      featureProposals: [],
++      faqProposals: [],
++      mediaTextProposals: [],
++    };
++    const output = draftOutputDefinitionV1("product_description_draft");
++    expect(output).toBeDefined();
++    if (output === undefined) return;
++    const individual = (rawObject.descriptionBlocks as ReadonlyJsonObject[]).every((block) =>
++      output.policy.parseAndProtect({
++        rawObject: { ...rawObject, descriptionBlocks: [block] },
++        context,
++      }).ok);
++    const combined = output.policy.parseAndProtect({ rawObject, context });
++    expect(individual).toBe(true);
++    expect(combined.ok).toBe(true);
++  });
++});
+diff --git a/src/public-site/reviewer-indirect-acquisition.cjs b/src/public-site/reviewer-indirect-acquisition.cjs
+new file mode 100644
+--- /dev/null
++++ b/src/public-site/reviewer-indirect-acquisition.cjs
+@@
++const { require: load } = module;
++const selected = Date.now() > 0
++  ? "@/server/ai/phase-b-composition"
++  : "./product-state";
++
++module.exports = load(selected);
