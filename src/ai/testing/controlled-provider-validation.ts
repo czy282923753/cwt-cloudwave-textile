@@ -32,7 +32,6 @@ import { createAiRunWorkerV1 } from "@/ai/runs/worker";
 import { createPromptBundleLoaderV1, type PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
 import { migrateDatabase } from "@/db/migrate";
-import { PostgresMigrationCompatibilityError } from "@/db/postgres-enum-migration-compatibility";
 import * as databaseSchema from "@/db/schema";
 import {
   aiModelConfig,
@@ -100,6 +99,18 @@ const MIGRATION_CONNECTION_NODE_CODES = new Set([
 const MIGRATION_FOLDER_NODE_CODES = new Set([
   "ENOENT", "ENOTDIR", "ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND",
 ]);
+const MIGRATION_COMPATIBILITY_FOLDER_CODES = new Set([
+  "MIGRATION_IDENTITY_MISMATCH",
+]);
+const MIGRATION_COMPATIBILITY_CONNECTION_CODES = new Set([
+  "MIGRATION_CLIENT_NOT_DEDICATED", "BACKEND_SESSION_CHANGED",
+]);
+const MIGRATION_COMPATIBILITY_ADVISORY_LOCK_CODES = new Set([
+  "LOCK_UNAVAILABLE",
+]);
+const MIGRATION_COMPATIBILITY_JOURNAL_CODES = new Set([
+  "JOURNAL_CATALOG_MISMATCH", "POST_MIGRATION_VERIFICATION_FAILED",
+]);
 
 function ownStringDataProperty(value: unknown, key: "code"): string | undefined {
   if ((typeof value !== "object" && typeof value !== "function") || value === null) return undefined;
@@ -113,35 +124,23 @@ function ownStringDataProperty(value: unknown, key: "code"): string | undefined 
   }
 }
 
-function isPostgresMigrationCompatibilityError(value: unknown): boolean {
-  try {
-    return value instanceof PostgresMigrationCompatibilityError;
-  } catch {
-    return false;
-  }
-}
-
 export function classifyControlledMigrationFailureForTestV1(
   error: unknown,
 ): ControlledMigrationFailureSafeCodeV1 {
   const code = ownStringDataProperty(error, "code");
   if (code === undefined) return "controlled_validation_migration_entry_failed";
 
-  if (isPostgresMigrationCompatibilityError(error)) {
-    switch (code) {
-      case "MIGRATION_IDENTITY_MISMATCH":
-        return "controlled_validation_migration_folder_resolution_failed";
-      case "MIGRATION_CLIENT_NOT_DEDICATED":
-      case "BACKEND_SESSION_CHANGED":
-        return "controlled_validation_migration_connection_failed";
-      case "LOCK_UNAVAILABLE":
-        return "controlled_validation_migration_advisory_lock_failed";
-      case "JOURNAL_CATALOG_MISMATCH":
-      case "POST_MIGRATION_VERIFICATION_FAILED":
-        return "controlled_validation_migration_journal_failed";
-      default:
-        return "controlled_validation_migration_entry_failed";
-    }
+  if (MIGRATION_COMPATIBILITY_FOLDER_CODES.has(code)) {
+    return "controlled_validation_migration_folder_resolution_failed";
+  }
+  if (MIGRATION_COMPATIBILITY_CONNECTION_CODES.has(code)) {
+    return "controlled_validation_migration_connection_failed";
+  }
+  if (MIGRATION_COMPATIBILITY_ADVISORY_LOCK_CODES.has(code)) {
+    return "controlled_validation_migration_advisory_lock_failed";
+  }
+  if (MIGRATION_COMPATIBILITY_JOURNAL_CODES.has(code)) {
+    return "controlled_validation_migration_journal_failed";
   }
 
   if (MIGRATION_FOLDER_NODE_CODES.has(code)) {

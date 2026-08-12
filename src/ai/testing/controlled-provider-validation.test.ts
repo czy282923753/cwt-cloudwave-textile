@@ -12,7 +12,6 @@ import {
   parseControlledDeepSeekFixtureBytesForTestV1,
   runNode24LoopbackSemanticGateV1,
 } from "./controlled-provider-validation";
-import { PostgresMigrationCompatibilityError } from "@/db/postgres-enum-migration-compatibility";
 
 const fixtureUrl = new URL("../../../test-fixtures/ai/deepseek-controlled-validation.v1.json", import.meta.url);
 
@@ -152,27 +151,27 @@ describe("Phase D controlled Provider validation authority", () => {
 
   it.each([
     [
-      new PostgresMigrationCompatibilityError("MIGRATION_IDENTITY_MISMATCH", "Synthetic fixed test"),
+      { code: "MIGRATION_IDENTITY_MISMATCH" },
       "controlled_validation_migration_folder_resolution_failed",
     ],
     [
-      new PostgresMigrationCompatibilityError("MIGRATION_CLIENT_NOT_DEDICATED", "Synthetic fixed test"),
+      { code: "MIGRATION_CLIENT_NOT_DEDICATED" },
       "controlled_validation_migration_connection_failed",
     ],
     [
-      new PostgresMigrationCompatibilityError("BACKEND_SESSION_CHANGED", "Synthetic fixed test"),
+      { code: "BACKEND_SESSION_CHANGED" },
       "controlled_validation_migration_connection_failed",
     ],
     [
-      new PostgresMigrationCompatibilityError("LOCK_UNAVAILABLE", "Synthetic fixed test"),
+      { code: "LOCK_UNAVAILABLE" },
       "controlled_validation_migration_advisory_lock_failed",
     ],
     [
-      new PostgresMigrationCompatibilityError("JOURNAL_CATALOG_MISMATCH", "Synthetic fixed test"),
+      { code: "JOURNAL_CATALOG_MISMATCH" },
       "controlled_validation_migration_journal_failed",
     ],
     [
-      new PostgresMigrationCompatibilityError("POST_MIGRATION_VERIFICATION_FAILED", "Synthetic fixed test"),
+      { code: "POST_MIGRATION_VERIFICATION_FAILED" },
       "controlled_validation_migration_journal_failed",
     ],
     [{ code: "ENOENT" }, "controlled_validation_migration_folder_resolution_failed"],
