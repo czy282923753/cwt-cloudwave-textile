@@ -205,11 +205,18 @@ export function createSyntheticDefinitionV1(): SyntheticDefinitionV1 {
                   preparedContext: prepared.value,
                   requestIdentity,
                   buildPromptVariables: () => buildSyntheticPromptVariablesV1(context.value),
-                  async findReplay() { return aiFailure("integration_not_ready"); },
-                  async readFeatureState() { return aiFailure("integration_not_ready"); },
-                  async readConfigResolution() { return aiFailure("integration_not_ready"); },
-                  async confirmResolvedConfiguration() { return aiFailure("integration_not_ready"); },
-                  async commitPreparedRun() { return aiFailure("integration_not_ready"); },
+                  findReplay: () => input.scope.findReplay({
+                    idempotencyKey: requestIdentity.idempotencyKey,
+                    requestedByPrincipalId: requestIdentity.requestedByPrincipalId,
+                    association: durable.value,
+                    fingerprintVersion: requestIdentity.fingerprintVersion,
+                    fingerprint: requestIdentity.fingerprint,
+                  }),
+                  readFeatureState: () => input.scope.readFeatureState(),
+                  readConfigResolution: () => input.scope.readConfigResolution(),
+                  confirmResolvedConfiguration: (configuration) =>
+                    input.scope.confirmResolvedConfiguration(configuration),
+                  commitPreparedRun: (preparedRun) => input.scope.commitPreparedRun(preparedRun),
                 });
               },
             });

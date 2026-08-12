@@ -15,9 +15,9 @@ import {
 import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
-const profilePath = "test-fixtures/ai-architecture/graph-faults.v3_1.json";
-const expectedProfileFileHash = "3a5ad42377740ee9072900b6b050ca4ec61ebba716a2238a41f963a63c6b7d45";
-const expectedProfileIntegrityHash = "ef984a8366dbf837d941694fe79e03638d8c597b9a91e0daf761d5ae2fc42985";
+const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-c.v4_0.json";
+const expectedProfileFileHash = "a34a549c4615d044f9085492479342b2c051808daa801c83d7f75391ecdc685c";
+const expectedProfileIntegrityHash = "3317721a02aae3da6733c4e580f2a6de0b0617c814d4eb6582eade0898b68beb";
 const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -30,7 +30,7 @@ function fail(reason: string): never {
   throw new Error(`AI architecture gate failed closed: ${reason}`);
 }
 
-if (sha256(profileBytes) !== expectedProfileFileHash) fail("current V3.1 profile/fixture hash mismatch");
+if (sha256(profileBytes) !== expectedProfileFileHash) fail("current V4.0 profile/fixture hash mismatch");
 const rawProfileBundle: unknown = JSON.parse(profileBytes.toString("utf8"));
 
 type PlainJson = null | boolean | number | string | PlainJson[] | { [key: string]: PlainJson };
@@ -40,12 +40,12 @@ function copyPlainJson(value: unknown, path = "profile"): PlainJson {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (Array.isArray(value)) return value.map((member, index) => copyPlainJson(member, `${path}/${index}`));
   if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) {
-    fail(`non-plain V3.1 profile value at ${path}`);
+    fail(`non-plain V4.0 profile value at ${path}`);
   }
   const output: { [key: string]: PlainJson } = {};
   for (const [key, member] of Object.entries(value)) {
     if (key === "__proto__" || key === "prototype" || key === "constructor") {
-      fail(`unsafe V3.1 profile key at ${path}/${key}`);
+      fail(`unsafe V4.0 profile key at ${path}/${key}`);
     }
     output[key] = copyPlainJson(member, `${path}/${key}`);
   }
@@ -126,8 +126,8 @@ interface ArchitectureProfile {
 function parseProfile(value: unknown): ArchitectureProfile {
   if (typeof value !== "object" || value === null) fail("profile is not an object");
   const candidate = value as Partial<ArchitectureProfile>;
-  if (candidate.profileId !== "cwt.phase1b.stage4a.phaseb.m04-static-capability-boundary.v3_1_candidate" ||
-    candidate.profileVersion !== "3.1.0-candidate" || candidate.classificationModel === undefined ||
+  if (candidate.profileId !== "cwt.phase1b.stage4a.phasec.durable-run-worker-boundary.v4_0_candidate" ||
+    candidate.profileVersion !== "4.0.0-candidate" || candidate.classificationModel === undefined ||
     candidate.filesystemEnumeration === undefined || candidate.resourceAndGeneratedPolicy === undefined) {
     fail("profile identity or required section mismatch");
   }
@@ -135,13 +135,13 @@ function parseProfile(value: unknown): ArchitectureProfile {
 }
 
 if (typeof profileBundle !== "object" || profileBundle === null || Array.isArray(profileBundle) ||
-  profileBundle.schemaVersion !== 31 || typeof profileBundle.profile !== "object" ||
+  profileBundle.schemaVersion !== 40 || typeof profileBundle.profile !== "object" ||
   profileBundle.profile === null || Array.isArray(profileBundle.profile) ||
   !Array.isArray(profileBundle.faultCases) || !Array.isArray(profileBundle.positiveCases) ||
   !Array.isArray(profileBundle.topologyCases) ||
   JSON.stringify(Object.keys(profileBundle).sort()) !==
     JSON.stringify(["faultCases", "positiveCases", "profile", "schemaVersion", "topologyCases"])) {
-  fail("V3.1 profile/fixture envelope is not exact");
+  fail("V4.0 profile/fixture envelope is not exact");
 }
 const authority = parseProfile(profileBundle.profile);
 
@@ -154,7 +154,7 @@ function canonical(value: unknown): string {
 
 if (authority.profileIntegrity.algorithm !== "sha256-jcs-selected-pointers-v1" ||
   authority.profileIntegrity.sha256 !== expectedProfileIntegrityHash) {
-  fail("V3.1 profile integrity declaration mismatch");
+  fail("V4.0 profile integrity declaration mismatch");
 }
 const integrityProjection: Record<string, unknown> = {};
 for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
@@ -164,7 +164,253 @@ for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
   integrityProjection[pointer] = authority[key as keyof ArchitectureProfile];
 }
 if (sha256(canonical(integrityProjection)) !== expectedProfileIntegrityHash) {
-  fail("V3.1 selected-pointer profile integrity mismatch");
+  fail("V4.0 selected-pointer profile integrity mismatch");
+}
+
+const syntheticTransactionOperations = [
+  "authorizeReserveAndSnapshotCase",
+  "findReplay",
+  "readFeatureState",
+  "readConfigResolution",
+  "confirmResolvedConfiguration",
+  "commitPreparedRun",
+] as const;
+const syntheticDelegatedRequestOperations = syntheticTransactionOperations.slice(1);
+const syntheticMutationProbeIds = [
+  "phase-c-synthetic-request-fallback-restored",
+  "phase-c-synthetic-scope-operation-omitted",
+  "phase-c-synthetic-observation-write-authority",
+  "phase-c-synthetic-second-definition-or-binder",
+  "phase-c-synthetic-test-scope-fabrication",
+  "phase-c-synthetic-atomicity-harness-binder-edge",
+] as const;
+const profileRecord = profileBundle.profile as Record<string, unknown>;
+if (JSON.stringify(profileRecord.phaseCSyntheticMutationProbeIds) !==
+  JSON.stringify(syntheticMutationProbeIds)) {
+  fail("V4.0 Synthetic mutation-probe declaration mismatch");
+}
+
+const syntheticPaths = Object.freeze({
+  definition: "src/ai/testing/synthetic-application/definition.ts",
+  scope: "src/ai/testing/synthetic-application/read-scopes.ts",
+  test: "src/ai/testing/synthetic-application/synthetic-application.test.ts",
+  positive: "test-fixtures/ai-types/read-scope/positive.ts",
+  harness: "src/ai/testing/accepted-draft-atomicity-harness.ts",
+});
+const preservedSyntheticFixtureHashes = Object.freeze({
+  "test-fixtures/ai-types/read-scope/common-authority.negative.ts":
+    "ea0513c8b3a3a81e2d88f58eef53cbf3631759d31e33b7771bfbe287bdaed3d9",
+  "test-fixtures/ai-types/read-scope/execute-authority.negative.ts":
+    "8d90c688cf67bfb981ff6e23442e5f1187e06eea08cc61ceba83c0aa071c53d9",
+  "test-fixtures/ai-types/read-scope/external-fabrication.negative.ts":
+    "ec0cf26ffaf5903da903f7670f19924aba527fbd1aa9e0d7e2db09b0b42fee64",
+  "test-fixtures/ai-types/read-scope/mode-mismatch.negative.ts":
+    "7afb7f9a81fb21dabf6bca296116072501c018e78a467d955696853d15de5bb3",
+  "test-fixtures/ai-types/read-scope/tsconfig.positive.json":
+    "999feac6ed1ac6ec82345709891a83d882bf013a05851b2bebffe6225a81bbdd",
+  "test-fixtures/ai-types/read-scope/tsconfig.common-authority-negative.json":
+    "cb06d2902fba966a1c4e3a0b52a4b5005e10dcaa75d57916a70b37d5643ef628",
+  "test-fixtures/ai-types/read-scope/tsconfig.execute-authority-negative.json":
+    "397f4b704cb75783bd6fad14fa309a6a87c6361a1f526aab250c9fa20106e740",
+  "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json":
+    "455f19d842c04be3627d72b07676737ccad5b2e3214a566a376fc277d29dac61",
+  "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json":
+    "5e30cc49e7cad3c3609897e678e2e2fffa3254cf2de667d84521695e6be85c19",
+});
+
+class SyntheticSemanticRejection extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+  }
+}
+
+function rejectSynthetic(reason: string): never {
+  throw new SyntheticSemanticRejection(reason);
+}
+
+function sourceSection(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0) rejectSynthetic("synthetic_section_missing");
+  return source.slice(startIndex, endIndex);
+}
+
+function occurrenceCount(source: string, value: string): number {
+  return source.split(value).length - 1;
+}
+
+function validateSyntheticSemantics(input: {
+  readonly definition: string;
+  readonly scope: string;
+  readonly test: string;
+  readonly positive: string;
+  readonly harness: string;
+  readonly requireHarness: boolean;
+}): void {
+  if (occurrenceCount(input.definition, "export function createSyntheticDefinitionV1") !== 1 ||
+    occurrenceCount(input.scope, "export function withSyntheticCaseTransactionScope") !== 1 ||
+    occurrenceCount(input.definition, "requestBinder:") !== 1) {
+    rejectSynthetic("synthetic_second_definition_or_binder");
+  }
+  const requestBinder = sourceSection(input.definition, "requestBinder:", "claimedRuntime:");
+  for (const operation of syntheticDelegatedRequestOperations) {
+    if (occurrenceCount(requestBinder, `input.scope.${operation}`) !== 1) {
+      rejectSynthetic("synthetic_request_delegation_missing");
+    }
+  }
+  if (requestBinder.includes('aiFailure("integration_not_ready")') ||
+    requestBinder.includes("createOpaqueRequestInvocation({") === false) {
+    rejectSynthetic("synthetic_request_fallback_or_binder_missing");
+  }
+  const operationsInterface = sourceSection(
+    input.scope,
+    "export interface SyntheticCaseOperationsV1",
+    "export interface SyntheticAuthorizedReplayLookupV1",
+  );
+  const caseFactory = sourceSection(
+    input.scope,
+    "export function withSyntheticCaseTransactionScope",
+    input.scope.length > 0 ? "\n}" : "\n}",
+  );
+  for (const operation of syntheticTransactionOperations) {
+    if (occurrenceCount(operationsInterface, operation) !== 1 ||
+      occurrenceCount(caseFactory, `${operation}: operations.${operation}`) !== 1) {
+      rejectSynthetic("synthetic_scope_operation_set_mismatch");
+    }
+  }
+  const observationInterface = sourceSection(
+    input.scope,
+    "export interface SyntheticObservationReadScope",
+    "export interface SyntheticCaseTransactionScope",
+  );
+  if (syntheticTransactionOperations.some((operation) => observationInterface.includes(operation))) {
+    rejectSynthetic("synthetic_observation_write_authority");
+  }
+  if (!input.test.includes('from "./definition"') ||
+    !input.test.includes('from "./read-scopes"') ||
+    !input.test.includes("createSyntheticDefinitionV1()") ||
+    !input.test.includes("withSyntheticCaseTransactionScope(") ||
+    /createOpaqueRequestInvocation|AiApplicationDefinition|fabricatedScope|monkey.?patch/iu.test(input.test)) {
+    rejectSynthetic("synthetic_test_scope_fabrication_or_binder_copy");
+  }
+  for (const operation of syntheticTransactionOperations) {
+    if (!input.positive.includes(`scope.${operation}`)) {
+      rejectSynthetic("synthetic_positive_fixture_incomplete");
+    }
+  }
+  if (input.requireHarness && input.harness.length === 0) {
+    rejectSynthetic("synthetic_atomicity_harness_missing");
+  }
+  if (/synthetic-application\/(?:definition|read-scopes)|createSyntheticDefinitionV1|createOpaqueRequestInvocation|findReplay|readConfigResolution|commitPreparedRun/u.test(input.harness)) {
+    rejectSynthetic("synthetic_atomicity_harness_binder_edge");
+  }
+}
+
+const syntheticSources = {
+  definition: readFileSync(resolve(repositoryRoot, syntheticPaths.definition), "utf8"),
+  scope: readFileSync(resolve(repositoryRoot, syntheticPaths.scope), "utf8"),
+  test: readFileSync(resolve(repositoryRoot, syntheticPaths.test), "utf8"),
+  positive: readFileSync(resolve(repositoryRoot, syntheticPaths.positive), "utf8"),
+  harness: existsSync(resolve(repositoryRoot, syntheticPaths.harness))
+    ? readFileSync(resolve(repositoryRoot, syntheticPaths.harness), "utf8") : "",
+};
+const syntheticGateOnly = process.argv.includes("--synthetic-gate-only");
+try {
+  validateSyntheticSemantics({ ...syntheticSources, requireHarness: !syntheticGateOnly });
+} catch (error) {
+  if (error instanceof SyntheticSemanticRejection) fail(error.reason);
+  throw error;
+}
+for (const [path, expectedHash] of Object.entries(preservedSyntheticFixtureHashes)) {
+  if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
+    fail(`preserved Synthetic fixture/config changed: ${path}`);
+  }
+}
+
+const syntheticMutationCases = [
+  {
+    id: syntheticMutationProbeIds[0],
+    expected: "synthetic_request_fallback_or_binder_missing",
+    mutate: () => ({ ...syntheticSources, definition: syntheticSources.definition.replace(
+      "findReplay: () => input.scope.findReplay({",
+      'findReplay: async () => aiFailure("integration_not_ready"),\n                  removedDelegation: () => input.scope.findReplay({',
+    ) }),
+  },
+  {
+    id: syntheticMutationProbeIds[1],
+    expected: "synthetic_scope_operation_set_mismatch",
+    mutate: () => ({ ...syntheticSources, scope: syntheticSources.scope.replace(
+      "commitPreparedRun: operations.commitPreparedRun,",
+      "",
+    ) }),
+  },
+  {
+    id: syntheticMutationProbeIds[2],
+    expected: "synthetic_observation_write_authority",
+    mutate: () => ({ ...syntheticSources, scope: syntheticSources.scope.replace(
+      'readonly mode: "synthetic_observation";',
+      'readonly mode: "synthetic_observation";\n  findReplay: SyntheticCaseOperationsV1["findReplay"];',
+    ) }),
+  },
+  {
+    id: syntheticMutationProbeIds[3],
+    expected: "synthetic_second_definition_or_binder",
+    mutate: () => ({ ...syntheticSources, definition: `${syntheticSources.definition}\nexport function createSyntheticDefinitionV1() { return null; }\n` }),
+  },
+  {
+    id: syntheticMutationProbeIds[4],
+    expected: "synthetic_test_scope_fabrication_or_binder_copy",
+    mutate: () => ({ ...syntheticSources, test: `${syntheticSources.test}\nconst fabricatedScope = { mode: "synthetic_case_transaction" };\n` }),
+  },
+  {
+    id: syntheticMutationProbeIds[5],
+    expected: "synthetic_atomicity_harness_binder_edge",
+    mutate: () => ({ ...syntheticSources, harness: `${syntheticSources.harness}\nimport { createSyntheticDefinitionV1 } from "./synthetic-application/definition";\n` }),
+  },
+] as const;
+const syntheticMutationResults = syntheticMutationCases.map((probe) => {
+  try {
+    validateSyntheticSemantics({ ...probe.mutate(), requireHarness: false });
+  } catch (error) {
+    if (error instanceof SyntheticSemanticRejection && error.reason === probe.expected) {
+      return { id: probe.id, result: "fail-closed" as const, reason: error.reason };
+    }
+    throw error;
+  }
+  fail(`Synthetic mutation did not fail closed: ${probe.id}`);
+});
+
+function compileSyntheticFixture(configPath: string): ReturnType<typeof spawnSync> {
+  return spawnSync(process.execPath, [
+    resolve(repositoryRoot, "node_modules/typescript/bin/tsc"),
+    "--project",
+    resolve(repositoryRoot, configPath),
+    "--noEmit",
+  ], { cwd: repositoryRoot, encoding: "utf8" });
+}
+const syntheticPositiveCompile = compileSyntheticFixture(
+  "test-fixtures/ai-types/read-scope/tsconfig.positive.json",
+);
+if (syntheticPositiveCompile.status !== 0) fail("corrected Synthetic positive fixture did not compile");
+for (const negative of [
+  { path: "test-fixtures/ai-types/read-scope/tsconfig.common-authority-negative.json", code: "TS2339" },
+  { path: "test-fixtures/ai-types/read-scope/tsconfig.execute-authority-negative.json", code: "TS2339" },
+  { path: "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json", code: "TS2741" },
+  { path: "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json", code: "TS2345" },
+]) {
+  const compiled = compileSyntheticFixture(negative.path);
+  if (compiled.status === 0 || !`${compiled.stdout}${compiled.stderr}`.includes(negative.code)) {
+    fail(`preserved Synthetic negative fixture did not fail with ${negative.code}: ${negative.path}`);
+  }
+}
+if (syntheticGateOnly) {
+  process.stdout.write(`${JSON.stringify({
+    gate: "phase-c-synthetic-v4",
+    status: "passed",
+    operations: syntheticTransactionOperations,
+    mutationResults: syntheticMutationResults,
+  })}\n`);
+  process.exit(0);
 }
 const enumeration = authority.filesystemEnumeration;
 const classDefinitions = authority.classificationModel.rootClasses;
@@ -332,6 +578,10 @@ const expectedRootImports = [
   "@/db/client",
   "@/ai/config/trusted-phase-b-environment",
   "@/ai/applications/draft-assistance/composition",
+  "@/ai/internal/worker-entry",
+  "@/ai/providers/registry",
+  "@/ai/prompts/loader",
+  "@/ai/runs/pricing-policy",
 ] as const;
 
 function requireExactRootImports(specifiers: readonly string[]): void {
@@ -345,11 +595,11 @@ function requireManifestedGeneratedCandidate(path: string, manifested: boolean):
 }
 
 function requireCompositionCounts(input: {
-  readonly phaseB: number;
+  readonly phaseC: number;
   readonly phaseD: number;
   readonly adapter: number;
 }): void {
-  if (input.phaseB !== 1) rejectMutation("fail_closed_composition_count");
+  if (input.phaseC !== 1) rejectMutation("fail_closed_composition_count");
   if (input.phaseD !== 0) rejectMutation("fail_closed_early_phase_d");
   if (input.adapter !== 0) rejectMutation("fail_closed_early_adapter");
 }
@@ -474,7 +724,7 @@ const mutationProbes: MutationProbe[] = [
   {
     id: "v1.6-12-alias-import",
     expectedCode: "fail_closed_alias_import",
-    run: () => { requireExactRootImports([...expectedRootImports.slice(0, 4), "@/ai/applications/draft-assistance/composition/index"]); },
+    run: () => { requireExactRootImports([...expectedRootImports.slice(0, 8), "@/ai/runs/pricing-policy/index"]); },
   },
   {
     id: "v1.6-13-unmanifested-generated-resource",
@@ -484,17 +734,17 @@ const mutationProbes: MutationProbe[] = [
   {
     id: "v1.6-14-early-phase-d",
     expectedCode: "fail_closed_early_phase_d",
-    run: () => { requireCompositionCounts({ phaseB: 1, phaseD: 1, adapter: 0 }); },
+    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 1, adapter: 0 }); },
   },
   {
     id: "v1.6-15-early-adapter",
     expectedCode: "fail_closed_early_adapter",
-    run: () => { requireCompositionCounts({ phaseB: 1, phaseD: 0, adapter: 1 }); },
+    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 0, adapter: 1 }); },
   },
   {
     id: "v1.6-16-second-composition-root",
     expectedCode: "fail_closed_composition_count",
-    run: () => { requireCompositionCounts({ phaseB: 2, phaseD: 0, adapter: 0 }); },
+    run: () => { requireCompositionCounts({ phaseC: 2, phaseD: 0, adapter: 0 }); },
   },
   {
     id: "v1.6-17-sealed-exclusion-integrity",
@@ -626,14 +876,14 @@ for (const path of candidates) {
 if (zeroClass.length > 0) fail(`unclassified candidates: ${zeroClass.join(", ")}`);
 if (ambiguous.length > 0) fail(`ambiguous candidates: ${ambiguous.join(", ")}`);
 
-if ((classMembers.get("phase-b-outer-composition")?.length ?? 0) !== 1) {
-  fail("Phase B outer composition count is not exactly one");
+if ((classMembers.get("phase-c-outer-composition")?.length ?? 0) !== 1) {
+  fail("Phase C outer composition count is not exactly one");
 }
 if ((classMembers.get("phase-d-outer-composition-reserved")?.length ?? 0) !== 0) {
-  fail("Phase D outer composition exists during Phase B");
+  fail("Phase D outer composition exists during Phase C");
 }
 if ((classMembers.get("future-provider-adapter-zone-reserved")?.length ?? 0) !== 0) {
-  fail("Provider adapter zone exists during Phase B");
+  fail("Provider adapter zone exists during Phase C");
 }
 
 const nextContract = authority.resourceAndGeneratedPolicy.frameworkControlGeneratedContract;
@@ -692,7 +942,7 @@ if (nextNode !== undefined) {
   fail("source-clean lifecycle has .next without next-env.d.ts");
 }
 
-const rootPath = "src/server/ai/phase-b-composition.ts";
+const rootPath = "src/server/ai/phase-c-composition.ts";
 const rootSource = readFileSync(resolve(repositoryRoot, rootPath), "utf8");
 
 class ArchitectureGraphFailure extends Error {
@@ -1068,7 +1318,7 @@ function scanStaticLanguage(input: {
       if (origin !== undefined) {
         rejectGraph("denied_capability_origin", JSON.stringify({
           path,
-          rule: "protected-phase-b-runtime-global-capability-origin-denied",
+          rule: "protected-phase-c-runtime-global-capability-origin-denied",
           nodeKind: ts.SyntaxKind[node.kind],
           position: node.getStart(source),
           reason: "ambient_runtime_capability_not_authorized",
@@ -1228,7 +1478,7 @@ const testOrControlClasses = new Set([
   "synthetic-ai-test-code", "other-test-fixtures", "root-control-file",
 ]);
 const productionClasses = new Set([
-  "phase-b-outer-composition", "protected-ai", "business-consumer", "other-production-src",
+  "phase-c-outer-composition", "protected-ai", "business-consumer", "other-production-src",
 ]);
 
 function edgeDiagnostic(edge: GraphEdgeV1, reason: string, target?: string): string {
@@ -1421,11 +1671,17 @@ function enforceCapabilityEdge(
   );
   const canonicalTarget = canonicalStaticTargetIdentity(edge, sourceClass, requestedTarget);
   const target = canonicalTarget.path;
-  if (target === rootPath && edge.from !== rootPath) {
-    rejectGraph("phase_b_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_phase_b_composition", target));
+  const exactCliRootEdge = edge.from === "scripts/process-ai-runs.ts" && target === rootPath &&
+    edge.edgeKind === "runtime" && edge.specifier === "@/server/ai/phase-c-composition";
+  if (target === rootPath && edge.from !== rootPath && !exactCliRootEdge) {
+    rejectGraph("phase_c_composition_violation", edgeDiagnostic(edge, "unexpected_incoming_edge_to_phase_c_composition", target));
   }
-  if (target.startsWith("src/server/ai/") && edge.from !== rootPath) {
-    rejectGraph("phase_b_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_server_ai_composition", target));
+  if (target.startsWith("src/server/ai/") && edge.from !== rootPath && !exactCliRootEdge) {
+    rejectGraph("phase_c_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_server_ai_composition", target));
+  }
+  if (edge.from === "scripts/process-ai-runs.ts" && target !== rootPath &&
+    (target.startsWith("src/ai/") || target.startsWith("src/db/") || target.startsWith("src/config/"))) {
+    rejectGraph("phase_c_composition_violation", edgeDiagnostic(edge, "cli_bypasses_phase_c_root", target));
   }
   if (publicClient && (target.startsWith("src/ai/") || target.startsWith("src/server/ai/") ||
     target.startsWith("src/integrations/ai/providers/"))) {
@@ -1453,6 +1709,11 @@ function enforceCapabilityEdge(
         "src/ai/applications/draft-assistance/read-scopes.ts",
         "src/ai/applications/draft-assistance/composition.ts",
         "src/ai/applications/draft-assistance/facade.ts",
+        "src/ai/config/model-config-service.ts",
+        "src/ai/runs/repository.ts",
+        "src/ai/runs/service.ts",
+        "src/ai/runs/worker.ts",
+        "src/ai/testing/accepted-draft-atomicity-harness.ts",
       ].includes(edge.from);
       const typeRoleEdge = edge.edgeKind === "type-only" && target === "src/auth/permissions.ts" &&
         edge.from === "src/ai/applications/draft-assistance/contracts.ts";
@@ -1460,8 +1721,20 @@ function enforceCapabilityEdge(
         "src/ai/applications/draft-assistance/composition.ts",
         "src/ai/config/feature-gate-repository.ts",
         "src/ai/config/model-config-repository.ts",
+        "src/ai/config/model-config-service.ts",
+        "src/ai/runs/repository.ts",
+        "src/ai/runs/service.ts",
       ].includes(edge.from);
-      if (!typeDatabaseEdge && !typeRoleEdge && !schemaEdge) {
+      const governedAuditEdge = edge.edgeKind === "runtime" && [
+        "src/audit/governed-mutation.ts",
+        "src/audit/service.ts",
+      ].includes(target) && [
+        "src/ai/applications/draft-assistance/read-scopes.ts",
+        "src/ai/config/model-config-service.ts",
+        "src/ai/runs/service.ts",
+        "src/ai/testing/accepted-draft-atomicity-harness.ts",
+      ].includes(edge.from);
+      if (!typeDatabaseEdge && !typeRoleEdge && !schemaEdge && !governedAuditEdge) {
         rejectGraph("class_capability_violation", `${edge.from}->${target}`);
       }
     }
@@ -1479,7 +1752,7 @@ if (configRead.error !== undefined) fail("tsconfig could not be read by installe
 const parsedConfig = ts.parseJsonConfigFileContent(configRead.config, ts.sys, repositoryRoot, undefined, tsconfigPath);
 if (parsedConfig.errors.length > 0 || parsedConfig.options.moduleResolution !== ts.ModuleResolutionKind.Bundler ||
   parsedConfig.options.strict !== true || parsedConfig.options.exactOptionalPropertyTypes !== true) {
-  fail("installed TypeScript compiler options differ from V3.1");
+  fail("installed TypeScript compiler options differ from V4.0");
 }
 const architectureProgram = ts.createProgram({
   rootNames: executableNodes
@@ -1512,7 +1785,7 @@ for (const node of executableNodes) {
     checker: architectureChecker,
     production,
     denyAmbientRuntimeCapabilities: node.classId === "protected-ai" ||
-      node.classId === "phase-b-outer-composition",
+      node.classId === "phase-c-outer-composition",
   });
   staticLanguageByPath.set(node.path, scan);
   scan.ordinaryGlobalUrlValues.forEach((position) => ordinaryGlobalUrlValues.push({ path: node.path, position }));
@@ -1526,7 +1799,7 @@ for (const node of executableNodes) {
 }
 if (ordinaryGlobalUrlValues.length !== 21 || staticResourceCandidates.length !== 0 ||
   graphEdges.some((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported")) {
-  fail(`actual Production static-language baseline differs from V3.1: ${JSON.stringify({
+  fail(`actual Production static-language baseline differs from V4.0: ${JSON.stringify({
     ordinaryGlobalUrlValues,
     staticResourceCandidates,
     unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported"),
@@ -1571,7 +1844,7 @@ const exactSpecifiers = rootEdges
   .map((edge) => edge.specifier ?? "");
 if (JSON.stringify(exactSpecifiers) !== JSON.stringify(expectedRootImports) ||
   rootEdges.length !== expectedRootImports.length) {
-  fail("Phase B outer composition imports differ from the exact five-edge seam");
+  fail("Phase C outer composition imports differ from the exact nine-edge seam");
 }
 
 const rootAst = ts.createSourceFile(
@@ -1585,20 +1858,27 @@ const rootFacts = {
   freezeCalls: 0,
   kindReads: 0,
   dbReads: 0,
-  factoryCalls: 0,
+  availabilityFactoryCalls: 0,
+  durableFactoryCalls: 0,
+  workerFactoryCalls: 0,
   switches: 0,
+  exactExportNames: [] as string[],
   elementAccesses: 0,
   spreads: 0,
 };
 function inspectRoot(node: ts.Node): void {
+  if (ts.isFunctionDeclaration(node) && node.name !== undefined &&
+    node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+    rootFacts.exactExportNames.push(node.name.text);
+  }
   if (ts.isCallExpression(node)) {
     if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) &&
       node.expression.expression.text === "Object" && node.expression.name.text === "freeze") {
       rootFacts.freezeCalls += 1;
     }
-    if (ts.isIdentifier(node.expression) && node.expression.text === "createPhaseBAvailabilityServiceV1") {
-      rootFacts.factoryCalls += 1;
-    }
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createPhaseCAvailabilityServiceV1") rootFacts.availabilityFactoryCalls += 1;
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createPhaseCDurableDraftAssistanceServiceV1") rootFacts.durableFactoryCalls += 1;
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createAiRunWorkerV1") rootFacts.workerFactoryCalls += 1;
   }
   if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) &&
     node.expression.text === "databaseConnection") {
@@ -1611,12 +1891,18 @@ function inspectRoot(node: ts.Node): void {
   ts.forEachChild(node, inspectRoot);
 }
 inspectRoot(rootAst);
-if (rootFacts.freezeCalls !== 1 || rootFacts.kindReads !== 1 || rootFacts.dbReads !== 2 ||
-  rootFacts.factoryCalls !== 2 || rootFacts.switches !== 1 || rootFacts.elementAccesses !== 0 ||
-  rootFacts.spreads !== 0 || (rootSource.match(/database:\s*databaseConnection\.db/g) ?? []).length !== 2 ||
+rootFacts.exactExportNames.sort();
+if (rootFacts.freezeCalls !== 1 || rootFacts.kindReads !== 2 || rootFacts.dbReads !== 3 ||
+  rootFacts.availabilityFactoryCalls !== 1 || rootFacts.durableFactoryCalls !== 1 ||
+  rootFacts.workerFactoryCalls !== 1 || rootFacts.switches !== 2 ||
+  JSON.stringify(rootFacts.exactExportNames) !== JSON.stringify([
+    "createPhaseCAiRunWorkerV1", "createPhaseCServerAiServiceV1",
+  ]) || rootFacts.elementAccesses !== 0 || rootFacts.spreads !== 0 ||
   !rootSource.includes('case "pglite"') || !rootSource.includes('case "postgres"') ||
-  !rootSource.includes("default:") || /\bas\b|\bany\b|\bunknown\b|@ts-/.test(rootSource)) {
-  fail("Phase B outer composition does not satisfy the direct discriminated seam");
+  (rootSource.match(/default:/g) ?? []).length !== 2 ||
+  !rootSource.includes("PGlite cannot run the durable AI Worker") ||
+  /\bas\b|\bany\b|\bunknown\b|@ts-/.test(rootSource)) {
+  fail("Phase C outer composition does not satisfy the exact direct discriminated seam");
 }
 
 const protectedPaths = executableNodes
@@ -1654,7 +1940,12 @@ const serverClosure = executableClosure([rootPath], false);
 if (!serverClosure.some((path) => path.startsWith("src/ai/")) ||
   serverClosure.some((path) => path.startsWith("src/server/ai/phase-d") ||
     path.startsWith("src/integrations/ai/providers/"))) {
-  fail("Phase B server closure does not satisfy required reachability/absence");
+  fail("Phase C server closure does not satisfy required reachability/absence");
+}
+if (existsSync(resolve(repositoryRoot, "src/server/ai/phase-b-composition.ts")) ||
+  rootSource.includes("createPhaseB") || graphEdges.some((edge) =>
+    edge.resolvedTarget === "src/server/ai/phase-b-composition.ts")) {
+  fail("obsolete Phase B composition authority remains executable");
 }
 
 const generateCallOwners = executableNodes.filter((entry) => entry.classId === "protected-ai" &&
@@ -1667,7 +1958,7 @@ if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Produc
 const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
 if (productionManifest !== '{"manifestVersion":1,"entries":[]}\n') fail("Production Prompt manifest is not exact-empty");
 
-interface StaticFaultCaseV31 {
+interface StaticFaultCaseV40 {
   readonly id: string;
   readonly sourcePath: string;
   readonly source: string;
@@ -1675,7 +1966,7 @@ interface StaticFaultCaseV31 {
   readonly expectedNodeKind: string;
 }
 
-interface StaticPositiveCaseV31 {
+interface StaticPositiveCaseV40 {
   readonly id: string;
   readonly sourcePath: string;
   readonly source: string;
@@ -1683,7 +1974,7 @@ interface StaticPositiveCaseV31 {
   readonly resourceEdges: number;
 }
 
-interface TopologyCaseV31 {
+interface TopologyCaseV40 {
   readonly id: string;
   readonly path: string;
   readonly expectedReason: string;
@@ -1706,10 +1997,10 @@ function exactRecord(value: PlainJson, owner: string): { [key: string]: PlainJso
   return value;
 }
 
-const graphFaultCases: StaticFaultCaseV31[] = profileBundle.faultCases.map((value, index) => {
+const graphFaultCases: StaticFaultCaseV40[] = profileBundle.faultCases.map((value, index) => {
   const record = exactRecord(value, `faultCases/${index}`);
   if (Object.keys(record).sort().join(",") !== "expectedNodeKind,expectedReason,id,source,sourcePath") {
-    fail(`faultCases/${index} keys differ from V3.1 fixture schema`);
+    fail(`faultCases/${index} keys differ from V4.0 fixture schema`);
   }
   return {
     id: exactString(record, "id", `faultCases/${index}`),
@@ -1719,10 +2010,10 @@ const graphFaultCases: StaticFaultCaseV31[] = profileBundle.faultCases.map((valu
     expectedNodeKind: exactString(record, "expectedNodeKind", `faultCases/${index}`),
   };
 });
-const graphPositiveCases: StaticPositiveCaseV31[] = profileBundle.positiveCases.map((value, index) => {
+const graphPositiveCases: StaticPositiveCaseV40[] = profileBundle.positiveCases.map((value, index) => {
   const record = exactRecord(value, `positiveCases/${index}`);
   if (Object.keys(record).sort().join(",") !== "id,ordinaryGlobalUrlValues,resourceEdges,source,sourcePath") {
-    fail(`positiveCases/${index} keys differ from V3.1 fixture schema`);
+    fail(`positiveCases/${index} keys differ from V4.0 fixture schema`);
   }
   return {
     id: exactString(record, "id", `positiveCases/${index}`),
@@ -1732,10 +2023,10 @@ const graphPositiveCases: StaticPositiveCaseV31[] = profileBundle.positiveCases.
     resourceEdges: exactNumber(record, "resourceEdges", `positiveCases/${index}`),
   };
 });
-const graphTopologyCases: TopologyCaseV31[] = profileBundle.topologyCases.map((value, index) => {
+const graphTopologyCases: TopologyCaseV40[] = profileBundle.topologyCases.map((value, index) => {
   const record = exactRecord(value, `topologyCases/${index}`);
   if (Object.keys(record).sort().join(",") !== "expectedReason,id,path") {
-    fail(`topologyCases/${index} keys differ from V3.1 fixture schema`);
+    fail(`topologyCases/${index} keys differ from V4.0 fixture schema`);
   }
   return {
     id: exactString(record, "id", `topologyCases/${index}`),
@@ -1761,7 +2052,7 @@ function scanVirtualSource(path: string, text: string): StaticLanguageScan {
     source: program.getSourceFile(absolute) ?? fail(`virtual Program omitted ${path}`),
     checker: program.getTypeChecker(),
     production: true,
-    denyAmbientRuntimeCapabilities: ["protected-ai", "phase-b-outer-composition"].includes(classForPath(path)),
+    denyAmbientRuntimeCapabilities: ["protected-ai", "phase-c-outer-composition"].includes(classForPath(path)),
   });
 }
 
@@ -1794,7 +2085,7 @@ for (const fault of graphFaultCases) {
     observed.detail.includes('"origin":"typescript_resolved_non_emitting_repository_declaration"') ||
     observed.detail.includes('"origin":"typescript_resolved_ambient_global"');
   if (fault.id.startsWith("runtime-origin-non-emitting-") &&
-    (!observed.detail.includes('"rule":"protected-phase-b-runtime-global-capability-origin-denied"') ||
+    (!observed.detail.includes('"rule":"protected-phase-c-runtime-global-capability-origin-denied"') ||
       !exactNonEmittingOrigin || !observed.detail.includes('"capability":') ||
       !observed.detail.includes('"ast":'))) {
     fail(`graph fault ${fault.id} lacks exact rule/origin/capability/AST diagnostics: ${observed.detail}`);
@@ -2159,12 +2450,16 @@ const inputHashes = {
   staticLanguage: staticLanguageSha256,
   graph: graphSha256,
 };
+const checkerSha256 = sha256(readFileSync(resolve(repositoryRoot, "scripts/verify-ai-architecture.ts")));
 
 function sealProof(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   const base = {
-    schemaVersion: 31,
+    schemaVersion: 40,
     profileId: authority.profileId,
-    profileSha256: expectedProfileIntegrityHash,
+    profileVersion: authority.profileVersion,
+    profileFileSha256: expectedProfileFileHash,
+    profileIntegritySha256: expectedProfileIntegrityHash,
+    checkerSha256,
     candidateCommit: exactHead,
     inputHashes,
     ...payload,
@@ -2187,6 +2482,22 @@ const actualTreeProof = sealProof({
   },
   currentProfileCompileInputs: [{ path: profilePath, sha256: expectedProfileFileHash }],
   historicalProfileRuntimeReads: [],
+  syntheticAuthority: {
+    paths: Object.fromEntries(Object.entries(syntheticPaths).map(([key, path]) => [key, {
+      path,
+      sha256: path === syntheticPaths.harness && syntheticSources.harness.length === 0
+        ? null : sha256(readFileSync(resolve(repositoryRoot, path))),
+    }])),
+    definitionFactories: ["createSyntheticDefinitionV1"],
+    transactionScopeFactories: ["withSyntheticCaseTransactionScope"],
+    transactionOperations: syntheticTransactionOperations,
+    observationDurableOperations: [],
+    preservedFixtureAndConfigHashes: preservedSyntheticFixtureHashes,
+    compilerOutcomes: {
+      positive: "pass",
+      negative: ["TS2339", "TS2339", "TS2741", "TS2345"],
+    },
+  },
   excludedPhysicalRoots: excludedStatus,
   candidates: nodes,
   executables: executableNodes.map((node) => node.path),
@@ -2252,7 +2563,11 @@ const compositionProof = sealProof({
   exactImports: rootEdges,
   trustedEnvironmentDto: { freezeCalls: rootFacts.freezeCalls, fields: ["appEnvironment", "processFeatureAiEnabled"] },
   databaseBranches: ["pglite", "postgres"],
-  factoryCalls: { syntacticSites: rootFacts.factoryCalls, runtimePerInvocation: 1 },
+  factoryCalls: {
+    availability: rootFacts.availabilityFactoryCalls,
+    durableService: rootFacts.durableFactoryCalls,
+    worker: rootFacts.workerFactoryCalls,
+  },
   incomingProductionEdges: graphEdges.filter((edge) => edge.resolvedTarget === rootPath),
   typescriptProbeCaptures: { positive: positiveTypeConfigs, negative: negativeTypeConfigs },
   m03SeamIdentity,
@@ -2275,22 +2590,54 @@ const bundleProof = sealProof({
 });
 
 const proofArtifacts = {
-  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json": actualTreeProof,
-  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json": staticGraphProof,
-  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json": originProof,
-  "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json": compositionProof,
-  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json": bundleProof,
+  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_C_V4_0.json": actualTreeProof,
+  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_C_V4_0.json": staticGraphProof,
+  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_C_V4_0.json": originProof,
+  "AI_PHASE_C_COMPOSITION_AND_WORKER_PROOF_V4_0.json": compositionProof,
+  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_C_V4_0.json": bundleProof,
 };
 const exactProofArtifactNames = [
-  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
-  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
-  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
-  "AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
-  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_C_V4_0.json",
+  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_C_V4_0.json",
+  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_C_V4_0.json",
+  "AI_PHASE_C_COMPOSITION_AND_WORKER_PROOF_V4_0.json",
+  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_C_V4_0.json",
 ] as const;
 if (JSON.stringify(Object.keys(proofArtifacts)) !== JSON.stringify(exactProofArtifactNames)) {
-  fail("V3.1 proof artifact set is not exactly five");
+  fail("V4.0 proof artifact set is not exactly five before manifest binding");
 }
+
+const inheritedMutationProbeIds = mutationResults.map((result) => result.id).sort();
+const phaseCSyntheticMutationIds = syntheticMutationResults.map((result) => result.id).sort();
+const proofManifestName = "AI_PHASE_C_ARCHITECTURE_PROOF_MANIFEST_V4_0.json";
+const proofManifest = Object.freeze({
+  schemaVersion: 40,
+  profileId: authority.profileId,
+  profileVersion: authority.profileVersion,
+  profileFileSha256: expectedProfileFileHash,
+  profileIntegritySha256: expectedProfileIntegrityHash,
+  checkerSha256,
+  candidateCommit: exactHead,
+  inheritedMutationProbeIds,
+  inheritedMutationProbeSetSha256: sha256(canonical(inheritedMutationProbeIds)),
+  phaseCSyntheticMutationProbeIds: phaseCSyntheticMutationIds,
+  phaseCSyntheticMutationProbeSetSha256: sha256(canonical(phaseCSyntheticMutationIds)),
+  inheritedProfileCaseSets: {
+    faultIds: graphFaultCases.map((value) => value.id).sort(),
+    positiveIds: graphPositiveCases.map((value) => value.id).sort(),
+    topologyIds: graphTopologyCases.map((value) => value.id).sort(),
+  },
+  inheritedProfileCaseSetSha256: sha256(canonical({
+    faultIds: graphFaultCases.map((value) => value.id).sort(),
+    positiveIds: graphPositiveCases.map((value) => value.id).sort(),
+    topologyIds: graphTopologyCases.map((value) => value.id).sort(),
+  })),
+  proofs: Object.fromEntries(Object.entries(proofArtifacts).map(([name, artifact]) => [name, {
+    sha256: sha256(`${canonical(artifact)}\n`),
+    proofHash: artifact.proofHash,
+  }])),
+});
+const exactEvidenceArtifactNames = [...exactProofArtifactNames, proofManifestName].sort();
 
 function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string | undefined): void {
   if (boundCommit === undefined) fail("proof verification requires --proof-bound-commit");
@@ -2300,8 +2647,8 @@ function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string |
     fail("proof verification directory must be one physical repository-contained directory");
   }
   const entries = readdirSync(directory).sort();
-  if (JSON.stringify(entries) !== JSON.stringify([...exactProofArtifactNames].sort())) {
-    fail("bound proof directory does not contain exactly the five canonical artifacts");
+  if (JSON.stringify(entries) !== JSON.stringify(exactEvidenceArtifactNames)) {
+    fail("bound proof directory does not contain exactly the six canonical V4.0 artifacts");
   }
   for (const name of exactProofArtifactNames) {
     const path = resolve(directory, name);
@@ -2315,8 +2662,10 @@ function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string |
     const proof = parsed as Record<string, unknown>;
     const proofHash = proof.proofHash;
     const input = proof.inputHashes;
-    if (proof.candidateCommit !== boundCommit || proof.schemaVersion !== 31 ||
-      proof.profileSha256 !== expectedProfileIntegrityHash || typeof proofHash !== "string" ||
+    if (proof.candidateCommit !== boundCommit || proof.schemaVersion !== 40 ||
+      proof.profileIntegritySha256 !== expectedProfileIntegrityHash ||
+      proof.profileFileSha256 !== expectedProfileFileHash || proof.checkerSha256 !== checkerSha256 ||
+      proof.profileVersion !== authority.profileVersion || typeof proofHash !== "string" ||
       typeof input !== "object" || input === null || Array.isArray(input) ||
       (input as Record<string, unknown>).executableTree !== executableTreeSha256) {
       fail(`stale proof commit or executable-tree binding: ${name}`);
@@ -2325,6 +2674,18 @@ function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string |
     if (omitted !== sha256(canonical(base)) || bytes !== `${canonical(proof)}\n`) {
       fail(`bound proof hash or canonical bytes mismatch: ${name}`);
     }
+  }
+  const manifestPath = resolve(directory, proofManifestName);
+  const manifestBytes = readFileSync(manifestPath, "utf8");
+  const manifest: unknown = JSON.parse(manifestBytes);
+  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest) ||
+    manifestBytes !== `${canonical(manifest)}\n` ||
+    (manifest as Record<string, unknown>).candidateCommit !== boundCommit ||
+    (manifest as Record<string, unknown>).checkerSha256 !== checkerSha256 ||
+    (manifest as Record<string, unknown>).profileFileSha256 !== expectedProfileFileHash ||
+    (manifest as Record<string, unknown>).profileIntegritySha256 !== expectedProfileIntegrityHash ||
+    "proofHash" in manifest) {
+    fail("V4.0 proof manifest binding mismatch");
   }
 }
 
@@ -2566,27 +2927,34 @@ if (evidenceDirectoryInput !== undefined) {
     existsSync(evidenceDirectory)) fail("proof output must be one absent repository-contained directory");
   const parent = dirname(evidenceDirectory);
   mkdirSync(parent, { recursive: true });
-  const temporary = mkdtempSync(resolve(parent, ".m04-v31-proof-"));
+  const temporary = mkdtempSync(resolve(parent, ".phase-c-v40-proof-"));
   try {
     for (const [name, artifact] of Object.entries(proofArtifacts)) {
       const path = resolve(temporary, name);
       if (dirname(path) !== temporary) fail("proof output path escaped temporary directory");
       writeFileSync(path, `${canonical(artifact)}\n`, { encoding: "utf8", flag: "wx" });
     }
+    writeFileSync(resolve(temporary, proofManifestName), `${canonical(proofManifest)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+    });
     renameSync(temporary, evidenceDirectory);
   } catch (error) {
     if (existsSync(temporary)) rmSync(temporary, { recursive: true });
     throw error;
   }
 }
-const proofArtifactHashes = Object.fromEntries(Object.entries(proofArtifacts).map(([name, artifact]) => [
-  name,
-  sha256(`${canonical(artifact)}\n`),
-]));
+const proofArtifactHashes = Object.fromEntries([
+  ...Object.entries(proofArtifacts).map(([name, artifact]) => [
+    name,
+    sha256(`${canonical(artifact)}\n`),
+  ]),
+  [proofManifestName, sha256(`${canonical(proofManifest)}\n`)],
+]);
 const report = {
   ok: true,
   profileId: authority.profileId,
-  profileSha256: expectedProfileIntegrityHash,
+  profileIntegritySha256: expectedProfileIntegrityHash,
   profileFileSha256: expectedProfileFileHash,
   head: exactHead,
   lifecycleState: nextNode === undefined ? "source-clean-file-absent" : "official-next-generated-file-present",
@@ -2623,6 +2991,7 @@ const report = {
     v16Original: mutationResults.filter((result) => result.id.startsWith("v1.6-")).length,
     attempt2: mutationResults.filter((result) => result.id.startsWith("attempt2-")).length,
     results: mutationResults,
+    phaseCSynthetic: syntheticMutationResults,
   },
   excludedPhysicalRoots: excludedStatus,
   nextEnv: nextNode === undefined ? { present: false } : {

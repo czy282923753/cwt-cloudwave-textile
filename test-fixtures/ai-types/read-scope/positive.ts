@@ -11,6 +11,7 @@ import {
   withSyntheticCaseTransactionScope,
   withSyntheticObservationScope,
   type SyntheticCaseOperationsV1,
+  type SyntheticCaseTransactionScope,
   type SyntheticObservationInputV1,
   type SyntheticObservationV1,
   type SyntheticReadExecutorV1,
@@ -32,10 +33,22 @@ export function constructRealSyntheticScopes(
   operations: SyntheticCaseOperationsV1,
 ): Promise<readonly ["synthetic_observation", "synthetic_case_transaction"]> {
   return withSyntheticObservationScope(executor, async (readScope) =>
-    withSyntheticCaseTransactionScope(executor, operations, async (requestScope) =>
-      [readScope.mode, requestScope.mode]
-    )
+    withSyntheticCaseTransactionScope(executor, operations, async (requestScope) => {
+      requireExactSyntheticTransactionScope(requestScope);
+      return [readScope.mode, requestScope.mode];
+    })
   );
+}
+
+function requireExactSyntheticTransactionScope(
+  scope: SyntheticCaseTransactionScope,
+): void {
+  void scope.authorizeReserveAndSnapshotCase;
+  void scope.findReplay;
+  void scope.readFeatureState;
+  void scope.readConfigResolution;
+  void scope.confirmResolvedConfiguration;
+  void scope.commitPreparedRun;
 }
 
 export function structuralExecutorProof(
