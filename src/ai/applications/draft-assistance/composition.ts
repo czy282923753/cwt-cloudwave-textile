@@ -34,6 +34,10 @@ import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { renderPromptV1 } from "@/ai/prompts/renderer";
 import { draftOutputDefinitionV1 } from "@/ai/output/registry";
 import type { PricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
+import {
+  authoritativeAiActorCanPerformV1,
+  resolveAuthoritativeAiActorV1,
+} from "@/ai/runs/repository";
 import { createAiRunServiceV1 } from "@/ai/runs/service";
 import { type GovernedMutationOptions } from "@/audit/governed-mutation";
 
@@ -57,15 +61,10 @@ import {
   createDraftAssistanceAvailabilityFacadeV1,
   createDraftAssistanceDurableFacadeV1,
 } from "./facade";
-import { withDraftReadExecutor } from "./read-scopes";
-
-function actorCanEditEntityType(
-  role: string,
-  entityType: "product" | "content",
-): boolean {
-  if (role === "admin") return true;
-  return entityType === "product" ? role === "product_editor" : role === "content_editor";
-}
+import {
+  authoritativeAvailabilityActorCanAccessEntityTypeV1,
+  withDraftReadExecutor,
+} from "./read-scopes";
 
 function contentChannelAllowed(
   useCase: DraftAssistanceCommandV1["useCase"],
@@ -92,7 +91,7 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
           )).where(eq(products.id, input.association.targetProductId));
           const row = rows[0];
           if (row === undefined) return aiFailure("authorization_denied");
-          if (!actorCanEditEntityType(input.actor.roleKey, "product")) {
+          if (!authoritativeAvailabilityActorCanAccessEntityTypeV1(input.scope, "product")) {
             return aiFailure("authorization_denied");
           }
           if (input.command.useCase !== "product_description_draft" && input.command.useCase !== "seo_content_draft") {
@@ -113,7 +112,7 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
           )).where(eq(contents.id, input.association.targetContentId));
           const row = rows[0];
           if (row === undefined) return aiFailure("authorization_denied");
-          if (!actorCanEditEntityType(input.actor.roleKey, "content")) {
+          if (!authoritativeAvailabilityActorCanAccessEntityTypeV1(input.scope, "content")) {
             return aiFailure("authorization_denied");
           }
           if (!contentChannelAllowed(input.command.useCase, row.channel)) return aiFailure("target_scope_mismatch");
@@ -133,9 +132,9 @@ function targetRepository<TQueryResult extends PgQueryResultHKT>():
         )).where(eq(editorialRevisions.id, input.association.targetRevisionId));
         const row = rows[0];
         if (row === undefined) return aiFailure("authorization_denied");
-        if (input.actor.roleKey !== "admin" &&
-          (row.entityType !== "product" && row.entityType !== "content" ||
-            !actorCanEditEntityType(input.actor.roleKey, row.entityType))) {
+        const entityType = row.entityType === "product" || row.entityType === "content"
+          ? row.entityType : null;
+        if (!authoritativeAvailabilityActorCanAccessEntityTypeV1(input.scope, entityType)) {
           return aiFailure("authorization_denied");
         }
         if (row.entityType !== "product" && row.entityType !== "content") {
@@ -475,6 +474,8 @@ export function createPhaseCAvailabilityServiceV1<
     database: dependencies.database,
     registry,
     orchestrator,
+    resolveAuthoritativeActor: resolveAuthoritativeAiActorV1,
+    authoritativeActorCanPerform: authoritativeAiActorCanPerformV1,
   });
 }
 
@@ -504,6 +505,8 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
     database: dependencies.database,
     registry,
     orchestrator,
+    resolveAuthoritativeActor: resolveAuthoritativeAiActorV1,
+    authoritativeActorCanPerform: authoritativeAiActorCanPerformV1,
   });
   const runService = createAiRunServiceV1(dependencies.database, {
     executionEnvironment: dependencies.trustedEnvironment.appEnvironment,

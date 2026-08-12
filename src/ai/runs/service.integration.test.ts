@@ -416,6 +416,142 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       .toHaveLength(1);
   });
 
+  it("authorizes PostgreSQL availability from one persisted actor before protected state", async () => {
+    const product = await seedFixture();
+    const productEditor = { userId: product.actorId, role: "product_editor" as const };
+    const contentEditor = await seedUser("content_editor");
+    const content = await seedContentFixture(contentEditor);
+    const admin = await seedUser("admin");
+    const sales = await seedUser("sales");
+    const reviewer = await seedUser("reviewer_publisher");
+    const analyst = await seedUser("analyst");
+    const inactive = await seedUser("product_editor", false);
+    const [productRevision, contentRevision] = await db().insert(editorialRevisions).values([
+      {
+        entityType: "product",
+        entityId: product.productId,
+        locale: "en",
+        versionNumber: 1,
+        status: "draft",
+        snapshot: { synthetic: true },
+        createdByUserId: productEditor.userId,
+      },
+      {
+        entityType: "content",
+        entityId: content.contentId,
+        locale: "en",
+        versionNumber: 1,
+        status: "draft",
+        snapshot: { synthetic: true },
+        createdByUserId: contentEditor.userId,
+      },
+    ]).returning({ id: editorialRevisions.id });
+    if (productRevision === undefined || contentRevision === undefined) {
+      throw new Error("Availability revision fixtures failed.");
+    }
+    const availability = service();
+    type Inspection = Parameters<typeof availability.inspectDraftAssistanceAvailability>[0];
+    const productDraft = {
+      type: "product_draft",
+      productId: product.productId,
+      locale: "en",
+      expectedVersion: 1,
+    } satisfies Inspection["target"];
+    const contentDraft = {
+      type: "content_draft",
+      contentId: content.contentId,
+      locale: "en",
+      expectedVersion: 1,
+    } satisfies Inspection["target"];
+    const productRevisionTarget = {
+      type: "editorial_revision",
+      revisionId: productRevision.id,
+      expectedVersion: 1,
+    } satisfies Inspection["target"];
+    const contentRevisionTarget = {
+      type: "editorial_revision",
+      revisionId: contentRevision.id,
+      expectedVersion: 1,
+    } satisfies Inspection["target"];
+    const inspect = (input: {
+      readonly actor: Inspection["actor"];
+      readonly target: Inspection["target"];
+      readonly useCase: Inspection["useCase"];
+    }) => availability.inspectDraftAssistanceAvailability({
+      ...input,
+      contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
+      explicitInput: "Synthetic availability brief; not a CWT business fact.",
+    });
+    const available = {
+      ok: true,
+      value: { available: true, manualEditorAvailable: true, code: "available" },
+    } as const;
+    const denied = {
+      ok: true,
+      value: { available: false, manualEditorAvailable: false, code: "authorization_denied" },
+    } as const;
+    const scopes = [
+      { useCase: "product_description_draft", target: productDraft, actors: [admin, productEditor] },
+      { useCase: "fabric_knowledge_draft", target: contentDraft, actors: [admin, contentEditor] },
+      { useCase: "product_description_draft", target: productRevisionTarget, actors: [admin, productEditor] },
+      { useCase: "fabric_knowledge_draft", target: contentRevisionTarget, actors: [admin, contentEditor] },
+    ] satisfies ReadonlyArray<{
+      readonly useCase: Inspection["useCase"];
+      readonly target: Inspection["target"];
+      readonly actors: readonly Inspection["actor"][];
+    }>;
+    for (const entry of scopes) {
+      for (const actor of entry.actors) {
+        expect(await inspect({ ...entry, actor })).toEqual(available);
+      }
+    }
+
+    for (const entry of [
+      { actor: productEditor, target: contentDraft, useCase: "fabric_knowledge_draft" },
+      { actor: contentEditor, target: productDraft, useCase: "product_description_draft" },
+      { actor: productEditor, target: contentRevisionTarget, useCase: "fabric_knowledge_draft" },
+      { actor: contentEditor, target: productRevisionTarget, useCase: "product_description_draft" },
+      { actor: sales, target: productDraft, useCase: "product_description_draft" },
+      { actor: reviewer, target: productDraft, useCase: "product_description_draft" },
+      { actor: reviewer, target: contentRevisionTarget, useCase: "fabric_knowledge_draft" },
+      { actor: analyst, target: productDraft, useCase: "product_description_draft" },
+      { actor: { userId: sales.userId, role: "product_editor" }, target: productDraft, useCase: "product_description_draft" },
+      { actor: { userId: reviewer.userId, role: "content_editor" }, target: contentDraft, useCase: "fabric_knowledge_draft" },
+      { actor: inactive, target: productDraft, useCase: "product_description_draft" },
+      { actor: { userId: productEditor.userId, role: "content_editor" }, target: productDraft, useCase: "product_description_draft" },
+      { actor: { userId: randomUUID(), role: "product_editor" }, target: productDraft, useCase: "product_description_draft" },
+      { actor: { userId: "not-a-uuid", role: "product_editor" }, target: productDraft, useCase: "product_description_draft" },
+    ] satisfies ReadonlyArray<{
+      readonly actor: Inspection["actor"];
+      readonly target: Inspection["target"];
+      readonly useCase: Inspection["useCase"];
+    }>) {
+      expect(await inspect(entry)).toEqual(denied);
+    }
+
+    const forged = { userId: sales.userId, role: "product_editor" as const };
+    const missingProduct = { ...productDraft, productId: randomUUID() };
+    expect(await inspect({
+      actor: forged,
+      target: missingProduct,
+      useCase: "product_description_draft",
+    })).toEqual(denied);
+    expect(await inspect({
+      actor: forged,
+      target: { type: "editorial_revision", revisionId: randomUUID(), expectedVersion: 1 },
+      useCase: "product_description_draft",
+    })).toEqual(denied);
+    await db().update(featureFlags).set({ enabled: false }).where(eq(featureFlags.key, "ai"));
+    expect(await inspect({ actor: forged, target: productDraft, useCase: "product_description_draft" }))
+      .toEqual(denied);
+    await db().update(featureFlags).set({ enabled: true }).where(eq(featureFlags.key, "ai"));
+    await db().delete(aiModelConfig).where(eq(aiModelConfig.useCase, "product_description_draft"));
+    expect(await inspect({ actor: forged, target: productDraft, useCase: "product_description_draft" }))
+      .toEqual(denied);
+    expect(await db().select({ value: count() }).from(aiRuns)).toEqual([{ value: 0 }]);
+    expect(await db().select({ value: count() }).from(auditLogs)).toEqual([{ value: 0 }]);
+  });
+
   it("uses persisted active roles for Product-scoped reads without an existence oracle", async () => {
     const fixture = await seedFixture();
     const created = await service().requestDraftAssistance(command(fixture, {

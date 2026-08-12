@@ -41,6 +41,7 @@ import type {
 
 const draftConsistentReadScopeBrand = Symbol("draft-consistent-read-scope");
 const draftReadExecutor = Symbol("draft-read-executor");
+const draftAvailabilityEntityAuthorization = Symbol("draft-availability-entity-authorization");
 
 interface DraftPrivateReadState<TQueryResult extends PgQueryResultHKT> {
   readonly [draftConsistentReadScopeBrand]: {
@@ -82,6 +83,9 @@ export interface ReadOnlyDraftAvailabilityScope<
   TQueryResult extends PgQueryResultHKT,
 > extends DraftConsistentReadScope<TQueryResult> {
   readonly mode: "read_only";
+  readonly [draftAvailabilityEntityAuthorization]: (
+    entityType: "product" | "content" | null,
+  ) => boolean;
 }
 
 export interface TransactionBoundDraftEnqueueScope<
@@ -105,9 +109,11 @@ function createReadOnlyDraftAvailabilityScope<
   TQueryResult extends PgQueryResultHKT,
 >(
   executor: Pick<AppDatabase<TQueryResult>, "select">,
+  authorizeEntityType: (entityType: "product" | "content" | null) => boolean,
 ): ReadOnlyDraftAvailabilityScope<TQueryResult> {
   return {
     [draftConsistentReadScopeBrand]: { [draftReadExecutor]: executor },
+    [draftAvailabilityEntityAuthorization]: authorizeEntityType,
     mode: "read_only",
   };
 }
@@ -129,15 +135,75 @@ function createTransactionBoundDraftEnqueueScope<
   };
 }
 
+export function authoritativeAvailabilityActorCanAccessEntityTypeV1<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  scope: ReadOnlyDraftAvailabilityScope<TQueryResult>,
+  entityType: "product" | "content" | null,
+): boolean {
+  return scope[draftAvailabilityEntityAuthorization](entityType);
+}
+
 export function withReadOnlyDraftAvailabilityScope<
   TQueryResult extends PgQueryResultHKT,
   T,
 >(
   database: AppDatabase<TQueryResult>,
   work: (scope: ReadOnlyDraftAvailabilityScope<TQueryResult>) => Promise<T>,
-): Promise<T> {
+): Promise<T>;
+export function withReadOnlyDraftAvailabilityScope<
+  TQueryResult extends PgQueryResultHKT,
+  T,
+>(
+  database: AppDatabase<TQueryResult>,
+  authority: {
+    readonly resolveActor: (
+      transaction: AppDatabase<TQueryResult>,
+    ) => Promise<AuthoritativeAiActorV1 | null>;
+    readonly actorCanAccessEntityType: (
+      actor: AuthoritativeAiActorV1,
+      entityType: "product" | "content" | null,
+    ) => boolean;
+  },
+  work: (
+    scope: ReadOnlyDraftAvailabilityScope<TQueryResult>,
+    actor: AuthoritativeAiActorV1,
+  ) => Promise<T>,
+): Promise<T | null>;
+export function withReadOnlyDraftAvailabilityScope<
+  TQueryResult extends PgQueryResultHKT,
+  T,
+>(
+  database: AppDatabase<TQueryResult>,
+  authorityOrWork: {
+    readonly resolveActor: (
+      transaction: AppDatabase<TQueryResult>,
+    ) => Promise<AuthoritativeAiActorV1 | null>;
+    readonly actorCanAccessEntityType: (
+      actor: AuthoritativeAiActorV1,
+      entityType: "product" | "content" | null,
+    ) => boolean;
+  } | ((scope: ReadOnlyDraftAvailabilityScope<TQueryResult>) => Promise<T>),
+  authorizedWork?: (
+    scope: ReadOnlyDraftAvailabilityScope<TQueryResult>,
+    actor: AuthoritativeAiActorV1,
+  ) => Promise<T>,
+): Promise<T | null> {
   return database.transaction(
-    async (transaction) => work(createReadOnlyDraftAvailabilityScope(transaction)),
+    async (transaction) => {
+      if (typeof authorityOrWork === "function") {
+        return authorityOrWork(createReadOnlyDraftAvailabilityScope(transaction, () => false));
+      }
+      const actor = await authorityOrWork.resolveActor(transaction);
+      if (actor === null || authorizedWork === undefined) return null;
+      return authorizedWork(
+        createReadOnlyDraftAvailabilityScope(
+          transaction,
+          (entityType) => authorityOrWork.actorCanAccessEntityType(actor, entityType),
+        ),
+        actor,
+      );
+    },
     { isolationLevel: "repeatable read", accessMode: "read only" },
   );
 }

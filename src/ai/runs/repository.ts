@@ -11,6 +11,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 
 import type { ReadonlyJsonValue } from "@/ai/canonical-json";
@@ -71,6 +72,7 @@ export interface AuthoritativeAiActorV1 {
 }
 
 export type HumanAiOperationV1 =
+  | "availability"
   | "enqueue"
   | "inspect"
   | "cancel"
@@ -78,8 +80,10 @@ export type HumanAiOperationV1 =
   | "disposition"
   | "config_mutation";
 
-export async function resolveAuthoritativeAiActorV1(
-  transaction: PhaseCPgDatabase,
+export async function resolveAuthoritativeAiActorV1<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  transaction: AppDatabase<TQueryResult>,
   claim: { readonly userId: string; readonly role: string },
 ): Promise<AuthoritativeAiActorV1 | null> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -103,15 +107,19 @@ export async function resolveAuthoritativeAiActorV1(
 export function authoritativeAiActorCanPerformV1(
   actor: AuthoritativeAiActorV1,
   operation: HumanAiOperationV1,
-  entityType?: "product" | "content",
+  entityType?: "product" | "content" | null,
 ): boolean {
   if (operation === "config_mutation") return actor.role === "admin";
   if (actor.role === "admin") return true;
-  if (entityType === undefined) return false;
+  if (operation === "availability" && entityType === undefined) {
+    return actor.role === "product_editor" || actor.role === "content_editor";
+  }
+  if (entityType === undefined || entityType === null) return false;
   const matchingEditor = entityType === "product"
     ? actor.role === "product_editor"
     : actor.role === "content_editor";
-  if (operation === "enqueue" || operation === "cancel" || operation === "manual_retry") {
+  if (operation === "availability" || operation === "enqueue" || operation === "cancel" ||
+    operation === "manual_retry") {
     return matchingEditor;
   }
   return matchingEditor || actor.role === "reviewer_publisher";
@@ -339,7 +347,7 @@ async function humanCanPerformRunOperationV1(
   transaction: PhaseCPgDatabase,
   row: typeof aiRuns.$inferSelect,
   actor: AuthoritativeAiActorV1,
-  operation: Exclude<HumanAiOperationV1, "enqueue" | "config_mutation">,
+  operation: Exclude<HumanAiOperationV1, "availability" | "enqueue" | "config_mutation">,
 ): Promise<boolean> {
   const entityType = await resolveAuthoritativeRunEntityTypeV1(transaction, row);
   if (entityType === null || !authoritativeAiActorCanPerformV1(actor, operation, entityType)) {

@@ -8,15 +8,19 @@ import { productionPromptLoaderV1 } from "@/ai/prompts/loader";
 import { productionTextProviderRegistryV1 } from "@/ai/providers/registry";
 import { productionPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import {
+  aiModelConfig,
   aiRuns,
+  auditLogs,
   authors,
   contentLocalizations,
   contents,
   editorialRevisions,
+  featureFlags,
   productLocalizations,
   products,
   productTaxonomyTerms,
   taxonomyTerms,
+  users,
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
 import { productionApplicationKeysV1 } from "@/ai/registry/production-use-cases";
@@ -29,6 +33,13 @@ describe("Phase C Provider-neutral Production foundation", () => {
   const productRevisionId = "77777777-7777-4777-8777-777777777777";
   const contentRevisionId = "88888888-8888-4888-8888-888888888888";
   const malformedRevisionId = "99999999-1111-4111-8111-111111111111";
+  const adminId = "99999999-9999-4999-8999-999999999999";
+  const productEditorId = "66666666-6666-4666-8666-666666666666";
+  const contentEditorId = "55555555-5555-4555-8555-555555555555";
+  const salesId = "aaaaaaaa-4444-4444-8444-444444444444";
+  const reviewerId = "aaaaaaaa-5555-4555-8555-555555555555";
+  const analystId = "aaaaaaaa-6666-4666-8666-666666666666";
+  const inactiveEditorId = "aaaaaaaa-7777-4777-8777-777777777777";
 
   const createAvailabilityService = () => createPhaseCAvailabilityServiceV1({
     database: database.db,
@@ -41,6 +52,15 @@ describe("Phase C Provider-neutral Production foundation", () => {
   beforeAll(async () => {
     database = await createTestDatabase();
     const categoryId = "22222222-2222-4222-8222-222222222222";
+    await database.db.insert(users).values([
+      { id: adminId, email: "synthetic-admin@example.invalid", displayName: "Synthetic Admin", role: "admin", passwordHash: "synthetic-not-a-password" },
+      { id: productEditorId, email: "synthetic-product-editor@example.invalid", displayName: "Synthetic Product Editor", role: "product_editor", passwordHash: "synthetic-not-a-password" },
+      { id: contentEditorId, email: "synthetic-content-editor@example.invalid", displayName: "Synthetic Content Editor", role: "content_editor", passwordHash: "synthetic-not-a-password" },
+      { id: salesId, email: "synthetic-sales@example.invalid", displayName: "Synthetic Sales", role: "sales", passwordHash: "synthetic-not-a-password" },
+      { id: reviewerId, email: "synthetic-reviewer@example.invalid", displayName: "Synthetic Reviewer", role: "reviewer_publisher", passwordHash: "synthetic-not-a-password" },
+      { id: analystId, email: "synthetic-analyst@example.invalid", displayName: "Synthetic Analyst", role: "analyst", passwordHash: "synthetic-not-a-password" },
+      { id: inactiveEditorId, email: "synthetic-inactive@example.invalid", displayName: "Synthetic Inactive Editor", role: "product_editor", passwordHash: "synthetic-not-a-password", isActive: false },
+    ]);
     await database.db.insert(taxonomyTerms).values({
       id: categoryId,
       internalKey: "synthetic-phase-b-primary-category",
@@ -132,7 +152,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const before = await database.db.select({ value: count() }).from(aiRuns);
     const result = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
-      actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
+      actor: { userId: adminId, role: "admin" },
       target: { type: "product_draft", productId, locale: "en", expectedVersion: 7 },
       contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
       explicitInput: "SYNTHETIC TEST DATA — NOT A CWT FACT: write a concise overview.",
@@ -153,7 +173,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const service = createAvailabilityService();
     const result = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
-      actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
+      actor: { userId: adminId, role: "admin" },
       target: { type: "product_draft", productId, locale: "en", expectedVersion: 8 },
       contextSelections: [],
     });
@@ -168,15 +188,15 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const service = createAvailabilityService();
     type Inspection = Parameters<typeof service.inspectDraftAssistanceAvailability>[0];
     const admin = {
-      userId: "99999999-9999-4999-8999-999999999999",
+      userId: adminId,
       role: "admin",
     } satisfies Inspection["actor"];
     const productEditor = {
-      userId: "66666666-6666-4666-8666-666666666666",
+      userId: productEditorId,
       role: "product_editor",
     } satisfies Inspection["actor"];
     const contentEditor = {
-      userId: "55555555-5555-4555-8555-555555555555",
+      userId: contentEditorId,
       role: "content_editor",
     } satisfies Inspection["actor"];
     const matrix = [
@@ -266,11 +286,11 @@ describe("Phase C Provider-neutral Production foundation", () => {
   it("does not disclose Revision existence or version to the wrong editor", async () => {
     const service = createAvailabilityService();
     const contentEditor = {
-      userId: "55555555-5555-4555-8555-555555555555",
+      userId: contentEditorId,
       role: "content_editor" as const,
     };
     const productEditor = {
-      userId: "66666666-6666-4666-8666-666666666666",
+      userId: productEditorId,
       role: "product_editor" as const,
     };
     const missingRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -323,15 +343,15 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const service = createAvailabilityService();
     type Inspection = Parameters<typeof service.inspectDraftAssistanceAvailability>[0];
     const admin = {
-      userId: "99999999-9999-4999-8999-999999999999",
+      userId: adminId,
       role: "admin",
     } satisfies Inspection["actor"];
     const productEditor = {
-      userId: "66666666-6666-4666-8666-666666666666",
+      userId: productEditorId,
       role: "product_editor",
     } satisfies Inspection["actor"];
     const contentEditor = {
-      userId: "55555555-5555-4555-8555-555555555555",
+      userId: contentEditorId,
       role: "content_editor",
     } satisfies Inspection["actor"];
     const missingProductId = "aaaaaaaa-1111-4111-8111-111111111111";
@@ -485,5 +505,74 @@ describe("Phase C Provider-neutral Production foundation", () => {
       target: { type: "editorial_revision", revisionId: malformedRevisionId, expectedVersion: 1 },
     }), "Admin may see malformed target structure only after authorization")
       .toEqual(expected("target_scope_mismatch"));
+  });
+
+  it("resolves one persisted active actor before target, feature and config state", async () => {
+    const service = createAvailabilityService();
+    type Inspection = Parameters<typeof service.inspectDraftAssistanceAvailability>[0];
+    const existingTarget = {
+      type: "product_draft",
+      productId,
+      locale: "en",
+      expectedVersion: 7,
+    } satisfies Inspection["target"];
+    const missingTarget = {
+      ...existingTarget,
+      productId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    } satisfies Inspection["target"];
+    const inspect = (actor: Inspection["actor"], target = existingTarget) =>
+      service.inspectDraftAssistanceAvailability({
+        useCase: "product_description_draft",
+        actor,
+        target,
+        contextSelections: [],
+      });
+    const denied = {
+      ok: true,
+      value: {
+        available: false,
+        manualEditorAvailable: false,
+        code: "authorization_denied",
+      },
+    } as const;
+    const unauthorizedActors = [
+      { userId: salesId, role: "product_editor" },
+      { userId: reviewerId, role: "product_editor" },
+      { userId: reviewerId, role: "reviewer_publisher" },
+      { userId: analystId, role: "analyst" },
+      { userId: inactiveEditorId, role: "product_editor" },
+      { userId: productEditorId, role: "content_editor" },
+      { userId: "bbbbbbbb-1111-4111-8111-111111111111", role: "product_editor" },
+      { userId: "not-a-uuid", role: "product_editor" },
+    ] satisfies readonly Inspection["actor"][];
+
+    for (const actor of unauthorizedActors) {
+      expect(await inspect(actor), `${actor.userId}:${actor.role}: existing`).toEqual(denied);
+      expect(await inspect(actor, missingTarget), `${actor.userId}:${actor.role}: missing`).toEqual(denied);
+    }
+
+    await database.db.insert(featureFlags).values({ key: "ai", enabled: false });
+    await database.db.insert(aiModelConfig).values({
+      useCase: "product_description_draft",
+      provider: "synthetic_unregistered",
+      model: "synthetic-unregistered-v1",
+      parametersJson: {},
+      promptId: "product-description-draft",
+      promptVersion: 1,
+      promptHash: "a".repeat(64),
+      enabled: true,
+      isDefault: true,
+      createdByUserId: adminId,
+      updatedByUserId: adminId,
+    });
+    const beforeRuns = await database.db.select({ value: count() }).from(aiRuns);
+    const beforeAudits = await database.db.select({ value: count() }).from(auditLogs);
+    expect(await inspect({ userId: salesId, role: "product_editor" })).toEqual(denied);
+    await database.db.update(featureFlags).set({ enabled: true }).where(eq(featureFlags.key, "ai"));
+    expect(await inspect({ userId: salesId, role: "product_editor" })).toEqual(denied);
+    await database.db.delete(aiModelConfig);
+    expect(await inspect({ userId: salesId, role: "product_editor" })).toEqual(denied);
+    expect(await database.db.select({ value: count() }).from(aiRuns)).toEqual(beforeRuns);
+    expect(await database.db.select({ value: count() }).from(auditLogs)).toEqual(beforeAudits);
   });
 });
