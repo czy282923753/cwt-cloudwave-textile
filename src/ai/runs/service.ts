@@ -28,8 +28,11 @@ import {
   type PricingPolicyRegistryV1,
 } from "@/ai/runs/pricing-policy";
 import {
+  authoritativeAiActorCanPerformV1,
   coreRunSummaryFromRepositoryRowV1,
   createAiRunRepositoryV1,
+  resolveAuthoritativeAiActorV1,
+  resolveAuthoritativeRunEntityTypeV1,
 } from "@/ai/runs/repository";
 import {
   runGovernedMutation,
@@ -72,9 +75,9 @@ export interface AiRunServiceV1 {
   }): Promise<AiServiceResult<AiRunAuthorizedReadV1>>;
 }
 
-function validActor(actor: { readonly userId: string; readonly role: string }): boolean {
+function validActorClaim(actor: { readonly userId: string; readonly role: string }): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    .test(actor.userId) && ["admin", "product_editor", "content_editor"].includes(actor.role);
+    .test(actor.userId) && actor.role.length > 0;
 }
 
 function validExpectedVersion(value: number): boolean {
@@ -111,34 +114,53 @@ export function createAiRunServiceV1(
     readonly runId: string;
     readonly actor: { readonly userId: string; readonly role: string };
   }): Promise<AiServiceResult<AiRunAuthorizedReadV1>> => {
-    const row = await repository.readAuthorized({
-      runId: input.runId,
-      actorUserId: input.actor.userId,
-      actorRole: input.actor.role,
+    if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
+    return database.transaction(async (transaction) => {
+      const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+      if (actor === null) return aiFailure("authorization_denied");
+      const row = await repository.readAuthorizedWithinTransaction(transaction, {
+        runId: input.runId,
+        actor,
+      });
+      return row === null ? aiFailure("authorization_denied") : { ok: true, value: row };
     });
-    return row === null ? aiFailure("authorization_denied") : { ok: true, value: row };
   };
   return {
     async requestDraftAssistance(command) {
-      const prepared = dependencies.registry.prepareInvocation({
-        applicationClass: "draft_assistance",
-        capability: "text",
-        useCase: command.useCase,
-        actor: {
-          principalId: command.actor.userId,
-          roleKey: command.actor.role,
-        },
-        applicationPayload: command,
-      });
-      if (!prepared.ok) return prepared;
-      if (dependencies.executionEnvironment === "production") {
-        return aiFailure("environment_not_authorized");
-      }
-      const executionEnvironment = dependencies.executionEnvironment;
+      if (!validActorClaim(command.actor)) return aiFailure("authorization_denied");
       return runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, command.actor);
+        if (actor === null) return aiFailure("authorization_denied");
+        const authoritativeCommand: DraftAssistanceCommandV1 = {
+          ...command,
+          actor: { userId: actor.userId, role: actor.role },
+        };
+        const prepared = dependencies.registry.prepareInvocation({
+          applicationClass: "draft_assistance",
+          capability: "text",
+          useCase: authoritativeCommand.useCase,
+          actor: {
+            principalId: actor.userId,
+            roleKey: actor.role,
+          },
+          applicationPayload: authoritativeCommand,
+        });
+        if (!prepared.ok) return prepared;
+        if (dependencies.executionEnvironment === "production") {
+          return aiFailure("environment_not_authorized");
+        }
+        const executionEnvironment = dependencies.executionEnvironment;
         const operations = createPostgresDraftEnqueueOperationsV1({
           transaction,
-          command,
+          command: authoritativeCommand,
+          actor,
+          actorCanEnqueueEntityType: (entityType) =>
+            authoritativeAiActorCanPerformV1(actor, "enqueue", entityType),
+          actorCanReplayRun: async (row) => {
+            const entityType = await resolveAuthoritativeRunEntityTypeV1(transaction, row);
+            return entityType !== null &&
+              authoritativeAiActorCanPerformV1(actor, "enqueue", entityType);
+          },
           executionEnvironment,
           pricingRegistry: dependencies.pricingRegistry,
           audit,
@@ -165,26 +187,27 @@ export function createAiRunServiceV1(
     },
 
     async readRun(input) {
-      if (!validActor(input.actor)) return aiFailure("authorization_denied");
       return readAfterMutation(input);
     },
 
     async cancelRun(input) {
       const reason = sanitizedText(input.reason, 500);
-      if (!validActor(input.actor) || !validExpectedVersion(input.expectedStateVersion) || reason === null) {
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
+      if (!validExpectedVersion(input.expectedStateVersion) || reason === null) {
         return aiFailure("state_conflict");
       }
       const outcome = await runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null) return { kind: "not_found_or_unauthorized" } as const;
         const result = await repository.cancelWithinGovernedTransaction(transaction, {
           runId: input.runId,
-          actorUserId: input.actor.userId,
-          actorRole: input.actor.role,
+          actor,
           expectedStateVersion: input.expectedStateVersion,
           reason,
         });
         if (result.kind !== "updated") return result;
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.run.cancelled",
           entityType: "ai_run",
           entityId: result.row.runId,
@@ -204,19 +227,21 @@ export function createAiRunServiceV1(
     },
 
     async manualRetry(input) {
-      if (!validActor(input.actor) || !validExpectedVersion(input.expectedStateVersion)) {
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
+      if (!validExpectedVersion(input.expectedStateVersion)) {
         return aiFailure("state_conflict");
       }
       const outcome = await runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null) return { kind: "not_found_or_unauthorized" } as const;
         const result = await repository.manualRetryWithinGovernedTransaction(transaction, {
           runId: input.runId,
-          actorUserId: input.actor.userId,
-          actorRole: input.actor.role,
+          actor,
           expectedStateVersion: input.expectedStateVersion,
         });
         if (result.kind !== "updated") return result;
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.run.manual_retry_scheduled",
           entityType: "ai_run",
           entityId: result.row.runId,
@@ -241,7 +266,8 @@ export function createAiRunServiceV1(
       ]);
       const labels = [...input.qualityLabels];
       const comment = input.qualityComment === null ? null : sanitizedText(input.qualityComment, 1_000);
-      if (!validActor(input.actor) || !validExpectedVersion(input.expectedStateVersion) ||
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
+      if (!validExpectedVersion(input.expectedStateVersion) ||
         input.disposition !== "rejected" || !/^[0-9a-f]{64}$/.test(input.candidateHash) ||
         (input.qualityRating !== null && (!Number.isInteger(input.qualityRating) ||
           input.qualityRating < 1 || input.qualityRating > 5)) ||
@@ -250,10 +276,11 @@ export function createAiRunServiceV1(
         return aiFailure("state_conflict");
       }
       const outcome = await runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null) return { kind: "not_found_or_unauthorized" } as const;
         const result = await repository.rejectDispositionWithinGovernedTransaction(transaction, {
           runId: input.runId,
-          actorUserId: input.actor.userId,
-          actorRole: input.actor.role,
+          actor,
           expectedStateVersion: input.expectedStateVersion,
           disposition: "rejected",
           candidateHash: input.candidateHash,
@@ -263,7 +290,7 @@ export function createAiRunServiceV1(
         });
         if (result.kind !== "updated") return result;
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.run.disposition_recorded",
           entityType: "ai_run",
           entityId: result.row.runId,

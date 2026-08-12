@@ -29,6 +29,7 @@ import * as schema from "@/db/schema";
 import {
   CWT_AI_TEXT_CLAIM_BUDGET_ADVISORY_KEY_V1,
   createAiRunRepositoryV1,
+  resolveAuthoritativeAiActorV1,
 } from "./repository";
 
 const postgresUrl = process.env.CWT_PHASE_C_POSTGRES_URL;
@@ -499,14 +500,19 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       pricingCurrent: true,
     });
     if (marker.kind !== "authorized") throw new Error("Dispatch marker failed.");
-    const cancelled = await db().transaction((transaction) =>
-      repository.cancelWithinGovernedTransaction(transaction, {
+    const cancelled = await db().transaction(async (transaction) => {
+      const actor = await resolveAuthoritativeAiActorV1(transaction, {
+        userId: fixture.actorId,
+        role: "product_editor",
+      });
+      if (actor === null) throw new Error("Authoritative actor resolution failed.");
+      return repository.cancelWithinGovernedTransaction(transaction, {
         runId: processing.id,
-        actorUserId: fixture.actorId,
-        actorRole: "product_editor",
+        actor,
         expectedStateVersion: marker.stateVersion,
         reason: "Synthetic post-marker cancellation.",
-      }));
+      });
+    });
     if (cancelled.kind !== "updated") throw new Error("Cancellation failed.");
     const evidence = normalizeAttemptEvidenceV2({
       version: 2,

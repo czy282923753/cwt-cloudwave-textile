@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 vi.mock("server-only", () => ({}));
 
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
+import type { UserRole } from "@/auth/permissions";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
 import { localTestPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { createFakeTextProviderV1 } from "@/ai/testing/fake-text-provider";
@@ -103,12 +104,13 @@ const substantive = {
   promptHash: hash("p".replace("p", "a")),
 };
 
-async function seedActor(role: "admin" | "product_editor" = "admin") {
+async function seedActor(role: UserRole = "admin", isActive = true) {
   const [actor] = await db().insert(users).values({
     email: `${randomUUID()}@config.example.test`,
     displayName: "Synthetic Config Actor",
     role,
     passwordHash: "test-only",
+    isActive,
   }).returning({ id: users.id, role: users.role });
   if (actor === undefined) throw new Error("Actor fixture failed.");
   return { userId: actor.id, role: actor.role };
@@ -236,6 +238,101 @@ describe.skipIf(postgresUrl === undefined)("Phase C model configuration service"
       eq(auditLogs.entityId, result.value.id),
     ));
     expect(audits).toHaveLength(1);
+  });
+
+  it("rejects spoofed, reviewer, inactive, and unknown actors before every config mutation", async () => {
+    const admin = await seedActor();
+    const created = await createConfig(admin);
+    if (!created.ok) throw new Error("Configuration fixture failed.");
+    const sales = await seedActor("sales");
+    const reviewer = await seedActor("reviewer_publisher");
+    const inactiveAdmin = await seedActor("admin", false);
+    const service = createAiModelConfigServiceV1(db(), dependencies());
+    const salesClaimingAdmin = { userId: sales.userId, role: "admin" as const };
+    const denied = await Promise.all([
+      service.create({
+        actor: salesClaimingAdmin,
+        useCase: "product_description_draft",
+        ...substantive,
+      }),
+      service.updateSubstantive({
+        actor: salesClaimingAdmin,
+        id: created.value.id,
+        expectedRecordVersion: 1,
+        ...substantive,
+        maxOutputTokens: 201,
+      }),
+      service.activateDefault({
+        actor: salesClaimingAdmin,
+        useCase: "product_description_draft",
+        selectedConfigId: created.value.id,
+        expectedRecordVersions: { [created.value.id]: 1 },
+      }),
+      service.disable({
+        actor: salesClaimingAdmin,
+        id: created.value.id,
+        expectedRecordVersion: 1,
+      }),
+      service.disable({
+        actor: reviewer,
+        id: created.value.id,
+        expectedRecordVersion: 1,
+      }),
+      service.disable({
+        actor: inactiveAdmin,
+        id: created.value.id,
+        expectedRecordVersion: 1,
+      }),
+      service.disable({
+        actor: { userId: randomUUID(), role: "admin" },
+        id: created.value.id,
+        expectedRecordVersion: 1,
+      }),
+    ]);
+    for (const outcome of denied) {
+      expect(outcome).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    const [row] = await db().select().from(aiModelConfig).where(eq(aiModelConfig.id, created.value.id));
+    expect(row).toMatchObject({ enabled: false, isDefault: false, recordVersion: 1 });
+    expect(await db().select().from(aiModelConfig)).toHaveLength(1);
+    expect(await db().select().from(auditLogs)).toHaveLength(1);
+  });
+
+  it("allows a persisted active Admin to update, activate, and disable with required Audits", async () => {
+    const admin = await seedActor();
+    const created = await createConfig(admin);
+    if (!created.ok) throw new Error("Configuration fixture failed.");
+    const service = createAiModelConfigServiceV1(db(), dependencies());
+    const updated = await service.updateSubstantive({
+      actor: admin,
+      id: created.value.id,
+      expectedRecordVersion: 1,
+      ...substantive,
+      maxOutputTokens: 201,
+    });
+    expect(updated).toMatchObject({ ok: true, value: { recordVersion: 2 } });
+    const activated = await service.activateDefault({
+      actor: admin,
+      useCase: "product_description_draft",
+      selectedConfigId: created.value.id,
+      expectedRecordVersions: { [created.value.id]: 2 },
+    });
+    expect(activated).toMatchObject({ ok: true, value: { recordVersion: 3 } });
+    const disabled = await service.disable({
+      actor: admin,
+      id: created.value.id,
+      expectedRecordVersion: 3,
+    });
+    expect(disabled).toMatchObject({ ok: true, value: { recordVersion: 4 } });
+    const [row] = await db().select().from(aiModelConfig).where(eq(aiModelConfig.id, created.value.id));
+    expect(row).toMatchObject({
+      enabled: false,
+      isDefault: true,
+      maxOutputTokens: 201,
+      recordVersion: 4,
+      updatedByUserId: admin.userId,
+    });
+    expect(await db().select().from(auditLogs)).toHaveLength(4);
   });
 
   it("rolls back create and default activation when required Audit fails", async () => {

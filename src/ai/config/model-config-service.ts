@@ -17,6 +17,10 @@ import {
   calculateAttemptUpperCostMicrousdV1,
   type PricingPolicyRegistryV1,
 } from "@/ai/runs/pricing-policy";
+import {
+  authoritativeAiActorCanPerformV1,
+  resolveAuthoritativeAiActorV1,
+} from "@/ai/runs/repository";
 import { aiModelConfig } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
 import {
@@ -192,8 +196,8 @@ async function databaseClock(
   return at;
 }
 
-function actorAllowed(actor: AiModelConfigActorV1): boolean {
-  return uuid.safeParse(actor.userId).success && actor.role === "admin";
+function validActorClaim(actor: AiModelConfigActorV1): boolean {
+  return uuid.safeParse(actor.userId).success;
 }
 
 export function createAiModelConfigServiceV1(
@@ -210,9 +214,13 @@ export function createAiModelConfigServiceV1(
   const repository = dependencies.repository ?? aiModelConfigMutationReadRepositoryV1;
   return {
     async create(input) {
-      if (!actorAllowed(input.actor)) return aiFailure("authorization_denied");
-      if (!useCaseSchema.safeParse(input.useCase).success) return aiFailure("use_case_unknown");
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
       return runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null || !authoritativeAiActorCanPerformV1(actor, "config_mutation")) {
+          return aiFailure("authorization_denied");
+        }
+        if (!useCaseSchema.safeParse(input.useCase).success) return aiFailure("use_case_unknown");
         const at = await databaseClock(transaction);
         const validated = validateSubstantive({
           value: input,
@@ -241,15 +249,15 @@ export function createAiModelConfigServiceV1(
           isDefault: false,
           fallbackConfigId: null,
           recordVersion: 1,
-          createdByUserId: input.actor.userId,
-          updatedByUserId: input.actor.userId,
+          createdByUserId: actor.userId,
+          updatedByUserId: actor.userId,
           createdAt: at,
           updatedAt: at,
         }).returning({ id: aiModelConfig.id, recordVersion: aiModelConfig.recordVersion });
         const row = rows[0];
         if (row === undefined) throw new Error("Model configuration insert failed.");
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.model_config.created",
           entityType: "ai_model_config",
           entityId: row.id,
@@ -260,10 +268,14 @@ export function createAiModelConfigServiceV1(
     },
 
     async updateSubstantive(input) {
-      if (!actorAllowed(input.actor)) return aiFailure("authorization_denied");
-      if (!uuid.safeParse(input.id).success || !Number.isSafeInteger(input.expectedRecordVersion) ||
-        input.expectedRecordVersion < 1) return aiFailure("config_invalid");
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
       return runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null || !authoritativeAiActorCanPerformV1(actor, "config_mutation")) {
+          return aiFailure("authorization_denied");
+        }
+        if (!uuid.safeParse(input.id).success || !Number.isSafeInteger(input.expectedRecordVersion) ||
+          input.expectedRecordVersion < 1) return aiFailure("config_invalid");
         const current = await repository.lockRowById(transaction, input.id);
         if (!current.ok) return current;
         if (current.value === null) return aiFailure("config_missing");
@@ -293,7 +305,7 @@ export function createAiModelConfigServiceV1(
           promptId: validated.value.promptId,
           promptVersion: validated.value.promptVersion,
           promptHash: validated.value.promptHash,
-          updatedByUserId: input.actor.userId,
+          updatedByUserId: actor.userId,
           updatedAt: at,
           recordVersion: current.value.recordVersion + 1,
         }).where(and(
@@ -303,7 +315,7 @@ export function createAiModelConfigServiceV1(
         const row = rows[0];
         if (row === undefined) return aiFailure("state_conflict");
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.model_config.updated",
           entityType: "ai_model_config",
           entityId: row.id,
@@ -315,10 +327,14 @@ export function createAiModelConfigServiceV1(
     },
 
     async activateDefault(input) {
-      if (!actorAllowed(input.actor)) return aiFailure("authorization_denied");
-      if (!useCaseSchema.safeParse(input.useCase).success ||
-        !uuid.safeParse(input.selectedConfigId).success) return aiFailure("config_invalid");
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
       return runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null || !authoritativeAiActorCanPerformV1(actor, "config_mutation")) {
+          return aiFailure("authorization_denied");
+        }
+        if (!useCaseSchema.safeParse(input.useCase).success ||
+          !uuid.safeParse(input.selectedConfigId).success) return aiFailure("config_invalid");
         const locked = await repository.lockUseCaseRows(transaction, {
           capability: "text",
           useCase: input.useCase,
@@ -359,7 +375,7 @@ export function createAiModelConfigServiceV1(
         if (changedIds.length > 0) {
           await transaction.update(aiModelConfig).set({
             isDefault: false,
-            updatedByUserId: input.actor.userId,
+            updatedByUserId: actor.userId,
             updatedAt: at,
             recordVersion: sql`${aiModelConfig.recordVersion} + 1`,
           }).where(inArray(aiModelConfig.id, changedIds));
@@ -367,7 +383,7 @@ export function createAiModelConfigServiceV1(
         const rows = await transaction.update(aiModelConfig).set({
           enabled: true,
           isDefault: true,
-          updatedByUserId: input.actor.userId,
+          updatedByUserId: actor.userId,
           updatedAt: at,
           recordVersion: sql`${aiModelConfig.recordVersion} + 1`,
         }).where(eq(aiModelConfig.id, selected.id)).returning({
@@ -377,7 +393,7 @@ export function createAiModelConfigServiceV1(
         const row = rows[0];
         if (row === undefined) return aiFailure("state_conflict");
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.model_config.activation_changed",
           entityType: "ai_model_config",
           entityId: selected.id,
@@ -388,10 +404,14 @@ export function createAiModelConfigServiceV1(
     },
 
     async disable(input) {
-      if (!actorAllowed(input.actor)) return aiFailure("authorization_denied");
-      if (!uuid.safeParse(input.id).success || !Number.isSafeInteger(input.expectedRecordVersion) ||
-        input.expectedRecordVersion < 1) return aiFailure("config_invalid");
+      if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
       return runGovernedMutation(database, async ({ transaction, audit }) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null || !authoritativeAiActorCanPerformV1(actor, "config_mutation")) {
+          return aiFailure("authorization_denied");
+        }
+        if (!uuid.safeParse(input.id).success || !Number.isSafeInteger(input.expectedRecordVersion) ||
+          input.expectedRecordVersion < 1) return aiFailure("config_invalid");
         const locked = await repository.lockRowById(transaction, input.id);
         if (!locked.ok) return locked;
         if (locked.value === null) return aiFailure("config_missing");
@@ -399,7 +419,7 @@ export function createAiModelConfigServiceV1(
         const at = await databaseClock(transaction);
         const rows = await transaction.update(aiModelConfig).set({
           enabled: false,
-          updatedByUserId: input.actor.userId,
+          updatedByUserId: actor.userId,
           updatedAt: at,
           recordVersion: locked.value.recordVersion + 1,
         }).where(and(
@@ -409,7 +429,7 @@ export function createAiModelConfigServiceV1(
         const row = rows[0];
         if (row === undefined) return aiFailure("state_conflict");
         await audit({
-          actorUserId: input.actor.userId,
+          actorUserId: actor.userId,
           action: "ai.model_config.activation_changed",
           entityType: "ai_model_config",
           entityId: row.id,

@@ -172,9 +172,7 @@ export function createDraftAssistanceDurableFacadeV1(dependencies: {
       dependencies.availability.inspectDraftAssistanceAvailability(query),
     async requestDraftAssistance(command) {
       const parsed = requestSchema.safeParse(command);
-      if (!parsed.success || !coarseRoleAllowed(parsed.data.actor.role)) {
-        return aiFailure("authorization_denied");
-      }
+      if (!parsed.success) return aiFailure("authorization_denied");
       const normalized: DraftAssistanceCommandV1 = parsed.data.explicitInput === undefined
         ? {
             useCase: parsed.data.useCase,

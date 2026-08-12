@@ -16,13 +16,20 @@ import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import type { ReadonlyJsonValue } from "@/ai/canonical-json";
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import { aiFailure } from "@/ai/errors";
+import { hasPermission, type UserRole } from "@/auth/permissions";
 import {
   noOpAiTelemetrySink,
   type AiTelemetryEvent,
   type AiTelemetrySink,
 } from "@/ai/telemetry";
 import type { AppDatabase } from "@/db/types";
-import { aiModelConfig, aiRuns, featureFlags } from "@/db/schema";
+import {
+  aiModelConfig,
+  aiRuns,
+  editorialRevisions,
+  featureFlags,
+  users,
+} from "@/db/schema";
 import {
   createAttemptHistoryEntryV1,
   normalizeAttemptEvidenceV2,
@@ -56,6 +63,58 @@ export const CWT_AI_TEXT_CLAIM_BUDGET_ADVISORY_KEY_V1 = Object.freeze([
 ] as const);
 
 type PhaseCPgDatabase = AppDatabase<PostgresJsQueryResultHKT>;
+const authoritativeAiActorBrand = Symbol("authoritative-ai-actor");
+
+export interface AuthoritativeAiActorV1 {
+  readonly [authoritativeAiActorBrand]: true;
+  readonly userId: string;
+  readonly role: UserRole;
+}
+
+export type HumanAiOperationV1 =
+  | "enqueue"
+  | "inspect"
+  | "cancel"
+  | "manual_retry"
+  | "disposition"
+  | "config_mutation";
+
+export async function resolveAuthoritativeAiActorV1(
+  transaction: PhaseCPgDatabase,
+  claim: { readonly userId: string; readonly role: string },
+): Promise<AuthoritativeAiActorV1 | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(claim.userId)) return null;
+  const selected = await transaction.select({
+    userId: users.id,
+    role: users.role,
+  }).from(users).where(and(
+    eq(users.id, claim.userId),
+    eq(users.isActive, true),
+  )).limit(2);
+  const actor = selected.length === 1 ? selected[0] : undefined;
+  if (actor === undefined || actor.role !== claim.role) return null;
+  return {
+    [authoritativeAiActorBrand]: true,
+    userId: actor.userId,
+    role: actor.role,
+  };
+}
+
+export function authoritativeAiActorCanPerformV1(
+  actor: AuthoritativeAiActorV1,
+  operation: HumanAiOperationV1,
+  entityType?: "product" | "content",
+): boolean {
+  if (operation === "config_mutation") return hasPermission(actor.role, "settings.manage");
+  if (entityType === undefined) return false;
+  const writePermission = entityType === "product" ? "products.write" : "content.write";
+  if (operation === "enqueue" || operation === "cancel" || operation === "manual_retry") {
+    return hasPermission(actor.role, writePermission);
+  }
+  const reviewPermission = entityType === "product" ? "products.review" : "content.review";
+  return hasPermission(actor.role, writePermission) || hasPermission(actor.role, reviewPermission);
+}
 type LifecycleOperation =
   | "claim_or_recover"
   | "heartbeat"
@@ -102,8 +161,7 @@ export interface AiRunRepositoryV1 {
     transaction: PhaseCPgDatabase,
     input: {
       readonly runId: string;
-      readonly actorUserId: string;
-      readonly actorRole: string;
+      readonly actor: AuthoritativeAiActorV1;
       readonly expectedStateVersion: number;
       readonly reason: string;
     },
@@ -112,14 +170,15 @@ export interface AiRunRepositoryV1 {
     transaction: PhaseCPgDatabase,
     input: {
       readonly runId: string;
-      readonly actorUserId: string;
-      readonly actorRole: string;
+      readonly actor: AuthoritativeAiActorV1;
       readonly expectedStateVersion: number;
     },
   ): Promise<HumanLifecycleMutationOutcomeV1>;
   rejectDispositionWithinGovernedTransaction(
     transaction: PhaseCPgDatabase,
-    input: RunDispositionInputV1,
+    input: Omit<RunDispositionInputV1, "actorUserId" | "actorRole"> & {
+      readonly actor: AuthoritativeAiActorV1;
+    },
   ): Promise<HumanLifecycleMutationOutcomeV1>;
   recordCancelledLateAccounting(input: {
     readonly runId: string;
@@ -128,10 +187,9 @@ export interface AiRunRepositoryV1 {
     readonly expectedStateVersion: number;
     readonly evidence: NormalizedAttemptEvidenceV2<unknown>;
   }): Promise<LateAccountingOutcomeV1>;
-  readAuthorized(input: {
+  readAuthorizedWithinTransaction(transaction: PhaseCPgDatabase, input: {
     readonly runId: string;
-    readonly actorUserId: string;
-    readonly actorRole: string;
+    readonly actor: AuthoritativeAiActorV1;
   }): Promise<AiRunAuthorizedReadV1 | null>;
   readPricingForWorker(runId: string): Promise<{
     readonly provider: string;
@@ -252,15 +310,42 @@ function cumulativeTokens(
     : null;
 }
 
-function humanCanManageRun(
+export async function resolveAuthoritativeRunEntityTypeV1(
+  transaction: PhaseCPgDatabase,
   row: typeof aiRuns.$inferSelect,
-  actor: { readonly userId: string; readonly role: string },
-): boolean {
-  if (actor.role === "admin") return true;
-  if (row.requestedByUserId !== actor.userId) return false;
-  if (row.targetType === "product_draft") return actor.role === "product_editor";
-  if (row.targetType === "content_draft") return actor.role === "content_editor";
-  return actor.role === "product_editor" || actor.role === "content_editor";
+): Promise<"product" | "content" | null> {
+  if (row.targetType === "product_draft") {
+    return row.targetProductId !== null && row.targetContentId === null &&
+      row.targetRevisionId === null && row.targetLocale === "en" ? "product" : null;
+  }
+  if (row.targetType === "content_draft") {
+    return row.targetContentId !== null && row.targetProductId === null &&
+      row.targetRevisionId === null && row.targetLocale === "en" ? "content" : null;
+  }
+  if (row.targetType !== "editorial_revision" || row.targetRevisionId === null ||
+    row.targetProductId !== null || row.targetContentId !== null || row.targetLocale !== null) return null;
+  const selected = await transaction.select({
+    entityType: editorialRevisions.entityType,
+    locale: editorialRevisions.locale,
+  }).from(editorialRevisions).where(eq(editorialRevisions.id, row.targetRevisionId)).limit(2);
+  const revision = selected.length === 1 ? selected[0] : undefined;
+  return revision !== undefined && revision.locale === "en" &&
+    (revision.entityType === "product" || revision.entityType === "content")
+    ? revision.entityType : null;
+}
+
+async function humanCanPerformRunOperationV1(
+  transaction: PhaseCPgDatabase,
+  row: typeof aiRuns.$inferSelect,
+  actor: AuthoritativeAiActorV1,
+  operation: Exclude<HumanAiOperationV1, "enqueue" | "config_mutation">,
+): Promise<boolean> {
+  const entityType = await resolveAuthoritativeRunEntityTypeV1(transaction, row);
+  if (entityType === null || !authoritativeAiActorCanPerformV1(actor, operation, entityType)) {
+    return false;
+  }
+  if (operation !== "cancel" && operation !== "manual_retry") return true;
+  return hasPermission(actor.role, "settings.manage") || row.requestedByUserId === actor.userId;
 }
 
 function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
@@ -947,10 +1032,9 @@ export function createAiRunRepositoryV1(
       const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
         .limit(1).for("update", { of: aiRuns });
       const row = selected[0];
-      if (row === undefined || !humanCanManageRun(row, {
-        userId: input.actorUserId,
-        role: input.actorRole,
-      })) return { kind: "not_found_or_unauthorized" };
+      if (row === undefined || !await humanCanPerformRunOperationV1(
+        transaction, row, input.actor, "cancel",
+      )) return { kind: "not_found_or_unauthorized" };
       if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
       if (row.status !== "pending" && row.status !== "processing") {
         return { kind: "transition_forbidden" };
@@ -1012,7 +1096,7 @@ export function createAiRunRepositoryV1(
         leaseExpiresAt: null,
         activeAttemptDispatchedAt: null,
         cancelledLeaseToken: processing ? row.leaseToken : null,
-        cancelledByUserId: input.actorUserId,
+        cancelledByUserId: input.actor.userId,
         cancellationReason: input.reason,
         cancelledAt: lock.observedAt,
         completedAt: lock.observedAt,
@@ -1047,10 +1131,9 @@ export function createAiRunRepositoryV1(
       const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
         .limit(1).for("update", { of: aiRuns });
       const row = selected[0];
-      if (row === undefined || !humanCanManageRun(row, {
-        userId: input.actorUserId,
-        role: input.actorRole,
-      })) return { kind: "not_found_or_unauthorized" };
+      if (row === undefined || !await humanCanPerformRunOperationV1(
+        transaction, row, input.actor, "manual_retry",
+      )) return { kind: "not_found_or_unauthorized" };
       if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
       if (row.status !== "failed" || row.retryState !== "not_retryable" ||
         row.attemptCount >= row.maxAttempts ||
@@ -1101,10 +1184,9 @@ export function createAiRunRepositoryV1(
       const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
         .limit(1).for("update", { of: aiRuns });
       const row = selected[0];
-      if (row === undefined || !humanCanManageRun(row, {
-        userId: input.actorUserId,
-        role: input.actorRole,
-      })) return { kind: "not_found_or_unauthorized" };
+      if (row === undefined || !await humanCanPerformRunOperationV1(
+        transaction, row, input.actor, "disposition",
+      )) return { kind: "not_found_or_unauthorized" };
       if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
       if (row.status !== "draft_ready" || row.humanDisposition !== "not_evaluated" ||
         row.candidateHash !== input.candidateHash || input.disposition !== "rejected") {
@@ -1115,7 +1197,7 @@ export function createAiRunRepositoryV1(
         qualityRating: input.qualityRating,
         qualityLabels: [...input.qualityLabels],
         qualityComment: input.qualityComment,
-        evaluatedByUserId: input.actorUserId,
+        evaluatedByUserId: input.actor.userId,
         evaluatedAt: sql`statement_timestamp()`,
         stateVersion: row.stateVersion + 1,
         updatedAt: sql`statement_timestamp()`,
@@ -1216,13 +1298,12 @@ export function createAiRunRepositoryV1(
       });
     },
 
-    async readAuthorized(input) {
-      const selected = await database.select().from(aiRuns).where(eq(aiRuns.id, input.runId)).limit(1);
+    async readAuthorizedWithinTransaction(transaction, input) {
+      const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId)).limit(1);
       const row = selected[0];
-      if (row === undefined || !humanCanManageRun(row, {
-        userId: input.actorUserId,
-        role: input.actorRole,
-      })) return null;
+      if (row === undefined || !await humanCanPerformRunOperationV1(
+        transaction, row, input.actor, "inspect",
+      )) return null;
       const targetId = row.targetProductId ?? row.targetContentId ?? row.targetRevisionId;
       if (targetId === null) throw new Error("Stored AI run target was invalid.");
       const summary = humanMutationProjection(row);

@@ -20,8 +20,9 @@ import {
 import {
   type PricingPolicyRegistryV1,
 } from "@/ai/runs/pricing-policy";
-import {
-  type AiRunRepositoryV1,
+import type {
+  AuthoritativeAiActorV1,
+  AiRunRepositoryV1,
 } from "@/ai/runs/repository";
 import {
   contentLocalizations,
@@ -154,11 +155,6 @@ export function withTransactionBoundDraftEnqueueScope<
 
 type PhaseCPgDatabase = AppDatabase<PostgresJsQueryResultHKT>;
 
-function actorCanEditEntityType(role: string, entityType: "product" | "content"): boolean {
-  if (role === "admin") return true;
-  return entityType === "product" ? role === "product_editor" : role === "content_editor";
-}
-
 function contentChannelAllowed(
   useCase: DraftAssistanceCommandV1["useCase"],
   channel: string | null,
@@ -202,6 +198,11 @@ async function databaseClock(transaction: PhaseCPgDatabase): Promise<Date> {
 export function createPostgresDraftEnqueueOperationsV1(input: {
   readonly transaction: PhaseCPgDatabase;
   readonly command: DraftAssistanceCommandV1;
+  readonly actor: AuthoritativeAiActorV1;
+  readonly actorCanEnqueueEntityType: (entityType: "product" | "content") => boolean;
+  readonly actorCanReplayRun: (
+    row: Awaited<ReturnType<AiRunRepositoryV1["insertPreparedWithinTransaction"]>>["row"],
+  ) => Promise<boolean>;
   readonly executionEnvironment: "local" | "test" | "staging";
   readonly pricingRegistry: PricingPolicyRegistryV1;
   readonly audit: (input: AuditInput) => Promise<string>;
@@ -214,6 +215,9 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
 }): DraftTransactionScopeOperationsV1 {
   return {
     async findReplay(lookup) {
+      if (lookup.requestedByPrincipalId !== input.actor.userId) {
+        return aiFailure("authorization_denied");
+      }
       const replay = await input.runRepository.findReplayWithinTransaction(input.transaction, {
         idempotencyKey: lookup.idempotencyKey,
         requestedByUserId: lookup.requestedByPrincipalId,
@@ -224,6 +228,9 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
       if (replay.kind === "conflict" || !associationMatchesRow(lookup.association, replay.row)) {
         return aiFailure("idempotency_conflict");
       }
+      if (!await input.actorCanReplayRun(replay.row)) {
+        return aiFailure("authorization_denied");
+      }
       return aiSuccess({
         kind: "exact_replay",
         summary: input.summarizeRun(replay.row),
@@ -231,6 +238,8 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
     },
 
     async authorizeLockAndSnapshotTargetForNewRequest(request) {
+      if (request.actor.principalId !== input.actor.userId ||
+        request.actor.roleKey !== input.actor.role) return aiFailure("authorization_denied");
       const association = request.association;
       if (association.targetType === "product_draft") {
         const rows = await input.transaction.select({
@@ -242,7 +251,8 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         )).where(eq(products.id, association.targetProductId)).limit(1)
           .for("update", { of: productLocalizations });
         const row = rows[0];
-        if (row === undefined || !actorCanEditEntityType(request.actor.roleKey, "product")) {
+        if (row === undefined ||
+          !input.actorCanEnqueueEntityType("product")) {
           return aiFailure("authorization_denied");
         }
         if (request.command.useCase !== "product_description_draft" &&
@@ -262,7 +272,8 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         )).where(eq(contents.id, association.targetContentId)).limit(1)
           .for("update", { of: contentLocalizations });
         const row = rows[0];
-        if (row === undefined || !actorCanEditEntityType(request.actor.roleKey, "content")) {
+        if (row === undefined ||
+          !input.actorCanEnqueueEntityType("content")) {
           return aiFailure("authorization_denied");
         }
         if (!contentChannelAllowed(request.command.useCase, row.channel)) {
@@ -285,7 +296,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         .for("update", { of: editorialRevisions });
       const row = rows[0];
       if (row === undefined || row.entityType !== "product" && row.entityType !== "content" ||
-        !actorCanEditEntityType(request.actor.roleKey, row.entityType)) {
+        !input.actorCanEnqueueEntityType(row.entityType)) {
         return aiFailure("authorization_denied");
       }
       if (row.locale !== "en" ||
@@ -314,6 +325,9 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
     },
 
     async insertPreparedWithRequiredAudit(preparedRun) {
+      if (preparedRun.requestIdentity.requestedByPrincipalId !== input.actor.userId) {
+        return aiFailure("authorization_denied");
+      }
       const at = await databaseClock(input.transaction);
       const pricing = input.pricingRegistry.resolve({
         provider: preparedRun.resolvedConfig.requestedProvider,
@@ -354,7 +368,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         });
       }
       await input.audit({
-        actorUserId: preparedRun.requestIdentity.requestedByPrincipalId,
+        actorUserId: input.actor.userId,
         action: "ai.run.enqueued",
         entityType: "ai_run",
         entityId: committed.row.id,

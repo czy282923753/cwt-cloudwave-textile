@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 
 import { createPhaseCDurableDraftAssistanceServiceV1 } from "@/ai/applications/draft-assistance/composition";
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
+import type { UserRole } from "@/auth/permissions";
 import type { ProtectedApplicationResultEnvelopeV1 } from "@/ai/core/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
@@ -24,6 +25,10 @@ import {
   aiModelConfig,
   aiRuns,
   auditLogs,
+  authors,
+  contentLocalizations,
+  contents,
+  editorialRevisions,
   featureFlags,
   productLocalizations,
   productTaxonomyTerms,
@@ -67,7 +72,16 @@ const promptLoader: PromptBundleLoaderV1 = {
         inputSchemaVersion: input.inputSchemaVersion,
         outputSchemaVersion: input.outputSchemaVersion,
         policyVersion: input.policyVersion,
-        variables: [
+        variables: input.useCase === "fabric_knowledge_draft" ? [
+          { name: "locale", type: "string", maximumUtf8Bytes: 16 },
+          {
+            name: "requested_tone",
+            type: "enum",
+            values: ["concise_professional_b2b", "neutral_editorial"],
+          },
+          { name: "selected_context_json", type: "json", maximumUtf8Bytes: 65_536 },
+          { name: "topic", type: "string", maximumUtf8Bytes: 16_384 },
+        ] : [
           { name: "locale", type: "string", maximumUtf8Bytes: 16 },
           { name: "product_context_json", type: "json", maximumUtf8Bytes: 49_152 },
           { name: "media_placement_refs_json", type: "json", maximumUtf8Bytes: 8_192 },
@@ -77,13 +91,21 @@ const promptLoader: PromptBundleLoaderV1 = {
             values: ["concise_professional_b2b", "neutral_editorial"],
           },
         ],
-        body: [
-          "SYNTHETIC TEST DATA — NOT A CWT FACT",
-          "{{locale}}",
-          "{{product_context_json}}",
-          "{{media_placement_refs_json}}",
-          "{{requested_tone}}",
-        ].join("\n"),
+        body: input.useCase === "fabric_knowledge_draft"
+          ? [
+              "SYNTHETIC TEST DATA — NOT A CWT FACT",
+              "{{locale}}",
+              "{{requested_tone}}",
+              "{{selected_context_json}}",
+              "{{topic}}",
+            ].join("\n")
+          : [
+              "SYNTHETIC TEST DATA — NOT A CWT FACT",
+              "{{locale}}",
+              "{{product_context_json}}",
+              "{{media_placement_refs_json}}",
+              "{{requested_tone}}",
+            ].join("\n"),
       },
     };
   },
@@ -150,6 +172,60 @@ async function seedFixture() {
   return { actorId: actor.id, productId, configId: config.id };
 }
 
+async function seedUser(role: UserRole, isActive = true) {
+  const [actor] = await db().insert(users).values({
+    email: `${randomUUID()}@run-service.example.test`,
+    displayName: `Synthetic ${role} Actor`,
+    role,
+    passwordHash: "test-only",
+    isActive,
+  }).returning({ id: users.id, role: users.role });
+  if (actor === undefined) throw new Error("Role actor fixture failed.");
+  return { userId: actor.id, role: actor.role };
+}
+
+async function seedContentFixture(actor: { readonly userId: string }) {
+  const [author] = await db().insert(authors).values({
+    internalKey: `synthetic-run-service-${randomUUID()}`,
+    displayName: "Synthetic Run Service Author",
+  }).returning({ id: authors.id });
+  if (author === undefined) throw new Error("Author fixture failed.");
+  const [content] = await db().insert(contents).values({
+    channel: "fabric_knowledge",
+    status: "draft",
+    authorId: author.id,
+    createdByUserId: actor.userId,
+  }).returning({ id: contents.id });
+  if (content === undefined) throw new Error("Content fixture failed.");
+  await db().insert(contentLocalizations).values({
+    contentId: content.id,
+    locale: "en",
+    title: "Synthetic Run Service Content",
+    body: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+    editorDocumentVersion: 1,
+  });
+  await db().insert(featureFlags).values({ key: "ai", enabled: true }).onConflictDoNothing();
+  const [config] = await db().insert(aiModelConfig).values({
+    useCase: "fabric_knowledge_draft",
+    provider: "synthetic_alpha",
+    model: "synthetic-text-alpha-v1",
+    parametersJson: { temperature: 0 },
+    maxInputTokens: 1_000,
+    maxOutputTokens: 200,
+    maxAttempts: 3,
+    runCostLimitMicrousd: 20_000,
+    promptId: "fabric-knowledge-draft",
+    promptVersion: 1,
+    promptHash: hash("b"),
+    enabled: true,
+    isDefault: true,
+    createdByUserId: actor.userId,
+    updatedByUserId: actor.userId,
+  }).returning({ id: aiModelConfig.id });
+  if (config === undefined) throw new Error("Content config fixture failed.");
+  return { actorId: actor.userId, contentId: content.id, configId: config.id };
+}
+
 function command(fixture: Awaited<ReturnType<typeof seedFixture>>, input: {
   readonly idempotencyKey: string;
   readonly explicitInput?: string;
@@ -169,6 +245,26 @@ function command(fixture: Awaited<ReturnType<typeof seedFixture>>, input: {
       origin: "typed_brief",
     }],
     explicitInput: input.explicitInput ?? "Synthetic brief; not a CWT business fact.",
+  };
+}
+
+function contentCommand(
+  fixture: Awaited<ReturnType<typeof seedContentFixture>>,
+  actor: { readonly userId: string; readonly role: UserRole },
+  target: DraftAssistanceCommandV1["target"] = {
+    type: "content_draft",
+    contentId: fixture.contentId,
+    locale: "en",
+    expectedVersion: 1,
+  },
+): DraftAssistanceCommandV1 {
+  return {
+    useCase: "fabric_knowledge_draft",
+    actor,
+    target,
+    idempotencyKey: randomUUID(),
+    contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
+    explicitInput: "Synthetic content brief; not a CWT business fact.",
   };
 }
 
@@ -210,6 +306,47 @@ async function claimAndMark(runId: string) {
   return { repository, leaseOwner: row.leaseOwner, leaseToken: row.leaseToken, marker };
 }
 
+async function settleDraftReady(runId: string, candidateHash = hash("c")) {
+  const active = await claimAndMark(runId);
+  const evidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
+    version: 2,
+    dispatchState: "dispatched",
+    protectedResult: {
+      version: 1,
+      resultKind: "draft_assistance_candidate",
+      dispositionKind: "human_review",
+      schemaId: "cwt.product-description-draft.v1",
+      schemaVersion: 1,
+      policyVersion: "stage4a-v1",
+      value: { synthetic: "not a CWT fact" },
+      canonicalJson: '{"synthetic":"not a CWT fact"}',
+      hash: candidateHash,
+    },
+    error: null,
+    responseStatus: "success",
+    retryClass: "not_retryable",
+    returnedModel: "synthetic-text-alpha-v1",
+    completion: { kind: "complete" },
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    providerHttpStatus: 200,
+    providerErrorCode: null,
+    providerRequestId: "synthetic-request",
+    durationMs: 2,
+  });
+  if (!evidence.ok) throw new Error("Synthetic candidate evidence failed.");
+  const settled = await active.repository.settle({
+    runId,
+    executionEnvironment: "test",
+    leaseOwner: active.leaseOwner,
+    leaseToken: active.leaseToken,
+    leaseExpiresAt: active.marker.leaseExpiresAt,
+    stateVersion: active.marker.stateVersion,
+    evidence: evidence.value,
+  });
+  if (settled.kind !== "settled") throw new Error("Synthetic candidate settlement failed.");
+  return settled;
+}
+
 describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service", () => {
   beforeAll(async () => {
     if (postgresUrl === undefined) return;
@@ -229,7 +366,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
   }, 30_000);
 
   beforeEach(async () => {
-    await db().execute(sql`truncate table ${aiRuns}, ${aiModelConfig}, ${auditLogs}, ${featureFlags}, ${productLocalizations}, ${products}, ${users} cascade`);
+    await db().execute(sql`truncate table ${aiRuns}, ${aiModelConfig}, ${auditLogs}, ${featureFlags}, ${editorialRevisions}, ${contentLocalizations}, ${contents}, ${authors}, ${productLocalizations}, ${products}, ${users} cascade`);
   });
 
   afterAll(async () => {
@@ -279,7 +416,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       .toHaveLength(1);
   });
 
-  it("keeps run reads record-scoped and existence-nondisclosing", async () => {
+  it("uses persisted active roles for Product-scoped reads without an existence oracle", async () => {
     const fixture = await seedFixture();
     const created = await service().requestDraftAssistance(command(fixture, {
       idempotencyKey: randomUUID(),
@@ -298,10 +435,43 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
         role: "admin",
         passwordHash: "test-only",
       },
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Content Editor",
+        role: "content_editor",
+        passwordHash: "test-only",
+      },
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Reviewer",
+        role: "reviewer_publisher",
+        passwordHash: "test-only",
+      },
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Sales",
+        role: "sales",
+        passwordHash: "test-only",
+      },
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Analyst",
+        role: "analyst",
+        passwordHash: "test-only",
+      },
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Inactive Product Editor",
+        role: "product_editor",
+        passwordHash: "test-only",
+        isActive: false,
+      },
     ]).returning({ id: users.id, role: users.role });
-    const unrelated = insertedActors[0];
-    const admin = insertedActors[1];
-    if (unrelated === undefined || admin === undefined) throw new Error("Read actors failed.");
+    const [unrelated, admin, contentEditor, reviewer, sales, analyst, inactive] = insertedActors;
+    if (unrelated === undefined || admin === undefined || contentEditor === undefined ||
+      reviewer === undefined || sales === undefined || analyst === undefined || inactive === undefined) {
+      throw new Error("Read actors failed.");
+    }
     expect((await service().readRun({
       runId: created.value.runId,
       actor: { userId: fixture.actorId, role: "product_editor" },
@@ -310,21 +480,191 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       runId: created.value.runId,
       actor: { userId: admin.id, role: "admin" },
     })).ok).toBe(true);
-    const unrelatedResult = await service().readRun({
+    expect((await service().readRun({
       runId: created.value.runId,
       actor: { userId: unrelated.id, role: "product_editor" },
-    });
-    const missingResult = await service().readRun({
+    })).ok).toBe(true);
+    expect((await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: reviewer.id, role: "reviewer_publisher" },
+    })).ok).toBe(true);
+
+    const deniedExisting = await Promise.all([
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: contentEditor.id, role: "content_editor" },
+      }),
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: sales.id, role: "sales" },
+      }),
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: analyst.id, role: "analyst" },
+      }),
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: sales.id, role: "admin" },
+      }),
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: inactive.id, role: "product_editor" },
+      }),
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: randomUUID(), role: "product_editor" },
+      }),
+      service().readRun({
+        runId: created.value.runId,
+        actor: { userId: fixture.actorId, role: "content_editor" },
+      }),
+    ]);
+    for (const denied of deniedExisting) {
+      expect(denied).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    expect(await service().readRun({
       runId: randomUUID(),
-      actor: { userId: unrelated.id, role: "product_editor" },
+      actor: { userId: sales.id, role: "sales" },
+    })).toEqual(deniedExisting[1]);
+  });
+
+  it("enforces persisted Product/Content/Revision scope for enqueue and protected reads", async () => {
+    const product = await seedFixture();
+    const productEditor = { userId: product.actorId, role: "product_editor" as const };
+    const contentEditor = await seedUser("content_editor");
+    const content = await seedContentFixture(contentEditor);
+    const reviewer = await seedUser("reviewer_publisher");
+    const admin = await seedUser("admin");
+    const sales = await seedUser("sales");
+    const analyst = await seedUser("analyst");
+    const inactive = await seedUser("product_editor", false);
+    const [productRevision] = await db().insert(editorialRevisions).values({
+      entityType: "product",
+      entityId: product.productId,
+      locale: "en",
+      versionNumber: 1,
+      status: "draft",
+      snapshot: { synthetic: true },
+      createdByUserId: productEditor.userId,
+    }).returning({ id: editorialRevisions.id });
+    const [contentRevision] = await db().insert(editorialRevisions).values({
+      entityType: "content",
+      entityId: content.contentId,
+      locale: "en",
+      versionNumber: 1,
+      status: "draft",
+      snapshot: { synthetic: true },
+      createdByUserId: contentEditor.userId,
+    }).returning({ id: editorialRevisions.id });
+    if (productRevision === undefined || contentRevision === undefined) {
+      throw new Error("Revision fixtures failed.");
+    }
+
+    const productDraftCommand = command(product, {
+      idempotencyKey: randomUUID(),
     });
-    const wrongRoleResult = await service().readRun({
-      runId: created.value.runId,
-      actor: { userId: fixture.actorId, role: "content_editor" },
+    const productDraft = await service().requestDraftAssistance(productDraftCommand);
+    const contentDraft = await service().requestDraftAssistance(contentCommand(content, contentEditor));
+    const productRevisionRun = await service().requestDraftAssistance({
+      ...command(product, { idempotencyKey: randomUUID() }),
+      target: {
+        type: "editorial_revision",
+        revisionId: productRevision.id,
+        expectedVersion: 1,
+      },
     });
-    expect(unrelatedResult).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
-    expect(missingResult).toEqual(unrelatedResult);
-    expect(wrongRoleResult).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    const contentRevisionRun = await service().requestDraftAssistance(contentCommand(
+      content,
+      contentEditor,
+      { type: "editorial_revision", revisionId: contentRevision.id, expectedVersion: 1 },
+    ));
+    const adminDraft = await service().requestDraftAssistance({
+      ...command(product, { idempotencyKey: randomUUID() }),
+      actor: admin,
+    });
+    const created = [productDraft, contentDraft, productRevisionRun, contentRevisionRun, adminDraft];
+    expect(created.every((outcome) => outcome.ok), JSON.stringify(created)).toBe(true);
+    if (!productDraft.ok || !contentDraft.ok || !productRevisionRun.ok || !contentRevisionRun.ok ||
+      !adminDraft.ok) {
+      throw new Error("Role-matrix enqueue fixture failed.");
+    }
+
+    const deniedEnqueues = await Promise.all([
+      service().requestDraftAssistance({
+        ...command(product, { idempotencyKey: randomUUID() }),
+        actor: contentEditor,
+        target: { type: "editorial_revision", revisionId: productRevision.id, expectedVersion: 1 },
+      }),
+      service().requestDraftAssistance(contentCommand(
+        content,
+        productEditor,
+        { type: "editorial_revision", revisionId: contentRevision.id, expectedVersion: 1 },
+      )),
+      service().requestDraftAssistance({
+        ...command(product, { idempotencyKey: randomUUID() }),
+        actor: reviewer,
+      }),
+      service().requestDraftAssistance({
+        ...command(product, { idempotencyKey: randomUUID() }),
+        actor: { userId: sales.userId, role: "admin" },
+      }),
+      service().requestDraftAssistance({
+        ...command(product, { idempotencyKey: randomUUID() }),
+        actor: analyst,
+      }),
+      service().requestDraftAssistance({
+        ...command(product, { idempotencyKey: randomUUID() }),
+        actor: inactive,
+      }),
+      service().requestDraftAssistance({
+        ...command(product, { idempotencyKey: randomUUID() }),
+        actor: { userId: randomUUID(), role: "product_editor" },
+      }),
+    ]);
+    for (const denied of deniedEnqueues) {
+      expect(denied).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    expect(await db().select().from(aiRuns)).toHaveLength(5);
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.enqueued")))
+      .toHaveLength(5);
+
+    const runIds = {
+      productDraft: productDraft.value.runId,
+      contentDraft: contentDraft.value.runId,
+      productRevision: productRevisionRun.value.runId,
+      contentRevision: contentRevisionRun.value.runId,
+    };
+    for (const runId of [runIds.productDraft, runIds.productRevision]) {
+      expect((await service().readRun({ runId, actor: productEditor })).ok).toBe(true);
+      expect(await service().readRun({ runId, actor: contentEditor }))
+        .toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    for (const runId of [runIds.contentDraft, runIds.contentRevision]) {
+      expect((await service().readRun({ runId, actor: contentEditor })).ok).toBe(true);
+      expect(await service().readRun({ runId, actor: productEditor }))
+        .toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    for (const runId of Object.values(runIds)) {
+      expect((await service().readRun({ runId, actor: reviewer })).ok).toBe(true);
+      expect((await service().readRun({ runId, actor: admin })).ok).toBe(true);
+      for (const actor of [sales, analyst]) {
+        expect(await service().readRun({ runId, actor }))
+          .toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+      }
+    }
+    const crossScope = await service().readRun({
+      runId: runIds.contentRevision,
+      actor: productEditor,
+    });
+    expect(await service().readRun({ runId: randomUUID(), actor: productEditor })).toEqual(crossScope);
+    await db().update(users).set({ role: "content_editor" }).where(eq(users.id, productEditor.userId));
+    expect(await service().requestDraftAssistance({
+      ...productDraftCommand,
+      actor: { userId: productEditor.userId, role: "content_editor" },
+    })).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(await db().select().from(aiRuns)).toHaveLength(5);
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.enqueued")))
+      .toHaveLength(5);
   });
 
   it("serializes default switching with enqueue into an exact snapshot or clean conflict", async () => {
@@ -405,12 +745,57 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     expect(target).toMatchObject({ editorDocumentVersion: 1 });
   });
 
-  it("cancels an owned pending run with one required Audit and rejects stale replay", async () => {
+  it("allows only Admin or the own-request correct-scope editor to cancel", async () => {
     const fixture = await seedFixture();
+    const unrelatedEditor = await seedUser("product_editor");
+    const reviewer = await seedUser("reviewer_publisher");
+    const sales = await seedUser("sales");
+    const inactive = await seedUser("product_editor", false);
+    const admin = await seedUser("admin");
     const created = await service().requestDraftAssistance(command(fixture, {
       idempotencyKey: randomUUID(),
     }));
     if (!created.ok) throw new Error("Synthetic enqueue failed.");
+    const denied = [];
+    for (const input of [
+      {
+        runId: created.value.runId,
+        actor: unrelatedEditor,
+        expectedStateVersion: 1,
+        reason: "Synthetic unrelated cancellation.",
+      },
+      {
+        runId: created.value.runId,
+        actor: reviewer,
+        expectedStateVersion: 1,
+        reason: "Synthetic reviewer cancellation.",
+      },
+      {
+        runId: created.value.runId,
+        actor: { userId: sales.userId, role: "admin" },
+        expectedStateVersion: 1,
+        reason: "Synthetic spoofed cancellation.",
+      },
+      {
+        runId: created.value.runId,
+        actor: inactive,
+        expectedStateVersion: 1,
+        reason: "Synthetic inactive cancellation.",
+      },
+      {
+        runId: created.value.runId,
+        actor: { userId: randomUUID(), role: "product_editor" },
+        expectedStateVersion: 1,
+        reason: "Synthetic unknown cancellation.",
+      },
+    ]) denied.push(await service().cancelRun(input));
+    for (const outcome of denied) {
+      expect(outcome).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ status: "pending", stateVersion: 1 });
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.cancelled")))
+      .toHaveLength(0);
     const cancelled = await service().cancelRun({
       runId: created.value.runId,
       actor: { userId: fixture.actorId, role: "product_editor" },
@@ -426,8 +811,19 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       reason: "Synthetic stale retry.",
     });
     expect(stale.ok).toBe(false);
-    const audits = await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.cancelled"));
-    expect(audits).toHaveLength(1);
+    const adminRun = await service().requestDraftAssistance({
+      ...command(fixture, { idempotencyKey: randomUUID() }),
+      actor: unrelatedEditor,
+    });
+    if (!adminRun.ok) throw new Error("Admin cancellation fixture failed.");
+    expect((await service().cancelRun({
+      runId: adminRun.value.runId,
+      actor: admin,
+      expectedStateVersion: 1,
+      reason: "Synthetic Admin cancellation.",
+    })).ok).toBe(true);
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.cancelled")))
+      .toHaveLength(2);
   });
 
   it("rolls cancellation and required Audit back together", async () => {
@@ -450,6 +846,10 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
 
   it("permits only the closed operator-remediable manual retry and Audits it", async () => {
     const fixture = await seedFixture();
+    const unrelatedEditor = await seedUser("product_editor");
+    const reviewer = await seedUser("reviewer_publisher");
+    const sales = await seedUser("sales");
+    const admin = await seedUser("admin");
     const created = await service().requestDraftAssistance(command(fixture, {
       idempotencyKey: randomUUID(),
     }));
@@ -483,6 +883,29 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       evidence: evidence.value,
     });
     if (settled.kind !== "settled") throw new Error("Synthetic failure settlement failed.");
+    const denied = [];
+    for (const input of [
+      {
+        runId: created.value.runId,
+        actor: unrelatedEditor,
+        expectedStateVersion: settled.stateVersion,
+      },
+      {
+        runId: created.value.runId,
+        actor: reviewer,
+        expectedStateVersion: settled.stateVersion,
+      },
+      {
+        runId: created.value.runId,
+        actor: { userId: sales.userId, role: "admin" },
+        expectedStateVersion: settled.stateVersion,
+      },
+    ]) denied.push(await service().manualRetry(input));
+    for (const outcome of denied) {
+      expect(outcome).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    }
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.manual_retry_scheduled"))).toHaveLength(0);
     await expect(service(async () => {
       throw new Error("TEST manual retry Audit failure");
     }).manualRetry({
@@ -504,78 +927,126 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     });
     expect(retried.ok).toBe(true);
     if (retried.ok) expect(retried.value).toMatchObject({ status: "pending", retryState: "scheduled" });
+    if (!retried.ok) throw new Error("Owned manual retry failed.");
+    const cancelled = await service().cancelRun({
+      runId: created.value.runId,
+      actor: { userId: fixture.actorId, role: "product_editor" },
+      expectedStateVersion: retried.value.stateVersion,
+      reason: "Synthetic cleanup before Admin retry proof.",
+    });
+    if (!cancelled.ok) throw new Error("Retry cleanup cancellation failed.");
+    const adminFixture = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!adminFixture.ok) throw new Error("Admin retry fixture enqueue failed.");
+    const adminActive = await claimAndMark(adminFixture.value.runId);
+    const adminSettled = await adminActive.repository.settle({
+      runId: adminFixture.value.runId,
+      executionEnvironment: "test",
+      leaseOwner: adminActive.leaseOwner,
+      leaseToken: adminActive.leaseToken,
+      leaseExpiresAt: adminActive.marker.leaseExpiresAt,
+      stateVersion: adminActive.marker.stateVersion,
+      evidence: evidence.value,
+    });
+    if (adminSettled.kind !== "settled") throw new Error("Admin retry settlement failed.");
+    expect((await service().manualRetry({
+      runId: adminFixture.value.runId,
+      actor: admin,
+      expectedStateVersion: adminSettled.stateVersion,
+    })).ok).toBe(true);
     expect(await db().select().from(auditLogs)
-      .where(eq(auditLogs.action, "ai.run.manual_retry_scheduled"))).toHaveLength(1);
+      .where(eq(auditLogs.action, "ai.run.manual_retry_scheduled"))).toHaveLength(2);
   });
 
-  it("records a write-once rejected disposition and rolls back on Audit failure", async () => {
+  it("allows persisted Reviewer Product/Content disposition and Admin all-scope disposition", async () => {
     const fixture = await seedFixture();
+    const reviewer = await seedUser("reviewer_publisher");
+    const sales = await seedUser("sales");
+    const contentEditor = await seedUser("content_editor");
+    const admin = await seedUser("admin");
     const created = await service().requestDraftAssistance(command(fixture, {
       idempotencyKey: randomUUID(),
     }));
     if (!created.ok) throw new Error("Synthetic enqueue failed.");
-    const active = await claimAndMark(created.value.runId);
-    const evidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
-      version: 2,
-      dispatchState: "dispatched",
-      protectedResult: {
-        version: 1,
-        resultKind: "draft_assistance_candidate",
-        dispositionKind: "human_review",
-        schemaId: "cwt.product-description-draft.v1",
-        schemaVersion: 1,
-        policyVersion: "stage4a-v1",
-        value: { synthetic: "not a CWT fact" },
-        canonicalJson: '{"synthetic":"not a CWT fact"}',
-        hash: hash("c"),
-      },
-      error: null,
-      responseStatus: "success",
-      retryClass: "not_retryable",
-      returnedModel: "synthetic-text-alpha-v1",
-      completion: { kind: "complete" },
-      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-      providerHttpStatus: 200,
-      providerErrorCode: null,
-      providerRequestId: "synthetic-request",
-      durationMs: 2,
-    });
-    if (!evidence.ok) throw new Error("Synthetic candidate evidence failed.");
-    const settled = await active.repository.settle({
+    const settled = await settleDraftReady(created.value.runId, hash("c"));
+    const productDisposition = {
       runId: created.value.runId,
-      executionEnvironment: "test",
-      leaseOwner: active.leaseOwner,
-      leaseToken: active.leaseToken,
-      leaseExpiresAt: active.marker.leaseExpiresAt,
-      stateVersion: active.marker.stateVersion,
-      evidence: evidence.value,
-    });
-    if (settled.kind !== "settled") throw new Error("Synthetic candidate settlement failed.");
+      expectedStateVersion: settled.stateVersion,
+      disposition: "rejected" as const,
+      candidateHash: hash("c"),
+      qualityRating: 2,
+      qualityLabels: ["factual_issue", "unsafe_claim"] as const,
+      qualityComment: "Synthetic quality note.",
+    };
+    expect(await service().rejectDisposition({
+      ...productDisposition,
+      actor: { userId: sales.userId, role: "admin" },
+    })).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.disposition_recorded"))).toHaveLength(0);
     await expect(service(async () => {
       throw new Error("TEST disposition Audit failure");
     }).rejectDisposition({
-      runId: created.value.runId,
-      actor: { userId: fixture.actorId, role: "product_editor" },
-      expectedStateVersion: settled.stateVersion,
-      disposition: "rejected",
-      candidateHash: hash("c"),
-      qualityRating: 2,
-      qualityLabels: ["factual_issue", "unsafe_claim"],
-      qualityComment: "Synthetic quality note.",
+      ...productDisposition,
+      actor: reviewer,
     })).rejects.toThrow(/disposition Audit failure/);
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ humanDisposition: "not_evaluated", stateVersion: settled.stateVersion });
     const accepted = await service().rejectDisposition({
-      runId: created.value.runId,
-      actor: { userId: fixture.actorId, role: "product_editor" },
-      expectedStateVersion: settled.stateVersion,
-      disposition: "rejected",
-      candidateHash: hash("c"),
-      qualityRating: 2,
-      qualityLabels: ["factual_issue", "unsafe_claim"],
-      qualityComment: "Synthetic quality note.",
+      ...productDisposition,
+      actor: reviewer,
     });
     expect(accepted.ok).toBe(true);
-    if (accepted.ok) expect(accepted.value).toMatchObject({ humanDisposition: "rejected" });
+
+    const content = await seedContentFixture(contentEditor);
+    const contentCreated = await service().requestDraftAssistance(contentCommand(content, contentEditor));
+    if (!contentCreated.ok) throw new Error(`Synthetic Content enqueue failed: ${contentCreated.error.code}`);
+    const contentSettled = await settleDraftReady(contentCreated.value.runId, hash("d"));
+    const contentDisposition = {
+      runId: contentCreated.value.runId,
+      expectedStateVersion: contentSettled.stateVersion,
+      disposition: "rejected" as const,
+      candidateHash: hash("d"),
+      qualityRating: 3,
+      qualityLabels: ["clarity"] as const,
+      qualityComment: "Synthetic Content quality note.",
+    };
+    expect(await service().rejectDisposition({
+      ...contentDisposition,
+      actor: { userId: fixture.actorId, role: "product_editor" },
+    })).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect((await service().rejectDisposition({
+      ...contentDisposition,
+      actor: reviewer,
+    })).ok).toBe(true);
+
+    const adminCreated = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!adminCreated.ok) throw new Error("Synthetic Admin disposition fixture failed.");
+    const adminSettled = await settleDraftReady(adminCreated.value.runId, hash("e"));
+    expect((await service().rejectDisposition({
+      runId: adminCreated.value.runId,
+      actor: admin,
+      expectedStateVersion: adminSettled.stateVersion,
+      disposition: "rejected",
+      candidateHash: hash("e"),
+      qualityRating: null,
+      qualityLabels: [],
+      qualityComment: null,
+    })).ok).toBe(true);
     expect(await db().select().from(auditLogs)
-      .where(eq(auditLogs.action, "ai.run.disposition_recorded"))).toHaveLength(1);
+      .where(eq(auditLogs.action, "ai.run.disposition_recorded"))).toHaveLength(3);
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.actorUserId, sales.userId)))
+      .toHaveLength(0);
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.actorUserId, reviewer.userId)))
+      .toHaveLength(2);
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.actorUserId, admin.userId)))
+      .toHaveLength(1);
+    expect(accepted).toMatchObject({
+      ok: true,
+      value: { humanDisposition: "rejected" },
+    });
   });
 });
