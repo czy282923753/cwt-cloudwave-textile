@@ -3,7 +3,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { createPhaseBAvailabilityServiceV1 } from "@/ai/applications/draft-assistance/composition";
+import { createPhaseCAvailabilityServiceV1 } from "@/ai/applications/draft-assistance/composition";
+import { productionPromptLoaderV1 } from "@/ai/prompts/loader";
+import { productionTextProviderRegistryV1 } from "@/ai/providers/registry";
+import { productionPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import {
   aiRuns,
   authors,
@@ -18,7 +21,7 @@ import {
 import { createTestDatabase } from "@/test/database";
 import { productionApplicationKeysV1 } from "@/ai/registry/production-use-cases";
 
-describe("Phase B Provider-neutral Production foundation", () => {
+describe("Phase C Provider-neutral Production foundation", () => {
   let database: Awaited<ReturnType<typeof createTestDatabase>>;
   const productId = "11111111-1111-4111-8111-111111111111";
   const contentId = "33333333-3333-4333-8333-333333333333";
@@ -26,6 +29,14 @@ describe("Phase B Provider-neutral Production foundation", () => {
   const productRevisionId = "77777777-7777-4777-8777-777777777777";
   const contentRevisionId = "88888888-8888-4888-8888-888888888888";
   const malformedRevisionId = "99999999-1111-4111-8111-111111111111";
+
+  const createAvailabilityService = () => createPhaseCAvailabilityServiceV1({
+    database: database.db,
+    trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+    providerRegistry: productionTextProviderRegistryV1,
+    promptLoader: productionPromptLoaderV1,
+    pricingRegistry: productionPricingPolicyRegistryV1,
+  });
 
   beforeAll(async () => {
     database = await createTestDatabase();
@@ -115,10 +126,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
   });
 
   it("authorizes and snapshots a Draft target, then stops at durable integration readiness", async () => {
-    const service = createPhaseBAvailabilityServiceV1({
-      database: database.db,
-      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-    });
+    const service = createAvailabilityService();
     expect(Object.keys(service)).toEqual(["inspectDraftAssistanceAvailability"]);
     expect("requestDraftAssistance" in service).toBe(false);
     const before = await database.db.select({ value: count() }).from(aiRuns);
@@ -134,7 +142,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
       value: {
         available: false,
         manualEditorAvailable: true,
-        code: "integration_not_ready",
+        code: "feature_flag_missing",
       },
     });
     const after = await database.db.select({ value: count() }).from(aiRuns);
@@ -142,10 +150,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
   });
 
   it("fails target version before readiness without writing", async () => {
-    const service = createPhaseBAvailabilityServiceV1({
-      database: database.db,
-      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-    });
+    const service = createAvailabilityService();
     const result = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
       actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
@@ -160,10 +165,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
   });
 
   it("enforces Product and Content editor roles from the authoritative target entity type", async () => {
-    const service = createPhaseBAvailabilityServiceV1({
-      database: database.db,
-      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-    });
+    const service = createAvailabilityService();
     type Inspection = Parameters<typeof service.inspectDraftAssistanceAvailability>[0];
     const admin = {
       userId: "99999999-9999-4999-8999-999999999999",
@@ -184,7 +186,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
         target: { type: "product_draft", productId, locale: "en", expectedVersion: 7 },
         correctEditor: productEditor,
         wrongEditor: contentEditor,
-        downstreamCode: "integration_not_ready",
+        downstreamCode: "feature_flag_missing",
         downstreamManualEditorAvailable: true,
       },
       {
@@ -193,7 +195,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
         target: { type: "content_draft", contentId, locale: "en", expectedVersion: 5 },
         correctEditor: contentEditor,
         wrongEditor: productEditor,
-        downstreamCode: "integration_not_ready",
+        downstreamCode: "feature_flag_missing",
         downstreamManualEditorAvailable: true,
       },
       {
@@ -202,7 +204,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
         target: { type: "editorial_revision", revisionId: productRevisionId, expectedVersion: 3 },
         correctEditor: productEditor,
         wrongEditor: contentEditor,
-        downstreamCode: "integration_not_ready",
+        downstreamCode: "feature_flag_missing",
         downstreamManualEditorAvailable: true,
       },
       {
@@ -211,7 +213,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
         target: { type: "editorial_revision", revisionId: contentRevisionId, expectedVersion: 4 },
         correctEditor: contentEditor,
         wrongEditor: productEditor,
-        downstreamCode: "integration_not_ready",
+        downstreamCode: "feature_flag_missing",
         downstreamManualEditorAvailable: true,
       },
     ] satisfies ReadonlyArray<{
@@ -220,7 +222,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
       readonly target: Inspection["target"];
       readonly correctEditor: Inspection["actor"];
       readonly wrongEditor: Inspection["actor"];
-      readonly downstreamCode: "integration_not_ready";
+      readonly downstreamCode: "feature_flag_missing";
       readonly downstreamManualEditorAvailable: boolean;
     }>;
 
@@ -262,10 +264,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
   });
 
   it("does not disclose Revision existence or version to the wrong editor", async () => {
-    const service = createPhaseBAvailabilityServiceV1({
-      database: database.db,
-      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-    });
+    const service = createAvailabilityService();
     const contentEditor = {
       userId: "55555555-5555-4555-8555-555555555555",
       role: "content_editor" as const,
@@ -321,10 +320,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
   });
 
   it("applies record-scope-first authorization across a real-service database matrix", async () => {
-    const service = createPhaseBAvailabilityServiceV1({
-      database: database.db,
-      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-    });
+    const service = createAvailabilityService();
     type Inspection = Parameters<typeof service.inspectDraftAssistanceAvailability>[0];
     const admin = {
       userId: "99999999-9999-4999-8999-999999999999",
@@ -385,7 +381,7 @@ describe("Phase B Provider-neutral Production foundation", () => {
     for (const entry of validCases) {
       for (const actor of entry.actors) {
         expect(await inspect({ useCase: entry.useCase, actor, target: entry.target }),
-          `${entry.label}: authorized`).toEqual(expected("integration_not_ready", true));
+          `${entry.label}: authorized`).toEqual(expected("feature_flag_missing", true));
       }
     }
 

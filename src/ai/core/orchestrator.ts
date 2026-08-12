@@ -51,6 +51,8 @@ export interface CoreReadinessDependenciesV1 {
     readonly read: AiModelConfigResolutionReadV1;
     readonly variables: PromptVariablesV1;
     readonly requestStage?: OpaqueRequestContextStageV1;
+    readonly durableAssociation?: import("./contracts").DurableApplicationAssociationV1;
+    readonly associationSnapshotHash?: string;
   }): Promise<AiServiceResult<PreparedConfigurationV1>>;
 }
 
@@ -139,6 +141,8 @@ export function createGenericAiOrchestratorV1(
         read: config.value,
         variables: variables.value,
         requestStage: context.value,
+        durableAssociation: authorized.value.durableAssociation,
+        associationSnapshotHash: authorized.value.association.snapshotHash,
       });
       if (!prepared.ok) return prepared;
       const locked = await context.value.confirmResolvedConfiguration({

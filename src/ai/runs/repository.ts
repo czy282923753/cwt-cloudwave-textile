@@ -171,11 +171,21 @@ async function tryLifecycleLock(
 }
 
 function summaryFromRow(row: typeof aiRuns.$inferSelect) {
+  const status = (() => {
+    switch (row.status) {
+      case "pending":
+      case "processing":
+      case "draft_ready":
+      case "failed":
+      case "cancelled": return row.status;
+      default: throw new Error("Stored AI run status was invalid.");
+    }
+  })();
   return {
     runId: row.id,
     applicationClass: "draft_assistance" as const,
     useCase: row.useCase,
-    status: row.status,
+    status,
     queuedAt: row.queuedAt.toISOString(),
   };
 }
