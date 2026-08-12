@@ -70,11 +70,26 @@ The coordinator then authorized one bounded continuation using the existing laun
 - Billable Provider POST: **NOT RUN**, count `0`.
 - Real Provider output/cache/cost/latency observation: **NOT RUN**.
 
-The controlled projection remains the immutable per-invocation result of the second authorized invocation: two fixed official-source GETs and zero Provider POSTs. The third authorized invocation never started, so its counters are zero GET/zero POST. Aggregate external history remains four official-source GETs and zero Provider POSTs. The flow must not be rerun without a separately authorized task and a compliant isolated database. `NOT RUN` is not represented as `PASS` anywhere in this package.
+The first two controlled invocation results remain immutable history. The intervening provisioning/HBA attempts performed zero external requests.
+
+The final application-role closure normalized the exact least-privileged tuple once, proved zero explicit membership/unrelated ownership, wrong-password rejection, correct-password SCRAM authentication, canonical loopback, compliant HBA, exact dedicated ownership, empty state and zero other sessions. Protected registration was replaced and retained.
+
+The one final controlled invocation was executed exactly once and was not retried:
+
+- Node 24 loopback semantic gate: **PASS**.
+- Official pricing source GET: **PASS**, one request.
+- Official chat-completion schema GET: **PASS**, one request.
+- Official-source combined status/hash/fact check: **PASS**.
+- Controlled result: **FAIL**, safe code `controlled_validation_internal_failure`.
+- Billable Provider POST: `0`.
+- Terminal durable projection: unavailable.
+- Credential-reader reachability: not projected and not inferred.
+
+Current invocation counters are exactly two official GETs and zero Provider POSTs. Aggregate authorized external history is six official GETs and zero Provider POSTs across three controlled invocations. No further invocation is authorized. `FAIL` and `NOT RUN` are not represented as `PASS` anywhere in this package.
 
 ## Governance and unresolved facts
 
 - Production registry remains exact-empty; no Production, protected Staging, deploy, traffic, DNS, Index, import, Push or PR action occurred.
 - Supplier questionnaire, DPA, no-training, region, subprocessor and security assurances remain Owner-accepted unresolved external assurance and are not marked `PASS`.
 - C-002/C-003 remain active residual controls.
-- Next gate is a coordinator decision on the retained resource whose HBA semantics now pass but whose application-role semantic proof failed closed. Any further inspection, correction, cleanup, replacement or controlled invocation requires separate authorization. Fresh independent Phase D implementation review begins only after a complete immutable real-validation Candidate; this implementation task does not self-review or self-accept.
+- Next gate is a coordinator decision on the safe `controlled_validation_internal_failure` result. Resource/HBA/role/authentication prerequisites pass and remain retained; any diagnostic inspection, remediation or new controlled invocation requires separate authorization. Fresh independent Phase D implementation review begins only after a complete immutable real-validation Candidate; this implementation task does not self-review or self-accept.

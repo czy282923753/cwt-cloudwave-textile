@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **Database-guard correction proof-bound; retained-resource HBA semantics closed, but final controlled validation BLOCKED before invocation by application-role semantic proof.**
+Status: **Database/resource/role prerequisites closed; the one final controlled validation returned `controlled_validation_internal_failure` with zero billable Provider POSTs.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -55,11 +55,21 @@ The effective HBA semantic proof and loopback listener proof passed. A newly gen
 
 The one HBA correction cycle was not retried. The exact resource remains retained without cleanup, drop or truncate, and the prior protected registration target remains untouched.
 
+## Application-role closure and final invocation
+
+The coordinator authorized one application-role normalization/authentication cycle. The existing dedicated role was atomically normalized to the accepted least-privileged tuple; explicit role membership and unrelated database ownership were absent. HBA semantics, listener, exact ownership, empty state and zero-other-session proofs remained closed. A new process-local credential passed wrong-password rejection and correct-password SCRAM authentication, then only the protected launchctl registration was replaced.
+
+The final controlled invocation ran exactly once. Node loopback and both fixed official-source checks passed, consuming two GETs. The runner returned the safe projection `FAIL / controlled_validation_internal_failure` before a terminal durable result could be projected. Billable Provider POST count is zero. Credential-reader reachability is not present in the safe projection and is not inferred.
+
+Historical totals are preserved without relabeling: the first two completed invocations used four official GETs and zero POSTs; all provisioning/HBA/role attempts before invocation used zero external calls; the final invocation used two GETs and zero POSTs. Aggregate authorized history is six official GETs and zero Provider POSTs.
+
+The resource, protected registration and any runner-created state remain retained for authorized disposition. No inspection after the safe failure, retry, cleanup, drop or truncate occurred.
+
 ## Blocker and risk treatment
 
-The accepted design requires a protected connection to an isolated non-Production PostgreSQL database whose URL shape, loopback address, database name, role, session state and public-table state pass strict guards. The coordinator-provided launchctl registration was injected exactly once into the controlled child process without separate value observation, but the runner returned `isolated_database_guard_failed`. The safe projection intentionally does not disclose or infer which individual database guard rejected the context. Creating a substitute database, weakening the guard, using PGlite, using Production/protected Staging, or bypassing the durable path would violate the accepted design; none was attempted.
+The isolated non-Production PostgreSQL resource now passes the authorized local URL-independent semantic prerequisites: loopback, dedicated identity/ownership, least-privileged role, SCRAM-only HBA/authentication, empty pre-invocation state and zero other sessions. The one controlled invocation nevertheless returned only `controlled_validation_internal_failure`. The safe projection intentionally does not disclose or support inference of the internal subcause; no diagnostic inspection was performed after that result.
 
-The database was not dropped, truncated, cleaned up or inspected outside the accepted runner. Its connection information is not present in code, terminal output, Git, report or evidence.
+The resource and protected registration were retained without drop, truncate or cleanup. Connection information and resource identifiers are absent from code, terminal output, Git, report, evidence and callback.
 
 Because no Provider POST occurred, Provider output validity, cache accounting, observed cost and latency are not evidenced. These facts remain `NOT RUN`, never `PASS`. The successful source preflight cannot substitute for the real durable-path observation.
 
@@ -74,4 +84,4 @@ Supplier questionnaire, DPA, no-training, region, subprocessor and security assu
 
 ## Required next action
 
-Status is `BLOCKED`, not implementation acceptance. The coordinator must decide whether and how to disposition the retained resource after its application-role semantic proof failed despite compliant HBA semantics. Any further inspection, mutation, cleanup, replacement or controlled invocation requires separate authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.
+Status is `BLOCKED`, not implementation acceptance. The coordinator must decide whether to authorize diagnosis/remediation of the safe `controlled_validation_internal_failure`; this task does not infer its redacted subcause. Any database inspection, mutation, cleanup, replacement or further controlled invocation requires separate authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.

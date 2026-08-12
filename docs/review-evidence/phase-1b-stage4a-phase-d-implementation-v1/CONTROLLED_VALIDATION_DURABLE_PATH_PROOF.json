@@ -87,11 +87,37 @@
     "billable_provider_post_total": 0,
     "credential_reader_reached": false
   },
+  "application_role_closure": {
+    "status": "PASS",
+    "normalization_cycle_count": 1,
+    "least_privileged_tuple": "PASS",
+    "explicit_role_membership_count": 0,
+    "dedicated_database_ownership": "PASS",
+    "unrelated_database_ownership_count": 0,
+    "wrong_password_authentication": "PASS",
+    "correct_password_authentication": "PASS",
+    "canonical_loopback": "PASS",
+    "hba_semantics": "PASS",
+    "pre_invocation_business_or_ai_rows": 0,
+    "pre_invocation_other_client_sessions": 0,
+    "protected_registration_updated": true,
+    "resource_retained": true
+  },
+  "final_authorized_invocation": {
+    "status": "FAIL",
+    "safe_code": "controlled_validation_internal_failure",
+    "official_source_status": "PASS",
+    "official_source_get_total": 2,
+    "billable_provider_post_total": 0,
+    "credential_reader_observation": "NOT_PROJECTED",
+    "terminal_projection_available": false,
+    "retried": false
+  },
   "aggregate_authorized_external_history_after_final_attempt": {
-    "controlled_invocation_count": 2,
-    "official_source_get_total": 4,
+    "controlled_invocation_count": 3,
+    "official_source_get_total": 6,
     "billable_provider_post_total": 0
   },
-  "database_disposition": "The prior registered target was not inspected or mutated. The exact new retained resource completed one HBA correction cycle and remains retained without drop, truncate, cleanup, identifier disclosure or protected-registration update.",
-  "conclusion": "The causal PostgreSQL representation defect remains corrected and proof-bound. The retained resource's HBA semantic proof passed, but closure stopped fail-closed at the application-role semantic proof before authentication proof, registration or controlled invocation. This is NOT RUN, not PASS."
+  "database_disposition": "The prior registered target was not inspected or mutated. The exact new resource completed one HBA cycle and one role-normalization/authentication cycle, and remains retained with its protected registration and any runner-created durable state intact. No drop, truncate, cleanup or identifier disclosure occurred.",
+  "conclusion": "PostgreSQL guard, HBA, application-role, SCRAM authentication and pre-invocation resource proofs passed. The one final controlled invocation passed both official-source GETs, then returned the safe internal-failure projection before a terminal durable projection; no billable Provider POST occurred. This is FAIL/BLOCKED, not PASS."
 }
