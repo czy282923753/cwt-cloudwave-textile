@@ -34,6 +34,8 @@ export function createPhaseCServerAiServiceV1() {
         promptLoader: productionPromptLoaderV1,
         pricingRegistry: productionPricingPolicyRegistryV1,
       });
+    default:
+      throw new Error("Unsupported database connection kind.");
   }
 }
 
@@ -49,5 +51,7 @@ export function createPhaseCAiRunWorkerV1() {
         promptLoader: productionPromptLoaderV1,
         pricingRegistry: productionPricingPolicyRegistryV1,
       });
+    default:
+      throw new Error("Unsupported database connection kind.");
   }
 }

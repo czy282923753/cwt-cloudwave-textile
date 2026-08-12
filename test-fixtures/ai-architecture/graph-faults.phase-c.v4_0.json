@@ -400,6 +400,7 @@
               "src/ai/providers/",
               "src/ai/registry/",
               "src/ai/internal/",
+              "src/ai/runs/",
               "src/catalog/",
               "src/content/",
               "src/seo/",
@@ -410,6 +411,7 @@
             ],
             "excludeFiles": [
               "src/server/ai/phase-b-composition.ts",
+              "src/server/ai/phase-c-composition.ts",
               "src/server/ai/phase-d-provider-composition.ts",
               "src/ai/index.ts",
               "src/ai/errors.ts",
@@ -1289,7 +1291,7 @@
         "/phaseCSyntheticAuthority",
         "/phaseCSyntheticMutationProbeIds"
       ],
-      "sha256": "3317721a02aae3da6733c4e580f2a6de0b0617c814d4eb6582eade0898b68beb"
+        "sha256": "9dbd93121e9d6fadfb6c6af6a38cef1762b292722078a79a916d9ced06988bd9"
     },
     "profileVersion": "4.0.0-candidate",
     "proofArtifactContracts": {

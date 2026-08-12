@@ -16,8 +16,8 @@ import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-c.v4_0.json";
-const expectedProfileFileHash = "a34a549c4615d044f9085492479342b2c051808daa801c83d7f75391ecdc685c";
-const expectedProfileIntegrityHash = "3317721a02aae3da6733c4e580f2a6de0b0617c814d4eb6582eade0898b68beb";
+const expectedProfileFileHash = "51699e6da13fb572289851df9c0f984a13b02ce48cc5db878b1d320aabee1ddb";
+const expectedProfileIntegrityHash = "9dbd93121e9d6fadfb6c6af6a38cef1762b292722078a79a916d9ced06988bd9";
 const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -1627,6 +1627,14 @@ function enforceCapabilityEdge(
   sourceClass = classForPath(edge.from),
   publicClient = false,
 ): void {
+  if (edge.specifier === "@/server/ai/phase-b-composition" ||
+    edge.specifier?.endsWith("/server/ai/phase-b-composition")) {
+    rejectGraph("phase_b_composition_violation", edgeDiagnostic(
+      edge,
+      "deleted_phase_b_composition_reference",
+      "src/server/ai/phase-b-composition.ts",
+    ));
+  }
   if (edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved") {
     if (productionClasses.has(sourceClass) || publicClient) {
       rejectGraph(edge.resolutionKind === "unresolved" ? "unresolved_static_edge" : "unsupported_acquisition_syntax", JSON.stringify({
@@ -1709,15 +1717,19 @@ function enforceCapabilityEdge(
         "src/ai/applications/draft-assistance/read-scopes.ts",
         "src/ai/applications/draft-assistance/composition.ts",
         "src/ai/applications/draft-assistance/facade.ts",
+        "src/ai/config/model-config-repository.ts",
         "src/ai/config/model-config-service.ts",
         "src/ai/runs/repository.ts",
         "src/ai/runs/service.ts",
         "src/ai/runs/worker.ts",
         "src/ai/testing/accepted-draft-atomicity-harness.ts",
       ].includes(edge.from);
-      const typeRoleEdge = edge.edgeKind === "type-only" && target === "src/auth/permissions.ts" &&
-        edge.from === "src/ai/applications/draft-assistance/contracts.ts";
+      const typeRoleEdge = edge.edgeKind === "type-only" && target === "src/auth/permissions.ts" && [
+        "src/ai/applications/draft-assistance/contracts.ts",
+        "src/ai/config/model-config-service.ts",
+      ].includes(edge.from);
       const schemaEdge = edge.edgeKind === "runtime" && target === "src/db/schema/index.ts" && [
+        "src/ai/applications/draft-assistance/read-scopes.ts",
         "src/ai/applications/draft-assistance/composition.ts",
         "src/ai/config/feature-gate-repository.ts",
         "src/ai/config/model-config-repository.ts",
@@ -1725,11 +1737,12 @@ function enforceCapabilityEdge(
         "src/ai/runs/repository.ts",
         "src/ai/runs/service.ts",
       ].includes(edge.from);
-      const governedAuditEdge = edge.edgeKind === "runtime" && [
+      const governedAuditEdge = ["runtime", "type-only"].includes(edge.edgeKind) && [
         "src/audit/governed-mutation.ts",
         "src/audit/service.ts",
       ].includes(target) && [
         "src/ai/applications/draft-assistance/read-scopes.ts",
+        "src/ai/applications/draft-assistance/composition.ts",
         "src/ai/config/model-config-service.ts",
         "src/ai/runs/service.ts",
         "src/ai/testing/accepted-draft-atomicity-harness.ts",
@@ -2114,7 +2127,8 @@ function enforceTopology(paths: readonly string[]): void {
   const phaseD = paths.find((path) => path === "src/server/ai/phase-d-provider-composition.ts");
   const adapter = paths.find((path) => path.startsWith("src/integrations/ai/providers/"));
   const undeclared = paths.find((path) => path.startsWith("src/server/ai/") &&
-    path !== rootPath && path !== "src/server/ai/phase-d-provider-composition.ts");
+    path !== rootPath && path !== "src/server/ai/phase-c-composition.test.ts" &&
+    path !== "src/server/ai/phase-d-provider-composition.ts");
   if (phaseD !== undefined || adapter !== undefined) {
     rejectGraph("reserved_zone_present", JSON.stringify({ path: phaseD ?? adapter ?? "unknown", nodeKind: "FilesystemPath", reason: "future_zone_present" }));
   }
@@ -2158,9 +2172,11 @@ const configRepositorySource = readFileSync(
   resolve(repositoryRoot, "src/ai/config/model-config-repository.ts"),
   "utf8",
 );
-if (!configRepositorySource.includes("database.select({") ||
-  configRepositorySource.includes(".limit(") || configRepositorySource.includes("sql`")) {
-  fail("model configuration repository is not one typed complete select");
+if (!configRepositorySource.includes("database.select({") || configRepositorySource.includes("sql`") ||
+  !configRepositorySource.includes("async lockUseCaseRows(") ||
+  !configRepositorySource.includes("async lockRowById(") ||
+  !configRepositorySource.includes("async countRunReferences(")) {
+  fail("model configuration repository lacks the typed complete resolver read or closed mutation locks");
 }
 
 const positiveTypeConfigs = [

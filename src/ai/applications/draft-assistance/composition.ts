@@ -35,7 +35,7 @@ import { renderPromptV1 } from "@/ai/prompts/renderer";
 import { draftOutputDefinitionV1 } from "@/ai/output/registry";
 import type { PricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { createAiRunServiceV1 } from "@/ai/runs/service";
-import type { GovernedMutationOptions } from "@/audit/governed-mutation";
+import { type GovernedMutationOptions } from "@/audit/governed-mutation";
 
 import { buildAuthorizedDraftAssociationV1 } from "./association";
 import {
