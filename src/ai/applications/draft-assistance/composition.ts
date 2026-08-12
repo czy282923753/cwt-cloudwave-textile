@@ -25,21 +25,15 @@ import { aiFeatureGateRepositoryV1 } from "@/ai/config/feature-gate-repository";
 import { aiModelConfigRepositoryV1 } from "@/ai/config/model-config-repository";
 import { resolveModelConfigV1 } from "@/ai/config/model-config-resolver";
 import type { TrustedPhaseBEnvironmentV1 } from "@/ai/config/trusted-phase-b-environment";
-import { createProductionApplicationRegistryV1 } from "@/ai/registry/production-use-cases";
 import {
-  productionTextProviderRegistryV1,
-  type TextProviderRegistryV1,
-} from "@/ai/providers/registry";
-import {
-  productionPromptLoaderV1,
-  type PromptBundleLoaderV1,
-} from "@/ai/prompts/loader";
+  createProductionApplicationRegistryV1,
+  createProductionClaimedApplicationRegistryV1,
+} from "@/ai/registry/production-use-cases";
+import type { TextProviderRegistryV1 } from "@/ai/providers/registry";
+import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { renderPromptV1 } from "@/ai/prompts/renderer";
 import { draftOutputDefinitionV1 } from "@/ai/output/registry";
-import {
-  productionPricingPolicyRegistryV1,
-  type PricingPolicyRegistryV1,
-} from "@/ai/runs/pricing-policy";
+import type { PricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { createAiRunServiceV1 } from "@/ai/runs/service";
 import type { GovernedMutationOptions } from "@/audit/governed-mutation";
 
@@ -374,6 +368,19 @@ function contextRepository<TQueryResult extends PgQueryResultHKT>():
   };
 }
 
+export function createPhaseCClaimedApplicationRegistryV1() {
+  const contextPolicy = createDraftContextPolicy(contextRepository<PostgresJsQueryResultHKT>());
+  return createProductionClaimedApplicationRegistryV1({
+    availabilityAuthorization: createDraftAvailabilityAuthorization(
+      targetRepository<PostgresJsQueryResultHKT>(),
+    ),
+    requestAuthorization: createDraftRequestAuthorization<PostgresJsQueryResultHKT>(),
+    contextPolicy,
+    featureRepository: aiFeatureGateRepositoryV1,
+    configRepository: aiModelConfigRepositoryV1,
+  });
+}
+
 function compositionOrchestrator(dependencies: {
   readonly trustedEnvironment: TrustedPhaseBEnvironmentV1;
   readonly providerRegistry: TextProviderRegistryV1;
@@ -508,18 +515,4 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
       : { governedMutationOptions: dependencies.governedMutationOptions }),
   });
   return createDraftAssistanceDurableFacadeV1({ availability, runService });
-}
-
-export function createPhaseBAvailabilityServiceV1<
-  TQueryResult extends PgQueryResultHKT,
->(dependencies: {
-  readonly database: AppDatabase<TQueryResult>;
-  readonly trustedEnvironment: TrustedPhaseBEnvironmentV1;
-}): DraftAssistanceAvailabilityService {
-  return createPhaseCAvailabilityServiceV1({
-    ...dependencies,
-    providerRegistry: productionTextProviderRegistryV1,
-    promptLoader: productionPromptLoaderV1,
-    pricingRegistry: productionPricingPolicyRegistryV1,
-  });
 }

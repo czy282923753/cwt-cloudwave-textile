@@ -88,6 +88,49 @@ function copyJsonObject(value: ReadonlyJsonObject): ReadonlyJsonObject {
   return Object.freeze(copy);
 }
 
+function claimedDraftContextInAcceptedOrder(value: ReadonlyJsonObject): ReadonlyJsonObject {
+  const ordered: Record<string, ReadonlyJsonValue> = Object.create(null);
+  const copyKeys = (source: ReadonlyJsonObject, keys: readonly string[]) => {
+    const target: Record<string, ReadonlyJsonValue> = Object.create(null);
+    for (const key of keys) {
+      const member = source[key];
+      if (member !== undefined) target[key] = copyJsonValue(member);
+    }
+    return Object.freeze(target);
+  };
+  for (const key of ["version", "applicationClass", "capability", "useCase", "locale"] as const) {
+    const member = value[key];
+    if (member !== undefined) ordered[key] = copyJsonValue(member);
+  }
+  const association = value.association;
+  ordered.association = jsonObject(association)
+    ? copyKeys(association, ["kind", "targetType", "targetAlias", "expectedVersion", "snapshotHash"])
+    : copyJsonValue(association ?? null);
+  const task = value.task;
+  ordered.task = jsonObject(task)
+    ? copyKeys(task, ["tone", "pageIntent", "primaryPhrase", "topic", "guideIntent"])
+    : copyJsonValue(task ?? null);
+  const sources = value.sources;
+  ordered.sources = Array.isArray(sources) ? Object.freeze(sources.map((source) => {
+    if (!jsonObject(source)) return copyJsonValue(source);
+    const fields = source.fields;
+    const orderedSource = copyKeys(source, ["alias", "sourceClass", "selectedBy"]);
+    return Object.freeze({
+      ...orderedSource,
+      fields: Array.isArray(fields) ? Object.freeze(fields.map((field) =>
+        jsonObject(field)
+          ? copyKeys(field, ["field", "ref", "provenance", "value"])
+          : copyJsonValue(field))) : copyJsonValue(fields ?? null),
+    });
+  })) : copyJsonValue(sources ?? null);
+  const links = value.internalLinkCandidates;
+  ordered.internalLinkCandidates = Array.isArray(links) ? Object.freeze(links.map((link) =>
+    jsonObject(link)
+      ? copyKeys(link, ["candidateRef", "label"]) : copyJsonValue(link))) : copyJsonValue(links ?? null);
+  ordered.mediaPlacementRefs = copyJsonValue(value.mediaPlacementRefs ?? null);
+  return Object.freeze(ordered);
+}
+
 export interface PreDispatchClaimedRunV2 {
   readonly [claimedRunBrand]: true;
   readonly version: 2;
@@ -142,7 +185,7 @@ export function constructPreDispatchClaimedRunV2(input: {
     return aiFailure("claimed_run_required");
   }
   const parametersSnapshot = copyJsonObject(row.parametersSnapshotJson);
-  const inputContext = copyJsonObject(row.inputContextJson);
+  const inputContext = claimedDraftContextInAcceptedOrder(row.inputContextJson);
   if (row.actualProvider !== null && row.actualProvider !== row.requestedProvider) {
     return aiFailure("config_provenance_mismatch");
   }

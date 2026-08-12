@@ -128,6 +128,15 @@ export interface AiRunRepositoryV1 {
     readonly actorUserId: string;
     readonly actorRole: string;
   }): Promise<AiRunAuthorizedReadV1 | null>;
+  readPricingForWorker(runId: string): Promise<{
+    readonly provider: string;
+    readonly model: string;
+    readonly snapshot: PricingSnapshotV1;
+  } | null>;
+  readCancelledFenceForWorker(input: {
+    readonly runId: string;
+    readonly cancelledLeaseToken: string;
+  }): Promise<{ readonly stateVersion: number } | null>;
   readRunForWorker(runId: string): Promise<unknown | null>;
   findReplayWithinTransaction(
     transaction: PhaseCPgDatabase,
@@ -273,6 +282,52 @@ function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
     humanDisposition: row.humanDisposition,
     qualityRating: row.qualityRating,
     qualityLabels: Object.freeze([...row.qualityLabels]),
+  };
+}
+
+function claimedRowProjection(row: typeof aiRuns.$inferSelect) {
+  return {
+    runId: row.id,
+    applicationClass: row.applicationClass,
+    capability: row.capability,
+    useCase: row.useCase,
+    targetType: row.targetType,
+    targetProductId: row.targetProductId,
+    targetContentId: row.targetContentId,
+    targetRevisionId: row.targetRevisionId,
+    targetLocale: row.targetLocale,
+    expectedTargetVersion: row.expectedTargetVersion,
+    targetSnapshotHash: row.targetSnapshotHash,
+    modelConfigId: row.modelConfigId,
+    modelConfigVersion: row.modelConfigVersion,
+    resolvedConfigHash: row.resolvedConfigHash,
+    requestedProvider: row.requestedProvider,
+    actualProvider: row.actualProvider,
+    requestedModel: row.requestedModel,
+    parametersSnapshotJson: row.parametersSnapshotJson,
+    maxInputTokens: row.maxInputTokens,
+    maxOutputTokens: row.maxOutputTokens,
+    maxAttempts: row.maxAttempts,
+    runCostLimitMicrousd: row.runCostLimitMicrousd,
+    promptId: row.promptId,
+    promptVersion: row.promptVersion,
+    promptHash: row.promptHash,
+    providerEnvelopeVersion: row.providerEnvelopeVersion,
+    providerEnvelopeHash: row.providerEnvelopeHash,
+    inputSchemaVersion: row.inputSchemaVersion,
+    outputSchemaVersion: row.outputSchemaVersion,
+    policyVersion: row.policyVersion,
+    inputContextJson: row.inputContextJson,
+    inputHash: row.inputHash,
+    status: row.status,
+    retryState: row.retryState,
+    attemptCount: row.attemptCount,
+    leaseOwner: row.leaseOwner,
+    leaseToken: row.leaseToken,
+    leaseExpiresAt: row.leaseExpiresAt,
+    stateVersion: row.stateVersion,
+    activeAttemptDispatchedAt: row.activeAttemptDispatchedAt,
+    providerDispatchedAt: row.providerDispatchedAt,
   };
 }
 
@@ -548,7 +603,7 @@ export function createAiRunRepositoryV1(
         if (row === undefined) return { kind: "idle", reason: "empty" };
         await barriers?.afterRunMutation?.({ operation: "claim_or_recover", runId: row.id, observedAt: lock.observedAt });
         await barriers?.beforeCommit?.({ operation: "claim_or_recover", runId: row.id, observedAt: lock.observedAt });
-        return { kind: "claimed", row };
+        return { kind: "claimed", row: claimedRowProjection(row) };
       });
     },
 
@@ -716,7 +771,8 @@ export function createAiRunRepositoryV1(
         if (row === undefined || row.status !== "processing" || row.leaseOwner !== input.leaseOwner ||
           row.leaseToken !== input.leaseToken || row.stateVersion !== input.stateVersion ||
           row.leaseExpiresAt === null || row.leaseExpiresAt <= lock.observedAt ||
-          row.activeAttemptDispatchedAt === null) {
+          (input.evidence.dispatchState === "dispatched") !==
+            (row.activeAttemptDispatchedAt !== null)) {
           return { kind: "lease_lost_or_unsafe", observedAt: lock.observedAt };
         }
         const history = attemptHistory(row.attemptHistoryJson);
@@ -1127,6 +1183,30 @@ export function createAiRunRepositoryV1(
         qualityRating: row.qualityRating,
         qualityLabels: Object.freeze([...row.qualityLabels]),
       };
+    },
+
+    async readPricingForWorker(runId) {
+      const selected = await database.select({
+        provider: aiRuns.requestedProvider,
+        model: aiRuns.requestedModel,
+        snapshot: aiRuns.pricingSnapshotJson,
+      }).from(aiRuns).where(eq(aiRuns.id, runId)).limit(1);
+      const row = selected[0];
+      if (row === undefined) return null;
+      const snapshot = pricingSnapshot(row.snapshot);
+      if (snapshot === undefined) throw new Error("Stored pricing snapshot was invalid.");
+      return { provider: row.provider, model: row.model, snapshot };
+    },
+
+    async readCancelledFenceForWorker(input) {
+      const selected = await database.select({
+        status: aiRuns.status,
+        token: aiRuns.cancelledLeaseToken,
+        stateVersion: aiRuns.stateVersion,
+      }).from(aiRuns).where(eq(aiRuns.id, input.runId)).limit(1);
+      const row = selected[0];
+      return row?.status === "cancelled" && row.token === input.cancelledLeaseToken
+        ? { stateVersion: row.stateVersion } : null;
     },
 
     async readRunForWorker(runId) {

@@ -8,6 +8,7 @@
     "pnpm": "11.9.0"
   },
   "scripts": {
+    "ai:runs:process": "tsx scripts/process-ai-runs.ts",
     "dev": "next dev",
     "env:check": "node scripts/check-runtime.mjs",
     "env:diagnose": "node scripts/diagnose-environment.mjs",
