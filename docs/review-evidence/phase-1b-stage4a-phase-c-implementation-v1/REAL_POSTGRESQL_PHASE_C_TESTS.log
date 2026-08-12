@@ -1,0 +1,13 @@
+Already up to date
+Done in 218ms using pnpm v11.9.0
+Already up to date
+Done in 223ms using pnpm v11.9.0
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目
+
+
+ Test Files  11 passed (11)
+      Tests  41 passed (41)
+   Start at  17:53:44
+   Duration  43.80s (transform 339ms, setup 35ms, import 2.77s, tests 40.08s, environment 1ms)
+

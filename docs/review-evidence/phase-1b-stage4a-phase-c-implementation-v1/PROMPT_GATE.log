@@ -1,0 +1,4 @@
+Already up to date
+Done in 254ms using pnpm v11.9.0
+$ tsx scripts/verify-ai-prompt-bundle.ts --include-synthetic-test
+AI Prompt bundle verification passed.

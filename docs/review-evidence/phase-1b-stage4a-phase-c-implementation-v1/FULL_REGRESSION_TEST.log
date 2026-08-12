@@ -1,0 +1,14 @@
+Already up to date
+Done in 222ms using pnpm v11.9.0
+$ vitest run
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目
+
+[inquiry-error] request 8e2ae57a-951b-4265-b1a2-2ee61642de64; details omitted.
+[inquiry-error] request b8f71c8a-9e03-45da-a495-f36945166e3e; details omitted.
+
+ Test Files  117 passed | 7 skipped (124)
+      Tests  594 passed | 32 skipped (626)
+   Start at  17:49:07
+   Duration  261.54s (transform 1.57s, setup 280ms, import 28.41s, tests 218.97s, environment 3.02s)
+

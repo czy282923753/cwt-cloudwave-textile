@@ -1,0 +1,11 @@
+{
+    "checks": 40,
+    "foreignKeys": 11,
+    "aiRunsColumns": 96,
+    "explicitIndexes": 18,
+    "serverVersionNum": "170010",
+    "idleInTransaction": 0,
+    "postgresqlVersion": "PostgreSQL 17.10 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "aiModelConfigColumns": 21,
+    "lifecycleAdvisoryLocks": 0
+}

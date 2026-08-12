@@ -1,0 +1,353 @@
+import { randomUUID } from "node:crypto";
+import { availableParallelism } from "node:os";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+
+import { eq, sql } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/node_modules/drizzle-orm/index.js";
+import { drizzle } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/node_modules/drizzle-orm/postgres-js/index.js";
+import postgres from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/node_modules/postgres/src/index.js";
+
+import { createPhaseCDurableDraftAssistanceServiceV1 } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/applications/draft-assistance/composition";
+import { createTextProviderRegistryV1 } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/providers/registry";
+import type { TextAiProvider } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/providers/text-provider";
+import { createFakeTextProviderV1 } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/testing/fake-text-provider";
+import { localTestPricingPolicyRegistryV1 } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/runs/pricing-policy";
+import { CWT_AI_TEXT_CLAIM_BUDGET_ADVISORY_KEY_V1 } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/runs/repository";
+import { createAiRunWorkerV1 } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/ai/runs/worker";
+import { migrateDatabase } from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/db/migrate";
+import {
+  aiModelConfig,
+  aiRuns,
+  auditLogs,
+  featureFlags,
+  productLocalizations,
+  productTaxonomyTerms,
+  products,
+  taxonomyTerms,
+  users,
+} from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/db/schema";
+import * as schema from "/Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目/src/db/schema";
+
+const databaseUrl = process.env.CWT_PHASE_C_POSTGRES_URL;
+if (databaseUrl === undefined) throw new Error("CWT_PHASE_C_POSTGRES_URL is required.");
+const hash = (value: string) => value.repeat(64);
+const client = postgres(databaseUrl, { max: 8, prepare: false, onnotice: () => undefined });
+const database = drizzle(client, { schema });
+const connection = {
+  kind: "postgres" as const,
+  db: database,
+  createMigrationClient: () => postgres(databaseUrl, { max: 1, prepare: false, onnotice: () => undefined }),
+  close: async () => undefined,
+};
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((accept) => { resolve = accept; });
+  return { promise, resolve };
+}
+
+async function waitFor(predicate: () => Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 1_000; attempt += 1) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("EV-02 condition timed out.");
+}
+
+const requests: unknown[] = [];
+const baseProvider = createFakeTextProviderV1({
+  key: "synthetic_alpha",
+  model: "synthetic-text-alpha-v1",
+  envelope: { version: 1, hash: hash("e") },
+  recorder: { requests: requests as never[] },
+  result: {
+    kind: "success",
+    returnedModel: "synthetic-text-alpha-v1",
+    completion: { kind: "complete" },
+    outputText: JSON.stringify({
+      schemaVersion: 1,
+      useCase: "product_description_draft",
+      locale: "en",
+      summaryProposal: { text: "Synthetic Worker candidate.", sourceRefs: ["src_01:text"] },
+      descriptionBlocks: [],
+      featureProposals: [],
+      faqProposals: [],
+      mediaTextProposals: [],
+    }),
+    usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+    durationMs: 3,
+  },
+});
+
+const promptLoader = {
+  load(input: any) {
+    return {
+      ok: true as const,
+      value: {
+        tuple: { promptId: input.promptId, promptVersion: input.promptVersion, promptHash: input.promptHash },
+        applicationClass: input.applicationClass,
+        capability: "text" as const,
+        useCase: input.useCase,
+        locale: "en",
+        inputSchemaVersion: input.inputSchemaVersion,
+        outputSchemaVersion: input.outputSchemaVersion,
+        policyVersion: input.policyVersion,
+        variables: [
+          { name: "locale", type: "string" as const, maximumUtf8Bytes: 16 },
+          { name: "product_context_json", type: "json" as const, maximumUtf8Bytes: 49_152 },
+          { name: "media_placement_refs_json", type: "json" as const, maximumUtf8Bytes: 8_192 },
+          { name: "requested_tone", type: "enum" as const, values: ["concise_professional_b2b", "neutral_editorial"] },
+        ],
+        body: "SYNTHETIC TEST DATA — NOT A CWT FACT\n{{locale}}\n{{product_context_json}}\n{{media_placement_refs_json}}\n{{requested_tone}}",
+      },
+    };
+  },
+};
+
+async function resetAndSeed() {
+  await database.execute(sql`truncate table ${aiRuns}, ${aiModelConfig}, ${auditLogs}, ${featureFlags}, ${productLocalizations}, ${products}, ${users} cascade`);
+  const [actor] = await database.insert(users).values({
+    email: `${randomUUID()}@ev02.example.test`,
+    displayName: "Synthetic EV-02 Actor",
+    role: "product_editor",
+    passwordHash: "test-only",
+  }).returning({ id: users.id });
+  if (actor === undefined) throw new Error("Actor seed failed.");
+  const productId = await database.transaction(async (transaction) => {
+    const [taxonomy] = await transaction.insert(taxonomyTerms).values({
+      internalKey: `synthetic-ev02-${randomUUID()}`,
+      dimension: "material_fiber",
+    }).returning({ id: taxonomyTerms.id });
+    const [product] = await transaction.insert(products).values({
+      status: "draft",
+      createdByUserId: actor.id,
+    }).returning({ id: products.id });
+    if (taxonomy === undefined || product === undefined) throw new Error("Product seed failed.");
+    await transaction.insert(productLocalizations).values({
+      productId: product.id,
+      locale: "en",
+      name: "Synthetic EV-02 Product",
+      editorDocumentVersion: 1,
+    });
+    await transaction.insert(productTaxonomyTerms).values({
+      productId: product.id,
+      taxonomyTermId: taxonomy.id,
+      isPrimary: true,
+    });
+    return product.id;
+  });
+  await database.insert(featureFlags).values({ key: "ai", enabled: true });
+  await database.insert(aiModelConfig).values({
+    useCase: "product_description_draft",
+    provider: "synthetic_alpha",
+    model: "synthetic-text-alpha-v1",
+    parametersJson: { temperature: 0 },
+    maxInputTokens: 1_000,
+    maxOutputTokens: 200,
+    maxAttempts: 3,
+    runCostLimitMicrousd: 20_000,
+    promptId: "product-description-draft",
+    promptVersion: 1,
+    promptHash: hash("a"),
+    enabled: true,
+    isDefault: true,
+    createdByUserId: actor.id,
+    updatedByUserId: actor.id,
+  });
+  return { actorId: actor.id, productId };
+}
+
+function command(fixture: Awaited<ReturnType<typeof resetAndSeed>>) {
+  return {
+    useCase: "product_description_draft" as const,
+    actor: { userId: fixture.actorId, role: "product_editor" as const },
+    target: { type: "product_draft" as const, productId: fixture.productId, locale: "en" as const, expectedVersion: 1 },
+    idempotencyKey: randomUUID(),
+    contextSelections: [{ sourceClass: "explicit_human_input" as const, origin: "typed_brief" as const }],
+    explicitInput: "SYNTHETIC TEST DATA — NOT A CWT FACT; Worker lifecycle proof.",
+  };
+}
+
+async function enqueue(fixture: Awaited<ReturnType<typeof resetAndSeed>>, count: number) {
+  const registry = createTextProviderRegistryV1([baseProvider]);
+  if (!registry.ok) throw new Error("Provider registry failed.");
+  const service = createPhaseCDurableDraftAssistanceServiceV1({
+    database,
+    trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+    providerRegistry: registry.value,
+    promptLoader,
+    pricingRegistry: localTestPricingPolicyRegistryV1,
+  });
+  for (let index = 0; index < count; index += 1) {
+    const result = await service.requestDraftAssistance(command(fixture));
+    if (!result.ok) throw new Error(`Enqueue failed: ${result.error.code}`);
+  }
+}
+
+async function twoSlotScenario() {
+  const fixture = await resetAndSeed();
+  await enqueue(fixture, 3);
+  const release = deferred();
+  let active = 0;
+  let maximum = 0;
+  const deferredProvider: TextAiProvider = {
+    ...baseProvider,
+    async generateText(input) {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await release.promise;
+      try { return await baseProvider.generateText(input); }
+      finally { active -= 1; }
+    },
+  };
+  const registry = createTextProviderRegistryV1([deferredProvider]);
+  if (!registry.ok) throw new Error("Deferred registry failed.");
+  const worker = createAiRunWorkerV1({
+    database,
+    trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+    providerRegistry: registry.value,
+    promptLoader,
+    pricingRegistry: localTestPricingPolicyRegistryV1,
+    timing: { heartbeatIntervalMs: 15_000, lockRetryDelayMs: 1_000, idlePollMs: 10, gracefulShutdownMs: 1_000, postAbortPersistenceMs: 200 },
+    workerId: "ev02-two-slot",
+  });
+  await worker.start();
+  await waitFor(async () => active === 2);
+  const blocked = await database.select().from(aiRuns);
+  release.resolve();
+  await waitFor(async () => (await database.select().from(aiRuns)).every((row) => row.status === "draft_ready"));
+  await worker.stop("SIGTERM");
+  const final = await database.select().from(aiRuns);
+  return {
+    maximumProviderCalls: maximum,
+    blockedState: {
+      processing: blocked.filter((row) => row.status === "processing").length,
+      pending: blocked.filter((row) => row.status === "pending").length,
+    },
+    finalDraftReady: final.filter((row) => row.status === "draft_ready").length,
+    providerCalls: requests.length,
+  };
+}
+
+async function contentionScenario() {
+  requests.length = 0;
+  const fixture = await resetAndSeed();
+  await enqueue(fixture, 1);
+  const entered = deferred();
+  let abortReason: unknown;
+  const abortingProvider: TextAiProvider = {
+    ...baseProvider,
+    async generateText(input) {
+      entered.resolve();
+      await new Promise<void>((resolve) => {
+        if (input.signal.aborted) resolve();
+        else input.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      abortReason = input.signal.reason;
+      return { kind: "failure", responseStatus: "transport_error", failureCode: "transport", retryClass: "same_provider_transient", durationMs: 1 };
+    },
+  };
+  const registry = createTextProviderRegistryV1([abortingProvider]);
+  if (!registry.ok) throw new Error("Aborting registry failed.");
+  const telemetry: string[] = [];
+  const worker = createAiRunWorkerV1({
+    database,
+    trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+    providerRegistry: registry.value,
+    promptLoader,
+    pricingRegistry: localTestPricingPolicyRegistryV1,
+    telemetry: { emit: (event) => { telemetry.push(event.eventName); } },
+    timing: { heartbeatIntervalMs: 10, lockRetryDelayMs: 20, idlePollMs: 10, gracefulShutdownMs: 300, postAbortPersistenceMs: 150 },
+    workerId: "ev02-contention",
+  });
+  await worker.start();
+  await entered.promise;
+  const lockClient = postgres(databaseUrl, { max: 1, prepare: false, onnotice: () => undefined });
+  const held = deferred();
+  const release = deferred();
+  const advisory = CWT_AI_TEXT_CLAIM_BUDGET_ADVISORY_KEY_V1;
+  const lockPromise = lockClient.begin(async (transaction) => {
+    await transaction`select pg_advisory_xact_lock(${advisory[0]}, ${advisory[1]})`;
+    held.resolve();
+    await release.promise;
+  });
+  await held.promise;
+  await worker.stop("SIGTERM");
+  const [abandoned] = await database.select().from(aiRuns);
+  release.resolve();
+  await lockPromise;
+  await lockClient.end();
+  return {
+    abortReason,
+    heartbeatBusyEvents: telemetry.filter((event) => event === "ai_heartbeat_lock_busy").length,
+    renewalUnavailableEvents: telemetry.filter((event) => event === "ai_lease_renewal_unavailable").length,
+    durableStatus: abandoned?.status,
+    candidateNull: abandoned?.candidateJson === null && abandoned?.candidateHash === null,
+  };
+}
+
+async function main() {
+  await migrateDatabase(connection);
+  const eventLoop = monitorEventLoopDelay({ resolution: 10 });
+  eventLoop.enable();
+  const wallStarted = performance.now();
+  const cpuBefore = process.cpuUsage();
+  const rssBefore = process.memoryUsage().rss;
+  const twoSlot = await twoSlotScenario();
+  const contention = await contentionScenario();
+  eventLoop.disable();
+  const wallDurationMs = performance.now() - wallStarted;
+  const cpu = process.cpuUsage(cpuBefore);
+  const locks = await database.execute<{ count: number }>(sql`
+    select count(*)::integer as count from pg_locks
+    where locktype='advisory' and classid=1129792594 and objid=1
+  `);
+  const idle = await database.execute<{ count: number }>(sql`
+    select count(*)::integer as count from pg_stat_activity
+    where datname=current_database() and state='idle in transaction'
+  `);
+  const result = {
+    schemaVersion: 1,
+    synthetic: true,
+    envelope: {
+      targetVcpu: 2,
+      targetMemoryBytes: 4_294_967_296,
+      validationMode: "measured-demand-below-equivalent-capacity",
+      hostAvailableParallelism: availableParallelism(),
+    },
+    node: process.version,
+    twoSlot,
+    contention,
+    resource: {
+      cpuUserMicroseconds: cpu.user,
+      cpuSystemMicroseconds: cpu.system,
+      rssBeforeBytes: rssBefore,
+      rssAfterBytes: process.memoryUsage().rss,
+      maxRssKilobytes: process.resourceUsage().maxRSS,
+      wallDurationMs,
+      averageVcpuDemand: (cpu.user + cpu.system) / (wallDurationMs * 1_000),
+      eventLoopMeanMs: eventLoop.mean / 1e6,
+      eventLoopP99Ms: eventLoop.percentile(99) / 1e6,
+      eventLoopMaxMs: eventLoop.max / 1e6,
+      dbPoolMax: 8,
+    },
+    health: { advisoryLocks: locks[0]?.count ?? -1, idleInTransaction: idle[0]?.count ?? -1 },
+  };
+  if (result.resource.averageVcpuDemand >= result.envelope.targetVcpu ||
+    result.resource.maxRssKilobytes * 1_024 >= result.envelope.targetMemoryBytes ||
+    twoSlot.maximumProviderCalls !== 2 || twoSlot.blockedState.processing !== 2 ||
+    twoSlot.blockedState.pending !== 1 || twoSlot.finalDraftReady !== 3 ||
+    contention.abortReason !== "lease_renewal_unavailable" || contention.heartbeatBusyEvents !== 5 ||
+    contention.renewalUnavailableEvents !== 1 || contention.durableStatus !== "processing" ||
+    !contention.candidateNull || result.health.advisoryLocks !== 0 || result.health.idleInTransaction !== 0) {
+    throw new Error(`EV-02 assertion failed: ${JSON.stringify(result)}`);
+  }
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`EV-02 main failure: ${error instanceof Error ? error.stack : String(error)}\n`);
+  process.exitCode = 1;
+}).finally(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  await client.end({ timeout: 5 });
+});

@@ -1,0 +1,12 @@
+Already up to date
+Done in 265ms using pnpm v11.9.0
+$ vitest run src/ai
+
+ RUN  v4.1.10 /Users/calvin/.codex/worktrees/c6f3/CWT（CloudWave Textile）项目
+
+
+ Test Files  17 passed | 7 skipped (24)
+      Tests  174 passed | 32 skipped (206)
+   Start at  17:55:02
+   Duration  14.77s (transform 485ms, setup 72ms, import 4.53s, tests 8.09s, environment 1ms)
+
