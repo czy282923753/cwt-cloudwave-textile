@@ -2040,9 +2040,11 @@ if (providerEndpointOwners.length !== 1 || providerEndpointOwners[0]?.path !==
 const controlledScript = readFileSync(resolve(repositoryRoot, "scripts/validate-deepseek-text-adapter.ts"), "utf8");
 if (controlledScript !==
   'import { runControlledDeepSeekValidationV1 } from "@/ai/testing/controlled-provider-validation";\n\n' +
-  'const result = await runControlledDeepSeekValidationV1();\n' +
-  'process.stdout.write(`${JSON.stringify(result, null, 2)}\\n`);\n' +
-  'if (result.status !== "PASS") process.exitCode = 1;\n') {
+  'async function main(): Promise<void> {\n' +
+  '  const result = await runControlledDeepSeekValidationV1();\n' +
+  '  process.stdout.write(`${JSON.stringify(result, null, 2)}\\n`);\n' +
+  '  if (result.status !== "PASS") process.exitCode = 1;\n' +
+  '}\n\nvoid main();\n') {
   fail("controlled validation script is not the exact single-runner shell");
 }
 const controlledRunnerIncoming = graphEdges.filter((edge) =>

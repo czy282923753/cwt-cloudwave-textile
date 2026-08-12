@@ -9,7 +9,7 @@
   },
   "scripts": {
     "ai:runs:process": "tsx scripts/process-ai-runs.ts",
-    "ai:validate:deepseek": "tsx scripts/validate-deepseek-text-adapter.ts --execute-controlled-real-provider-validation",
+    "ai:validate:deepseek": "tsx --conditions=react-server scripts/validate-deepseek-text-adapter.ts --execute-controlled-real-provider-validation",
     "dev": "next dev",
     "env:check": "node scripts/check-runtime.mjs",
     "env:diagnose": "node scripts/diagnose-environment.mjs",
