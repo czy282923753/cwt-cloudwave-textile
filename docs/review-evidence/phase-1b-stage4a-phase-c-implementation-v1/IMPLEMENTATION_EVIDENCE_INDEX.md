@@ -27,7 +27,7 @@ The final evidence commit is intentionally a descendant of the clean code commit
 | Type/lint/Prompt/foundation | PASS | `TYPECHECK.log`, `LINT.log`, `PROMPT_GATE.log`, `AI_FOUNDATION_TEST.log` |
 | PostgreSQL application build | PASS | `POSTGRESQL_BUILD.log` |
 | Server/public fixture bundle | PASS: all three server markers and the raw Synthetic Prompt retained; public-client leak count zero; positive client/leak controls fired | `SERVER_PUBLIC_BUNDLE_BUILD.log`; V4.0 bundle proof |
-| AI Architecture V4.0 | PASS: 28 inherited mutation probes, 6 Phase C Synthetic probes, inherited graph/type/topology gates and five proofs plus one manifest | `architecture-v4/`; `ARCHITECTURE_V4_EMISSION.log` |
+| AI Architecture V4.0 | PASS: 28 inherited mutation probes, 6 Phase C Synthetic probes, inherited graph/type/topology gates and five proofs plus one manifest; proof-bound verification passed from the evidence commit | `architecture-v4/`; `ARCHITECTURE_V4_EMISSION.log`; `ARCHITECTURE_V4_PROOF_BOUND_VERIFICATION.log` |
 
 ## PostgreSQL identity and isolation
 
@@ -101,6 +101,8 @@ The built server and public-static trees were copied to isolated no-symlink inpu
 - raw profile SHA-256 `51699e6da13fb572289851df9c0f984a13b02ce48cc5db878b1d320aabee1ddb`;
 - integrity projection SHA-256 `9dbd93121e9d6fadfb6c6af6a38cef1762b292722078a79a916d9ced06988bd9`;
 - 28 inherited mutation probes and 6 Phase C Synthetic mutation probes.
+
+After committing the evidence, the checker was rerun with the exact `--proof-bound-commit` and `--verify-evidence-dir` command shown below. It passed, proving that the committed evidence directory is internally bound to the clean executable Candidate and that the evidence-only descendant introduced no executable-tree drift.
 
 ## Mutation and frozen-boundary record
 

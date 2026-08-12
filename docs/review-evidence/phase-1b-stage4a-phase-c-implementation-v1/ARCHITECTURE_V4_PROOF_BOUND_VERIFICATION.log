@@ -1,0 +1,1463 @@
+Already up to date
+Done in 237ms using pnpm v11.9.0
+{
+  "ok": true,
+  "profileId": "cwt.phase1b.stage4a.phasec.durable-run-worker-boundary.v4_0_candidate",
+  "profileIntegritySha256": "9dbd93121e9d6fadfb6c6af6a38cef1762b292722078a79a916d9ced06988bd9",
+  "profileFileSha256": "51699e6da13fb572289851df9c0f984a13b02ce48cc5db878b1d320aabee1ddb",
+  "head": "88393a44b4c36984d19f92fecf61417a61fd8557",
+  "lifecycleState": "source-clean-file-absent",
+  "candidateCount": 724,
+  "executableCount": 504,
+  "classes": {
+    "phase-c-outer-composition": [
+      "src/server/ai/phase-c-composition.ts"
+    ],
+    "phase-d-outer-composition-reserved": [],
+    "future-provider-adapter-zone-reserved": [],
+    "synthetic-ai-test-code": [
+      "src/ai/testing/accepted-draft-atomicity-harness.integration.test.ts",
+      "src/ai/testing/accepted-draft-atomicity-harness.ts",
+      "src/ai/testing/fake-text-provider.ts",
+      "src/ai/testing/synthetic-application/association.ts",
+      "src/ai/testing/synthetic-application/context.ts",
+      "src/ai/testing/synthetic-application/definition.ts",
+      "src/ai/testing/synthetic-application/output.ts",
+      "src/ai/testing/synthetic-application/read-scopes.ts",
+      "src/ai/testing/synthetic-application/synthetic-application.test.ts",
+      "src/ai/testing/synthetic-prompts/synthetic-prompt-bundle.generated.ts",
+      "src/ai/testing/synthetic-prompts/synthetic-prompt.test.ts",
+      "test-fixtures/ai-architecture/graph-faults.phase-c.v4_0.json",
+      "test-fixtures/ai-architecture/graph-faults.v3_1.json",
+      "test-fixtures/ai-server-bundle/app/client-probe.tsx",
+      "test-fixtures/ai-server-bundle/app/layout.tsx",
+      "test-fixtures/ai-server-bundle/app/page.tsx",
+      "test-fixtures/ai-server-bundle/app/server-marker.ts",
+      "test-fixtures/ai-server-bundle/next.config.ts",
+      "test-fixtures/ai-server-bundle/package.json",
+      "test-fixtures/ai-server-bundle/tsconfig.json",
+      "test-fixtures/ai-server-bundle/verify.mjs",
+      "test-fixtures/ai-types/database-seam/cross-driver.negative.ts",
+      "test-fixtures/ai-types/database-seam/positive.ts",
+      "test-fixtures/ai-types/database-seam/tsconfig.cross-driver-negative.json",
+      "test-fixtures/ai-types/database-seam/tsconfig.positive.json",
+      "test-fixtures/ai-types/database-seam/tsconfig.unnarrowed-negative.json",
+      "test-fixtures/ai-types/database-seam/unnarrowed.negative.ts",
+      "test-fixtures/ai-types/read-scope/common-authority.negative.ts",
+      "test-fixtures/ai-types/read-scope/execute-authority.negative.ts",
+      "test-fixtures/ai-types/read-scope/external-fabrication.negative.ts",
+      "test-fixtures/ai-types/read-scope/mode-mismatch.negative.ts",
+      "test-fixtures/ai-types/read-scope/positive.ts",
+      "test-fixtures/ai-types/read-scope/tsconfig.common-authority-negative.json",
+      "test-fixtures/ai-types/read-scope/tsconfig.execute-authority-negative.json",
+      "test-fixtures/ai-types/read-scope/tsconfig.external-fabrication-negative.json",
+      "test-fixtures/ai-types/read-scope/tsconfig.mode-mismatch-negative.json",
+      "test-fixtures/ai-types/read-scope/tsconfig.positive.json"
+    ],
+    "protected-ai": [
+      "src/ai/applications/contracts.ts",
+      "src/ai/applications/draft-assistance/association.ts",
+      "src/ai/applications/draft-assistance/authorization.ts",
+      "src/ai/applications/draft-assistance/composition.ts",
+      "src/ai/applications/draft-assistance/context-integrity.ts",
+      "src/ai/applications/draft-assistance/context.ts",
+      "src/ai/applications/draft-assistance/contracts.ts",
+      "src/ai/applications/draft-assistance/facade.ts",
+      "src/ai/applications/draft-assistance/read-scopes.ts",
+      "src/ai/canonical-json.ts",
+      "src/ai/config/feature-gate-repository.ts",
+      "src/ai/config/model-config-repository.ts",
+      "src/ai/config/model-config-resolver.ts",
+      "src/ai/config/model-config-service.ts",
+      "src/ai/config/trusted-phase-b-environment.ts",
+      "src/ai/context/contracts.ts",
+      "src/ai/context/protected-data.ts",
+      "src/ai/core/contracts.ts",
+      "src/ai/core/orchestrator.ts",
+      "src/ai/errors.ts",
+      "src/ai/index.ts",
+      "src/ai/internal/claimed-run-authority.ts",
+      "src/ai/internal/preparation.ts",
+      "src/ai/internal/worker-entry.ts",
+      "src/ai/output/common.ts",
+      "src/ai/output/fabric-knowledge-draft.ts",
+      "src/ai/output/product-description-draft.ts",
+      "src/ai/output/raw-json.ts",
+      "src/ai/output/registry.ts",
+      "src/ai/output/seo-content-draft.ts",
+      "src/ai/output/sourcing-guide-draft.ts",
+      "src/ai/prompts/contracts.ts",
+      "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
+      "src/ai/prompts/loader.ts",
+      "src/ai/prompts/renderer.ts",
+      "src/ai/prompts/resources/README.md",
+      "src/ai/prompts/resources/production/manifest.v1.json",
+      "src/ai/providers/registry.ts",
+      "src/ai/providers/text-provider.ts",
+      "src/ai/registry/application-registry.ts",
+      "src/ai/registry/production-use-cases.ts",
+      "src/ai/runs/attempt-evidence.ts",
+      "src/ai/runs/contracts.ts",
+      "src/ai/runs/pricing-policy.ts",
+      "src/ai/runs/repository.ts",
+      "src/ai/runs/retry-policy.ts",
+      "src/ai/runs/service.ts",
+      "src/ai/runs/worker.ts",
+      "src/ai/server-bundle-marker.ts",
+      "src/ai/telemetry.ts"
+    ],
+    "business-consumer": [
+      "src/admin/action-result.ts",
+      "src/admin/actions.ts",
+      "src/admin/actor.ts",
+      "src/admin/asset-picker.ts",
+      "src/admin/components/admin-action-form.tsx",
+      "src/admin/components/admin-table.tsx",
+      "src/admin/components/asset-declaration-form.tsx",
+      "src/admin/components/asset-upload-form.tsx",
+      "src/admin/components/block-editor.tsx",
+      "src/admin/components/media-placement-editor.tsx",
+      "src/admin/components/preview-viewport-panel.tsx",
+      "src/admin/components/product-import-apply.tsx",
+      "src/admin/components/product-import-resume.tsx",
+      "src/admin/components/product-import-row-correction.tsx",
+      "src/admin/components/product-import-wizard.tsx",
+      "src/admin/components/product-relation-selectors.tsx",
+      "src/admin/components/retryable-asset-batches.tsx",
+      "src/admin/data.ts",
+      "src/admin/invoke-admin-action.ts",
+      "src/admin/preview-data.ts",
+      "src/admin/preview-policy.ts",
+      "src/admin/refine/refine-admin-provider.tsx",
+      "src/app/(admin-preview)/admin/preview/content/[id]/page.tsx",
+      "src/app/(admin-preview)/admin/preview/product/[id]/page.tsx",
+      "src/app/(admin-preview)/admin/preview/site/[pageKey]/page.tsx",
+      "src/app/about/page.tsx",
+      "src/app/admin/applications/[id]/page.tsx",
+      "src/app/admin/applications/page.tsx",
+      "src/app/admin/assets/[id]/page.tsx",
+      "src/app/admin/assets/page.tsx",
+      "src/app/admin/audit/page.tsx",
+      "src/app/admin/authors/page.tsx",
+      "src/app/admin/company-facts/[id]/page.tsx",
+      "src/app/admin/company-facts/page.tsx",
+      "src/app/admin/contacts/page.tsx",
+      "src/app/admin/contents/[id]/page.tsx",
+      "src/app/admin/contents/page.tsx",
+      "src/app/admin/fabric-library/[id]/page.tsx",
+      "src/app/admin/fabric-library/page.tsx",
+      "src/app/admin/inquiries/[id]/page.tsx",
+      "src/app/admin/inquiries/page.tsx",
+      "src/app/admin/layout.tsx",
+      "src/app/admin/page.tsx",
+      "src/app/admin/product-imports/[batchId]/page.tsx",
+      "src/app/admin/product-imports/page.tsx",
+      "src/app/admin/products/[id]/page.tsx",
+      "src/app/admin/products/new/page.tsx",
+      "src/app/admin/products/page.tsx",
+      "src/app/admin/refine-check/page.tsx",
+      "src/app/admin/seo/page.tsx",
+      "src/app/admin/settings/page.tsx",
+      "src/app/admin/site/[pageKey]/page.tsx",
+      "src/app/admin/taxonomy/page.tsx",
+      "src/app/api/admin/preview-assets/[entityType]/[entityId]/[assetId]/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/apply/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/cancel/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/errors/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/items/[itemId]/correct/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/retry/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/uploads/route.ts",
+      "src/app/api/admin/product-imports/[batchId]/validate/route.ts",
+      "src/app/api/admin/product-imports/route.ts",
+      "src/app/api/admin/product-imports/template/route.ts",
+      "src/app/api/admin/upload-batches/[batchId]/finalize/route.ts",
+      "src/app/api/admin/upload-intents/[token]/route.ts",
+      "src/app/api/admin/upload-intents/route.ts",
+      "src/app/api/analytics-consent/route.ts",
+      "src/app/api/auth/login/route.ts",
+      "src/app/api/auth/logout/route.ts",
+      "src/app/api/conversion-events/route.ts",
+      "src/app/api/inquiries/route.ts",
+      "src/app/api/inquiry-assets/[assetId]/route.ts",
+      "src/app/api/public-assets/[assetId]/route.ts",
+      "src/app/api/storage/[partition]/[...objectKey]/route.ts",
+      "src/app/api/upload-intents/[token]/route.ts",
+      "src/app/api/upload-intents/route.ts",
+      "src/app/applications/[slug]/page.tsx",
+      "src/app/applications/page.tsx",
+      "src/app/china-sourcing-guide/[slug]/page.tsx",
+      "src/app/china-sourcing-guide/page.tsx",
+      "src/app/china-textile-guide/[slug]/page.tsx",
+      "src/app/china-textile-guide/page.tsx",
+      "src/app/fabric-knowledge/[slug]/page.tsx",
+      "src/app/fabric-knowledge/page.tsx",
+      "src/app/fabric-library/[slug]/page.tsx",
+      "src/app/fabric-library/page.tsx",
+      "src/app/fabric-types/[slug]/page.tsx",
+      "src/app/get-quote/page.tsx",
+      "src/app/layout.tsx",
+      "src/app/operations-login/page.tsx",
+      "src/app/page.tsx",
+      "src/app/privacy/page.tsx",
+      "src/app/products/[slug]/page.tsx",
+      "src/app/products/page.tsx",
+      "src/app/resources/page.tsx",
+      "src/app/robots.ts",
+      "src/app/sitemap.ts",
+      "src/catalog/application-service.ts",
+      "src/catalog/fabric-library-service.ts",
+      "src/catalog/product-data.ts",
+      "src/catalog/product-eligibility.ts",
+      "src/catalog/product-service.ts",
+      "src/catalog/taxonomy-index-service.ts",
+      "src/catalog/taxonomy-service.ts",
+      "src/content/author-service.ts",
+      "src/content/company-facts-service.ts",
+      "src/content/content-service.ts",
+      "src/content/static-page-projection.ts",
+      "src/content/static-page-settings.ts",
+      "src/imports/archive.ts",
+      "src/imports/contract.ts",
+      "src/imports/matching.ts",
+      "src/imports/service.ts",
+      "src/imports/template.ts",
+      "src/imports/workbook-xml-resource-meter.ts",
+      "src/imports/workbook-xml.ts",
+      "src/imports/workbook.ts",
+      "src/public-site/analytics-consent.tsx",
+      "src/public-site/brand-wave-motif.tsx",
+      "src/public-site/content-article-renderer.tsx",
+      "src/public-site/content-pages.tsx",
+      "src/public-site/data.ts",
+      "src/public-site/inquiry-form.tsx",
+      "src/public-site/product-card.tsx",
+      "src/public-site/product-detail-renderer.tsx",
+      "src/public-site/product-view-tracker.tsx",
+      "src/public-site/product-visibility.ts",
+      "src/public-site/public-asset-access.ts",
+      "src/public-site/public-asset-policy.ts",
+      "src/public-site/public-asset-response.ts",
+      "src/public-site/public-contact-information.tsx",
+      "src/public-site/responsive-image.tsx",
+      "src/public-site/shell.tsx",
+      "src/public-site/static-page-renderer.tsx",
+      "src/public-site/tracking.tsx",
+      "src/seo/keyword-mapping-service.ts",
+      "src/seo/metadata-service.ts",
+      "src/seo/page-indexability.ts",
+      "src/seo/path.ts",
+      "src/seo/public-index.ts",
+      "src/seo/redirects.ts",
+      "src/seo/structured-data.ts",
+      "src/seo/system-public-routes.ts",
+      "src/seo/topic-service.ts"
+    ],
+    "other-production-src": [
+      "src/analytics/consent-service.ts",
+      "src/analytics/conversion-service.ts",
+      "src/analytics/public-payload.ts",
+      "src/audit/governed-mutation.ts",
+      "src/audit/service.ts",
+      "src/auth/authenticate.ts",
+      "src/auth/current-user.ts",
+      "src/auth/password.ts",
+      "src/auth/permissions.ts",
+      "src/auth/request-security.ts",
+      "src/auth/session.ts",
+      "src/config/env.ts",
+      "src/config/public-contact-information.ts",
+      "src/crm/authorization.ts",
+      "src/crm/contact-service.ts",
+      "src/crm/country-codes.ts",
+      "src/crm/inquiry-service.ts",
+      "src/db/client.ts",
+      "src/db/fixture-seed.ts",
+      "src/db/migrate.ts",
+      "src/db/postgres-enum-migration-compatibility.ts",
+      "src/db/readiness.ts",
+      "src/db/schema/ai.ts",
+      "src/db/schema/analytics.ts",
+      "src/db/schema/assets.ts",
+      "src/db/schema/catalog.ts",
+      "src/db/schema/content.ts",
+      "src/db/schema/crm.ts",
+      "src/db/schema/enums.ts",
+      "src/db/schema/identity.ts",
+      "src/db/schema/imports.ts",
+      "src/db/schema/index.ts",
+      "src/db/schema/seo.ts",
+      "src/db/schema/settings.ts",
+      "src/db/seed.ts",
+      "src/db/types.ts",
+      "src/editorial/block-editor-state.ts",
+      "src/editorial/block-references.ts",
+      "src/editorial/block-renderer.tsx",
+      "src/editorial/blocks.ts",
+      "src/editorial/conflict.ts",
+      "src/integrations/email.ts",
+      "src/integrations/notification-outbox.ts",
+      "src/proxy.ts",
+      "src/settings/feature-flag-service.ts",
+      "src/storage/index.ts",
+      "src/storage/local.ts",
+      "src/storage/s3.ts",
+      "src/storage/safe-key.ts",
+      "src/storage/types.ts",
+      "src/uploads/admin-upload-service.ts",
+      "src/uploads/asset-eligibility.ts",
+      "src/uploads/asset-variant.ts",
+      "src/uploads/file-validation.ts",
+      "src/uploads/image-derivatives.ts",
+      "src/uploads/legacy-rescan-service.ts",
+      "src/uploads/object-cleanup-service.ts",
+      "src/uploads/rate-limit.ts",
+      "src/uploads/request-guard.ts",
+      "src/uploads/retention-service.ts",
+      "src/uploads/scanner.ts",
+      "src/uploads/service.ts",
+      "src/uploads/upload-intent-service.ts",
+      "src/uploads/upload-recovery-service.ts"
+    ],
+    "ai-proof-tooling": [
+      "scripts/generate-ai-prompt-bundle.ts",
+      "scripts/verify-ai-architecture.ts",
+      "scripts/verify-ai-prompt-bundle.ts",
+      "scripts/verify-ai-prompt-history.ts"
+    ],
+    "other-project-tooling": [
+      "scripts/check-public-bundle.mjs",
+      "scripts/check-runtime.mjs",
+      "scripts/diagnose-environment.mjs",
+      "scripts/enforce-retention.ts",
+      "scripts/migrate.ts",
+      "scripts/process-ai-runs.ts",
+      "scripts/process-notification-outbox.ts",
+      "scripts/process-object-cleanup.ts",
+      "scripts/rescan-legacy-assets.ts",
+      "scripts/seed-e2e-block-projection.ts",
+      "scripts/seed-e2e-editorial-roles.ts",
+      "scripts/seed-e2e-retryable-asset.ts",
+      "scripts/seed-fixtures.ts",
+      "scripts/seed.ts",
+      "scripts/verify-ai-foundation-candidate.ts",
+      "scripts/verify-database.ts",
+      "scripts/verify-postgres-enum-compatibility.ts",
+      "scripts/verify-postgres-pre-manifest-recovery.ts",
+      "scripts/verify-postgres-round2.ts",
+      "scripts/verify-postgres-stage1-remediation.ts",
+      "scripts/verify-postgres-stage2-round2.ts",
+      "scripts/verify-postgres-stage2.ts",
+      "scripts/verify-postgres-stage2c-joint-remediation.ts",
+      "scripts/verify-seo-remediation-postgres.ts",
+      "scripts/verify-seo-rr1-postgres.ts",
+      "scripts/verify-stage3-postgres.ts"
+    ],
+    "other-test-fixtures": [
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/REVIEWER_H02_FRESH_AUTHORIZATION_MATRIX_V1_0.test.ts",
+      "src/admin/action-result.test.ts",
+      "src/admin/actions.test.ts",
+      "src/admin/asset-picker.test.ts",
+      "src/admin/components/admin-action-form.test.tsx",
+      "src/admin/components/asset-upload-form.test.tsx",
+      "src/admin/components/block-editor.test.tsx",
+      "src/admin/components/preview-viewport-panel.test.tsx",
+      "src/admin/components/product-import-wizard.test.tsx",
+      "src/admin/components/retryable-asset-batches.test.tsx",
+      "src/admin/editorial-resource-access.test.ts",
+      "src/admin/invoke-admin-action.test.ts",
+      "src/admin/preview-policy.test.ts",
+      "src/admin/refine/refine-boundary.test.ts",
+      "src/admin/stage2-editor-boundaries.static.test.ts",
+      "src/ai/applications/draft-assistance/association.test.ts",
+      "src/ai/applications/draft-assistance/context-integrity.test.ts",
+      "src/ai/applications/draft-assistance/context.test.ts",
+      "src/ai/applications/draft-assistance/read-scopes.type.test.ts",
+      "src/ai/canonical-json.test.ts",
+      "src/ai/config/model-config-repository.integration.test.ts",
+      "src/ai/config/model-config-resolver.test.ts",
+      "src/ai/config/model-config-service.integration.test.ts",
+      "src/ai/context/protected-data.test.ts",
+      "src/ai/core/claimed-execution.integration.test.ts",
+      "src/ai/output/common.test.ts",
+      "src/ai/output/raw-json.test.ts",
+      "src/ai/provider-neutral-foundation.integration.test.ts",
+      "src/ai/runs/attempt-evidence.test.ts",
+      "src/ai/runs/heartbeat-serialization.integration.test.ts",
+      "src/ai/runs/pricing-policy.test.ts",
+      "src/ai/runs/repository.integration.test.ts",
+      "src/ai/runs/retry-policy.test.ts",
+      "src/ai/runs/service.integration.test.ts",
+      "src/ai/runs/worker-shutdown.integration.test.ts",
+      "src/ai/runs/worker.integration.test.ts",
+      "src/analytics/consent-service.integration.test.ts",
+      "src/analytics/conversion-service.integration.test.ts",
+      "src/app/admin/assets/page.test.tsx",
+      "src/app/api/admin/upload-intents/[token]/route.test.ts",
+      "src/app/api/conversion-events/route.test.ts",
+      "src/app/api/inquiries/route.test.ts",
+      "src/app/api/inquiry-assets/[assetId]/route.test.ts",
+      "src/app/api/public-assets/[assetId]/route.test.ts",
+      "src/app/api/upload-intents/[token]/route.test.ts",
+      "src/app/api/upload-intents/route.test.ts",
+      "src/app/products/page.test.ts",
+      "src/audit/governed-mutations.integration.test.ts",
+      "src/auth/login-security.test.ts",
+      "src/auth/password.test.ts",
+      "src/auth/permissions.test.ts",
+      "src/auth/session.integration.test.ts",
+      "src/catalog/fabric-library-service.integration.test.ts",
+      "src/catalog/product-data-foundation.integration.test.ts",
+      "src/catalog/product-data.test.ts",
+      "src/catalog/product-service.integration.test.ts",
+      "src/catalog/stage2-quick-create.integration.test.ts",
+      "src/catalog/taxonomy-service.test.ts",
+      "src/config/env.test.ts",
+      "src/content/admin-domain-services.integration.test.ts",
+      "src/content/content-service.integration.test.ts",
+      "src/content/static-page-settings.integration.test.ts",
+      "src/content/static-page-settings.test.ts",
+      "src/crm/country-codes.test.ts",
+      "src/crm/inquiry-service.integration.test.ts",
+      "src/db/client.global-cache.test.ts",
+      "src/db/fixture-seed.integration.test.ts",
+      "src/db/migrations.integration.test.ts",
+      "src/db/phase1b-migration.integration.test.ts",
+      "src/db/postgres-enum-migration-compatibility.test.ts",
+      "src/db/schema/ai.integration.test.ts",
+      "src/db/seed.integration.test.ts",
+      "src/editorial/block-editor-state.test.ts",
+      "src/editorial/block-reference-projection.integration.test.tsx",
+      "src/editorial/block-renderer.test.tsx",
+      "src/editorial/blocks.test.ts",
+      "src/editorial/stage2-autosave.integration.test.ts",
+      "src/imports/archive-upload.integration.test.ts",
+      "src/imports/archive.test.ts",
+      "src/imports/durable-preparation.integration.test.ts",
+      "src/imports/matching.test.ts",
+      "src/imports/permission.test.ts",
+      "src/imports/published-update-concurrency.integration.test.ts",
+      "src/imports/schema.integration.test.ts",
+      "src/imports/service.integration.test.ts",
+      "src/imports/update-patch.integration.test.ts",
+      "src/imports/workbook-limits.test.ts",
+      "src/imports/workbook-xml-resource-meter.test.ts",
+      "src/imports/workbook.test.ts",
+      "src/integrations/notification-outbox.integration.test.ts",
+      "src/public-site/analytics-consent.test.tsx",
+      "src/public-site/brand-visual-contract.test.tsx",
+      "src/public-site/inquiry-form.test.tsx",
+      "src/public-site/product-pagination.integration.test.ts",
+      "src/public-site/product-publication-boundary.integration.test.ts",
+      "src/public-site/product-visibility.test.ts",
+      "src/public-site/public-asset-access.integration.test.ts",
+      "src/public-site/public-bundle-check.test.ts",
+      "src/public-site/public-contact-information.test.tsx",
+      "src/public-site/responsive-image.test.tsx",
+      "src/public-site/static-page-public-boundary.test.ts",
+      "src/public-site/static-page-renderer.test.tsx",
+      "src/seo/derived-product-eligibility.integration.test.ts",
+      "src/seo/nonproduction-indexing.test.ts",
+      "src/seo/redirects.integration.test.ts",
+      "src/seo/redirects.test.ts",
+      "src/seo/seo-contracts.test.ts",
+      "src/seo/structured-data.test.ts",
+      "src/seo/system-public-routes.integration.test.ts",
+      "src/server/ai/phase-c-composition.test.ts",
+      "src/storage/local.test.ts",
+      "src/test/database.ts",
+      "src/test/in-memory-storage.ts",
+      "src/test/setup.ts",
+      "src/uploads/admin-finalize-public-variant.integration.test.tsx",
+      "src/uploads/admin-retryable-batch.integration.test.ts",
+      "src/uploads/admin-upload-service.integration.test.ts",
+      "src/uploads/asset-role-readiness.integration.test.ts",
+      "src/uploads/finalize-cleanup-race.integration.test.ts",
+      "src/uploads/post-commit-boundary.static.test.ts",
+      "src/uploads/request-guard.test.ts",
+      "src/uploads/retention-service.integration.test.ts",
+      "src/uploads/service.integration.test.ts",
+      "src/uploads/upload-intent-service.integration.test.ts",
+      "src/uploads/upload-saga-recovery.integration.test.ts",
+      "tests/e2e/global-teardown.ts",
+      "tests/e2e/product-import.spec.ts",
+      "tests/e2e/public.spec.ts"
+    ],
+    "diagnostic-documentation": [
+      "docs/review-evidence/phase-1b-stage4a-0020-candidate-v1/candidate-static-review.json",
+      "docs/review-evidence/phase-1b-stage4a-0020-candidate-v1/postgres-contention-lifecycle-budget.json",
+      "docs/review-evidence/phase-1b-stage4a-0020-candidate-v1/postgres-isolation-identity.json",
+      "docs/review-evidence/phase-1b-stage4a-0020-candidate-v1/postgres-migration-catalog-constraints.json",
+      "docs/review-evidence/phase-1b-stage4a-0020-candidate-v1/postgres-scale-query-plans.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-a-completion-review-v1/INDEPENDENT_COMPLETION_REVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-6-remediation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-6-remediation-v1/VERIFY_CORRECTED_DESIGN_V1_6.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-7-remediation-attempt-2-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1-7-remediation-attempt-2-v1/VERIFY_CORRECTED_DESIGN_V1_7.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/CORRECTED_DESIGN_CONTRACT_PROFILE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/FIXED_INPUTS_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/M03_CROSS_DRIVER_NEGATIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/M03_DISCRIMINATED_SEAM_POSITIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/M03_UNNARROWED_UNION_NEGATIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/VERIFY_CORRECTED_DESIGN_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-cross-driver-negative.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-positive.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-design-v1/tsconfig.m03-union-negative.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1-1/INDEPENDENT_CORRECTED_EXACT_DESIGN_REVIEW_EVIDENCE_V1_1.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1-1/REVIEWER_V16_ACTUAL_TREE_AND_SELECTOR_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1-2/INDEPENDENT_CORRECTED_EXACT_DESIGN_REVIEW_EVIDENCE_V1_2.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1-2/REVIEWER_V17_LIFECYCLE_AND_SELECTOR_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/INDEPENDENT_CORRECTED_EXACT_DESIGN_REVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/REVIEWER_M02_SELECTED_BOUNDARY_PROBE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/REVIEWER_M03_BRANCH_LOCAL_POSITIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/REVIEWER_M03_DESTRUCTURED_UNION_NEGATIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/REVIEWER_M03_GRAPH_ENUMERATION_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/REVIEWER_SCHEMA_MAPPING_PROBE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/REVIEWER_STANDALONE_NONREGRESSION_PROBE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/tsconfig.m03-reviewer-negative.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-independent-review-v1/tsconfig.m03-reviewer-positive.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/ERROR_TAXONOMY_TWO_LAYER_POSITIVE_PROBE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/V18_M01_M03_ATTEMPT_2_FIXED_VECTORS_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/V18_M01_M03_ATTEMPT_2_MACHINE_PROFILE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-10-v18-m01-m03-attempt-2-v1/VERIFY_CORRECTED_EXACT_DESIGN_V1_10.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-8-imp2-nm01-v1/IMP2_NM01_CONTEXT_DOMAIN_PROFILE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-8-imp2-nm01-v1/IMP2_NM01_FIXED_VECTORS_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-8-imp2-nm01-v1/VERIFY_CORRECTED_EXACT_DESIGN_V1_8.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-9-v18-remediation-v1/ERROR_TAXONOMY_CLOSED_UNION_PROBE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-9-v18-remediation-v1/V18_M01_M02_M03_FIXED_VECTORS_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-9-v18-remediation-v1/V18_M01_M02_M03_MACHINE_PROFILE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-corrected-exact-design-v1-9-v18-remediation-v1/VERIFY_CORRECTED_EXACT_DESIGN_V1_9.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/AI_ACTUAL_TREE_CLASSIFICATION_PROOF_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/AI_CAPABILITY_ORIGIN_PROOF_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/AI_ISOLATED_MIGRATED_NOINDEX_FEATURE_FALSE_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/AI_PHASE_B_COMPOSITION_PROOF_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/AI_PROTECTED_GRAPH_MANIFEST_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/ARCHITECTURE_GATE_CODE_HEAD_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/IMPLEMENTATION_REMEDIATION_EVIDENCE_V2_1.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/NEXT_LIFECYCLE_OFFICIAL_PRESENT_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/NEXT_LIFECYCLE_SOURCE_CLEAN_ABSENT_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v1/SERVER_BUNDLE_BOUNDARY_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/AI_ACTUAL_TREE_CLASSIFICATION_PROOF_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/AI_CAPABILITY_ORIGIN_PROOF_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/AI_ISOLATED_MIGRATED_NOINDEX_FEATURE_FALSE_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/AI_PHASE_B_COMPOSITION_PROOF_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/AI_PROTECTED_GRAPH_MANIFEST_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/ARCHITECTURE_GATE_CODE_HEAD_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/IMPLEMENTATION_REMEDIATION_V2_EVIDENCE_V2_2.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/NEXT_LIFECYCLE_OFFICIAL_PRESENT_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/NEXT_LIFECYCLE_SOURCE_CLEAN_ABSENT_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2-remediation-v2/SERVER_BUNDLE_BOUNDARY_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2/ISOLATED_FINAL_BUILD_V2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2/NEXT_LIFECYCLE_OFFICIAL_PRESENT_V2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2/NEXT_LIFECYCLE_SOURCE_CLEAN_ABSENT_V2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-foundation-implementation-v2/SERVER_BUNDLE_BOUNDARY_V2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-10/INDEPENDENT_CORRECTED_DESIGN_REVIEW_EVIDENCE_V1_10.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-10/REVIEWER_V110_FRESH_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-8/INDEPENDENT_CORRECTED_DESIGN_REVIEW_EVIDENCE_V1_8.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-8/REVIEWER_FIELD_DOMAIN_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-9/INDEPENDENT_CORRECTED_DESIGN_REVIEW_EVIDENCE_V1_9.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-corrected-design-review-v1-9/REVIEWER_V19_FRESH_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-rereview-v2-1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V2_1.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-rereview-v2-2/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V2_2.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/INDEPENDENT_IMPLEMENTATION_REVIEW_EVIDENCE_V2_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_CONTEXT_OUTPUT_AND_M02_CHALLENGE_V2_0.mts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_RAW_JSON_CHALLENGE_V2_0.mts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-implementation-review-v2/REVIEWER_SCHEMA_MAPPING_V2_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/ATTACHED_FULL_REVIEW_OUTPUT_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/CANDIDATE_REVIEW_ENVELOPE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/DETACHED_FULL_REVIEW_OUTPUT_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/INDEPENDENT_REREVIEW_EVIDENCE_V2_1.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/PACKAGE_ONLY_FRESH_OUTPUT_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/REVIEWER_FRESH_IDENTITY_BOUNDARY_CHALLENGE_OUTPUT_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/REVIEWER_FRESH_IDENTITY_BOUNDARY_CHALLENGE_V2_1.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-1/V20_PRIOR_DEFECT_FRESH_REPRODUCTION_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/ATTACHED_FULL_REVIEW_OUTPUT_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/CANDIDATE_REVIEW_ENVELOPE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/DETACHED_FULL_REVIEW_OUTPUT_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/IDENTITY_SCOPE_AND_NONREGRESSION_CAPTURE_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/INDEPENDENT_REREVIEW_EVIDENCE_V2_2.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/REVIEWER_FRESH_COMMITTED_MEMBERSHIP_CHALLENGE_OUTPUT_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/REVIEWER_FRESH_COMMITTED_MEMBERSHIP_CHALLENGE_V2_2.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/REVIEWER_FRESH_REAL_CLI_CHALLENGE_OUTPUT_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/REVIEWER_FRESH_REAL_CLI_CHALLENGE_V2_2.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-replacement-corrected-design-rereview-v2-2/REVIEWER_IDENTITY_AND_NONREGRESSION_V2_2.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/ATTACHED_FULL_REVIEW_OUTPUT_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/CANDIDATE_REVIEW_ENVELOPE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/DETACHED_FULL_REVIEW_OUTPUT_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/INDEPENDENT_REVIEW_EVIDENCE_V2_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/PACKAGE_ONLY_FRESH_OUTPUT_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/REVIEWER_FRESH_AUTHORITY_CHALLENGE_OUTPUT_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-independent-v111-m01-three-strike-replacement-corrected-design-review-v2/REVIEWER_FRESH_AUTHORITY_CHALLENGE_V2_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-rereview-v1/INDEPENDENT_TECHNICAL_ESCALATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-rereview-v1/REVIEWER_TECH_M01_TRANSITION_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/INDEPENDENT_TECHNICAL_ESCALATION_REVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/REVIEWER_M02_SEMANTIC_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/REVIEWER_M03_DISCRIMINATED_SEAM_POSITIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-independent-review-v1/tsconfig.reviewer-m03-positive.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/FIXED_INPUTS_V1_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_DEEPSEEK_OWNER_DECISION_PROFILE_V1_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_FALSE_POSITIVE_AND_SECURITY_CORPUS_V1_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_GRAMMAR_REGISTRY_EXCLUDE_DEEPSEEK_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/M02_PROTECTED_DATA_AUTHORITY_PROFILE_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-remediation-v1/VERIFY_TECHNICAL_ESCALATION_REMEDIATION_V1_1.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/FIXED_INPUTS_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M02_DEEPSEEK_OWNER_DECISION_PROFILE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M02_FALSE_POSITIVE_AND_SECURITY_CORPUS_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M02_GRAMMAR_REGISTRY_EXCLUDE_DEEPSEEK_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M02_GRAMMAR_REGISTRY_INCLUDE_DEEPSEEK_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M02_PROTECTED_DATA_AUTHORITY_PROFILE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_CAPABILITY_GRAPH_AND_DATABASE_SEAM_PROFILE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_DISCRIMINATED_SEAM_POSITIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_DRIVER_SWAP_NEGATIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/M03_DATABASE_UNION_PROJECTION_NEGATIVE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/VERIFY_TECHNICAL_ESCALATION_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-driver-swap-negative.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-positive.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-three-strike-technical-escalation-v1/tsconfig.m03-union-negative.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/FIXED_INPUTS_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-1/VERIFY_V111_M01_REPLACEMENT_CORRECTED_DESIGN_V2_1.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/FIXED_INPUTS_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_2.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-replacement-corrected-design-v2-2/VERIFY_V111_M01_REPLACEMENT_CORRECTED_DESIGN_V2_2.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1/FIXED_INPUTS_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1/RUN_V111_M01_MINIMAL_REPRO_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1/V111_M01_REPLACEMENT_DECISION_PROFILE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1/V111_M01_REPLACEMENT_PROOF_MATRIX_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-analysis-v1/VERIFY_V111_M01_THREE_STRIKE_ANALYSIS_PACKAGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/FIXED_INPUTS_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/PHASE_B_CURRENT_TECHNICAL_PROFILE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/README.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/V111_M01_CANONICAL_REVIEW_AUTHORITY_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/V111_M01_REPLACEMENT_PROOF_MATRIX_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v111-m01-three-strike-replacement-corrected-design-v2/VERIFY_V111_M01_REPLACEMENT_CORRECTED_DESIGN_V2_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3-independent-rereview-v1/REVIEWER_H01_FINAL_FRESH_CHALLENGE_MATRIX_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/CHANGED_PATH_INVENTORY_V3_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/H01_M04_RUNTIME_EMITTING_ORIGIN_REMEDIATION_V3_AUTHORITY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/H01_M04_RUNTIME_EMITTING_ORIGIN_REMEDIATION_V3_VERIFICATION_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/M04_PROOF_ARTIFACTS_V3_1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/M04_PROOF_ARTIFACTS_V3_1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/M04_PROOF_ARTIFACTS_V3_1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/M04_PROOF_ARTIFACTS_V3_1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/M04_PROOF_ARTIFACTS_V3_1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-final-remediation-v3/VERIFY_H01_M04_RUNTIME_EMITTING_ORIGIN_REMEDIATION_V3_EVIDENCE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2-independent-rereview-v1/REVIEWER_H02_NONREGRESSION_IMPORT_PROBE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/CHANGED_PATH_INVENTORY_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/H01_M04_AMBIENT_CAPABILITY_REMEDIATION_V2_AUTHORITY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/H01_M04_AMBIENT_CAPABILITY_REMEDIATION_V2_VERIFICATION_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/M04_PROOF_ARTIFACTS_V3_1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/M04_PROOF_ARTIFACTS_V3_1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/M04_PROOF_ARTIFACTS_V3_1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/M04_PROOF_ARTIFACTS_V3_1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/M04_PROOF_ARTIFACTS_V3_1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-h01-m04-remediation-v2/VERIFY_H01_M04_AMBIENT_CAPABILITY_REMEDIATION_V2_EVIDENCE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_FROZEN_BOUNDARY_PROBE_OUTPUT_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_FROZEN_BOUNDARY_PROBE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_IMP3_NM01_BIDIRECTIONAL_FRESH_CHALLENGE_OUTPUT_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2-independent-rereview-v1/REVIEWER_IMP3_NM01_BIDIRECTIONAL_FRESH_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/CHANGED_PATH_INVENTORY_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/IMP3_NM01_EVIDENCE_ISOLATION_AUTHORITY_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/IMP3_NM01_EVIDENCE_ISOLATION_VERIFICATION_CAPTURE_V2_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-evidence-isolation-remediation-v2/VERIFY_IMP3_NM01_EVIDENCE_ISOLATION_REMEDIATION_V2_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_OUTPUT_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1-independent-rereview-v1/REVIEWER_IMP3_NM01_FRESH_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/CHANGED_PATH_INVENTORY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/IMP3_NM01_FINAL_TREE_CLOSURE_AUTHORITY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/IMP3_NM01_FINAL_TREE_CLOSURE_VERIFICATION_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-final-tree-closure-remediation-v1/VERIFY_IMP3_NM01_FINAL_TREE_CLOSURE_REMEDIATION_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3-independent-rereview-v1/AUTHOR_VERIFIER_FRESH_OUTPUT_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3-independent-rereview-v1/REVIEWER_IMP3_NM01_PHYSICAL_IDENTITY_FRESH_CHALLENGE_OUTPUT_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3-independent-rereview-v1/REVIEWER_IMP3_NM01_PHYSICAL_IDENTITY_FRESH_CHALLENGE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3-independent-rereview-v1/REVIEWER_PROOF_AND_FROZEN_BOUNDARY_PROBE_OUTPUT_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3-independent-rereview-v1/REVIEWER_PROOF_AND_FROZEN_BOUNDARY_PROBE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/CHANGED_PATH_INVENTORY_V3_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/IMP3_NM01_PHYSICAL_TARGET_IDENTITY_AUTHORITY_V3_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/IMP3_NM01_PHYSICAL_TARGET_IDENTITY_REPRODUCTION_V3_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/IMP3_NM01_PHYSICAL_TARGET_IDENTITY_VERIFICATION_CAPTURE_V3_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/M04_FINAL_EXECUTABLE_TREE_PROOFS_V3_1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-imp3-nm01-physical-target-identity-remediation-v3/VERIFY_IMP3_NM01_PHYSICAL_TARGET_IDENTITY_REMEDIATION_V3_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-independent-review-v1/INDEPENDENT_REVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-independent-review-v1/REVIEWER_FRESH_REPLACEMENT_IMPLEMENTATION_TEST_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1-independent-rereview-v1/INDEPENDENT_IMPLEMENTATION_REREVIEW_EVIDENCE_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1-independent-rereview-v1/REVIEWER_H02_AUTHORIZATION_ORDER_PROBE_V1_0.ts",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/CHANGED_PATH_INVENTORY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/H01_H02_REMEDIATION_AUTHORITY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/H01_H02_REMEDIATION_VERIFICATION_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/M04_PROOF_ARTIFACTS_V3_1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/M04_PROOF_ARTIFACTS_V3_1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/M04_PROOF_ARTIFACTS_V3_1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/M04_PROOF_ARTIFACTS_V3_1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/M04_PROOF_ARTIFACTS_V3_1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-remediation-v1/VERIFY_H01_H02_REMEDIATION_EVIDENCE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/AI_PHASE_B_COMPOSITION_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_V3_1.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/CHANGED_DELETED_PATH_INVENTORY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/FINAL_VERIFICATION_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/FRESH_REPLACEMENT_IMPLEMENTATION_AUTHORITY_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/FRESH_REPLACEMENT_IMPLEMENTATION_MANIFEST_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/M01_NH01_SOURCE_BINDING_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/M02_REPLACEMENT_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/NM01_CLOSED_PRODUCT_CAPTURE_V1_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-b-v2-2-fresh-replacement-foundation-implementation-v1/VERIFY_FRESH_REPLACEMENT_IMPLEMENTATION_EVIDENCE_V1_0.mjs",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-exact-design-v1-1/DESIGN_REMEDIATION_VERIFICATION_V1_1.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-exact-design-v1-2/DESIGN_REMEDIATION_VERIFICATION_V1_2.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-exact-design-v1/DESIGN_VERIFICATION_V1_0.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-01_POSTGRESQL_SCALE_QUERY_PLANS.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-02_TWO_SLOT_RESOURCE_AND_CONTENTION.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/IMPLEMENTATION_EVIDENCE_INDEX.md",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/POSTGRESQL_CATALOG_IDENTITY.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4/AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_C_V4_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4/AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_C_V4_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4/AI_PHASE_C_ARCHITECTURE_PROOF_MANIFEST_V4_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4/AI_PHASE_C_COMPOSITION_AND_WORKER_PROOF_V4_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4/AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_C_V4_0.json",
+      "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4/AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_C_V4_0.json"
+    ],
+    "root-control-file": [
+      "drizzle.config.ts",
+      "eslint.config.mjs",
+      "next.config.ts",
+      "package.json",
+      "playwright.config.ts",
+      "pnpm-lock.yaml",
+      "postcss.config.mjs",
+      "tsconfig.json",
+      "vitest.config.mts"
+    ]
+  },
+  "zeroClass": [],
+  "ambiguous": [],
+  "sourceStateCounts": {
+    "tracked": 724,
+    "untrackedNotIgnored": 0,
+    "untrackedIgnored": 0
+  },
+  "typeBoundaryProbes": {
+    "positive": 2,
+    "negative": 6
+  },
+  "moduleGraph": {
+    "edgeCount": 2499,
+    "graphSha256": "fa316ec5d25c15fbceb30cc5d9971d5b1119008179cad5156315e38e90a2acab",
+    "protectedClosureCount": 64,
+    "coreClosureCount": 16,
+    "publicClientRootCount": 4,
+    "publicClientClosureCount": 5,
+    "serverClosureCount": 58,
+    "faultProbes": [
+      {
+        "id": "dynamic-import-in-class-field",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"CallExpression\",\"position\":22,\"reason\":\"dynamic_import_loader\"}"
+      },
+      {
+        "id": "import-equals-in-namespace",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"ImportEqualsDeclaration\",\"position\":0,\"reason\":\"import_equals_loader\"}"
+      },
+      {
+        "id": "direct-require-in-callback",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"Identifier\",\"position\":14,\"reason\":\"commonjs_or_native_loader_origin\"}"
+      },
+      {
+        "id": "module-require-in-static-block",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"Identifier\",\"position\":23,\"reason\":\"commonjs_or_native_loader_origin\"}"
+      },
+      {
+        "id": "exports-binding",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"Identifier\",\"position\":6,\"reason\":\"commonjs_or_native_loader_origin\"}"
+      },
+      {
+        "id": "create-require-origin",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"ImportDeclaration\",\"position\":0,\"reason\":\"create_require_origin\"}"
+      },
+      {
+        "id": "get-builtin-module-origin",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"PropertyAccessExpression\",\"position\":0,\"reason\":\"get_builtin_module_origin\"}"
+      },
+      {
+        "id": "eval-in-iife",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"CallExpression\",\"position\":7,\"reason\":\"eval_origin\"}"
+      },
+      {
+        "id": "function-constructor",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"NewExpression\",\"position\":14,\"reason\":\"function_constructor_origin\"}"
+      },
+      {
+        "id": "async-function-constructor",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"CallExpression\",\"position\":0,\"reason\":\"function_constructor_origin\"}"
+      },
+      {
+        "id": "generator-function-constructor",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"NewExpression\",\"position\":0,\"reason\":\"function_constructor_origin\"}"
+      },
+      {
+        "id": "node-vm-import",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"ImportDeclaration\",\"position\":0,\"reason\":\"vm_origin\"}"
+      },
+      {
+        "id": "proxy-origin",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"NewExpression\",\"position\":0,\"reason\":\"proxy_origin\"}"
+      },
+      {
+        "id": "constructor-escape",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"PropertyAccessExpression\",\"position\":14,\"reason\":\"constructor_property_escape\"}"
+      },
+      {
+        "id": "global-object-capture",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/db/client.ts\",\"nodeKind\":\"Identifier\",\"position\":17,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "globalthis-fetch-reviewer-witness",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "globalthis-approved-member-wrong-path",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "globalthis-wrong-member-approved-path",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/db/client.ts\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "globalthis-computed-approved-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/db/client.ts\",\"nodeKind\":\"ElementAccessExpression\",\"position\":5,\"reason\":\"ambient_computed_capability\"}"
+      },
+      {
+        "id": "globalthis-destructured-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"nodeKind\":\"Identifier\",\"position\":18,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "globalthis-aliased-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"nodeKind\":\"Identifier\",\"position\":16,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "globalthis-static-field-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"nodeKind\":\"Identifier\",\"position\":29,\"reason\":\"ambient_global_capability_not_authorized\"}"
+      },
+      {
+        "id": "bare-fetch-reviewer-witness",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "bare-websocket-construction",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":9,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"WebSocket\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":9}}"
+      },
+      {
+        "id": "bare-event-source-construction",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":9,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"EventSource\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":9}}"
+      },
+      {
+        "id": "bare-xml-http-request-construction",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":9,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"XMLHttpRequest\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":9}}"
+      },
+      {
+        "id": "bare-fetch-alias-capture",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":16,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":16}}"
+      },
+      {
+        "id": "bare-fetch-bind",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":16,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":16}}"
+      },
+      {
+        "id": "bare-fetch-call",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "bare-fetch-apply",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "bare-fetch-static-field",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":31,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":31}}"
+      },
+      {
+        "id": "bare-fetch-container-destructure",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":20,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":20}}"
+      },
+      {
+        "id": "bare-fetch-iife-argument",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":42,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":42}}"
+      },
+      {
+        "id": "ambient-window-fetch-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"window\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "ambient-self-computed-fetch-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"self\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "ambient-window-destructured-fetch",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":27,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"window\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":27}}"
+      },
+      {
+        "id": "ambient-global-websocket-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"global\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "ambient-navigator-send-beacon-member",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":5,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"navigator\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":5}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-combined-reviewer-witness",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":161,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":161}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-declare-var",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":59,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":59}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-declare-let",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":59,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":59}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-declare-const",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":61,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":61}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-declare-function",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":60,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":60}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-declare-class",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":63,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"WebSocket\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":63}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-global-augmentation",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":82,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":82}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-ambient-namespace-property",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":81,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"window\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":81}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-type-only-import",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":62,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":62}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-property-container",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":76,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":76}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-bind",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":71,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":71}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-call",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":60,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":60}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-apply",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":60,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":60}}"
+      },
+      {
+        "id": "runtime-origin-non-emitting-iife",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/ai/canonical-json.ts\",\"rule\":\"protected-phase-c-runtime-global-capability-origin-denied\",\"nodeKind\":\"Identifier\",\"position\":97,\"reason\":\"ambient_runtime_capability_not_authorized\",\"origin\":\"typescript_resolved_non_emitting_repository_declaration\",\"capability\":\"fetch\",\"ast\":{\"nodeKind\":\"Identifier\",\"position\":97}}"
+      },
+      {
+        "id": "computed-global-loader",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"ElementAccessExpression\",\"position\":0,\"reason\":\"ambient_computed_capability\"}"
+      },
+      {
+        "id": "reflect-constructor-recovery",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"CallExpression\",\"position\":0,\"reason\":\"reflect_constructor_recovery\"}"
+      },
+      {
+        "id": "computed-new-expression",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"NewExpression\",\"position\":0,\"reason\":\"computed_global_constructor_recovery\"}"
+      },
+      {
+        "id": "import-meta-alias",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"MetaProperty\",\"position\":13,\"reason\":\"import_meta_outside_exact_resource_base\"}"
+      },
+      {
+        "id": "import-meta-computed",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"MetaProperty\",\"position\":5,\"reason\":\"import_meta_outside_exact_resource_base\"}"
+      },
+      {
+        "id": "import-meta-wrapper",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"MetaProperty\",\"position\":33,\"reason\":\"import_meta_outside_exact_resource_base\"}"
+      },
+      {
+        "id": "import-meta-wrong-position",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"MetaProperty\",\"position\":13,\"reason\":\"import_meta_outside_exact_resource_base\"}"
+      },
+      {
+        "id": "dynamic-resource-first-argument",
+        "code": "unsupported_acquisition_syntax",
+        "detail": "{\"path\":\"src/ai/context/protected-data.ts\",\"nodeKind\":\"NewExpression\",\"position\":37,\"reason\":\"static_resource_non_literal\"}"
+      },
+      {
+        "id": "resource-wrong-arity",
+        "code": "unsupported_acquisition_syntax",
+        "detail": "{\"path\":\"src/ai/context/protected-data.ts\",\"nodeKind\":\"NewExpression\",\"position\":5,\"reason\":\"static_resource_wrong_arity_or_type_arguments\"}"
+      },
+      {
+        "id": "shadowed-url-import-meta",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"MetaProperty\",\"position\":92,\"reason\":\"import_meta_outside_exact_resource_base\"}"
+      },
+      {
+        "id": "unresolved-static-import",
+        "code": "unresolved_static_edge",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"rule\":\"production-acquisition-must-resolve-uniquely\",\"ast\":{\"form\":\"import\",\"edgeKind\":\"runtime\",\"position\":0,\"nodeKind\":\"ImportDeclaration\"},\"nodeKind\":\"ImportDeclaration\",\"reason\":\"unresolved_specifier\",\"acquisition\":{\"resolutionKind\":\"unresolved\",\"reason\":\"unresolved_specifier\",\"specifier\":\"@/public-site/definitely-missing\"}}"
+      },
+      {
+        "id": "composition-incoming-export",
+        "code": "phase_b_composition_violation",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"ExportDeclaration\",\"position\":0,\"reason\":\"deleted_phase_b_composition_reference\",\"target\":\"src/server/ai/phase-b-composition.ts\"}"
+      },
+      {
+        "id": "public-client-ai-import",
+        "code": "public_client_reachability",
+        "detail": "{\"path\":\"src/public-site/client-fault.tsx\",\"nodeKind\":\"ImportDeclaration\",\"position\":14,\"reason\":\"public_client_reaches_ai_server_boundary\",\"target\":\"src/ai/index.ts\"}"
+      },
+      {
+        "id": "decorator-descendant-eval",
+        "code": "denied_capability_origin",
+        "detail": "{\"path\":\"src/app/page.tsx\",\"nodeKind\":\"CallExpression\",\"position\":54,\"reason\":\"eval_origin\"}"
+      },
+      {
+        "id": "second-composition-root",
+        "code": "reserved_zone_present",
+        "detail": "{\"path\":\"src/server/ai/phase-b-composition-shadow.ts\",\"nodeKind\":\"FilesystemPath\",\"reason\":\"undeclared_composition\"}"
+      },
+      {
+        "id": "early-phase-d-root",
+        "code": "reserved_zone_present",
+        "detail": "{\"path\":\"src/server/ai/phase-d-provider-composition.ts\",\"nodeKind\":\"FilesystemPath\",\"reason\":\"future_zone_present\"}"
+      },
+      {
+        "id": "early-provider-adapter",
+        "code": "reserved_zone_present",
+        "detail": "{\"path\":\"src/integrations/ai/providers/early-adapter.ts\",\"nodeKind\":\"FilesystemPath\",\"reason\":\"future_zone_present\"}"
+      }
+    ],
+    "positiveProbes": [
+      {
+        "id": "ordinary-global-url",
+        "ordinaryGlobalUrlValues": 1,
+        "resourceEdges": 0
+      },
+      {
+        "id": "shadowed-local-url",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      },
+      {
+        "id": "static-protected-resource",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 1
+      },
+      {
+        "id": "nested-safe-positions",
+        "ordinaryGlobalUrlValues": 1,
+        "resourceEdges": 0
+      },
+      {
+        "id": "plain-data-reflection",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      },
+      {
+        "id": "repository-local-ambient-name-shadows",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      },
+      {
+        "id": "repository-imported-ambient-name-shadows",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      },
+      {
+        "id": "runtime-emitting-parameter-shadow",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      },
+      {
+        "id": "runtime-emitting-function-shadow",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      },
+      {
+        "id": "runtime-emitting-overload-implementation-shadow",
+        "ordinaryGlobalUrlValues": 0,
+        "resourceEdges": 0
+      }
+    ],
+    "ordinaryGlobalUrlValueCount": 21,
+    "staticResourceCandidateCount": 0
+  },
+  "bundleProofReady": true,
+  "proofArtifactHashes": {
+    "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_C_V4_0.json": "f4494365de351c7bef2e583e4bcd591c4c75bbaff52ad6561bed887d537af756",
+    "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_C_V4_0.json": "aae1b04df3782085aaf5c7dd6bef3977b2ad667875bddb607b03b76eeaad38bb",
+    "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_C_V4_0.json": "decd56f1b671041602cd950eff019160f4f7f4beb2a8275f3e7a6a736fea223b",
+    "AI_PHASE_C_COMPOSITION_AND_WORKER_PROOF_V4_0.json": "da18e2edbd1c316325d3578ef9ca09d93ee33a9045e1360e7ab2381fe0c10661",
+    "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_C_V4_0.json": "f41f219ca7b0025392a75460713026156b72befe1e2b571c36c9f9a120ab8010",
+    "AI_PHASE_C_ARCHITECTURE_PROOF_MANIFEST_V4_0.json": "851a0d13a2a44c171d3d4f5d3c38a2e718e891f5487a69caedee04ae242087ce"
+  },
+  "mutationProbes": {
+    "total": 28,
+    "v16Original": 17,
+    "attempt2": 11,
+    "results": [
+      {
+        "id": "v1.6-01-new-unclassified-executable",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-02-two-class-overlap",
+        "result": "fail-closed",
+        "reason": "fail_closed_ambiguous"
+      },
+      {
+        "id": "v1.6-03-remove-disposition-drizzle.config.ts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-04-remove-disposition-playwright.config.ts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-05-remove-disposition-vitest.config.mts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-06-remove-disposition-tests/e2e/global-teardown.ts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-07-remove-disposition-tests/e2e/product-import.spec.ts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-08-remove-disposition-tests/e2e/public.spec.ts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "v1.6-09-silent-physical-exclusion",
+        "result": "fail-closed",
+        "reason": "fail_closed_lifecycle_candidate_missing"
+      },
+      {
+        "id": "v1.6-10-symlink",
+        "result": "fail-closed",
+        "reason": "fail_closed_symlink"
+      },
+      {
+        "id": "v1.6-11-canonical-alias",
+        "result": "fail-closed",
+        "reason": "fail_closed_canonical_alias"
+      },
+      {
+        "id": "v1.6-12-alias-import",
+        "result": "fail-closed",
+        "reason": "fail_closed_alias_import"
+      },
+      {
+        "id": "v1.6-13-unmanifested-generated-resource",
+        "result": "fail-closed",
+        "reason": "fail_closed_unmanifested_generated:src/ai/prompts/generated/unapproved.ts"
+      },
+      {
+        "id": "v1.6-14-early-phase-d",
+        "result": "fail-closed",
+        "reason": "fail_closed_early_phase_d"
+      },
+      {
+        "id": "v1.6-15-early-adapter",
+        "result": "fail-closed",
+        "reason": "fail_closed_early_adapter"
+      },
+      {
+        "id": "v1.6-16-second-composition-root",
+        "result": "fail-closed",
+        "reason": "fail_closed_composition_count"
+      },
+      {
+        "id": "v1.6-17-sealed-exclusion-integrity",
+        "result": "fail-closed",
+        "reason": "fail_closed_sealed_exclusion_integrity"
+      },
+      {
+        "id": "attempt2-01-next-env-without-class",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "attempt2-02-next-env-double-class",
+        "result": "fail-closed",
+        "reason": "fail_closed_ambiguous"
+      },
+      {
+        "id": "attempt2-03-next-env-silent-ignore-or-exclude",
+        "result": "fail-closed",
+        "reason": "fail_closed_lifecycle_candidate_missing"
+      },
+      {
+        "id": "attempt2-04-other-ignored-root-ts",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "attempt2-05-next-env-symlink",
+        "result": "fail-closed",
+        "reason": "fail_closed_symlink"
+      },
+      {
+        "id": "attempt2-06-next-env-hard-link",
+        "result": "fail-closed",
+        "reason": "fail_closed_hard_link_alias"
+      },
+      {
+        "id": "attempt2-07-next-env-generated-bytes",
+        "result": "fail-closed",
+        "reason": "fail_closed_framework_control_generated_mismatch"
+      },
+      {
+        "id": "attempt2-08-next-env-generated-path",
+        "result": "fail-closed",
+        "reason": "fail_closed_unclassified"
+      },
+      {
+        "id": "attempt2-09-next-env-type-reference",
+        "result": "fail-closed",
+        "reason": "fail_closed_framework_control_generated_mismatch"
+      },
+      {
+        "id": "attempt2-10-deletion-prerequisite",
+        "result": "fail-closed",
+        "reason": "fail_closed_deletion_prerequisite"
+      },
+      {
+        "id": "attempt2-11-dot-next-generated-bypass",
+        "result": "fail-closed",
+        "reason": "fail_closed_generated_root_bypass"
+      }
+    ],
+    "phaseCSynthetic": [
+      {
+        "id": "phase-c-synthetic-request-fallback-restored",
+        "result": "fail-closed",
+        "reason": "synthetic_request_fallback_or_binder_missing"
+      },
+      {
+        "id": "phase-c-synthetic-scope-operation-omitted",
+        "result": "fail-closed",
+        "reason": "synthetic_scope_operation_set_mismatch"
+      },
+      {
+        "id": "phase-c-synthetic-observation-write-authority",
+        "result": "fail-closed",
+        "reason": "synthetic_observation_write_authority"
+      },
+      {
+        "id": "phase-c-synthetic-second-definition-or-binder",
+        "result": "fail-closed",
+        "reason": "synthetic_second_definition_or_binder"
+      },
+      {
+        "id": "phase-c-synthetic-test-scope-fabrication",
+        "result": "fail-closed",
+        "reason": "synthetic_test_scope_fabrication_or_binder_copy"
+      },
+      {
+        "id": "phase-c-synthetic-atomicity-harness-binder-edge",
+        "result": "fail-closed",
+        "reason": "synthetic_atomicity_harness_binder_edge"
+      }
+    ]
+  },
+  "excludedPhysicalRoots": {
+    ".git/": "present-not-walked",
+    "node_modules/": "present-not-walked",
+    ".next/": "absent",
+    "coverage/": "absent",
+    "playwright-report/": "absent",
+    "test-results/": "absent",
+    ".data/": "present-not-walked",
+    ".storage/": "absent",
+    "dist/": "absent",
+    "build/": "absent",
+    "tmp/": "absent"
+  },
+  "nextEnv": {
+    "present": false
+  },
+  "inventorySha256": "8b35274571a5c7e562a9280c6af47c4b1b55a3c60cd9aad31faa5b74f5c49670",
+  "contentSha256": "41e189a6c2727427cd1738fd9596fac48bad01d8e4811fdcc30e2d13626b45fe",
+  "classificationSha256": "620426b81e93b074f8d11957462c3596d7e8818d2bae7b266787195ba9665d51",
+  "executableTreeSha256": "5c8bbef790a0a1b993202ed1d74ea144dfb00b76c36715dc13a3e334f8aa24dc",
+  "proofBoundCommit": "4e68ecacac74541ffdf8f9e013327c5a371a2507",
+  "verifiedProofDirectory": "docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/architecture-v4",
+  "finalTreeClosureMutations": [
+    {
+      "id": "post-proof-executable-evidence",
+      "result": "fail-closed",
+      "reason": "post_proof_executable_candidate"
+    },
+    {
+      "id": "unresolved-current-production-import",
+      "result": "fail-closed",
+      "reason": "unresolved_static_edge"
+    },
+    {
+      "id": "production-direct-imports-evidence-only",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-reexports-evidence-only",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-type-imports-evidence-only",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-alias-resolves-to-evidence-only",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-transitive-node-imports-evidence-only",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-imports-independent-diagnostic-target",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-case-variant-immutable-evidence-target",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "production-case-variant-current-json-evidence-target",
+      "result": "fail-closed",
+      "reason": "class_capability_violation"
+    },
+    {
+      "id": "silent-historical-probe-selector-exclusion",
+      "result": "fail-closed",
+      "reason": "silent_historical_selector_exclusion"
+    },
+    {
+      "id": "historical-evidence-production-promotion",
+      "result": "fail-closed",
+      "reason": "historical_evidence_authority_promotion"
+    },
+    {
+      "id": "stale-five-proof-commit-tree-binding",
+      "result": "fail-closed",
+      "reason": "stale_five_proof_binding"
+    },
+    {
+      "id": "historical-import-compatibility-target",
+      "result": "fail-closed",
+      "reason": "historical_import_compatibility_shim"
+    }
+  ]
+}

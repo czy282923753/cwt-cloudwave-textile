@@ -1,12 +1,13 @@
 99bfd80cb6cd45fd892ebd45956d28931d2d1db5f53296810b432289ebf45324  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/AI_FOUNDATION_TEST.log
 cb18bc7f73e33f69121c2d3351b08708af42e27db9c32f553da9c12bd6bb494c  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/ARCHITECTURE_V4_EMISSION.log
+6b822896be7536160f1384614781a1af6ebc2223df71c4e6b5283257bdfaae34  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/ARCHITECTURE_V4_PROOF_BOUND_VERIFICATION.log
 3bf858ef3762e9bf2599832ce3191e9b375fbea4eacb04cfb3b3f14e30592a3a  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-01_H01_BARRIER_TEST.log
 62f86811c9850bea9ffa99a931f2eb75cd5f8acd8c3e94b1936e5eb75dae73fa  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-01_POSTGRESQL_SCALE_QUERY_PLANS.json
 416c0cd4c80b0017f4fdf37d023c6b257d87b011a0ca268444b3a718ffb260cc  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-01_QUERY_PLAN_HARNESS_SOURCE.ts.txt
 5e1362fd8795b86d288efc456099815d6d28094ba2b6f8982288f1fd2351e444  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-02_HARNESS_SOURCE.ts.txt
 2f2f53bae9bcb65d2cdde40c6771df0dd4604b863eebe2bcd11ea06d0ab3d032  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/EV-02_TWO_SLOT_RESOURCE_AND_CONTENTION.json
 c6f707c87125c136a1af9404b7db2e6b95b4990d27f3ef2b1cbf04fdd0276403  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/FULL_REGRESSION_TEST.log
-08437d1e440230e7612cbfdf2dfad40191976050f5c0581483a288eca310dc7d  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/IMPLEMENTATION_EVIDENCE_INDEX.md
+a227ceab431347630c14ed49dd94d0cea66a69678ce8686219eaba12c4223daf  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/IMPLEMENTATION_EVIDENCE_INDEX.md
 5a0430270ff4875686681912de5ce651665443e97f308515b59081b8978a1ad9  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/LINT.log
 170f5aab5b7b66c585a705eb6d384dd27501c233b6bdde0aa6407d90570b69ab  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/MUTATION_INVENTORY.txt
 54332114c1ebb96c5115f147a6e6619169e37273ffe12178968f2b616f95f03b  docs/review-evidence/phase-1b-stage4a-phase-c-implementation-v1/POSTGRESQL_BUILD.log
