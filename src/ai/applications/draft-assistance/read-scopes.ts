@@ -41,7 +41,10 @@ import type {
 
 const draftConsistentReadScopeBrand = Symbol("draft-consistent-read-scope");
 const draftReadExecutor = Symbol("draft-read-executor");
-const draftAvailabilityEntityAuthorization = Symbol("draft-availability-entity-authorization");
+const draftAvailabilityEntityAuthorizations = new WeakMap<
+  object,
+  (entityType: "product" | "content" | null) => boolean
+>();
 
 interface DraftPrivateReadState<TQueryResult extends PgQueryResultHKT> {
   readonly [draftConsistentReadScopeBrand]: {
@@ -83,9 +86,6 @@ export interface ReadOnlyDraftAvailabilityScope<
   TQueryResult extends PgQueryResultHKT,
 > extends DraftConsistentReadScope<TQueryResult> {
   readonly mode: "read_only";
-  readonly [draftAvailabilityEntityAuthorization]: (
-    entityType: "product" | "content" | null,
-  ) => boolean;
 }
 
 export interface TransactionBoundDraftEnqueueScope<
@@ -111,11 +111,12 @@ function createReadOnlyDraftAvailabilityScope<
   executor: Pick<AppDatabase<TQueryResult>, "select">,
   authorizeEntityType: (entityType: "product" | "content" | null) => boolean,
 ): ReadOnlyDraftAvailabilityScope<TQueryResult> {
-  return {
+  const scope: ReadOnlyDraftAvailabilityScope<TQueryResult> = {
     [draftConsistentReadScopeBrand]: { [draftReadExecutor]: executor },
-    [draftAvailabilityEntityAuthorization]: authorizeEntityType,
     mode: "read_only",
   };
+  draftAvailabilityEntityAuthorizations.set(scope, authorizeEntityType);
+  return scope;
 }
 
 function createTransactionBoundDraftEnqueueScope<
@@ -141,7 +142,7 @@ export function authoritativeAvailabilityActorCanAccessEntityTypeV1<
   scope: ReadOnlyDraftAvailabilityScope<TQueryResult>,
   entityType: "product" | "content" | null,
 ): boolean {
-  return scope[draftAvailabilityEntityAuthorization](entityType);
+  return draftAvailabilityEntityAuthorizations.get(scope)?.(entityType) ?? false;
 }
 
 export function withReadOnlyDraftAvailabilityScope<
