@@ -114,6 +114,18 @@ export interface ReconstructibleDraftContextV1 extends ReadonlyJsonObject {
   readonly mediaPlacementRefs: readonly string[];
 }
 
+export interface ControlledValidationSourceAttestorV1 {
+  attestExplicitSource(input: {
+    readonly command: DraftAssistanceCommandV1;
+    readonly association: DraftDurableAssociationWithoutHashV1;
+    readonly origin: "typed_brief" | "operator_selected_target_text";
+  }): AiServiceResult<{
+    readonly fixtureId: string;
+    readonly fixtureVersion: 1;
+    readonly fixtureHash: string;
+  } | null>;
+}
+
 const sourceTargetBindingSchema = z.discriminatedUnion("targetType", [
   z.object({
     targetType: z.literal("product_draft"),
@@ -716,6 +728,7 @@ export function createDraftContextPolicy<
   TQueryResult extends PgQueryResultHKT,
 >(
   repository: DraftContextReadRepository<TQueryResult>,
+  controlledValidationSourceAttestor?: ControlledValidationSourceAttestorV1,
 ): ApplicationContextPolicy<
   DraftAssistanceCommandV1,
   DraftDurableAssociationWithoutHashV1,
@@ -757,10 +770,29 @@ export function createDraftContextPolicy<
             fields: [serializedField(alias, "text", "provided", input.command.explicitInput)],
           };
           sources.push(entry);
+          const attestation = controlledValidationSourceAttestor?.attestExplicitSource({
+            command: input.command,
+            association: input.association.association,
+            origin: selection.origin,
+          }) ?? aiSuccess(null);
+          if (!attestation.ok) return attestation;
+          if (attestation.value !== null &&
+            (!/^SYN-AI-[A-Z0-9-]{1,120}$/.test(attestation.value.fixtureId) ||
+              attestation.value.fixtureVersion !== 1 ||
+              !lowercaseHash.safeParse(attestation.value.fixtureHash).success)) {
+            return aiFailure("context_provenance_mismatch");
+          }
           inputSources.push({
             alias,
             sourceClass: "explicit_human_input",
-            sourceIdentity: { origin: selection.origin },
+            sourceIdentity: attestation.value === null
+              ? { origin: selection.origin }
+              : {
+                  origin: selection.origin,
+                  controlled_validation_fixture_id: attestation.value.fixtureId,
+                  controlled_validation_fixture_version: 1,
+                  controlled_validation_fixture_hash: attestation.value.fixtureHash,
+                },
             selectedFields: ["text"],
             fieldProvenance: [{ field: "text", provenance: "provided" }],
           });

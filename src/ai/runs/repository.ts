@@ -14,7 +14,7 @@ import {
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 
-import type { ReadonlyJsonValue } from "@/ai/canonical-json";
+import type { ReadonlyJsonObject, ReadonlyJsonValue } from "@/ai/canonical-json";
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import { aiFailure } from "@/ai/errors";
 import {
@@ -31,8 +31,8 @@ import {
   users,
 } from "@/db/schema";
 import {
-  createAttemptHistoryEntryV1,
-  normalizeAttemptEvidenceV2,
+  createAttemptHistoryEntryV2,
+  normalizeAttemptEvidenceV3,
 } from "./attempt-evidence";
 import type {
   ClaimedLeaseHandleV1,
@@ -42,13 +42,13 @@ import type {
   HumanLifecycleMutationOutcomeV1,
   LateAccountingOutcomeV1,
   LifecycleLockOutcomeV1,
-  NormalizedAttemptEvidenceV2,
+  NormalizedAttemptEvidenceV3,
   RunDispositionInputV1,
   SettlementOutcomeV1,
   WorkerClaimResultV1,
 } from "./contracts";
 import {
-  calculateTextCostMicrousdV1,
+  calculateTextCostBreakdownMicrousdV2,
   type PricingSnapshotV1,
 } from "./pricing-policy";
 import {
@@ -161,7 +161,7 @@ export interface AiRunRepositoryV1 {
     readonly pricingCurrent: boolean;
   }): Promise<DispatchAuthorizationOutcomeV1>;
   settle(input: ClaimedLeaseHandleV1 & {
-    readonly evidence: NormalizedAttemptEvidenceV2<
+    readonly evidence: NormalizedAttemptEvidenceV3<
       import("@/ai/core/contracts").ProtectedApplicationResultEnvelopeV1
     >;
     readonly origin?: "worker" | "shutdown";
@@ -194,7 +194,7 @@ export interface AiRunRepositoryV1 {
     readonly executionEnvironment: "local" | "test" | "staging";
     readonly cancelledLeaseToken: string;
     readonly expectedStateVersion: number;
-    readonly evidence: NormalizedAttemptEvidenceV2<unknown>;
+    readonly evidence: NormalizedAttemptEvidenceV3<unknown>;
   }): Promise<LateAccountingOutcomeV1>;
   readAuthorizedWithinTransaction(transaction: PhaseCPgDatabase, input: {
     readonly runId: string;
@@ -261,28 +261,117 @@ function jsonRecord(value: unknown): Readonly<Record<string, ReadonlyJsonValue>>
   return Object.freeze(Object.fromEntries(Object.entries(value)));
 }
 
+function controlledAttemptIdentity(
+  row: typeof aiRuns.$inferSelect,
+): import("./attempt-evidence").ControlledAttemptIdentityV1 | null {
+  if (!Array.isArray(row.inputSourcesJson)) {
+    throw new Error("Stored input source provenance was invalid.");
+  }
+  const controlled = row.inputSourcesJson.filter((value) => {
+    const source = jsonRecord(value);
+    const identity = source === undefined ? undefined : jsonRecord(source.sourceIdentity);
+    return identity !== undefined && Object.keys(identity)
+      .some((key) => key.startsWith("controlled_validation_"));
+  });
+  if (controlled.length === 0) return null;
+  if (controlled.length !== 1) throw new Error("Controlled validation provenance was ambiguous.");
+  const source = jsonRecord(controlled[0]);
+  const identity = source === undefined ? undefined : jsonRecord(source.sourceIdentity);
+  if (source === undefined || identity === undefined || source.sourceClass !== "explicit_human_input" ||
+    identity.origin !== "typed_brief" ||
+    typeof identity.controlled_validation_fixture_id !== "string" ||
+    identity.controlled_validation_fixture_version !== 1 ||
+    typeof identity.controlled_validation_fixture_hash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(identity.controlled_validation_fixture_hash) ||
+    Object.keys(identity).sort().join("\u0000") !== [
+      "controlled_validation_fixture_hash",
+      "controlled_validation_fixture_id",
+      "controlled_validation_fixture_version",
+      "origin",
+    ].join("\u0000")) {
+    throw new Error("Controlled validation provenance was invalid.");
+  }
+  const safeProviderRequestIdentity: ReadonlyJsonObject = Object.freeze({
+    schema: "cwt.provider-request-identity",
+    version: 1,
+    application_class: row.applicationClass,
+    use_case: row.useCase,
+    idempotency_key: row.idempotencyKey,
+    request_fingerprint_version: row.requestFingerprintVersion,
+    request_fingerprint: row.requestFingerprint,
+    model_config_id: row.modelConfigId,
+    model_config_version: row.modelConfigVersion,
+    resolved_config_hash: row.resolvedConfigHash,
+    requested_provider: row.requestedProvider,
+    requested_model: row.requestedModel,
+    parameters_snapshot_json: row.parametersSnapshotJson as ReadonlyJsonObject,
+    max_input_tokens: row.maxInputTokens,
+    max_output_tokens: row.maxOutputTokens,
+    max_attempts: row.maxAttempts,
+    prompt_id: row.promptId,
+    prompt_version: row.promptVersion,
+    prompt_hash: row.promptHash,
+    provider_envelope_version: row.providerEnvelopeVersion,
+    provider_envelope_hash: row.providerEnvelopeHash,
+    input_schema_version: row.inputSchemaVersion,
+    output_schema_version: row.outputSchemaVersion,
+    policy_version: row.policyVersion,
+    input_hash: row.inputHash,
+    controlled_validation_fixture_id: identity.controlled_validation_fixture_id,
+    controlled_validation_fixture_hash: identity.controlled_validation_fixture_hash,
+  });
+  return Object.freeze({
+    fixtureId: identity.controlled_validation_fixture_id,
+    fixtureHash: identity.controlled_validation_fixture_hash,
+    safeProviderRequestIdentity,
+  });
+}
+
 function pricingSnapshot(value: unknown): PricingSnapshotV1 | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  if (record.version !== 1 || record.currency !== "USD" ||
-    record.billing_unit_tokens !== 1_000_000 || record.formula !== "ceil-separate-v1" ||
-    typeof record.input_microusd_per_unit !== "number" ||
+  if (record.currency !== "USD" || record.billing_unit_tokens !== 1_000_000 ||
     typeof record.output_microusd_per_unit !== "number" ||
     typeof record.source_id !== "string" || typeof record.source_version !== "string" ||
-    typeof record.effective_from !== "string" || typeof record.observed_at !== "string") {
-    return undefined;
+    typeof record.effective_from !== "string" || typeof record.observed_at !== "string") return undefined;
+  if (record.version === 1 && record.formula === "ceil-separate-v1" &&
+    typeof record.input_microusd_per_unit === "number") {
+    return {
+      version: 1,
+      currency: "USD",
+      billing_unit_tokens: 1_000_000,
+      input_microusd_per_unit: record.input_microusd_per_unit,
+      output_microusd_per_unit: record.output_microusd_per_unit,
+      formula: "ceil-separate-v1",
+      source_id: record.source_id,
+      source_version: record.source_version,
+      effective_from: record.effective_from,
+      observed_at: record.observed_at,
+    };
   }
+  if (record.version !== 2 || record.formula !== "ceil-cache-split-v1" ||
+    typeof record.cache_hit_input_microusd_per_unit !== "number" ||
+    typeof record.cache_miss_input_microusd_per_unit !== "number" ||
+    typeof record.source_url !== "string" || typeof record.source_content_sha256 !== "string" ||
+    typeof record.model_alias !== "string" || typeof record.published_model_version !== "string" ||
+    record.max_age_seconds !== 86_400) return undefined;
   return {
-    version: 1,
+    version: 2,
     currency: "USD",
     billing_unit_tokens: 1_000_000,
-    input_microusd_per_unit: record.input_microusd_per_unit,
+    cache_hit_input_microusd_per_unit: record.cache_hit_input_microusd_per_unit,
+    cache_miss_input_microusd_per_unit: record.cache_miss_input_microusd_per_unit,
     output_microusd_per_unit: record.output_microusd_per_unit,
-    formula: "ceil-separate-v1",
+    formula: "ceil-cache-split-v1",
     source_id: record.source_id,
+    source_url: record.source_url,
+    source_content_sha256: record.source_content_sha256,
     source_version: record.source_version,
+    model_alias: record.model_alias,
+    published_model_version: record.published_model_version,
     effective_from: record.effective_from,
     observed_at: record.observed_at,
+    max_age_seconds: 86_400,
   };
 }
 
@@ -292,7 +381,7 @@ function attemptUpperCost(row: typeof aiRuns.$inferSelect): number {
 
 function cumulativeTokens(
   history: readonly ReadonlyJsonValue[],
-  current: NormalizedAttemptEvidenceV2<unknown>,
+  current: NormalizedAttemptEvidenceV3<unknown>,
 ): { readonly input: number; readonly output: number; readonly total: number } | null {
   let input = 0;
   let output = 0;
@@ -390,6 +479,9 @@ function claimedRowProjection(row: typeof aiRuns.$inferSelect) {
     applicationClass: row.applicationClass,
     capability: row.capability,
     useCase: row.useCase,
+    idempotencyKey: row.idempotencyKey,
+    requestFingerprintVersion: row.requestFingerprintVersion,
+    requestFingerprint: row.requestFingerprint,
     targetType: row.targetType,
     targetProductId: row.targetProductId,
     targetContentId: row.targetContentId,
@@ -417,6 +509,7 @@ function claimedRowProjection(row: typeof aiRuns.$inferSelect) {
     outputSchemaVersion: row.outputSchemaVersion,
     policyVersion: row.policyVersion,
     inputContextJson: row.inputContextJson,
+    inputSourcesJson: row.inputSourcesJson,
     inputHash: row.inputHash,
     status: row.status,
     retryState: row.retryState,
@@ -576,8 +669,8 @@ export function createAiRunRepositoryV1(
           const dispatched = expired.activeAttemptDispatchedAt !== null;
           const failure = aiFailure(dispatched ? "provider_transport_error" : "claim_expired");
           if (failure.ok) throw new Error("Static recovery failure was invalid.");
-          const evidence = normalizeAttemptEvidenceV2<unknown>({
-            version: 2,
+          const evidence = normalizeAttemptEvidenceV3<unknown>({
+            version: 3,
             dispatchState: dispatched ? "dispatched" : "not_dispatched",
             protectedResult: null,
             error: failure.error,
@@ -589,12 +682,13 @@ export function createAiRunRepositoryV1(
             providerHttpStatus: null,
             providerErrorCode: null,
             providerRequestId: null,
+            providerSystemFingerprint: null,
             durationMs: 0,
           });
           if (!evidence.ok) throw new Error("Recovery evidence normalization failed.");
           const attemptUpper = expired.maxAttempts === 0
             ? 0 : Math.ceil(expired.estimatedMaxCostMicrousd / expired.maxAttempts);
-          const entry = createAttemptHistoryEntryV1({
+          const entry = createAttemptHistoryEntryV2({
             attempt: expired.attemptCount,
             outcome: expired.attemptCount < expired.maxAttempts ? "retry_scheduled" : "failed",
             requestedProvider: expired.requestedProvider,
@@ -610,6 +704,7 @@ export function createAiRunRepositoryV1(
             actualCostComplete: !dispatched,
             evidence: evidence.value,
             candidateHash: null,
+            controlledIdentity: controlledAttemptIdentity(expired),
           });
           if (!entry.ok) throw new Error("Recovery attempt entry failed.");
           const retry = expired.attemptCount < expired.maxAttempts;
@@ -813,8 +908,8 @@ export function createAiRunRepositoryV1(
           if (history === undefined) throw new Error("Stored attempt history was invalid.");
           const failure = aiFailure("pricing_stale");
           if (failure.ok) throw new Error("Static pricing failure was invalid.");
-          const evidence = normalizeAttemptEvidenceV2<unknown>({
-            version: 2,
+          const evidence = normalizeAttemptEvidenceV3<unknown>({
+            version: 3,
             dispatchState: "not_dispatched",
             protectedResult: null,
             error: failure.error,
@@ -826,10 +921,11 @@ export function createAiRunRepositoryV1(
             providerHttpStatus: null,
             providerErrorCode: null,
             providerRequestId: null,
+            providerSystemFingerprint: null,
             durationMs: 0,
           });
           if (!evidence.ok) throw new Error("Pricing failure evidence normalization failed.");
-          const entry = createAttemptHistoryEntryV1({
+          const entry = createAttemptHistoryEntryV2({
             attempt: current.attemptCount,
             outcome: "failed",
             requestedProvider: current.requestedProvider,
@@ -845,6 +941,7 @@ export function createAiRunRepositoryV1(
             actualCostComplete: true,
             evidence: evidence.value,
             candidateHash: null,
+            controlledIdentity: controlledAttemptIdentity(current),
           });
           if (!entry.ok) throw new Error("Pricing failure attempt entry failed.");
           await transaction.update(aiRuns).set({
@@ -935,17 +1032,24 @@ export function createAiRunRepositoryV1(
         const history = attemptHistory(row.attemptHistoryJson);
         if (history === undefined) throw new Error("Stored attempt history was invalid.");
         const attemptUpper = attemptUpperCost(row);
-        const usageComplete = input.evidence.usage !== null;
+        const usagePresent = input.evidence.usage !== null;
         const storedPricing = pricingSnapshot(row.pricingSnapshotJson);
         if (storedPricing === undefined) throw new Error("Stored pricing snapshot was invalid.");
-        const calculated = usageComplete ? calculateTextCostMicrousdV1({
+        const calculated = usagePresent ? calculateTextCostBreakdownMicrousdV2({
           inputTokens: input.evidence.usage?.inputTokens ?? 0,
           outputTokens: input.evidence.usage?.outputTokens ?? 0,
+          ...(input.evidence.usage?.cacheHitInputTokens === undefined ? {} : {
+            cacheHitInputTokens: input.evidence.usage.cacheHitInputTokens,
+          }),
+          ...(input.evidence.usage?.cacheMissInputTokens === undefined ? {} : {
+            cacheMissInputTokens: input.evidence.usage.cacheMissInputTokens,
+          }),
           pricing: storedPricing,
         }) : null;
         if (calculated !== null && !calculated.ok) throw new Error("Stored pricing calculation failed.");
         const actualAttemptCost = row.executionEnvironment === "staging" && calculated?.ok === true
-          ? calculated.value : 0;
+          ? calculated.value.costMicrousd : 0;
+        const usageComplete = calculated?.ok === true && calculated.value.complete;
         const accountedAttemptCost = row.executionEnvironment === "staging"
           ? usageComplete ? actualAttemptCost : attemptUpper
           : 0;
@@ -967,7 +1071,7 @@ export function createAiRunRepositoryV1(
             ? "exhausted" : "not_retryable"
           : "none";
         const failureCode = overrun ? "run_cost_limit_exceeded" : input.evidence.error?.code ?? null;
-        const entry = createAttemptHistoryEntryV1({
+        const entry = createAttemptHistoryEntryV2({
           attempt: row.attemptCount,
           outcome: status === "draft_ready" ? "draft_ready" : status === "pending" ? "retry_scheduled" : "failed",
           requestedProvider: row.requestedProvider,
@@ -983,6 +1087,7 @@ export function createAiRunRepositoryV1(
           actualCostComplete: usageComplete,
           evidence: input.evidence,
           candidateHash: status === "draft_ready" ? protectedResult?.hash ?? null : null,
+          controlledIdentity: controlledAttemptIdentity(row),
         });
         if (!entry.ok) throw new Error("Settlement attempt entry failed.");
         const nextAttemptAt = status === "pending"
@@ -1056,8 +1161,8 @@ export function createAiRunRepositoryV1(
       if (processing) {
         const failure = aiFailure("provider_cancelled");
         if (failure.ok) throw new Error("Static cancellation failure was invalid.");
-        const evidence = normalizeAttemptEvidenceV2<unknown>({
-          version: 2,
+        const evidence = normalizeAttemptEvidenceV3<unknown>({
+          version: 3,
           dispatchState: dispatched ? "dispatched" : "not_dispatched",
           protectedResult: null,
           error: failure.error,
@@ -1069,10 +1174,11 @@ export function createAiRunRepositoryV1(
           providerHttpStatus: null,
           providerErrorCode: null,
           providerRequestId: null,
+          providerSystemFingerprint: null,
           durationMs: 0,
         });
         if (!evidence.ok) throw new Error("Cancellation evidence normalization failed.");
-        const entry = createAttemptHistoryEntryV1({
+        const entry = createAttemptHistoryEntryV2({
           attempt: row.attemptCount,
           outcome: "discarded_cancelled",
           requestedProvider: row.requestedProvider,
@@ -1089,6 +1195,7 @@ export function createAiRunRepositoryV1(
           actualCostComplete: !dispatched,
           evidence: evidence.value,
           candidateHash: null,
+          controlledIdentity: controlledAttemptIdentity(row),
         });
         if (!entry.ok) throw new Error("Cancellation attempt entry failed.");
         nextHistory = [...history, entry.value];
@@ -1243,16 +1350,22 @@ export function createAiRunRepositoryV1(
         }
         const storedPricing = pricingSnapshot(row.pricingSnapshotJson);
         if (storedPricing === undefined) throw new Error("Stored pricing snapshot was invalid.");
-        const calculated = calculateTextCostMicrousdV1({
+        const calculated = calculateTextCostBreakdownMicrousdV2({
           inputTokens: input.evidence.usage.inputTokens,
           outputTokens: input.evidence.usage.outputTokens,
+          ...(input.evidence.usage.cacheHitInputTokens === undefined ? {} : {
+            cacheHitInputTokens: input.evidence.usage.cacheHitInputTokens,
+          }),
+          ...(input.evidence.usage.cacheMissInputTokens === undefined ? {} : {
+            cacheMissInputTokens: input.evidence.usage.cacheMissInputTokens,
+          }),
           pricing: storedPricing,
         });
         if (!calculated.ok) throw new Error("Late accounting pricing calculation failed.");
-        const lateCost = row.executionEnvironment === "staging" ? calculated.value : 0;
+        const lateCost = row.executionEnvironment === "staging" ? calculated.value.costMicrousd : 0;
         const priorRespondedAt = typeof last.responded_at === "string"
           ? new Date(last.responded_at) : lock.observedAt;
-        const entry = createAttemptHistoryEntryV1({
+        const entry = createAttemptHistoryEntryV2({
           attempt: row.attemptCount,
           outcome: "discarded_cancelled",
           requestedProvider: row.requestedProvider,
@@ -1265,9 +1378,10 @@ export function createAiRunRepositoryV1(
           attemptUpperCostMicrousd: attemptUpperCost(row),
           actualCostMicrousd: lateCost,
           accountedCostMicrousd: lateCost,
-          actualCostComplete: true,
+          actualCostComplete: calculated.value.complete,
           evidence: input.evidence,
           candidateHash: null,
+          controlledIdentity: controlledAttemptIdentity(row),
         });
         if (!entry.ok) throw new Error("Late accounting attempt entry failed.");
         if (row.providerResponseStatus === "cancelled_late_response") {
@@ -1292,7 +1406,8 @@ export function createAiRunRepositoryV1(
           outputTokens: tokens?.output ?? null,
           totalTokens: tokens?.total ?? null,
           actualCostMicrousd: actual,
-          actualCostComplete: prefix.every((value) => jsonRecord(value)?.actual_cost_complete === true),
+          actualCostComplete: calculated.value.complete &&
+            prefix.every((value) => jsonRecord(value)?.actual_cost_complete === true),
           budgetAccountedCostMicrousd: accounted,
           stateVersion: row.stateVersion + 1,
           updatedAt: lock.observedAt,

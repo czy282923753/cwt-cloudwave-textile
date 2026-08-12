@@ -12,7 +12,7 @@ import type {
   ProtectedApplicationResultEnvelopeV1,
 } from "@/ai/core/contracts";
 import { aiFailure } from "@/ai/errors";
-import { normalizeAttemptEvidenceV2 } from "@/ai/runs/attempt-evidence";
+import { normalizeAttemptEvidenceV3 } from "@/ai/runs/attempt-evidence";
 import { migrateDatabase } from "@/db/migrate";
 import {
   aiModelConfig,
@@ -220,8 +220,8 @@ async function createAccountedStagingTemplate(fixture: Fixture): Promise<typeof 
   if (marker.kind !== "authorized") throw new Error("Staging template marker failed.");
   const failure = aiFailure("provider_transport_error");
   if (failure.ok) throw new Error("Staging template failure was invalid.");
-  const evidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
-    version: 2,
+  const evidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+    version: 3,
     dispatchState: "dispatched",
     protectedResult: null,
     error: failure.error,
@@ -233,6 +233,7 @@ async function createAccountedStagingTemplate(fixture: Fixture): Promise<typeof 
     providerHttpStatus: null,
     providerErrorCode: null,
     providerRequestId: null,
+      providerSystemFingerprint: null,
     durationMs: 1,
   });
   if (!evidence.ok) throw new Error("Staging template evidence failed.");
@@ -514,8 +515,8 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       });
     });
     if (cancelled.kind !== "updated") throw new Error("Cancellation failed.");
-    const evidence = normalizeAttemptEvidenceV2({
-      version: 2,
+    const evidence = normalizeAttemptEvidenceV3({
+      version: 3,
       dispatchState: "dispatched",
       protectedResult: { safeSyntheticResult: true },
       error: null,
@@ -527,6 +528,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       providerHttpStatus: 200,
       providerErrorCode: null,
       providerRequestId: "synthetic-late-response",
+      providerSystemFingerprint: null,
       durationMs: 7,
     });
     if (!evidence.ok) throw new Error("Late evidence normalization failed.");
@@ -708,8 +710,8 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
     if (missingMarker.kind !== "authorized") throw new Error("Missing-usage marker failed.");
     const missingFailure = aiFailure("provider_transport_error");
     if (missingFailure.ok) throw new Error("Static missing-usage failure was invalid.");
-    const missingEvidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
-      version: 2,
+    const missingEvidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+      version: 3,
       dispatchState: "dispatched",
       protectedResult: null,
       error: missingFailure.error,
@@ -721,6 +723,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       providerHttpStatus: null,
       providerErrorCode: null,
       providerRequestId: null,
+      providerSystemFingerprint: null,
       durationMs: 1,
     });
     if (!missingEvidence.ok) throw new Error("Missing-usage evidence failed.");
@@ -774,8 +777,8 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       pricingCurrent: true,
     });
     if (overrunMarker.kind !== "authorized") throw new Error("Overrun marker failed.");
-    const overrunEvidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
-      version: 2,
+    const overrunEvidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+      version: 3,
       dispatchState: "dispatched",
       protectedResult: {
         version: 1,
@@ -797,6 +800,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       providerHttpStatus: 200,
       providerErrorCode: null,
       providerRequestId: "synthetic-overrun",
+      providerSystemFingerprint: null,
       durationMs: 2,
     });
     if (!overrunEvidence.ok) throw new Error("Overrun evidence failed.");

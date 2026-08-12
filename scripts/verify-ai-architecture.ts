@@ -15,9 +15,9 @@ import {
 import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
-const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-c.v4_0.json";
-const expectedProfileFileHash = "51699e6da13fb572289851df9c0f984a13b02ce48cc5db878b1d320aabee1ddb";
-const expectedProfileIntegrityHash = "9dbd93121e9d6fadfb6c6af6a38cef1762b292722078a79a916d9ced06988bd9";
+const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json";
+const expectedProfileFileHash = "3aed8b3461809c8bf353e2b2597f530c985ef1d80e8d751b682eefc3ca50376f";
+const expectedProfileIntegrityHash = "96b951d60b629d242059de51c02e2515662dfc426a74ba735a97e91d0129e2bf";
 const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -30,7 +30,7 @@ function fail(reason: string): never {
   throw new Error(`AI architecture gate failed closed: ${reason}`);
 }
 
-if (sha256(profileBytes) !== expectedProfileFileHash) fail("current V4.0 profile/fixture hash mismatch");
+if (sha256(profileBytes) !== expectedProfileFileHash) fail("current V5.0 profile/fixture hash mismatch");
 const rawProfileBundle: unknown = JSON.parse(profileBytes.toString("utf8"));
 
 type PlainJson = null | boolean | number | string | PlainJson[] | { [key: string]: PlainJson };
@@ -40,12 +40,12 @@ function copyPlainJson(value: unknown, path = "profile"): PlainJson {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (Array.isArray(value)) return value.map((member, index) => copyPlainJson(member, `${path}/${index}`));
   if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) {
-    fail(`non-plain V4.0 profile value at ${path}`);
+    fail(`non-plain V5.0 profile value at ${path}`);
   }
   const output: { [key: string]: PlainJson } = {};
   for (const [key, member] of Object.entries(value)) {
     if (key === "__proto__" || key === "prototype" || key === "constructor") {
-      fail(`unsafe V4.0 profile key at ${path}/${key}`);
+      fail(`unsafe V5.0 profile key at ${path}/${key}`);
     }
     output[key] = copyPlainJson(member, `${path}/${key}`);
   }
@@ -126,8 +126,8 @@ interface ArchitectureProfile {
 function parseProfile(value: unknown): ArchitectureProfile {
   if (typeof value !== "object" || value === null) fail("profile is not an object");
   const candidate = value as Partial<ArchitectureProfile>;
-  if (candidate.profileId !== "cwt.phase1b.stage4a.phasec.durable-run-worker-boundary.v4_0_candidate" ||
-    candidate.profileVersion !== "4.0.0-candidate" || candidate.classificationModel === undefined ||
+  if (candidate.profileId !== "cwt.phase1b.stage4a.phased.deepseek-text-adapter.v5_0_candidate" ||
+    candidate.profileVersion !== "5.0.0-candidate" || candidate.classificationModel === undefined ||
     candidate.filesystemEnumeration === undefined || candidate.resourceAndGeneratedPolicy === undefined) {
     fail("profile identity or required section mismatch");
   }
@@ -135,13 +135,13 @@ function parseProfile(value: unknown): ArchitectureProfile {
 }
 
 if (typeof profileBundle !== "object" || profileBundle === null || Array.isArray(profileBundle) ||
-  profileBundle.schemaVersion !== 40 || typeof profileBundle.profile !== "object" ||
+  profileBundle.schemaVersion !== 50 || typeof profileBundle.profile !== "object" ||
   profileBundle.profile === null || Array.isArray(profileBundle.profile) ||
   !Array.isArray(profileBundle.faultCases) || !Array.isArray(profileBundle.positiveCases) ||
   !Array.isArray(profileBundle.topologyCases) ||
   JSON.stringify(Object.keys(profileBundle).sort()) !==
     JSON.stringify(["faultCases", "positiveCases", "profile", "schemaVersion", "topologyCases"])) {
-  fail("V4.0 profile/fixture envelope is not exact");
+  fail("V5.0 profile/fixture envelope is not exact");
 }
 const authority = parseProfile(profileBundle.profile);
 
@@ -154,7 +154,7 @@ function canonical(value: unknown): string {
 
 if (authority.profileIntegrity.algorithm !== "sha256-jcs-selected-pointers-v1" ||
   authority.profileIntegrity.sha256 !== expectedProfileIntegrityHash) {
-  fail("V4.0 profile integrity declaration mismatch");
+  fail("V5.0 profile integrity declaration mismatch");
 }
 const integrityProjection: Record<string, unknown> = {};
 for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
@@ -164,7 +164,7 @@ for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
   integrityProjection[pointer] = authority[key as keyof ArchitectureProfile];
 }
 if (sha256(canonical(integrityProjection)) !== expectedProfileIntegrityHash) {
-  fail("V4.0 selected-pointer profile integrity mismatch");
+  fail("V5.0 selected-pointer profile integrity mismatch");
 }
 
 const syntheticTransactionOperations = [
@@ -574,14 +574,16 @@ function requirePhysicalNode(input: {
 
 const expectedRootImports = [
   "server-only",
-  "@/config/env",
-  "@/db/client",
-  "@/ai/config/trusted-phase-b-environment",
   "@/ai/applications/draft-assistance/composition",
+  "@/ai/config/trusted-phase-b-environment",
   "@/ai/internal/worker-entry",
   "@/ai/providers/registry",
   "@/ai/prompts/loader",
   "@/ai/runs/pricing-policy",
+  "@/config/env",
+  "@/db/client",
+  "@/integrations/ai/providers/deepseek-text-adapter",
+  "@/integrations/ai/providers/deepseek-pricing",
 ] as const;
 
 function requireExactRootImports(specifiers: readonly string[]): void {
@@ -599,9 +601,9 @@ function requireCompositionCounts(input: {
   readonly phaseD: number;
   readonly adapter: number;
 }): void {
-  if (input.phaseC !== 1) rejectMutation("fail_closed_composition_count");
-  if (input.phaseD !== 0) rejectMutation("fail_closed_early_phase_d");
-  if (input.adapter !== 0) rejectMutation("fail_closed_early_adapter");
+  if (input.phaseC !== 0) rejectMutation("fail_closed_restored_phase_c");
+  if (input.phaseD !== 1) rejectMutation("fail_closed_composition_count");
+  if (input.adapter !== 3) rejectMutation("fail_closed_adapter_count");
 }
 
 const sealedExcludedRoots = [
@@ -724,7 +726,7 @@ const mutationProbes: MutationProbe[] = [
   {
     id: "v1.6-12-alias-import",
     expectedCode: "fail_closed_alias_import",
-    run: () => { requireExactRootImports([...expectedRootImports.slice(0, 8), "@/ai/runs/pricing-policy/index"]); },
+    run: () => { requireExactRootImports([...expectedRootImports.slice(0, 10), "@/integrations/ai/providers/deepseek-pricing/index"]); },
   },
   {
     id: "v1.6-13-unmanifested-generated-resource",
@@ -733,18 +735,18 @@ const mutationProbes: MutationProbe[] = [
   },
   {
     id: "v1.6-14-early-phase-d",
-    expectedCode: "fail_closed_early_phase_d",
-    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 1, adapter: 0 }); },
+    expectedCode: "fail_closed_composition_count",
+    run: () => { requireCompositionCounts({ phaseC: 0, phaseD: 2, adapter: 3 }); },
   },
   {
     id: "v1.6-15-early-adapter",
-    expectedCode: "fail_closed_early_adapter",
-    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 0, adapter: 1 }); },
+    expectedCode: "fail_closed_adapter_count",
+    run: () => { requireCompositionCounts({ phaseC: 0, phaseD: 1, adapter: 4 }); },
   },
   {
     id: "v1.6-16-second-composition-root",
-    expectedCode: "fail_closed_composition_count",
-    run: () => { requireCompositionCounts({ phaseC: 2, phaseD: 0, adapter: 0 }); },
+    expectedCode: "fail_closed_restored_phase_c",
+    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 1, adapter: 3 }); },
   },
   {
     id: "v1.6-17-sealed-exclusion-integrity",
@@ -876,14 +878,14 @@ for (const path of candidates) {
 if (zeroClass.length > 0) fail(`unclassified candidates: ${zeroClass.join(", ")}`);
 if (ambiguous.length > 0) fail(`ambiguous candidates: ${ambiguous.join(", ")}`);
 
-if ((classMembers.get("phase-c-outer-composition")?.length ?? 0) !== 1) {
-  fail("Phase C outer composition count is not exactly one");
+if ((classMembers.get("phase-c-outer-composition-retired")?.length ?? 0) !== 0) {
+  fail("retired Phase C outer composition is present");
 }
-if ((classMembers.get("phase-d-outer-composition-reserved")?.length ?? 0) !== 0) {
-  fail("Phase D outer composition exists during Phase C");
+if ((classMembers.get("phase-d-outer-composition")?.length ?? 0) !== 1) {
+  fail("Phase D outer composition count is not exactly one");
 }
-if ((classMembers.get("future-provider-adapter-zone-reserved")?.length ?? 0) !== 0) {
-  fail("Provider adapter zone exists during Phase C");
+if ((classMembers.get("phase-d-provider-adapter-zone")?.length ?? 0) !== 3) {
+  fail("Phase D Provider adapter implementation count is not exactly three");
 }
 
 const nextContract = authority.resourceAndGeneratedPolicy.frameworkControlGeneratedContract;
@@ -942,7 +944,7 @@ if (nextNode !== undefined) {
   fail("source-clean lifecycle has .next without next-env.d.ts");
 }
 
-const rootPath = "src/server/ai/phase-c-composition.ts";
+const rootPath = "src/server/ai/phase-d-provider-composition.ts";
 const rootSource = readFileSync(resolve(repositoryRoot, rootPath), "utf8");
 
 class ArchitectureGraphFailure extends Error {
@@ -1311,7 +1313,14 @@ function scanStaticLanguage(input: {
       const exactAuthorizedDatabaseCacheAccess = path === "src/db/client.ts" &&
         ts.isPropertyAccessExpression(parent) && parent.expression === node &&
         parent.questionDotToken === undefined && parent.name.text === "cwtDatabaseConnection";
-      if (!exactAuthorizedDatabaseCacheAccess) rejectNode(node, "ambient_global_capability_not_authorized");
+      const exactPhaseDFetchAccess = [
+        "src/integrations/ai/providers/deepseek-text-adapter.ts",
+        "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+      ].includes(path) && ts.isPropertyAccessExpression(parent) && parent.expression === node &&
+        parent.questionDotToken === undefined && parent.name.text === "fetch";
+      if (!exactAuthorizedDatabaseCacheAccess && !exactPhaseDFetchAccess) {
+        rejectNode(node, "ambient_global_capability_not_authorized");
+      }
     }
     if (production && denyAmbientRuntimeCapabilities && ts.isIdentifier(node)) {
       const origin = ambientRuntimeCapabilityOrigin(node, checker);
@@ -1478,7 +1487,8 @@ const testOrControlClasses = new Set([
   "synthetic-ai-test-code", "other-test-fixtures", "root-control-file",
 ]);
 const productionClasses = new Set([
-  "phase-c-outer-composition", "protected-ai", "business-consumer", "other-production-src",
+  "phase-d-outer-composition", "phase-d-provider-adapter-zone", "protected-ai",
+  "business-consumer", "other-production-src",
 ]);
 
 function edgeDiagnostic(edge: GraphEdgeV1, reason: string, target?: string): string {
@@ -1635,6 +1645,14 @@ function enforceCapabilityEdge(
       "src/server/ai/phase-b-composition.ts",
     ));
   }
+  if (edge.specifier === "@/server/ai/phase-c-composition" ||
+    edge.specifier?.endsWith("/server/ai/phase-c-composition")) {
+    rejectGraph("phase_c_composition_violation", edgeDiagnostic(
+      edge,
+      "retired_phase_c_composition_reference",
+      "src/server/ai/phase-c-composition.ts",
+    ));
+  }
   if (edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved") {
     if (productionClasses.has(sourceClass) || publicClient) {
       rejectGraph(edge.resolutionKind === "unresolved" ? "unresolved_static_edge" : "unsupported_acquisition_syntax", JSON.stringify({
@@ -1662,7 +1680,10 @@ function enforceCapabilityEdge(
     if (sourceClass === "protected-ai" && !protectedExternalAllowed(edge)) {
       rejectGraph("class_capability_violation", `${edge.from}->${specifier}`);
     }
-    if (testOrControlClasses.has(sourceClass) && [
+    const exactLoopbackAuthority = (edge.from === "src/ai/testing/controlled-provider-validation.ts" ||
+      edge.from === "src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts") &&
+      (specifier === "node:http" || specifier === "node:events");
+    if (!exactLoopbackAuthority && testOrControlClasses.has(sourceClass) && [
       "node:http", "node:https", "node:net", "node:tls", "openai",
       "@anthropic-ai/sdk", "@google/generative-ai", "@google/genai",
       "cohere-ai", "groq-sdk", "ollama",
@@ -1680,22 +1701,28 @@ function enforceCapabilityEdge(
   const canonicalTarget = canonicalStaticTargetIdentity(edge, sourceClass, requestedTarget);
   const target = canonicalTarget.path;
   const exactCliRootEdge = edge.from === "scripts/process-ai-runs.ts" && target === rootPath &&
-    edge.edgeKind === "runtime" && edge.specifier === "@/server/ai/phase-c-composition";
+    edge.edgeKind === "runtime" && edge.specifier === "@/server/ai/phase-d-provider-composition";
   if (target === rootPath && edge.from !== rootPath && !exactCliRootEdge) {
-    rejectGraph("phase_c_composition_violation", edgeDiagnostic(edge, "unexpected_incoming_edge_to_phase_c_composition", target));
+    rejectGraph("phase_d_composition_violation", edgeDiagnostic(edge, "unexpected_incoming_edge_to_phase_d_composition", target));
   }
   if (target.startsWith("src/server/ai/") && edge.from !== rootPath && !exactCliRootEdge) {
-    rejectGraph("phase_c_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_server_ai_composition", target));
+    rejectGraph("phase_d_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_server_ai_composition", target));
   }
   if (edge.from === "scripts/process-ai-runs.ts" && target !== rootPath &&
     (target.startsWith("src/ai/") || target.startsWith("src/db/") || target.startsWith("src/config/"))) {
-    rejectGraph("phase_c_composition_violation", edgeDiagnostic(edge, "cli_bypasses_phase_c_root", target));
+    rejectGraph("phase_d_composition_violation", edgeDiagnostic(edge, "cli_bypasses_phase_d_root", target));
   }
   if (publicClient && (target.startsWith("src/ai/") || target.startsWith("src/server/ai/") ||
     target.startsWith("src/integrations/ai/providers/"))) {
     rejectGraph("public_client_reachability", edgeDiagnostic(edge, "public_client_reaches_ai_server_boundary", target));
   }
-  if (testOrControlClasses.has(sourceClass) &&
+  const exactControlledRunnerEdge = edge.from === "src/ai/testing/controlled-provider-validation.ts" &&
+    target.startsWith("src/integrations/ai/providers/");
+  const exactAdapterTestEdge = isTestSemantic(edge.from) && target.startsWith("src/integrations/ai/providers/");
+  const exactControlledScriptEdge = edge.from === "scripts/validate-deepseek-text-adapter.ts" &&
+    target === "src/ai/testing/controlled-provider-validation.ts";
+  if (!exactControlledRunnerEdge && !exactAdapterTestEdge && !exactControlledScriptEdge &&
+    testOrControlClasses.has(sourceClass) &&
     (target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/") ||
       (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
     rejectGraph("class_capability_violation", `${edge.from}->${target}`);
@@ -1765,7 +1792,7 @@ if (configRead.error !== undefined) fail("tsconfig could not be read by installe
 const parsedConfig = ts.parseJsonConfigFileContent(configRead.config, ts.sys, repositoryRoot, undefined, tsconfigPath);
 if (parsedConfig.errors.length > 0 || parsedConfig.options.moduleResolution !== ts.ModuleResolutionKind.Bundler ||
   parsedConfig.options.strict !== true || parsedConfig.options.exactOptionalPropertyTypes !== true) {
-  fail("installed TypeScript compiler options differ from V4.0");
+  fail("installed TypeScript compiler options differ from V5.0");
 }
 const architectureProgram = ts.createProgram({
   rootNames: executableNodes
@@ -1798,7 +1825,7 @@ for (const node of executableNodes) {
     checker: architectureChecker,
     production,
     denyAmbientRuntimeCapabilities: node.classId === "protected-ai" ||
-      node.classId === "phase-c-outer-composition",
+      node.classId === "phase-d-outer-composition",
   });
   staticLanguageByPath.set(node.path, scan);
   scan.ordinaryGlobalUrlValues.forEach((position) => ordinaryGlobalUrlValues.push({ path: node.path, position }));
@@ -1812,7 +1839,7 @@ for (const node of executableNodes) {
 }
 if (ordinaryGlobalUrlValues.length !== 21 || staticResourceCandidates.length !== 0 ||
   graphEdges.some((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported")) {
-  fail(`actual Production static-language baseline differs from V4.0: ${JSON.stringify({
+  fail(`actual Production static-language baseline differs from V5.0: ${JSON.stringify({
     ordinaryGlobalUrlValues,
     staticResourceCandidates,
     unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported"),
@@ -1857,7 +1884,7 @@ const exactSpecifiers = rootEdges
   .map((edge) => edge.specifier ?? "");
 if (JSON.stringify(exactSpecifiers) !== JSON.stringify(expectedRootImports) ||
   rootEdges.length !== expectedRootImports.length) {
-  fail("Phase C outer composition imports differ from the exact nine-edge seam");
+  fail("Phase D outer composition imports differ from the exact eleven-edge seam");
 }
 
 const rootAst = ts.createSourceFile(
@@ -1874,6 +1901,9 @@ const rootFacts = {
   availabilityFactoryCalls: 0,
   durableFactoryCalls: 0,
   workerFactoryCalls: 0,
+  deepSeekProviderFactoryCalls: 0,
+  deepSeekPricingFactoryCalls: 0,
+  providerRegistryFactoryCalls: 0,
   switches: 0,
   exactExportNames: [] as string[],
   elementAccesses: 0,
@@ -1892,6 +1922,9 @@ function inspectRoot(node: ts.Node): void {
     if (ts.isIdentifier(node.expression) && node.expression.text === "createPhaseCAvailabilityServiceV1") rootFacts.availabilityFactoryCalls += 1;
     if (ts.isIdentifier(node.expression) && node.expression.text === "createPhaseCDurableDraftAssistanceServiceV1") rootFacts.durableFactoryCalls += 1;
     if (ts.isIdentifier(node.expression) && node.expression.text === "createAiRunWorkerV1") rootFacts.workerFactoryCalls += 1;
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createDeepSeekTextProviderV1") rootFacts.deepSeekProviderFactoryCalls += 1;
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createDeepSeekPricingPolicyRegistryV1") rootFacts.deepSeekPricingFactoryCalls += 1;
+    if (ts.isIdentifier(node.expression) && node.expression.text === "createTextProviderRegistryV1") rootFacts.providerRegistryFactoryCalls += 1;
   }
   if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) &&
     node.expression.text === "databaseConnection") {
@@ -1905,17 +1938,21 @@ function inspectRoot(node: ts.Node): void {
 }
 inspectRoot(rootAst);
 rootFacts.exactExportNames.sort();
-if (rootFacts.freezeCalls !== 1 || rootFacts.kindReads !== 2 || rootFacts.dbReads !== 3 ||
+if (rootFacts.freezeCalls !== 2 || rootFacts.kindReads !== 4 || rootFacts.dbReads !== 3 ||
   rootFacts.availabilityFactoryCalls !== 1 || rootFacts.durableFactoryCalls !== 1 ||
-  rootFacts.workerFactoryCalls !== 1 || rootFacts.switches !== 2 ||
+  rootFacts.workerFactoryCalls !== 1 || rootFacts.deepSeekProviderFactoryCalls !== 1 ||
+  rootFacts.deepSeekPricingFactoryCalls !== 1 || rootFacts.providerRegistryFactoryCalls !== 1 ||
+  rootFacts.switches !== 0 ||
   JSON.stringify(rootFacts.exactExportNames) !== JSON.stringify([
-    "createPhaseCAiRunWorkerV1", "createPhaseCServerAiServiceV1",
+    "createPhaseDAiRunWorkerV1", "createPhaseDServerAiServiceV1",
   ]) || rootFacts.elementAccesses !== 0 || rootFacts.spreads !== 0 ||
-  !rootSource.includes('case "pglite"') || !rootSource.includes('case "postgres"') ||
-  (rootSource.match(/default:/g) ?? []).length !== 2 ||
+  !rootSource.includes('databaseConnection.kind === "pglite"') ||
+  !rootSource.includes('databaseConnection.kind !== "postgres"') ||
+  !rootSource.includes('trustedEnvironment.appEnvironment === "staging"') ||
+  !rootSource.includes("trustedEnvironment.processFeatureAiEnabled") ||
   !rootSource.includes("PGlite cannot run the durable AI Worker") ||
   /\bas\b|\bany\b|\bunknown\b|@ts-/.test(rootSource)) {
-  fail("Phase C outer composition does not satisfy the exact direct discriminated seam");
+  fail("Phase D outer composition does not satisfy the exact bounded capability seam");
 }
 
 const protectedPaths = executableNodes
@@ -1951,25 +1988,84 @@ const publicClientClosure = executableClosure(publicClientRoots, false, true);
 
 const serverClosure = executableClosure([rootPath], false);
 if (!serverClosure.some((path) => path.startsWith("src/ai/")) ||
-  serverClosure.some((path) => path.startsWith("src/server/ai/phase-d") ||
-    path.startsWith("src/integrations/ai/providers/"))) {
-  fail("Phase C server closure does not satisfy required reachability/absence");
+  !serverClosure.includes("src/integrations/ai/providers/deepseek-text-adapter.ts") ||
+  !serverClosure.includes("src/integrations/ai/providers/deepseek-pricing.ts") ||
+  serverClosure.some((path) => path.startsWith("src/server/ai/phase-c"))) {
+  fail("Phase D server closure does not satisfy required reachability/absence");
 }
 if (existsSync(resolve(repositoryRoot, "src/server/ai/phase-b-composition.ts")) ||
+  existsSync(resolve(repositoryRoot, "src/server/ai/phase-c-composition.ts")) ||
   rootSource.includes("createPhaseB") || graphEdges.some((edge) =>
-    edge.resolvedTarget === "src/server/ai/phase-b-composition.ts")) {
-  fail("obsolete Phase B composition authority remains executable");
+    edge.resolvedTarget === "src/server/ai/phase-b-composition.ts" ||
+    edge.resolvedTarget === "src/server/ai/phase-c-composition.ts")) {
+  fail("obsolete Phase B/C composition authority remains executable");
 }
 
 const generateCallOwners = executableNodes.filter((entry) => entry.classId === "protected-ai" &&
   readFileSync(resolve(repositoryRoot, entry.path), "utf8").includes(".generateText("));
-if (generateCallOwners.length !== 1 || generateCallOwners[0]?.path !== "src/ai/core/orchestrator.ts") {
-  fail("Text provider call authority is not unique to core/orchestrator.ts");
+if (generateCallOwners.length !== 0) {
+  fail("retired Text Provider generateText authority remains executable");
+}
+const executeCallOwners = executableNodes.filter((entry) => productionClasses.has(entry.classId) &&
+  readFileSync(resolve(repositoryRoot, entry.path), "utf8").includes("prepared.value.execute("));
+if (executeCallOwners.length !== 1 || executeCallOwners[0]?.path !== "src/ai/core/orchestrator.ts") {
+  fail("Prepared Provider dispatch execution is not unique to core/orchestrator.ts");
+}
+
+const executableSources = executableNodes.filter((entry) => productionClasses.has(entry.classId)).map((entry) => ({
+  path: entry.path,
+  source: readFileSync(resolve(repositoryRoot, entry.path), "utf8"),
+}));
+const credentialReaders = executableSources.filter((entry) =>
+  entry.source.includes("process.env.DEEPSEEK_API_KEY"));
+if (credentialReaders.length !== 1 || credentialReaders[0]?.path !==
+  "src/integrations/ai/providers/deepseek-text-adapter.ts" ||
+  !credentialReaders[0].source.includes("prepareTextDispatch(input:")) {
+  fail("DeepSeek credential read is not unique to the adapter prepare method");
+}
+const officialSourceOwners = executableSources.filter((entry) =>
+  entry.source.includes("fetchImplementation(") &&
+  (entry.source.includes("https://api-docs.deepseek.com/quick_start/pricing/") ||
+    entry.source.includes("https://api-docs.deepseek.com/api/create-chat-completion/")));
+if (officialSourceOwners.length !== 1 || officialSourceOwners[0]?.path !==
+  "src/integrations/ai/providers/deepseek-official-source-preflight.ts") {
+  fail("official-source URL authority is not unique to the preflight module");
+}
+const providerEndpointOwners = executableSources.filter((entry) =>
+  entry.source.includes("https://api.deepseek.com/chat/completions"));
+if (providerEndpointOwners.length !== 1 || providerEndpointOwners[0]?.path !==
+  "src/integrations/ai/providers/deepseek-text-adapter.ts") {
+  fail("billable Provider endpoint authority is not unique to the adapter");
+}
+const controlledScript = readFileSync(resolve(repositoryRoot, "scripts/validate-deepseek-text-adapter.ts"), "utf8");
+if (controlledScript !==
+  'import { runControlledDeepSeekValidationV1 } from "@/ai/testing/controlled-provider-validation";\n\n' +
+  'const result = await runControlledDeepSeekValidationV1();\n' +
+  'process.stdout.write(`${JSON.stringify(result, null, 2)}\\n`);\n' +
+  'if (result.status !== "PASS") process.exitCode = 1;\n') {
+  fail("controlled validation script is not the exact single-runner shell");
+}
+const controlledRunnerIncoming = graphEdges.filter((edge) =>
+  edge.resolvedTarget === "src/ai/testing/controlled-provider-validation.ts" &&
+  !isTestSemantic(edge.from));
+if (controlledRunnerIncoming.length !== 1 || controlledRunnerIncoming[0]?.from !==
+  "scripts/validate-deepseek-text-adapter.ts") {
+  fail("controlled validation runner has an unauthorized Production/tooling caller");
+}
+const adapterSource = readFileSync(resolve(repositoryRoot,
+  "src/integrations/ai/providers/deepseek-text-adapter.ts"), "utf8");
+if (!adapterSource.includes('redirect: "manual"') ||
+  adapterSource.includes('redirect: "follow"') || adapterSource.includes('redirect: "error"') ||
+  adapterSource.includes("service_tier") || adapterSource.includes("dispatcher:") ||
+  adapterSource.includes("agent:") || adapterSource.includes("proxy:")) {
+  fail("DeepSeek adapter redirect/request/schema boundary drifted");
 }
 const providerRegistry = readFileSync(resolve(repositoryRoot, "src/ai/providers/registry.ts"), "utf8");
 if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Production Provider registry is not exact-empty");
 const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
 if (productionManifest !== '{"manifestVersion":1,"entries":[]}\n') fail("Production Prompt manifest is not exact-empty");
+const productionPricing = readFileSync(resolve(repositoryRoot, "src/ai/runs/pricing-policy.ts"), "utf8");
+if (!productionPricing.includes("createPricingPolicyRegistryV1([])")) fail("Production pricing registry is not exact-empty");
 
 interface StaticFaultCaseV40 {
   readonly id: string;
@@ -2013,7 +2109,7 @@ function exactRecord(value: PlainJson, owner: string): { [key: string]: PlainJso
 const graphFaultCases: StaticFaultCaseV40[] = profileBundle.faultCases.map((value, index) => {
   const record = exactRecord(value, `faultCases/${index}`);
   if (Object.keys(record).sort().join(",") !== "expectedNodeKind,expectedReason,id,source,sourcePath") {
-    fail(`faultCases/${index} keys differ from V4.0 fixture schema`);
+    fail(`faultCases/${index} keys differ from V5.0 fixture schema`);
   }
   return {
     id: exactString(record, "id", `faultCases/${index}`),
@@ -2026,7 +2122,7 @@ const graphFaultCases: StaticFaultCaseV40[] = profileBundle.faultCases.map((valu
 const graphPositiveCases: StaticPositiveCaseV40[] = profileBundle.positiveCases.map((value, index) => {
   const record = exactRecord(value, `positiveCases/${index}`);
   if (Object.keys(record).sort().join(",") !== "id,ordinaryGlobalUrlValues,resourceEdges,source,sourcePath") {
-    fail(`positiveCases/${index} keys differ from V4.0 fixture schema`);
+    fail(`positiveCases/${index} keys differ from V5.0 fixture schema`);
   }
   return {
     id: exactString(record, "id", `positiveCases/${index}`),
@@ -2039,7 +2135,7 @@ const graphPositiveCases: StaticPositiveCaseV40[] = profileBundle.positiveCases.
 const graphTopologyCases: TopologyCaseV40[] = profileBundle.topologyCases.map((value, index) => {
   const record = exactRecord(value, `topologyCases/${index}`);
   if (Object.keys(record).sort().join(",") !== "expectedReason,id,path") {
-    fail(`topologyCases/${index} keys differ from V4.0 fixture schema`);
+    fail(`topologyCases/${index} keys differ from V5.0 fixture schema`);
   }
   return {
     id: exactString(record, "id", `topologyCases/${index}`),
@@ -2065,7 +2161,7 @@ function scanVirtualSource(path: string, text: string): StaticLanguageScan {
     source: program.getSourceFile(absolute) ?? fail(`virtual Program omitted ${path}`),
     checker: program.getTypeChecker(),
     production: true,
-    denyAmbientRuntimeCapabilities: ["protected-ai", "phase-c-outer-composition"].includes(classForPath(path)),
+    denyAmbientRuntimeCapabilities: ["protected-ai", "phase-d-outer-composition"].includes(classForPath(path)),
   });
 }
 
@@ -2124,13 +2220,18 @@ const graphPositiveResults = graphPositiveCases.map((positive) => {
 });
 
 function enforceTopology(paths: readonly string[]): void {
-  const phaseD = paths.find((path) => path === "src/server/ai/phase-d-provider-composition.ts");
-  const adapter = paths.find((path) => path.startsWith("src/integrations/ai/providers/"));
+  const phaseD = paths.filter((path) => path === "src/server/ai/phase-d-provider-composition.ts");
+  const phaseC = paths.find((path) => path === "src/server/ai/phase-c-composition.ts");
+  const adapter = paths.filter((path) => path.startsWith("src/integrations/ai/providers/") &&
+    !isTestSemantic(path));
   const undeclared = paths.find((path) => path.startsWith("src/server/ai/") &&
-    path !== rootPath && path !== "src/server/ai/phase-c-composition.test.ts" &&
-    path !== "src/server/ai/phase-d-provider-composition.ts");
-  if (phaseD !== undefined || adapter !== undefined) {
-    rejectGraph("reserved_zone_present", JSON.stringify({ path: phaseD ?? adapter ?? "unknown", nodeKind: "FilesystemPath", reason: "future_zone_present" }));
+    path !== rootPath && isTestSemantic(path) === false);
+  if (phaseD.length !== 1 || phaseC !== undefined || adapter.length !== 3) {
+    rejectGraph("reserved_zone_present", JSON.stringify({
+      path: phaseC ?? (phaseD.length !== 1 ? rootPath : adapter[3] ?? "provider-adapter-count"),
+      nodeKind: "FilesystemPath",
+      reason: "phase_d_topology_count_drift",
+    }));
   }
   if (undeclared !== undefined) rejectGraph("reserved_zone_present", JSON.stringify({ path: undeclared, nodeKind: "FilesystemPath", reason: "undeclared_composition" }));
 }
@@ -2470,7 +2571,7 @@ const checkerSha256 = sha256(readFileSync(resolve(repositoryRoot, "scripts/verif
 
 function sealProof(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   const base = {
-    schemaVersion: 40,
+    schemaVersion: 50,
     profileId: authority.profileId,
     profileVersion: authority.profileVersion,
     profileFileSha256: expectedProfileFileHash,
@@ -2566,9 +2667,9 @@ const originProof = sealProof({
     testing: protectedClosure.some((path) => path.startsWith("src/ai/testing/")),
     providerRegistry: "exact-empty",
   },
-  reservedAbsence: {
-    phaseDComposition: !actualFiles.includes("src/server/ai/phase-d-provider-composition.ts"),
-    providerAdapterZone: !actualFiles.some((path) => path.startsWith("src/integrations/ai/providers/")),
+  retiredAbsence: {
+    phaseBComposition: !actualFiles.includes("src/server/ai/phase-b-composition.ts"),
+    phaseCComposition: !actualFiles.includes("src/server/ai/phase-c-composition.ts"),
   },
   productionClosure: { protectedClosure, coreClosure, serverClosure },
   publicClientClosure: { roots: publicClientRoots, closure: publicClientClosure },
@@ -2583,6 +2684,16 @@ const compositionProof = sealProof({
     availability: rootFacts.availabilityFactoryCalls,
     durableService: rootFacts.durableFactoryCalls,
     worker: rootFacts.workerFactoryCalls,
+    deepSeekProvider: rootFacts.deepSeekProviderFactoryCalls,
+    deepSeekPricing: rootFacts.deepSeekPricingFactoryCalls,
+    providerRegistry: rootFacts.providerRegistryFactoryCalls,
+  },
+  providerAndSecretAuthority: {
+    providerEndpointOwners: providerEndpointOwners.map((entry) => entry.path),
+    officialSourceOwners: officialSourceOwners.map((entry) => entry.path),
+    credentialReaders: credentialReaders.map((entry) => entry.path),
+    executeCallOwners: executeCallOwners.map((entry) => entry.path),
+    controlledRunnerIncoming,
   },
   incomingProductionEdges: graphEdges.filter((edge) => edge.resolvedTarget === rootPath),
   typescriptProbeCaptures: { positive: positiveTypeConfigs, negative: negativeTypeConfigs },
@@ -2604,30 +2715,47 @@ const bundleProof = sealProof({
   sourceBundleAgreement: bundleBoundary.sourceBundleAgreement,
   bundleHash: bundleBoundary.bundleHash,
 });
+const architectureMutationProof = sealProof({
+  inheritedMutationProbes: mutationResults,
+  phaseCSyntheticMutationProbes: syntheticMutationResults,
+  graphFaultProbes: graphFaultResults,
+  graphPositiveProbes: graphPositiveResults,
+  topologyProbes: graphFaultResults.filter((result) =>
+    graphTopologyCases.some((topology) => topology.id === result.id)),
+  phaseDNegativeControls: {
+    retiredGenerateTextOwners: generateCallOwners.map((entry) => entry.path),
+    preparedExecuteOwners: executeCallOwners.map((entry) => entry.path),
+    credentialReaders: credentialReaders.map((entry) => entry.path),
+    officialSourceOwners: officialSourceOwners.map((entry) => entry.path),
+    providerEndpointOwners: providerEndpointOwners.map((entry) => entry.path),
+  },
+});
 
 const proofArtifacts = {
-  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_C_V4_0.json": actualTreeProof,
-  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_C_V4_0.json": staticGraphProof,
-  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_C_V4_0.json": originProof,
-  "AI_PHASE_C_COMPOSITION_AND_WORKER_PROOF_V4_0.json": compositionProof,
-  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_C_V4_0.json": bundleProof,
+  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_D_V5_0.json": actualTreeProof,
+  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_D_V5_0.json": staticGraphProof,
+  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_D_V5_0.json": originProof,
+  "AI_PHASE_D_COMPOSITION_PROVIDER_SECRET_PROOF_V5_0.json": compositionProof,
+  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_D_V5_0.json": bundleProof,
+  "AI_ARCHITECTURE_MUTATION_PROBE_RESULTS_PHASE_D_V5_0.json": architectureMutationProof,
 };
 const exactProofArtifactNames = [
-  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_C_V4_0.json",
-  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_C_V4_0.json",
-  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_C_V4_0.json",
-  "AI_PHASE_C_COMPOSITION_AND_WORKER_PROOF_V4_0.json",
-  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_C_V4_0.json",
+  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_D_V5_0.json",
+  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_D_V5_0.json",
+  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_D_V5_0.json",
+  "AI_PHASE_D_COMPOSITION_PROVIDER_SECRET_PROOF_V5_0.json",
+  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_D_V5_0.json",
+  "AI_ARCHITECTURE_MUTATION_PROBE_RESULTS_PHASE_D_V5_0.json",
 ] as const;
 if (JSON.stringify(Object.keys(proofArtifacts)) !== JSON.stringify(exactProofArtifactNames)) {
-  fail("V4.0 proof artifact set is not exactly five before manifest binding");
+  fail("V5.0 proof artifact set is not exactly six before manifest binding");
 }
 
 const inheritedMutationProbeIds = mutationResults.map((result) => result.id).sort();
 const phaseCSyntheticMutationIds = syntheticMutationResults.map((result) => result.id).sort();
-const proofManifestName = "AI_PHASE_C_ARCHITECTURE_PROOF_MANIFEST_V4_0.json";
+const proofManifestName = "AI_ARCHITECTURE_PHASE_D_V5_MANIFEST.json";
 const proofManifest = Object.freeze({
-  schemaVersion: 40,
+  schemaVersion: 50,
   profileId: authority.profileId,
   profileVersion: authority.profileVersion,
   profileFileSha256: expectedProfileFileHash,
@@ -2664,7 +2792,7 @@ function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string |
   }
   const entries = readdirSync(directory).sort();
   if (JSON.stringify(entries) !== JSON.stringify(exactEvidenceArtifactNames)) {
-    fail("bound proof directory does not contain exactly the six canonical V4.0 artifacts");
+    fail("bound proof directory does not contain exactly the seven canonical V5.0 artifacts");
   }
   for (const name of exactProofArtifactNames) {
     const path = resolve(directory, name);
@@ -2678,7 +2806,7 @@ function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string |
     const proof = parsed as Record<string, unknown>;
     const proofHash = proof.proofHash;
     const input = proof.inputHashes;
-    if (proof.candidateCommit !== boundCommit || proof.schemaVersion !== 40 ||
+    if (proof.candidateCommit !== boundCommit || proof.schemaVersion !== 50 ||
       proof.profileIntegritySha256 !== expectedProfileIntegrityHash ||
       proof.profileFileSha256 !== expectedProfileFileHash || proof.checkerSha256 !== checkerSha256 ||
       proof.profileVersion !== authority.profileVersion || typeof proofHash !== "string" ||
@@ -2701,7 +2829,7 @@ function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string |
     (manifest as Record<string, unknown>).profileFileSha256 !== expectedProfileFileHash ||
     (manifest as Record<string, unknown>).profileIntegritySha256 !== expectedProfileIntegrityHash ||
     "proofHash" in manifest) {
-    fail("V4.0 proof manifest binding mismatch");
+    fail("V5.0 proof manifest binding mismatch");
   }
 }
 
@@ -2943,7 +3071,7 @@ if (evidenceDirectoryInput !== undefined) {
     existsSync(evidenceDirectory)) fail("proof output must be one absent repository-contained directory");
   const parent = dirname(evidenceDirectory);
   mkdirSync(parent, { recursive: true });
-  const temporary = mkdtempSync(resolve(parent, ".phase-c-v40-proof-"));
+  const temporary = mkdtempSync(resolve(parent, ".phase-d-v50-proof-"));
   try {
     for (const [name, artifact] of Object.entries(proofArtifacts)) {
       const path = resolve(temporary, name);

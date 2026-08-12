@@ -316,6 +316,24 @@ export interface GenericAiOrchestratorV1 {
     Promise<AiServiceResult<CoreCommittedRunSummaryV1>>;
 }
 
+export interface ControlledValidationExecutionAuthorityV1 {
+  authorizePreConfiguration(input: {
+    readonly environment: "staging";
+    readonly applicationClass: string;
+    readonly capability: "text";
+    readonly useCase: string;
+    readonly idempotencyKey: string;
+    readonly requestedByPrincipalId: string;
+    readonly requestFingerprint: string;
+    readonly inputHash: string;
+    readonly inputSources: readonly SafeInputSourceReferenceV1[];
+  }): AiServiceResult<true>;
+  authorizePreparedRun(input: {
+    readonly environment: "staging";
+    readonly preparedRun: PreparedCoreRunV1;
+  }): AiServiceResult<true>;
+}
+
 export interface ExecutePreDispatchTextAttemptCommandV2 {
   readonly claimed: import("../internal/claimed-run-authority").PreDispatchClaimedRunV2;
   readonly signal: AbortSignal;
@@ -327,7 +345,7 @@ export interface ExecutePreDispatchTextAttemptCommandV2 {
 export type ClaimedExecutionResultV2<TProtected> =
   | {
       readonly kind: "attempt_evidence";
-      readonly evidence: import("../runs/contracts").NormalizedAttemptEvidenceV2<TProtected>;
+      readonly evidence: import("../runs/contracts").NormalizedAttemptEvidenceV3<TProtected>;
       readonly dispatchAuthorization:
         | Extract<import("../runs/contracts").DispatchAuthorizationOutcomeV1, { readonly kind: "authorized" }>
         | null;

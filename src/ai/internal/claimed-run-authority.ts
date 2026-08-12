@@ -22,6 +22,9 @@ const rowSchema = z.object({
   applicationClass: z.string().min(1).max(64),
   capability: z.literal("text"),
   useCase: z.string().min(1).max(64),
+  idempotencyKey: uuid,
+  requestFingerprintVersion: z.literal(1),
+  requestFingerprint: hash,
   targetType: z.string(),
   targetProductId: uuid.nullable(),
   targetContentId: uuid.nullable(),
@@ -49,6 +52,7 @@ const rowSchema = z.object({
   outputSchemaVersion: z.number().int().positive(),
   policyVersion: z.string().min(1).max(100),
   inputContextJson: z.unknown(),
+  inputSourcesJson: z.unknown(),
   inputHash: hash,
   status: z.literal("processing"),
   retryState: z.literal("none"),
@@ -86,6 +90,37 @@ function copyJsonObject(value: ReadonlyJsonObject): ReadonlyJsonObject {
   const copy: Record<string, ReadonlyJsonValue> = Object.create(null);
   for (const [key, member] of Object.entries(value)) copy[key] = copyJsonValue(member);
   return Object.freeze(copy);
+}
+
+function controlledValidationIdentity(
+  inputSources: readonly ReadonlyJsonValue[],
+): AiServiceResult<{ readonly fixtureId: string; readonly fixtureHash: string } | null> {
+  const controlled = inputSources.filter((value) => {
+    if (!jsonObject(value)) return false;
+    const identity = value.sourceIdentity;
+    return jsonObject(identity) && Object.keys(identity)
+      .some((key) => key.startsWith("controlled_validation_"));
+  });
+  if (controlled.length === 0) return aiSuccess(null);
+  if (controlled.length !== 1 || !jsonObject(controlled[0])) return aiFailure("context_provenance_mismatch");
+  const source = controlled[0];
+  const identity = source.sourceIdentity;
+  if (source.sourceClass !== "explicit_human_input" || !jsonObject(identity) ||
+    identity.origin !== "typed_brief" || identity.controlled_validation_fixture_version !== 1 ||
+    typeof identity.controlled_validation_fixture_id !== "string" ||
+    !/^SYN-AI-[A-Z0-9-]{1,120}$/.test(identity.controlled_validation_fixture_id) ||
+    typeof identity.controlled_validation_fixture_hash !== "string" ||
+    !hash.safeParse(identity.controlled_validation_fixture_hash).success ||
+    Object.keys(identity).sort().join("\u0000") !== [
+      "controlled_validation_fixture_hash",
+      "controlled_validation_fixture_id",
+      "controlled_validation_fixture_version",
+      "origin",
+    ].join("\u0000")) return aiFailure("context_provenance_mismatch");
+  return aiSuccess(Object.freeze({
+    fixtureId: identity.controlled_validation_fixture_id,
+    fixtureHash: identity.controlled_validation_fixture_hash,
+  }));
 }
 
 function claimedDraftContextInAcceptedOrder(value: ReadonlyJsonObject): ReadonlyJsonObject {
@@ -138,6 +173,9 @@ export interface PreDispatchClaimedRunV2 {
   readonly applicationClass: string;
   readonly capability: "text";
   readonly useCase: string;
+  readonly idempotencyKey: string;
+  readonly requestFingerprintVersion: 1;
+  readonly requestFingerprint: string;
   readonly applicationAssociation: ApplicationAssociationEnvelopeV1;
   readonly targetSnapshotHash: string;
   readonly modelConfigId: string;
@@ -161,7 +199,12 @@ export interface PreDispatchClaimedRunV2 {
   readonly outputSchemaVersion: number;
   readonly policyVersion: string;
   readonly inputContext: ReadonlyJsonObject;
+  readonly inputSources: readonly ReadonlyJsonValue[];
   readonly inputHash: string;
+  readonly controlledValidationIdentity: {
+    readonly fixtureId: string;
+    readonly fixtureHash: string;
+  } | null;
   readonly status: "processing";
   readonly retryState: "none";
   readonly attemptCount: number;
@@ -181,11 +224,15 @@ export function constructPreDispatchClaimedRunV2(input: {
   const parsed = rowSchema.safeParse(input.row);
   if (!parsed.success) return aiFailure("claimed_run_required");
   const row = parsed.data;
-  if (!jsonObject(row.parametersSnapshotJson) || !jsonObject(row.inputContextJson)) {
+  if (!jsonObject(row.parametersSnapshotJson) || !jsonObject(row.inputContextJson) ||
+    !Array.isArray(row.inputSourcesJson) || !row.inputSourcesJson.every(jsonValue)) {
     return aiFailure("claimed_run_required");
   }
   const parametersSnapshot = copyJsonObject(row.parametersSnapshotJson);
   const inputContext = claimedDraftContextInAcceptedOrder(row.inputContextJson);
+  const inputSources = Object.freeze(row.inputSourcesJson.map(copyJsonValue));
+  const controlledIdentity = controlledValidationIdentity(inputSources);
+  if (!controlledIdentity.ok) return controlledIdentity;
   if (row.actualProvider !== null && row.actualProvider !== row.requestedProvider) {
     return aiFailure("config_provenance_mismatch");
   }
@@ -251,6 +298,9 @@ export function constructPreDispatchClaimedRunV2(input: {
     applicationClass: row.applicationClass,
     capability: "text",
     useCase: row.useCase,
+    idempotencyKey: row.idempotencyKey,
+    requestFingerprintVersion: 1,
+    requestFingerprint: row.requestFingerprint,
     applicationAssociation: association.value,
     targetSnapshotHash: row.targetSnapshotHash,
     modelConfigId: row.modelConfigId,
@@ -274,7 +324,9 @@ export function constructPreDispatchClaimedRunV2(input: {
     outputSchemaVersion: row.outputSchemaVersion,
     policyVersion: row.policyVersion,
     inputContext,
+    inputSources,
     inputHash: row.inputHash,
+    controlledValidationIdentity: controlledIdentity.value,
     status: "processing",
     retryState: "none",
     attemptCount: row.attemptCount,

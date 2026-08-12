@@ -74,7 +74,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C Worker shutdown boundary", (
 
   it("keeps the CLI signal-aware and rooted only through the sole Phase C Worker export", async () => {
     const source = await readFile(new URL("../../../scripts/process-ai-runs.ts", import.meta.url), "utf8");
-    expect(source).toContain('import { createPhaseCAiRunWorkerV1 } from "@/server/ai/phase-c-composition";');
+    expect(source).toContain('import { createPhaseDAiRunWorkerV1 } from "@/server/ai/phase-d-provider-composition";');
     expect(source).toContain('process.once("SIGINT"');
     expect(source).toContain('process.once("SIGTERM"');
     expect(source).not.toMatch(/runs\/repository|providers\/registry|prompts\/loader|db\/client/);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateAttemptUpperCostMicrousdV1,
+  calculateTextCostBreakdownMicrousdV2,
   calculateTextCostMicrousdV1,
   createPricingPolicyRegistryV1,
   nonbillablePricingSnapshotV1,
@@ -27,5 +28,44 @@ describe("pricing policy V1", () => {
     expect(registry.ok).toBe(true);
     if (registry.ok) expect(registry.value.resolve({ provider: "p", model: "m", at: new Date("2026-01-01") }))
       .toMatchObject({ ok: false, error: { code: "pricing_stale" } });
+  });
+
+  it("uses exact cache-split arithmetic and conservative miss accounting", () => {
+    const pricing = {
+      version: 2 as const,
+      currency: "USD" as const,
+      billing_unit_tokens: 1_000_000 as const,
+      cache_hit_input_microusd_per_unit: 2_800,
+      cache_miss_input_microusd_per_unit: 140_000,
+      output_microusd_per_unit: 280_000,
+      formula: "ceil-cache-split-v1" as const,
+      source_id: "deepseek-official-pricing",
+      source_url: "https://api-docs.deepseek.com/quick_start/pricing/",
+      source_content_sha256: "a".repeat(64),
+      source_version: "2026-08-12-deepseek-v4-flash",
+      model_alias: "deepseek-v4-flash",
+      published_model_version: "DeepSeek-V4-Flash-0731",
+      effective_from: "2026-08-12T16:38:29.000Z",
+      observed_at: "2026-08-12T16:38:29.000Z",
+      max_age_seconds: 86_400 as const,
+    };
+    expect(calculateTextCostBreakdownMicrousdV2({
+      inputTokens: 10,
+      outputTokens: 2,
+      cacheHitInputTokens: 6,
+      cacheMissInputTokens: 4,
+      pricing,
+    })).toEqual({ ok: true, value: { costMicrousd: 3, complete: true } });
+    expect(calculateTextCostBreakdownMicrousdV2({
+      inputTokens: 10,
+      outputTokens: 2,
+      pricing,
+    })).toEqual({ ok: true, value: { costMicrousd: 3, complete: false } });
+    expect(calculateAttemptUpperCostMicrousdV1({
+      maxInputTokens: 2_048,
+      maxOutputTokens: 64,
+      maxAttempts: 1,
+      pricing,
+    })).toEqual({ ok: true, value: { attemptUpper: 305, estimatedMax: 305 } });
   });
 });

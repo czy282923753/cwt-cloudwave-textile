@@ -19,10 +19,12 @@ export interface ResolvedAdapterConfigurationV1 {
   readonly parameters: ReadonlyJsonObject;
 }
 
-export interface NormalizedTokenUsage {
+export interface NormalizedTokenUsageV2 {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
+  readonly cacheHitInputTokens?: number;
+  readonly cacheMissInputTokens?: number;
 }
 
 export type NormalizedCompletionV1 =
@@ -55,16 +57,21 @@ export type ProviderNeutralFailureCode =
   | "authentication"
   | "client"
   | "server"
+  | "empty_response"
+  | "invalid_response_json"
+  | "invalid_response_schema"
+  | "response_too_large"
   | "unknown";
 
-export type ProviderTextResultV1 =
+export type ProviderTextResultV2 =
   | {
       readonly kind: "success";
       readonly returnedModel: string;
       readonly completion: NormalizedCompletionV1;
       readonly outputText: string;
-      readonly usage?: NormalizedTokenUsage;
+      readonly usage?: NormalizedTokenUsageV2;
       readonly providerRequestId?: string;
+      readonly providerSystemFingerprint?: string;
       readonly durationMs: number;
     }
   | {
@@ -75,8 +82,15 @@ export type ProviderTextResultV1 =
       readonly httpStatus?: number;
       readonly providerErrorCode?: string;
       readonly providerRequestId?: string;
+      readonly returnedModel?: string;
       readonly durationMs: number;
     };
+
+export interface PreparedTextDispatchV1 {
+  readonly provider: string;
+  readonly requestedModel: string;
+  execute(input: { readonly signal: AbortSignal }): Promise<ProviderTextResultV2>;
+}
 
 export interface TextAiProvider {
   readonly key: string;
@@ -89,10 +103,9 @@ export interface TextAiProvider {
   estimateInputTokens(
     request: ProviderNeutralTextRequestV1,
   ): AiServiceResult<number>;
-  generateText(input: {
+  prepareTextDispatch(input: {
     readonly model: string;
     readonly parameters: ReadonlyJsonObject;
     readonly request: ProviderNeutralTextRequestV1;
-    readonly signal: AbortSignal;
-  }): Promise<ProviderTextResultV1>;
+  }): AiServiceResult<PreparedTextDispatchV1>;
 }

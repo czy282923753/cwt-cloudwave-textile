@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { aiFailure } from "@/ai/errors";
 import {
-  attemptResponseFingerprintV1,
-  normalizeAttemptEvidenceV2,
-  sanitizedAttemptEvidenceJsonV1,
+  attemptResponseFingerprintV2,
+  normalizeAttemptEvidenceV3,
+  sanitizedAttemptEvidenceJsonV2,
 } from "./attempt-evidence";
 
-describe("normalized attempt evidence V2", () => {
+describe("normalized attempt evidence V3", () => {
   it("retains every safe failure field without raw payload authority", () => {
     const failure = aiFailure("provider_rate_limited");
     if (failure.ok) throw new Error("Expected a failure.");
-    const result = normalizeAttemptEvidenceV2({
-      version: 2,
+    const result = normalizeAttemptEvidenceV3({
+      version: 3,
       dispatchState: "dispatched",
       protectedResult: null,
       error: failure.error,
@@ -24,22 +24,24 @@ describe("normalized attempt evidence V2", () => {
       providerHttpStatus: 429,
       providerErrorCode: "rate_limit",
       providerRequestId: "req_synthetic_01",
+      providerSystemFingerprint: null,
       durationMs: 14,
     });
     expect(result).toMatchObject({ ok: true, value: {
       providerHttpStatus: 429,
       providerErrorCode: "rate_limit",
       providerRequestId: "req_synthetic_01",
+      providerSystemFingerprint: null,
     } });
     if (!result.ok) return;
-    expect(sanitizedAttemptEvidenceJsonV1(result.value)).not.toHaveProperty("rawOutput");
+    expect(sanitizedAttemptEvidenceJsonV2(result.value)).not.toHaveProperty("rawOutput");
   });
 
   it("rejects unsafe identifiers, token arithmetic and invalid protected state", () => {
     const failure = aiFailure("provider_server_error");
     if (failure.ok) throw new Error("Expected a failure.");
     const base = {
-      version: 2 as const,
+      version: 3 as const,
       dispatchState: "dispatched" as const,
       protectedResult: null,
       error: failure.error,
@@ -51,28 +53,35 @@ describe("normalized attempt evidence V2", () => {
       providerHttpStatus: 500,
       providerErrorCode: null,
       providerRequestId: null,
+      providerSystemFingerprint: null,
       durationMs: 1,
     };
-    expect(normalizeAttemptEvidenceV2({ ...base, providerRequestId: "bad\nheader" })).toMatchObject({ ok: false });
-    expect(normalizeAttemptEvidenceV2({ ...base, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 3 } })).toMatchObject({ ok: false });
+    expect(normalizeAttemptEvidenceV3({ ...base, providerRequestId: "bad\nheader" })).toMatchObject({ ok: false });
+    expect(normalizeAttemptEvidenceV3({ ...base, usage: { inputTokens: 1, outputTokens: 1, totalTokens: 3 } })).toMatchObject({ ok: false });
   });
 
   it("binds a stable candidate-aware response fingerprint", () => {
     const entry = {
-      version: 1 as const, attempt: 1, dispatch_state: "dispatched" as const,
+      version: 2 as const, attempt: 1, dispatch_state: "dispatched" as const,
       outcome: "draft_ready" as const, requested_provider: "synthetic_alpha",
       actual_provider: "synthetic_alpha", requested_model: "synthetic-text-alpha-v1",
       returned_model: "synthetic-text-alpha-v1", provider_envelope_version: 1,
       provider_envelope_hash: "a".repeat(64), dispatched_at: "2026-08-12T00:00:00.000Z",
       responded_at: "2026-08-12T00:00:01.000Z", duration_ms: 1_000,
       input_tokens: 10, output_tokens: 20, total_tokens: 30,
+      cache_hit_input_tokens: 3, cache_miss_input_tokens: 7,
       attempt_upper_cost_microusd: 100, actual_cost_microusd: 1,
       accounted_cost_microusd: 1, actual_cost_complete: true,
       provider_response_status: "success" as const, provider_http_status: 200,
-      provider_error_code: null, provider_request_id: "req_1", failure_code: null,
+      provider_error_code: null, provider_request_id: "req_1",
+      provider_system_fingerprint: "fp_1", failure_code: null,
+      controlled_validation_fixture_id: null,
+      controlled_validation_fixture_hash: null,
+      provider_request_identity_version: null,
+      provider_request_identity_hash: null,
     };
-    const first = attemptResponseFingerprintV1({ entryWithoutFingerprint: entry, candidateHash: "b".repeat(64) });
-    const second = attemptResponseFingerprintV1({ entryWithoutFingerprint: entry, candidateHash: "b".repeat(64) });
+    const first = attemptResponseFingerprintV2({ entryWithoutFingerprint: entry, candidateHash: "b".repeat(64) });
+    const second = attemptResponseFingerprintV2({ entryWithoutFingerprint: entry, candidateHash: "b".repeat(64) });
     expect(first).toEqual(second);
   });
 });

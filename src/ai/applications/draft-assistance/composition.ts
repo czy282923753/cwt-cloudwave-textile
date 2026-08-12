@@ -49,6 +49,7 @@ import {
 } from "./authorization";
 import {
   createDraftContextPolicy,
+  type ControlledValidationSourceAttestorV1,
   type DraftContextReadRepository,
   type DraftContextSourceDtoV1,
 } from "./context";
@@ -367,8 +368,13 @@ function contextRepository<TQueryResult extends PgQueryResultHKT>():
   };
 }
 
-export function createPhaseCClaimedApplicationRegistryV1() {
-  const contextPolicy = createDraftContextPolicy(contextRepository<PostgresJsQueryResultHKT>());
+export function createPhaseCClaimedApplicationRegistryV1(options: {
+  readonly controlledValidationSourceAttestor?: ControlledValidationSourceAttestorV1;
+} = {}) {
+  const contextPolicy = createDraftContextPolicy(
+    contextRepository<PostgresJsQueryResultHKT>(),
+    options.controlledValidationSourceAttestor,
+  );
   return createProductionClaimedApplicationRegistryV1({
     availabilityAuthorization: createDraftAvailabilityAuthorization(
       targetRepository<PostgresJsQueryResultHKT>(),
@@ -385,10 +391,15 @@ function compositionOrchestrator(dependencies: {
   readonly providerRegistry: TextProviderRegistryV1;
   readonly promptLoader: PromptBundleLoaderV1;
   readonly pricingRegistry: PricingPolicyRegistryV1;
+  readonly controlledValidationAuthority?: import("@/ai/core/contracts")
+    .ControlledValidationExecutionAuthorityV1;
 }) {
   return createGenericAiOrchestratorV1({
     appEnvironment: dependencies.trustedEnvironment.appEnvironment,
     processFeatureAiEnabled: dependencies.trustedEnvironment.processFeatureAiEnabled,
+    ...(dependencies.controlledValidationAuthority === undefined ? {} : {
+      controlledValidationAuthority: dependencies.controlledValidationAuthority,
+    }),
     async validateConfiguration(input) {
       const output = draftOutputDefinitionV1(input.useCase as DraftAssistanceCommandV1["useCase"]);
       if (output === undefined) return aiFailure("use_case_unknown");
@@ -486,11 +497,17 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
   readonly promptLoader: PromptBundleLoaderV1;
   readonly pricingRegistry: PricingPolicyRegistryV1;
   readonly governedMutationOptions?: GovernedMutationOptions;
+  readonly controlledValidationAuthority?: import("@/ai/core/contracts")
+    .ControlledValidationExecutionAuthorityV1;
+  readonly controlledValidationSourceAttestor?: ControlledValidationSourceAttestorV1;
 }): DraftAssistanceService & Pick<
   import("@/ai/runs/service").AiRunServiceV1,
   "readRun" | "cancelRun" | "manualRetry" | "rejectDisposition"
 > {
-  const contextPolicy = createDraftContextPolicy(contextRepository<PostgresJsQueryResultHKT>());
+  const contextPolicy = createDraftContextPolicy(
+    contextRepository<PostgresJsQueryResultHKT>(),
+    dependencies.controlledValidationSourceAttestor,
+  );
   const registry = createProductionApplicationRegistryV1({
     availabilityAuthorization: createDraftAvailabilityAuthorization(
       targetRepository<PostgresJsQueryResultHKT>(),

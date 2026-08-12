@@ -3,7 +3,7 @@ import type { SafeAiError } from "@/ai/errors";
 import type {
   NormalizedCompletionV1,
   NormalizedProviderResponseStatus,
-  NormalizedTokenUsage,
+  NormalizedTokenUsageV2,
 } from "@/ai/providers/text-provider";
 
 export const aiRunStatusesV1 = [
@@ -77,8 +77,8 @@ export type DispatchAuthorizationOutcomeV1 =
       readonly observedAt: Date;
     };
 
-export interface NormalizeAttemptEvidenceInputV2<TProtected> {
-  readonly version: 2;
+export interface NormalizeAttemptEvidenceInputV3<TProtected> {
+  readonly version: 3;
   readonly dispatchState: "not_dispatched" | "dispatched";
   readonly protectedResult: TProtected | null;
   readonly error: SafeAiError | null;
@@ -86,15 +86,16 @@ export interface NormalizeAttemptEvidenceInputV2<TProtected> {
   readonly retryClass: "same_provider_transient" | "not_retryable";
   readonly returnedModel: string | null;
   readonly completion: NormalizedCompletionV1 | null;
-  readonly usage: NormalizedTokenUsage | null;
+  readonly usage: NormalizedTokenUsageV2 | null;
   readonly providerHttpStatus: number | null;
   readonly providerErrorCode: string | null;
   readonly providerRequestId: string | null;
+  readonly providerSystemFingerprint: string | null;
   readonly durationMs: number;
 }
 
-export interface NormalizedAttemptEvidenceV2<TProtected> {
-  readonly version: 2;
+export interface NormalizedAttemptEvidenceV3<TProtected> {
+  readonly version: 3;
   readonly dispatchState: "not_dispatched" | "dispatched";
   readonly protectedResult: TProtected | null;
   readonly error: SafeAiError | null;
@@ -108,15 +109,16 @@ export interface NormalizedAttemptEvidenceV2<TProtected> {
     | "cancelled"
     | "unknown"
     | null;
-  readonly usage: NormalizedTokenUsage | null;
+  readonly usage: NormalizedTokenUsageV2 | null;
   readonly providerHttpStatus: number | null;
   readonly providerErrorCode: string | null;
   readonly providerRequestId: string | null;
+  readonly providerSystemFingerprint: string | null;
   readonly durationMs: number;
 }
 
-export interface AttemptHistoryEntryV1 extends ReadonlyJsonObject {
-  readonly version: 1;
+export interface AttemptHistoryEntryV2 extends ReadonlyJsonObject {
+  readonly version: 2;
   readonly attempt: number;
   readonly dispatch_state: "not_dispatched" | "dispatched";
   readonly outcome: "retry_scheduled" | "failed" | "draft_ready" | "discarded_cancelled";
@@ -132,6 +134,8 @@ export interface AttemptHistoryEntryV1 extends ReadonlyJsonObject {
   readonly input_tokens: number | null;
   readonly output_tokens: number | null;
   readonly total_tokens: number | null;
+  readonly cache_hit_input_tokens: number | null;
+  readonly cache_miss_input_tokens: number | null;
   readonly attempt_upper_cost_microusd: number;
   readonly actual_cost_microusd: number;
   readonly accounted_cost_microusd: number;
@@ -140,7 +144,12 @@ export interface AttemptHistoryEntryV1 extends ReadonlyJsonObject {
   readonly provider_http_status: number | null;
   readonly provider_error_code: string | null;
   readonly provider_request_id: string | null;
+  readonly provider_system_fingerprint: string | null;
   readonly failure_code: string | null;
+  readonly controlled_validation_fixture_id: string | null;
+  readonly controlled_validation_fixture_hash: string | null;
+  readonly provider_request_identity_version: 1 | null;
+  readonly provider_request_identity_hash: string | null;
   readonly response_fingerprint: string;
 }
 

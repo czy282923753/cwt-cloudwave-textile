@@ -2,7 +2,7 @@ import type { ReadonlyJsonObject } from "@/ai/canonical-json";
 import type { ProviderEnvelopeIdentityV1 } from "@/ai/core/contracts";
 import { aiFailure, aiSuccess } from "@/ai/errors";
 import type {
-  ProviderTextResultV1,
+  ProviderTextResultV2,
   TextAiProvider,
 } from "@/ai/providers/text-provider";
 
@@ -17,7 +17,7 @@ export function createFakeTextProviderV1(input: {
   readonly key: "synthetic_alpha" | "synthetic_beta";
   readonly model: "synthetic-text-alpha-v1" | "synthetic-text-beta-v1";
   readonly envelope: ProviderEnvelopeIdentityV1;
-  readonly result: ProviderTextResultV1;
+  readonly result: ProviderTextResultV2;
   readonly recorder?: FakeTextProviderRecorderV1;
 }): TextAiProvider {
   return {
@@ -56,23 +56,40 @@ export function createFakeTextProviderV1(input: {
         Buffer.byteLength(request.instructions + request.input, "utf8") / 4,
       )));
     },
-    async generateText(request) {
-      input.recorder?.requests.push({
-        marker: SYNTHETIC_TEST_DATA_MARKER,
-        model: request.model,
-        request: {
-          version: request.request.version,
-          instructions: request.request.instructions,
-          input: request.request.input,
-          responseFormat: {
-            kind: request.request.responseFormat.kind,
-            schemaId: request.request.responseFormat.schemaId,
-            schemaVersion: request.request.responseFormat.schemaVersion,
-          },
-          maxOutputTokens: request.request.maxOutputTokens,
+    prepareTextDispatch(request) {
+      let executed = false;
+      return aiSuccess({
+        provider: input.key,
+        requestedModel: request.model,
+        async execute() {
+          if (executed) {
+            return {
+              kind: "failure",
+              responseStatus: "unknown",
+              failureCode: "unknown",
+              retryClass: "not_retryable",
+              durationMs: 0,
+            };
+          }
+          executed = true;
+          input.recorder?.requests.push({
+            marker: SYNTHETIC_TEST_DATA_MARKER,
+            model: request.model,
+            request: {
+              version: request.request.version,
+              instructions: request.request.instructions,
+              input: request.request.input,
+              responseFormat: {
+                kind: request.request.responseFormat.kind,
+                schemaId: request.request.responseFormat.schemaId,
+                schemaVersion: request.request.responseFormat.schemaVersion,
+              },
+              maxOutputTokens: request.request.maxOutputTokens,
+            },
+          });
+          return input.result;
         },
       });
-      return input.result;
     },
   };
 }

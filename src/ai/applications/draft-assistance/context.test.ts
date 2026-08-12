@@ -104,6 +104,65 @@ describe("Draft reconstructible context", () => {
     expect(first.value.inputSources[0]?.sourceClass).toBe("explicit_human_input");
   });
 
+  it("adds controlled attestation only to safe input-source provenance", async () => {
+    const ordinary = createDraftContextPolicy({ readSelectedSource: vi.fn() });
+    const controlled = createDraftContextPolicy({ readSelectedSource: vi.fn() }, {
+      attestExplicitSource() {
+        return {
+          ok: true,
+          value: {
+            fixtureId: "SYN-AI-SYNTHETIC-CONTEXT-TEST-01",
+            fixtureVersion: 1 as const,
+            fixtureHash: "a".repeat(64),
+          },
+        };
+      },
+    });
+    const target = {
+      type: "product_draft" as const,
+      productId: "11111111-1111-4111-8111-111111111111",
+      locale: "en" as const,
+      expectedVersion: 7,
+    };
+    const association = prepareDraftAssociationV1(target);
+    if (!association.ok) throw new Error("fixture association failed");
+    const authorized = buildAuthorizedDraftAssociationV1(association.value);
+    if (!authorized.ok) throw new Error("fixture authorization failed");
+    const command = {
+      useCase: "product_description_draft" as const,
+      actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" as const },
+      target,
+      idempotencyKey: "fixture-attestation",
+      contextSelections: [{ sourceClass: "explicit_human_input" as const, origin: "typed_brief" as const }],
+      explicitInput: "SYNTHETIC TEST DATA — NOT A CWT FACT: attestation isolation proof.",
+    };
+    const build = async (policy: typeof ordinary) => withReadOnlyDraftAvailabilityScope(
+      database.db,
+      (scope) => policy.buildReconstructibleContext({
+        actor: { principalId: command.actor.userId, roleKey: command.actor.role },
+        command,
+        association: authorized.value,
+        scope,
+      }),
+    );
+    const ordinaryContext = await build(ordinary);
+    const controlledContext = await build(controlled);
+    if (!ordinaryContext.ok || !controlledContext.ok) throw new Error("fixture context failed");
+    const ordinaryPrepared = ordinary.encodePreparedContext(ordinaryContext.value);
+    const controlledPrepared = controlled.encodePreparedContext(controlledContext.value);
+    if (!ordinaryPrepared.ok || !controlledPrepared.ok) throw new Error("fixture encode failed");
+    expect(controlledPrepared.value.inputContext).toEqual(ordinaryPrepared.value.inputContext);
+    expect(controlledPrepared.value.inputHash).toBe(ordinaryPrepared.value.inputHash);
+    expect(controlledPrepared.value.requestFingerprintInput)
+      .toEqual(ordinaryPrepared.value.requestFingerprintInput);
+    expect(controlledPrepared.value.inputSources[0]?.sourceIdentity).toEqual({
+      origin: "typed_brief",
+      controlled_validation_fixture_id: "SYN-AI-SYNTHETIC-CONTEXT-TEST-01",
+      controlled_validation_fixture_version: 1,
+      controlled_validation_fixture_hash: "a".repeat(64),
+    });
+  });
+
   it("uses the selected M02 classifier and rejects protected input", async () => {
     const policy = createDraftContextPolicy({ readSelectedSource: vi.fn() });
     const association = prepareDraftAssociationV1({

@@ -9,6 +9,7 @@ vi.mock("server-only", () => ({}));
 
 import { createPhaseCDurableDraftAssistanceServiceV1 } from "@/ai/applications/draft-assistance/composition";
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
+import { aiSuccess } from "@/ai/errors";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
 import type { TextAiProvider } from "@/ai/providers/text-provider";
@@ -212,15 +213,22 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     let maximumProviderCalls = 0;
     const deferredProvider: TextAiProvider = {
       ...provider,
-      async generateText(input) {
-        activeProviderCalls += 1;
-        maximumProviderCalls = Math.max(maximumProviderCalls, activeProviderCalls);
-        await releaseProvider.promise;
-        try {
-          return await provider.generateText(input);
-        } finally {
-          activeProviderCalls -= 1;
-        }
+      prepareTextDispatch(input) {
+        const prepared = provider.prepareTextDispatch(input);
+        if (!prepared.ok) return prepared;
+        return aiSuccess({
+          ...prepared.value,
+          async execute(executeInput) {
+            activeProviderCalls += 1;
+            maximumProviderCalls = Math.max(maximumProviderCalls, activeProviderCalls);
+            await releaseProvider.promise;
+            try {
+              return await prepared.value.execute(executeInput);
+            } finally {
+              activeProviderCalls -= 1;
+            }
+          },
+        });
       },
     };
     const deferredRegistryResult = createTextProviderRegistryV1([deferredProvider]);
@@ -283,23 +291,30 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     let observedAbortReason: unknown;
     const abortingProvider: TextAiProvider = {
       ...provider,
-      async generateText(input) {
-        providerEntered.resolve();
-        await new Promise<void>((resolve) => {
-          if (input.signal.aborted) {
-            resolve();
-            return;
-          }
-          input.signal.addEventListener("abort", () => resolve(), { once: true });
+      prepareTextDispatch(input) {
+        const prepared = provider.prepareTextDispatch(input);
+        if (!prepared.ok) return prepared;
+        return aiSuccess({
+          ...prepared.value,
+          async execute(executeInput) {
+            providerEntered.resolve();
+            await new Promise<void>((resolve) => {
+              if (executeInput.signal.aborted) {
+                resolve();
+                return;
+              }
+              executeInput.signal.addEventListener("abort", () => resolve(), { once: true });
+            });
+            observedAbortReason = executeInput.signal.reason;
+            return {
+              kind: "failure",
+              responseStatus: "transport_error",
+              failureCode: "transport",
+              retryClass: "same_provider_transient",
+              durationMs: 1,
+            };
+          },
         });
-        observedAbortReason = input.signal.reason;
-        return {
-          kind: "failure",
-          responseStatus: "transport_error",
-          failureCode: "transport",
-          retryClass: "same_provider_transient",
-          durationMs: 1,
-        };
       },
     };
     const abortingRegistryResult = createTextProviderRegistryV1([abortingProvider]);

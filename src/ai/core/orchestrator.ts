@@ -22,15 +22,15 @@ import type { TextProviderRegistryV1 } from "../providers/registry";
 import type {
   NormalizedCompletionV1,
   NormalizedProviderResponseStatus,
-  NormalizedTokenUsage,
+  NormalizedTokenUsageV2,
   ProviderNeutralFailureCode,
   ProviderNeutralTextRequestV1,
 } from "../providers/text-provider";
 import { parseOneJsonObjectV1 } from "../output/raw-json";
-import { normalizeAttemptEvidenceV2 } from "../runs/attempt-evidence";
+import { normalizeAttemptEvidenceV3 } from "../runs/attempt-evidence";
 import type {
   DispatchAuthorizationOutcomeV1,
-  NormalizedAttemptEvidenceV2,
+  NormalizedAttemptEvidenceV3,
 } from "../runs/contracts";
 
 void CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A;
@@ -44,6 +44,7 @@ interface PreparedConfigurationV1 {
 export interface CoreReadinessDependenciesV1 {
   readonly appEnvironment: "local" | "test" | "staging" | "production";
   readonly processFeatureAiEnabled: boolean;
+  readonly controlledValidationAuthority?: import("./contracts").ControlledValidationExecutionAuthorityV1;
   validateConfiguration(input: {
     readonly applicationClass: string;
     readonly capability: "text";
@@ -69,7 +70,7 @@ function unavailable(result: AiServiceResult<never>): AiServiceResult<CoreAvaila
   });
 }
 
-function environmentReadiness(
+function ordinaryEnvironmentReadiness(
   dependencies: CoreReadinessDependenciesV1,
 ): AiServiceResult<true> {
   if (dependencies.appEnvironment !== "local" && dependencies.appEnvironment !== "test") {
@@ -100,7 +101,7 @@ export function createGenericAiOrchestratorV1(
       if (!authorized.ok) return unavailable(authorized);
       const context = await authorized.value.buildContext();
       if (!context.ok) return unavailable(context);
-      const environment = environmentReadiness(dependencies);
+      const environment = ordinaryEnvironmentReadiness(dependencies);
       if (!environment.ok) return unavailable(environment);
       const feature = await featureReadiness(context.value);
       if (!feature.ok) return unavailable(feature);
@@ -126,7 +127,19 @@ export function createGenericAiOrchestratorV1(
       const replay = await context.value.findReplay();
       if (!replay.ok) return replay;
       if (replay.value.kind === "exact_replay") return aiSuccess(replay.value.summary);
-      const environment = environmentReadiness(dependencies);
+      const environment = dependencies.appEnvironment === "staging"
+        ? dependencies.controlledValidationAuthority?.authorizePreConfiguration({
+            environment: "staging",
+            applicationClass: invocation.applicationClass,
+            capability: "text",
+            useCase: invocation.useCase,
+            idempotencyKey: context.value.requestIdentity.idempotencyKey,
+            requestedByPrincipalId: context.value.requestIdentity.requestedByPrincipalId,
+            requestFingerprint: context.value.requestIdentity.fingerprint,
+            inputHash: context.value.preparedContext.inputHash,
+            inputSources: context.value.preparedContext.inputSources,
+          }) ?? aiFailure("environment_not_authorized")
+        : ordinaryEnvironmentReadiness(dependencies);
       if (!environment.ok) return environment;
       const feature = await featureReadiness(context.value);
       if (!feature.ok) return feature;
@@ -151,6 +164,13 @@ export function createGenericAiOrchestratorV1(
       });
       if (!locked.ok) return locked;
       if (prepared.value.preparedRun === undefined) return aiFailure("integration_not_ready");
+      if (dependencies.appEnvironment === "staging") {
+        const controlled = dependencies.controlledValidationAuthority?.authorizePreparedRun({
+          environment: "staging",
+          preparedRun: prepared.value.preparedRun,
+        }) ?? aiFailure("environment_not_authorized");
+        if (!controlled.ok) return controlled;
+      }
       const committed = await context.value.commitPreparedRun(prepared.value.preparedRun);
       return committed.ok ? aiSuccess(committed.value.summary) : committed;
     },
@@ -166,26 +186,31 @@ function providerFailureCode(code: ProviderNeutralFailureCode): AiErrorCode {
     case "authentication": return "provider_auth_failed";
     case "client": return "provider_client_error";
     case "server": return "provider_server_error";
+    case "empty_response": return "output_empty";
+    case "invalid_response_json": return "output_invalid_json";
+    case "invalid_response_schema": return "output_schema_invalid";
+    case "response_too_large": return "output_too_large";
     case "unknown": return "adapter_unexpected_failure";
   }
 }
 
 function attemptFailure<TProtected>(input: {
   readonly result: AiServiceResult<never>;
-  readonly responseStatus: NormalizedProviderResponseStatus;
+  readonly responseStatus: NormalizedProviderResponseStatus | "not_dispatched";
   readonly dispatchState?: "not_dispatched" | "dispatched";
   readonly retryClass?: "same_provider_transient" | "not_retryable";
   readonly returnedModel?: string | null;
   readonly completion?: NormalizedCompletionV1 | null;
-  readonly usage?: NormalizedTokenUsage | null;
+  readonly usage?: NormalizedTokenUsageV2 | null;
   readonly providerHttpStatus?: number | null;
   readonly providerErrorCode?: string | null;
   readonly providerRequestId?: string | null;
+  readonly providerSystemFingerprint?: string | null;
   readonly durationMs?: number;
-}): NormalizedAttemptEvidenceV2<TProtected> {
+}): NormalizedAttemptEvidenceV3<TProtected> {
   if (input.result.ok) throw new Error("Failure result unexpectedly contained a success value.");
-  const normalized = normalizeAttemptEvidenceV2<TProtected>({
-    version: 2,
+  const normalized = normalizeAttemptEvidenceV3<TProtected>({
+    version: 3,
     dispatchState: input.dispatchState ?? "not_dispatched",
     protectedResult: null,
     error: input.result.error,
@@ -197,13 +222,14 @@ function attemptFailure<TProtected>(input: {
     providerHttpStatus: input.providerHttpStatus ?? null,
     providerErrorCode: input.providerErrorCode ?? null,
     providerRequestId: input.providerRequestId ?? null,
+    providerSystemFingerprint: input.providerSystemFingerprint ?? null,
     durationMs: input.durationMs ?? 0,
   });
   if (normalized.ok) return normalized.value;
   const failure = aiFailure("request_reconstruction_failed");
   if (failure.ok) throw new Error("Static failure construction failed.");
-  const fallback = normalizeAttemptEvidenceV2<TProtected>({
-    version: 2,
+  const fallback = normalizeAttemptEvidenceV3<TProtected>({
+    version: 3,
     dispatchState: input.dispatchState ?? "not_dispatched",
     protectedResult: null,
     error: failure.error,
@@ -215,6 +241,7 @@ function attemptFailure<TProtected>(input: {
     providerHttpStatus: null,
     providerErrorCode: null,
     providerRequestId: null,
+    providerSystemFingerprint: null,
     durationMs: 0,
   });
   if (!fallback.ok) throw new Error("Static normalized failure construction failed.");
@@ -222,7 +249,7 @@ function attemptFailure<TProtected>(input: {
 }
 
 function evidenceResult<T>(
-  evidence: NormalizedAttemptEvidenceV2<T>,
+  evidence: NormalizedAttemptEvidenceV3<T>,
   dispatchAuthorization: Extract<DispatchAuthorizationOutcomeV1, { readonly kind: "authorized" }> | null,
 ) {
   return { kind: "attempt_evidence" as const, evidence, dispatchAuthorization };
@@ -295,18 +322,32 @@ export function createAiClaimedExecutionServiceV2(dependencies: {
           responseStatus: "unknown",
         }), null);
       }
+      let prepared: ReturnType<typeof provider.value.prepareTextDispatch>;
+      try {
+        prepared = provider.value.prepareTextDispatch({
+          model: claimed.requestedModel,
+          parameters: configuration.value.parameters,
+          request,
+        });
+      } catch {
+        return evidenceResult(attemptFailure({
+          result: aiFailure("adapter_unexpected_failure"),
+          responseStatus: "not_dispatched",
+        }), null);
+      }
+      if (!prepared.ok) {
+        return evidenceResult(attemptFailure({
+          result: prepared,
+          responseStatus: "not_dispatched",
+        }), null);
+      }
       const authorization = await command.authorizeProviderDispatch();
       if (authorization.kind !== "authorized") {
         return { kind: "dispatch_unavailable", outcome: authorization };
       }
-      let result: Awaited<ReturnType<typeof provider.value.generateText>>;
+      let result: Awaited<ReturnType<typeof prepared.value.execute>>;
       try {
-        result = await provider.value.generateText({
-          model: claimed.requestedModel,
-          parameters: configuration.value.parameters,
-          request,
-          signal: command.signal,
-        });
+        result = await prepared.value.execute({ signal: command.signal });
       } catch {
         return evidenceResult(attemptFailure({
           result: aiFailure("adapter_unexpected_failure"),
@@ -325,6 +366,8 @@ export function createAiClaimedExecutionServiceV2(dependencies: {
           providerHttpStatus: result.kind === "failure" ? result.httpStatus ?? null : null,
           providerErrorCode: result.kind === "failure" ? result.providerErrorCode ?? null : null,
           providerRequestId: result.providerRequestId ?? null,
+          providerSystemFingerprint: result.kind === "success"
+            ? result.providerSystemFingerprint ?? null : null,
           durationMs: result.durationMs,
         }), authorization);
       }
@@ -337,6 +380,7 @@ export function createAiClaimedExecutionServiceV2(dependencies: {
           providerHttpStatus: result.httpStatus ?? null,
           providerErrorCode: result.providerErrorCode ?? null,
           providerRequestId: result.providerRequestId ?? null,
+          returnedModel: result.returnedModel ?? null,
           durationMs: result.durationMs,
         }), authorization);
       }
@@ -349,6 +393,7 @@ export function createAiClaimedExecutionServiceV2(dependencies: {
           completion: result.completion,
           usage: result.usage ?? null,
           providerRequestId: result.providerRequestId ?? null,
+          providerSystemFingerprint: result.providerSystemFingerprint ?? null,
           durationMs: result.durationMs,
         }), authorization);
       if (result.returnedModel !== claimed.requestedModel) return successFailure("model_drift", "model_drift");
@@ -363,8 +408,8 @@ export function createAiClaimedExecutionServiceV2(dependencies: {
       if (!raw.ok) return successFailure(raw.error.code, "invalid_response");
       const protectedResult = claimed.claimedContext.parseAndProtect(raw.value);
       if (!protectedResult.ok) return successFailure(protectedResult.error.code, "invalid_response");
-      const normalized = normalizeAttemptEvidenceV2({
-        version: 2,
+      const normalized = normalizeAttemptEvidenceV3({
+        version: 3,
         dispatchState: "dispatched",
         protectedResult: protectedResult.value,
         error: null,
@@ -376,6 +421,7 @@ export function createAiClaimedExecutionServiceV2(dependencies: {
         providerHttpStatus: null,
         providerErrorCode: null,
         providerRequestId: result.providerRequestId ?? null,
+        providerSystemFingerprint: result.providerSystemFingerprint ?? null,
         durationMs: result.durationMs,
       });
       return normalized.ok

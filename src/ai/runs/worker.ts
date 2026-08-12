@@ -5,6 +5,7 @@ import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 
 import { createPhaseCClaimedApplicationRegistryV1 } from "@/ai/applications/draft-assistance/composition";
 import type { TrustedPhaseBEnvironmentV1 } from "@/ai/config/trusted-phase-b-environment";
+import type { ClaimedApplicationRuntimeRegistryV1 } from "@/ai/core/contracts";
 import { createAiClaimedExecutionServiceV2 } from "@/ai/core/orchestrator";
 import { aiFailure } from "@/ai/errors";
 import { constructPreDispatchClaimedRunV2 } from "@/ai/internal/claimed-run-authority";
@@ -66,12 +67,23 @@ function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
 }
 
 function samePricing(left: PricingSnapshotV1, right: PricingSnapshotV1): boolean {
-  return left.version === right.version && left.currency === right.currency &&
-    left.billing_unit_tokens === right.billing_unit_tokens &&
-    left.input_microusd_per_unit === right.input_microusd_per_unit &&
-    left.output_microusd_per_unit === right.output_microusd_per_unit &&
-    left.formula === right.formula && left.source_id === right.source_id &&
-    left.source_version === right.source_version && left.effective_from === right.effective_from;
+  if (left.version !== right.version || left.currency !== right.currency ||
+    left.billing_unit_tokens !== right.billing_unit_tokens ||
+    left.output_microusd_per_unit !== right.output_microusd_per_unit ||
+    left.source_id !== right.source_id || left.source_version !== right.source_version ||
+    left.effective_from !== right.effective_from || left.observed_at !== right.observed_at) return false;
+  if (left.version === 1 && right.version === 1) {
+    return left.formula === right.formula &&
+      left.input_microusd_per_unit === right.input_microusd_per_unit;
+  }
+  return left.version === 2 && right.version === 2 && left.formula === right.formula &&
+    left.cache_hit_input_microusd_per_unit === right.cache_hit_input_microusd_per_unit &&
+    left.cache_miss_input_microusd_per_unit === right.cache_miss_input_microusd_per_unit &&
+    left.source_url === right.source_url &&
+    left.source_content_sha256 === right.source_content_sha256 &&
+    left.model_alias === right.model_alias &&
+    left.published_model_version === right.published_model_version &&
+    left.max_age_seconds === right.max_age_seconds;
 }
 
 async function boundedLifecycleOutcome<T extends {
@@ -111,10 +123,11 @@ async function processClaimedRun(input: {
   readonly registerController: (controller: AbortController) => void;
   readonly unregisterController: (controller: AbortController) => void;
   readonly telemetry: AiTelemetrySink;
+  readonly applicationRegistry: ClaimedApplicationRuntimeRegistryV1;
 }): Promise<void> {
   const claimedResult = constructPreDispatchClaimedRunV2({
     row: input.claim.row,
-    applicationRegistry: createPhaseCClaimedApplicationRegistryV1(),
+    applicationRegistry: input.applicationRegistry,
   });
   if (!claimedResult.ok) throw new Error(`Claimed run reconstruction failed: ${claimedResult.error.code}`);
   const claimed = claimedResult.value;
@@ -269,6 +282,8 @@ export function createAiRunWorkerV1(dependencies: {
   readonly timing?: AiRunWorkerTimingV1;
   readonly telemetry?: AiTelemetrySink;
   readonly workerId?: string;
+  readonly applicationRegistry?: ClaimedApplicationRuntimeRegistryV1;
+  readonly slotCount?: 1 | 2;
 }): AiRunWorkerV1 {
   if (dependencies.trustedEnvironment.appEnvironment === "production") {
     throw new Error("Production cannot run the Phase C AI Worker.");
@@ -278,6 +293,9 @@ export function createAiRunWorkerV1(dependencies: {
   const telemetry = dependencies.telemetry ?? noOpAiTelemetrySink;
   const repository = createAiRunRepositoryV1(dependencies.database, { telemetry });
   const workerId = dependencies.workerId ?? `cwt-ai-worker-${randomUUID()}`;
+  const applicationRegistry = dependencies.applicationRegistry ??
+    createPhaseCClaimedApplicationRegistryV1();
+  const slotCount = dependencies.slotCount ?? AI_TEXT_CONCURRENCY_LIMIT_V1;
   const processAbort = new AbortController();
   const activeControllers = new Set<AbortController>();
   let acceptingClaims = false;
@@ -302,6 +320,7 @@ export function createAiRunWorkerV1(dependencies: {
             registerController: (controller) => activeControllers.add(controller),
             unregisterController: (controller) => activeControllers.delete(controller),
             telemetry,
+            applicationRegistry,
           });
         } catch {
           // A malformed or otherwise unreconstructable claimed row cannot be
@@ -320,7 +339,7 @@ export function createAiRunWorkerV1(dependencies: {
     async start() {
       if (acceptingClaims) return;
       acceptingClaims = true;
-      loops = Array.from({ length: AI_TEXT_CONCURRENCY_LIMIT_V1 }, (_, slot) => slotLoop(slot));
+      loops = Array.from({ length: slotCount }, (_, slot) => slotLoop(slot));
     },
     async stop() {
       acceptingClaims = false;

@@ -3,25 +3,36 @@ import { z } from "zod";
 import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type {
-  AttemptHistoryEntryV1,
-  NormalizeAttemptEvidenceInputV2,
-  NormalizedAttemptEvidenceV2,
+  AttemptHistoryEntryV2,
+  NormalizeAttemptEvidenceInputV3,
+  NormalizedAttemptEvidenceV3,
 } from "./contracts";
 
 const safeIdentifier = z.string().min(1).max(256)
   .refine((value) => value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value));
 const model = z.string().min(1).max(128)
   .refine((value) => value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value));
+const hash = /^[0-9a-f]{64}$/;
 const usageSchema = z.object({
   inputTokens: z.number().int().nonnegative().max(2_147_483_647),
   outputTokens: z.number().int().nonnegative().max(2_147_483_647),
   totalTokens: z.number().int().nonnegative().max(2_147_483_647),
-}).strict().refine((value) => value.totalTokens === value.inputTokens + value.outputTokens);
+  cacheHitInputTokens: z.number().int().nonnegative().max(2_147_483_647).optional(),
+  cacheMissInputTokens: z.number().int().nonnegative().max(2_147_483_647).optional(),
+}).strict().refine((value) => value.totalTokens === value.inputTokens + value.outputTokens)
+  .refine((value) => {
+    const both = value.cacheHitInputTokens !== undefined &&
+      value.cacheMissInputTokens !== undefined;
+    const neither = value.cacheHitInputTokens === undefined &&
+      value.cacheMissInputTokens === undefined;
+    return (both || neither) && (!both ||
+      value.cacheHitInputTokens! + value.cacheMissInputTokens! === value.inputTokens);
+  });
 
-export function normalizeAttemptEvidenceV2<TProtected>(
-  input: NormalizeAttemptEvidenceInputV2<TProtected>,
-): AiServiceResult<NormalizedAttemptEvidenceV2<TProtected>> {
-  if (input.version !== 2 || !Number.isSafeInteger(input.durationMs) ||
+export function normalizeAttemptEvidenceV3<TProtected>(
+  input: NormalizeAttemptEvidenceInputV3<TProtected>,
+): AiServiceResult<NormalizedAttemptEvidenceV3<TProtected>> {
+  if (input.version !== 3 || !Number.isSafeInteger(input.durationMs) ||
     input.durationMs < 0 || input.durationMs > 86_400_000 ||
     (input.protectedResult === null) === (input.error === null) ||
     (input.protectedResult !== null && input.responseStatus !== "success") ||
@@ -39,13 +50,17 @@ export function normalizeAttemptEvidenceV2<TProtected>(
       input.providerHttpStatus > 599)) {
     return aiFailure("request_reconstruction_failed");
   }
-  for (const value of [input.providerErrorCode, input.providerRequestId]) {
+  for (const value of [
+    input.providerErrorCode,
+    input.providerRequestId,
+    input.providerSystemFingerprint,
+  ]) {
     if (value !== null && !safeIdentifier.safeParse(value).success) {
       return aiFailure("request_reconstruction_failed");
     }
   }
   return aiSuccess(Object.freeze({
-    version: 2 as const,
+    version: 3 as const,
     dispatchState: input.dispatchState,
     protectedResult: input.protectedResult,
     error: input.error,
@@ -57,24 +72,31 @@ export function normalizeAttemptEvidenceV2<TProtected>(
     providerHttpStatus: input.providerHttpStatus,
     providerErrorCode: input.providerErrorCode,
     providerRequestId: input.providerRequestId,
+    providerSystemFingerprint: input.providerSystemFingerprint,
     durationMs: input.durationMs,
   }));
 }
 
-export function attemptResponseFingerprintV1(input: {
-  readonly entryWithoutFingerprint: Omit<AttemptHistoryEntryV1, "response_fingerprint">;
+export function attemptResponseFingerprintV2(input: {
+  readonly entryWithoutFingerprint: Omit<AttemptHistoryEntryV2, "response_fingerprint">;
   readonly candidateHash: string | null;
 }): AiServiceResult<string> {
-  const hash = canonicalJsonHash({
+  const result = canonicalJsonHash({
     ...input.entryWithoutFingerprint,
     candidate_hash: input.candidateHash,
   });
-  return hash.ok ? aiSuccess(hash.value.hash) : aiFailure("canonicalization_failed");
+  return result.ok ? aiSuccess(result.value.hash) : aiFailure("canonicalization_failed");
 }
 
-export function createAttemptHistoryEntryV1(input: {
+export interface ControlledAttemptIdentityV1 {
+  readonly fixtureId: string;
+  readonly fixtureHash: string;
+  readonly safeProviderRequestIdentity: ReadonlyJsonObject;
+}
+
+export function createAttemptHistoryEntryV2(input: {
   readonly attempt: number;
-  readonly outcome: AttemptHistoryEntryV1["outcome"];
+  readonly outcome: AttemptHistoryEntryV2["outcome"];
   readonly requestedProvider: string;
   readonly actualProvider: string | null;
   readonly requestedModel: string;
@@ -86,17 +108,28 @@ export function createAttemptHistoryEntryV1(input: {
   readonly actualCostMicrousd: number;
   readonly accountedCostMicrousd: number;
   readonly actualCostComplete: boolean;
-  readonly evidence: NormalizedAttemptEvidenceV2<unknown>;
+  readonly evidence: NormalizedAttemptEvidenceV3<unknown>;
   readonly candidateHash: string | null;
-}): AiServiceResult<AttemptHistoryEntryV1> {
+  readonly controlledIdentity: ControlledAttemptIdentityV1 | null;
+}): AiServiceResult<AttemptHistoryEntryV2> {
   if (!Number.isInteger(input.attempt) || input.attempt < 1 || input.attempt > 3 ||
     !Number.isInteger(input.providerEnvelopeVersion) || input.providerEnvelopeVersion < 1 ||
-    !/^[0-9a-f]{64}$/.test(input.providerEnvelopeHash)) {
+    !hash.test(input.providerEnvelopeHash)) {
     return aiFailure("request_reconstruction_failed");
   }
+  let providerRequestIdentityHash: string | null = null;
+  if (input.controlledIdentity !== null) {
+    if (!/^SYN-AI-[A-Z0-9-]{1,120}$/.test(input.controlledIdentity.fixtureId) ||
+      !hash.test(input.controlledIdentity.fixtureHash)) {
+      return aiFailure("request_reconstruction_failed");
+    }
+    const identity = canonicalJsonHash(input.controlledIdentity.safeProviderRequestIdentity);
+    if (!identity.ok) return aiFailure("canonicalization_failed");
+    providerRequestIdentityHash = identity.value.hash;
+  }
   const usage = input.evidence.usage;
-  const base: Omit<AttemptHistoryEntryV1, "response_fingerprint"> = {
-    version: 1,
+  const base: Omit<AttemptHistoryEntryV2, "response_fingerprint"> = {
+    version: 2,
     attempt: input.attempt,
     dispatch_state: input.evidence.dispatchState,
     outcome: input.outcome,
@@ -112,6 +145,8 @@ export function createAttemptHistoryEntryV1(input: {
     input_tokens: usage?.inputTokens ?? null,
     output_tokens: usage?.outputTokens ?? null,
     total_tokens: usage?.totalTokens ?? null,
+    cache_hit_input_tokens: usage?.cacheHitInputTokens ?? null,
+    cache_miss_input_tokens: usage?.cacheMissInputTokens ?? null,
     attempt_upper_cost_microusd: input.attemptUpperCostMicrousd,
     actual_cost_microusd: input.actualCostMicrousd,
     accounted_cost_microusd: input.accountedCostMicrousd,
@@ -120,18 +155,23 @@ export function createAttemptHistoryEntryV1(input: {
     provider_http_status: input.evidence.providerHttpStatus,
     provider_error_code: input.evidence.providerErrorCode,
     provider_request_id: input.evidence.providerRequestId,
+    provider_system_fingerprint: input.evidence.providerSystemFingerprint,
     failure_code: input.evidence.error?.code ?? null,
+    controlled_validation_fixture_id: input.controlledIdentity?.fixtureId ?? null,
+    controlled_validation_fixture_hash: input.controlledIdentity?.fixtureHash ?? null,
+    provider_request_identity_version: input.controlledIdentity === null ? null : 1,
+    provider_request_identity_hash: providerRequestIdentityHash,
   };
-  const fingerprint = attemptResponseFingerprintV1({
+  const fingerprint = attemptResponseFingerprintV2({
     entryWithoutFingerprint: base,
     candidateHash: input.candidateHash,
   });
   if (!fingerprint.ok) return fingerprint;
-  return aiSuccess(Object.freeze({ ...base, response_fingerprint: fingerprint.value }) as AttemptHistoryEntryV1);
+  return aiSuccess(Object.freeze({ ...base, response_fingerprint: fingerprint.value }) as AttemptHistoryEntryV2);
 }
 
-export function sanitizedAttemptEvidenceJsonV1(
-  evidence: NormalizedAttemptEvidenceV2<unknown>,
+export function sanitizedAttemptEvidenceJsonV2(
+  evidence: NormalizedAttemptEvidenceV3<unknown>,
 ): ReadonlyJsonObject {
   return Object.freeze({
     version: evidence.version,
@@ -144,6 +184,7 @@ export function sanitizedAttemptEvidenceJsonV1(
     provider_http_status: evidence.providerHttpStatus,
     provider_error_code: evidence.providerErrorCode,
     provider_request_id: evidence.providerRequestId,
+    provider_system_fingerprint: evidence.providerSystemFingerprint,
     failure_code: evidence.error?.code ?? null,
     duration_ms: evidence.durationMs,
   });

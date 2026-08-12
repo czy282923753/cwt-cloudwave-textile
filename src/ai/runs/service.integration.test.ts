@@ -15,7 +15,7 @@ import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
 import { createAiModelConfigServiceV1 } from "@/ai/config/model-config-service";
 import { localTestPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
-import { normalizeAttemptEvidenceV2 } from "@/ai/runs/attempt-evidence";
+import { normalizeAttemptEvidenceV3 } from "@/ai/runs/attempt-evidence";
 import { createAiRunRepositoryV1 } from "@/ai/runs/repository";
 import { aiFailure } from "@/ai/errors";
 import { createFakeTextProviderV1 } from "@/ai/testing/fake-text-provider";
@@ -308,8 +308,8 @@ async function claimAndMark(runId: string) {
 
 async function settleDraftReady(runId: string, candidateHash = hash("c")) {
   const active = await claimAndMark(runId);
-  const evidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
-    version: 2,
+  const evidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+    version: 3,
     dispatchState: "dispatched",
     protectedResult: {
       version: 1,
@@ -331,6 +331,7 @@ async function settleDraftReady(runId: string, candidateHash = hash("c")) {
     providerHttpStatus: 200,
     providerErrorCode: null,
     providerRequestId: "synthetic-request",
+      providerSystemFingerprint: null,
     durationMs: 2,
   });
   if (!evidence.ok) throw new Error("Synthetic candidate evidence failed.");
@@ -993,8 +994,8 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     const active = await claimAndMark(created.value.runId);
     const failure = aiFailure("provider_auth_failed");
     if (failure.ok) throw new Error("Static Provider auth failure was invalid.");
-    const evidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
-      version: 2,
+    const evidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+      version: 3,
       dispatchState: "dispatched",
       protectedResult: null,
       error: failure.error,
@@ -1006,6 +1007,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       providerHttpStatus: 401,
       providerErrorCode: "synthetic_auth",
       providerRequestId: null,
+      providerSystemFingerprint: null,
       durationMs: 1,
     });
     if (!evidence.ok) throw new Error("Synthetic failure evidence failed.");

@@ -1,6 +1,6 @@
-import { createPhaseCAiRunWorkerV1 } from "@/server/ai/phase-c-composition";
+import { createPhaseDAiRunWorkerV1 } from "@/server/ai/phase-d-provider-composition";
 
-const worker = createPhaseCAiRunWorkerV1();
+const worker = createPhaseDAiRunWorkerV1();
 let stopping = false;
 
 async function stop(signal: "SIGINT" | "SIGTERM") {
