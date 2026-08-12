@@ -32,6 +32,7 @@ import { createAiRunWorkerV1 } from "@/ai/runs/worker";
 import { createPromptBundleLoaderV1, type PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
 import { migrateDatabase } from "@/db/migrate";
+import { PostgresMigrationCompatibilityError } from "@/db/postgres-enum-migration-compatibility";
 import * as databaseSchema from "@/db/schema";
 import {
   aiModelConfig,
@@ -74,6 +75,87 @@ const PRODUCT_ID = "d3333333-3333-4333-8333-333333333333";
 const CONFIG_ID = "d4444444-4444-4444-8444-444444444444";
 const IDEMPOTENCY_KEY = "d5555555-5555-4555-8555-555555555555";
 const FIXTURE_URL = new URL("../../../test-fixtures/ai/deepseek-controlled-validation.v1.json", import.meta.url);
+
+export type ControlledMigrationFailureSafeCodeV1 =
+  | "controlled_validation_migration_folder_resolution_failed"
+  | "controlled_validation_migration_connection_failed"
+  | "controlled_validation_migration_advisory_lock_failed"
+  | "controlled_validation_migration_journal_failed"
+  | "controlled_validation_migration_permission_failed"
+  | "controlled_validation_migration_sql_compatibility_failed"
+  | "controlled_validation_migration_entry_failed";
+
+const MIGRATION_CONNECTION_SQLSTATES = new Set([
+  "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
+  "53300", "57P01", "57P02", "57P03",
+]);
+const MIGRATION_SQL_COMPATIBILITY_SQLSTATES = new Set([
+  "0A000", "23502", "23503", "23505", "23514", "42601", "42701",
+  "42703", "42710", "42804", "42883", "42P01", "42P06", "42P07",
+]);
+const MIGRATION_CONNECTION_NODE_CODES = new Set([
+  "EAI_AGAIN", "ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "ENOTFOUND",
+  "EPIPE", "ETIMEDOUT",
+]);
+const MIGRATION_FOLDER_NODE_CODES = new Set([
+  "ENOENT", "ENOTDIR", "ERR_MODULE_NOT_FOUND", "MODULE_NOT_FOUND",
+]);
+
+function ownStringDataProperty(value: unknown, key: "code"): string | undefined {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string"
+      ? descriptor.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isPostgresMigrationCompatibilityError(value: unknown): boolean {
+  try {
+    return value instanceof PostgresMigrationCompatibilityError;
+  } catch {
+    return false;
+  }
+}
+
+export function classifyControlledMigrationFailureForTestV1(
+  error: unknown,
+): ControlledMigrationFailureSafeCodeV1 {
+  const code = ownStringDataProperty(error, "code");
+  if (code === undefined) return "controlled_validation_migration_entry_failed";
+
+  if (isPostgresMigrationCompatibilityError(error)) {
+    switch (code) {
+      case "MIGRATION_IDENTITY_MISMATCH":
+        return "controlled_validation_migration_folder_resolution_failed";
+      case "MIGRATION_CLIENT_NOT_DEDICATED":
+      case "BACKEND_SESSION_CHANGED":
+        return "controlled_validation_migration_connection_failed";
+      case "LOCK_UNAVAILABLE":
+        return "controlled_validation_migration_advisory_lock_failed";
+      case "JOURNAL_CATALOG_MISMATCH":
+      case "POST_MIGRATION_VERIFICATION_FAILED":
+        return "controlled_validation_migration_journal_failed";
+      default:
+        return "controlled_validation_migration_entry_failed";
+    }
+  }
+
+  if (MIGRATION_FOLDER_NODE_CODES.has(code)) {
+    return "controlled_validation_migration_folder_resolution_failed";
+  }
+  if (MIGRATION_CONNECTION_NODE_CODES.has(code) || MIGRATION_CONNECTION_SQLSTATES.has(code)) {
+    return "controlled_validation_migration_connection_failed";
+  }
+  if (code === "42501") return "controlled_validation_migration_permission_failed";
+  if (MIGRATION_SQL_COMPATIBILITY_SQLSTATES.has(code)) {
+    return "controlled_validation_migration_sql_compatibility_failed";
+  }
+  return "controlled_validation_migration_entry_failed";
+}
 
 interface ControlledFixtureV1 extends ReadonlyJsonObject {
   readonly fixtureFormatVersion: 1;
@@ -568,7 +650,11 @@ async function runControlledDatabasePath(input: {
       createMigrationClient: () => postgres(databaseUrl, { max: 1, prepare: false, onnotice: () => undefined }),
       close: async () => undefined,
     };
-    await migrateDatabase(connection);
+    try {
+      await migrateDatabase(connection);
+    } catch (error) {
+      return safeFailure("FAIL", classifyControlledMigrationFailureForTestV1(error), input);
+    }
     const retained = await inspectControlledDatabaseState(database, client);
     if (retained === "invalid") return safeFailure("NOT_RUN", "isolated_database_not_empty", input);
     if (retained === "retained") {

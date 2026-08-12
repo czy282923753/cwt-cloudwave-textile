@@ -5,12 +5,14 @@ vi.mock("server-only", () => ({}));
 
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import {
+  classifyControlledMigrationFailureForTestV1,
   createControlledValidationAuthoritiesV1,
   isControlledValidationDatabaseLoopbackHostV1,
   loadControlledDeepSeekFixtureV1,
   parseControlledDeepSeekFixtureBytesForTestV1,
   runNode24LoopbackSemanticGateV1,
 } from "./controlled-provider-validation";
+import { PostgresMigrationCompatibilityError } from "@/db/postgres-enum-migration-compatibility";
 
 const fixtureUrl = new URL("../../../test-fixtures/ai/deepseek-controlled-validation.v1.json", import.meta.url);
 
@@ -146,5 +148,87 @@ describe("Phase D controlled Provider validation authority", () => {
     expect(isControlledValidationDatabaseLoopbackHostV1("::1")).toBe(true);
     expect(isControlledValidationDatabaseLoopbackHostV1("127.0.0.1/32")).toBe(false);
     expect(isControlledValidationDatabaseLoopbackHostV1("203.0.113.10")).toBe(false);
+  });
+
+  it.each([
+    [
+      new PostgresMigrationCompatibilityError("MIGRATION_IDENTITY_MISMATCH", "Synthetic fixed test"),
+      "controlled_validation_migration_folder_resolution_failed",
+    ],
+    [
+      new PostgresMigrationCompatibilityError("MIGRATION_CLIENT_NOT_DEDICATED", "Synthetic fixed test"),
+      "controlled_validation_migration_connection_failed",
+    ],
+    [
+      new PostgresMigrationCompatibilityError("BACKEND_SESSION_CHANGED", "Synthetic fixed test"),
+      "controlled_validation_migration_connection_failed",
+    ],
+    [
+      new PostgresMigrationCompatibilityError("LOCK_UNAVAILABLE", "Synthetic fixed test"),
+      "controlled_validation_migration_advisory_lock_failed",
+    ],
+    [
+      new PostgresMigrationCompatibilityError("JOURNAL_CATALOG_MISMATCH", "Synthetic fixed test"),
+      "controlled_validation_migration_journal_failed",
+    ],
+    [
+      new PostgresMigrationCompatibilityError("POST_MIGRATION_VERIFICATION_FAILED", "Synthetic fixed test"),
+      "controlled_validation_migration_journal_failed",
+    ],
+    [{ code: "ENOENT" }, "controlled_validation_migration_folder_resolution_failed"],
+    [{ code: "ECONNREFUSED" }, "controlled_validation_migration_connection_failed"],
+    [{ code: "08006" }, "controlled_validation_migration_connection_failed"],
+    [{ code: "42501" }, "controlled_validation_migration_permission_failed"],
+    [{ code: "42601" }, "controlled_validation_migration_sql_compatibility_failed"],
+    [{ code: "42P01" }, "controlled_validation_migration_sql_compatibility_failed"],
+  ])("classifies a fixed migration error without dynamic projection", (error, expected) => {
+    expect(classifyControlledMigrationFailureForTestV1(error)).toBe(expected);
+  });
+
+  it("rejects unknown, inherited, accessor and trapped migration error properties", () => {
+    let getterReads = 0;
+    const accessor = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(accessor, "code", {
+      enumerable: true,
+      get: () => {
+        getterReads += 1;
+        throw new Error("Synthetic getter must never execute");
+      },
+    });
+    const inherited = Object.create({ code: "42501" }) as Record<string, unknown>;
+    const trapped = new Proxy({}, {
+      getOwnPropertyDescriptor: () => { throw new Error("Synthetic descriptor trap"); },
+      getPrototypeOf: () => { throw new Error("Synthetic prototype trap"); },
+    });
+
+    expect(classifyControlledMigrationFailureForTestV1({ code: "UNREVIEWED_DYNAMIC_CODE" }))
+      .toBe("controlled_validation_migration_entry_failed");
+    expect(classifyControlledMigrationFailureForTestV1(inherited))
+      .toBe("controlled_validation_migration_entry_failed");
+    expect(classifyControlledMigrationFailureForTestV1(accessor))
+      .toBe("controlled_validation_migration_entry_failed");
+    expect(classifyControlledMigrationFailureForTestV1(trapped))
+      .toBe("controlled_validation_migration_entry_failed");
+    expect(getterReads).toBe(0);
+  });
+
+  it("never projects raw migration exception material", () => {
+    const forbidden = [
+      "Synthetic secret-shaped credential material",
+      "postgresql://synthetic-user:synthetic-password@127.0.0.1/synthetic-database",
+      "Authorization: Bearer synthetic-secret",
+      "select synthetic_private_value from synthetic_private_table",
+      "/synthetic/private/migration/path",
+    ];
+    const error = Object.assign(new Error(forbidden[0]), {
+      code: "42501",
+      stack: forbidden[1],
+      query: forbidden[3],
+      parameters: forbidden,
+      cause: { credential: forbidden[2], path: forbidden[4] },
+    });
+    const projection = classifyControlledMigrationFailureForTestV1(error);
+    expect(projection).toBe("controlled_validation_migration_permission_failed");
+    for (const value of forbidden) expect(projection).not.toContain(value);
   });
 });
