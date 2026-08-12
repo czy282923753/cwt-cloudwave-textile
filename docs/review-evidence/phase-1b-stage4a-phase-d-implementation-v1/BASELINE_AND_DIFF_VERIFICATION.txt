@@ -1,0 +1,29 @@
+CWT Stage 4A Phase D baseline and diff verification
+Generated at: 2026-08-12T18:54:54Z
+
+Accepted exact design base: 09eb6b3296dc43f579025213004606e0f0f744c0
+Implementation branch: codex/phase-1b-stage4a-phase-d-implementation-v1
+Proof-bound code commit: 3b923ffd88166e0d03cf8d309a92b5cd98f09a50
+
+RESULTS
+- Exact-base ancestry: PASS
+- Proof-bound commit branch identity: PASS
+- git diff --check: PASS
+- Changed path count relative to exact base: 39
+- Exact add/modify/delete allowlist comparison: PASS
+- Added paths outside allowlist: 0
+- Modified paths outside allowlist: 0
+- Deleted paths outside allowlist: 0
+- package.json change is script-only: PASS
+- Dependency or lockfile changes: 0
+- Schema or Migration changes: 0
+- ADR or environment-schema changes: 0
+- Prompt resource, business UI, public route, SEO, Asset or storage changes: 0
+- Phase C root removal and Phase D root replacement: PASS
+
+DIFF SUMMARY
+- Insertions: 6110
+- Deletions: 343
+- The apparent phase-c-composition.test.ts to phase-d-provider-composition.test.ts rename is Git similarity reporting; both exact delete/add paths are authorized.
+
+This proof binds implementation code only. The implementation report and this evidence package are authorized docs-only successors.

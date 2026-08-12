@@ -1,0 +1,68 @@
+{
+  "schema": "cwt.phase-d.controlled-provider-validation",
+  "version": 1,
+  "status": "NOT_RUN",
+  "safe_code": "isolated_database_unavailable",
+  "fixture_id": "SYN-AI-PRODUCT-BASE-01-PHASE-D-CONTROLLED-01",
+  "fixture_hash": "6ee8e7504844d0a63aca49590c0d790e22cf911bea58b2d377bf23cf30bbe24a",
+  "node24_loopback": {
+    "status": "PASS",
+    "runtime": {
+      "node": "24.14.0",
+      "v8": "13.6.233.17-node.41",
+      "icu": "78.2",
+      "unicode": "17.0",
+      "cldr": "48.0",
+      "platform": "darwin",
+      "arch": "arm64"
+    },
+    "redirect_status": 302,
+    "redirect_destination_hits": 0,
+    "emitted_header_names": [
+      "accept",
+      "accept-encoding",
+      "accept-language",
+      "authorization",
+      "connection",
+      "content-length",
+      "content-type",
+      "host",
+      "sec-fetch-mode",
+      "user-agent"
+    ]
+  },
+  "official_sources": {
+    "version": 1,
+    "status": "PASS",
+    "retrieved_at": "2026-08-12T18:47:15.495Z",
+    "counters": {
+      "official_pricing_get": 1,
+      "official_chat_completion_schema_get": 1,
+      "official_source_get_total": 2,
+      "billable_post": 0
+    },
+    "pricing": {
+      "url": "https://api-docs.deepseek.com/quick_start/pricing/",
+      "status": 200,
+      "bytes": 21969,
+      "sha256": "3af5e5d6992a4e26709ed37f02d9bfbc46ee92dc825e6588404728419f41ce71",
+      "model_alias": "deepseek-v4-flash",
+      "published_model_version": "DeepSeek-V4-Flash-0731",
+      "cache_hit_input_microusd_per_million": 2800,
+      "cache_miss_input_microusd_per_million": 140000,
+      "output_microusd_per_million": 280000
+    },
+    "chat_completion": {
+      "url": "https://api-docs.deepseek.com/api/create-chat-completion/",
+      "status": 200,
+      "bytes": 125153,
+      "sha256": "2948bb768f4fedca3837bd402ca5bf7ca864b7bc6ef68312f82ebe4fb8ea9a3a",
+      "endpoint_path": "/chat/completions",
+      "response_format": "json_object",
+      "thinking_disabled_supported": true,
+      "non_streaming_supported": true,
+      "service_tier_occurrences": 0
+    }
+  },
+  "billable_post": 0
+}

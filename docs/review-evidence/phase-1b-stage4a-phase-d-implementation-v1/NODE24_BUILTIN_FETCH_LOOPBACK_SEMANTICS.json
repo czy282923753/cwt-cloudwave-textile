@@ -1,0 +1,33 @@
+{
+  "schema": "cwt.phase-d.node24-builtin-fetch-loopback-semantics",
+  "version": 1,
+  "status": "PASS",
+  "runtime": {
+    "node": "24.14.0",
+    "v8": "13.6.233.17-node.41",
+    "icu": "78.2",
+    "unicode": "17.0",
+    "cldr": "48.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "request": {
+    "redirect_mode": "manual",
+    "redirect_status": 302,
+    "redirect_destination_hits": 0,
+    "emitted_header_names": [
+      "accept",
+      "accept-encoding",
+      "accept-language",
+      "authorization",
+      "connection",
+      "content-length",
+      "content-type",
+      "host",
+      "sec-fetch-mode",
+      "user-agent"
+    ]
+  },
+  "network_scope": "loopback-only",
+  "external_request_count": 0
+}

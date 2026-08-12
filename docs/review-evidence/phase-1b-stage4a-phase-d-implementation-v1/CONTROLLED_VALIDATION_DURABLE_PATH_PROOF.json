@@ -1,0 +1,39 @@
+{
+  "schema": "cwt.phase-d.controlled-validation-durable-path-proof",
+  "version": 1,
+  "status": "PARTIAL_BLOCKED",
+  "proof_bound_code_commit": "3b923ffd88166e0d03cf8d309a92b5cd98f09a50",
+  "fake_provider_postgresql_proof": {
+    "status": "PASS",
+    "database": "isolated local PostgreSQL container",
+    "selected_suites": 5,
+    "path": [
+      "authoritative synthetic Domain Service and atomic Audit",
+      "durable ai_runs enqueue",
+      "persisted active-actor authorization",
+      "Worker claim",
+      "committed dispatch fence",
+      "Provider-neutral prepare/execute",
+      "sole normalized attempt writer",
+      "terminal settlement and projection"
+    ],
+    "fault_contracts": [
+      "pre-fence failure emits no Provider call",
+      "post-fence failure settles through durable attempt evidence",
+      "maxAttempts equals 1",
+      "slotCount equals 1 for controlled validation",
+      "no second queue, retry or projection authority"
+    ]
+  },
+  "real_provider_proof": {
+    "status": "NOT_RUN",
+    "safe_code": "isolated_database_unavailable",
+    "official_source_get_total": 2,
+    "official_source_status": "PASS",
+    "billable_provider_post_total": 0,
+    "credential_reader_reached": false,
+    "durable_ai_run_created": false,
+    "terminal_projection_available": false
+  },
+  "conclusion": "Implementation durable-path behavior is locally proven with the fake Provider, but the authorized real-Provider durable path could not start because the required isolated validation database was unavailable. This is NOT RUN, not PASS."
+}

@@ -1,0 +1,29 @@
+CWT Stage 4A Phase D DeepSeek contract test results
+Proof-bound code commit: 3b923ffd88166e0d03cf8d309a92b5cd98f09a50
+Final zero-secret run: 2026-08-12 UTC
+
+FINAL RESULTS
+- Phase D focused contract aggregate: PASS; 6 files, 57 tests.
+- AI foundation aggregate: PASS; 18 files / 184 tests passed, 7 files / 36 tests skipped only where an external PostgreSQL fixture was not configured.
+- Full repository regression: PASS; 122 files / 653 tests passed, 7 files / 36 tests skipped on the same external PostgreSQL condition.
+- Prompt bundle gate: PASS.
+- TypeScript typecheck: PASS.
+- ESLint with zero-warning limit: PASS.
+
+COVERED CONTRACTS
+- Strict DeepSeek request envelope, literal application headers, Node built-in fetch and manual redirect rejection.
+- Strict success and failure response allowlists, duplicate-key rejection, UTF-8 and response-size bounds.
+- Retry classification for transport, timeout, 4xx and 5xx responses; one-shot prepared dispatch.
+- Cache-hit/cache-miss pricing and exact conservative cost ceiling behavior.
+- Sole lazy credential reader and zero-reader behavior before all gates.
+- Official-source fixed URL/hash/fact attestation with no retry.
+- Exact fixture loading, canonical identity, controlled authority/attestor single use, and no inline fixture authority.
+- Phase D composition matrix, Production empty registries and Phase C root removal.
+- Worker dispatch-fence ordering, normalized attempt evidence, terminal settlement and shutdown behavior.
+- Controlled CLI import boundary and safe projected output.
+
+ADDITIONAL DURABLE-PATH TEST
+- A local isolated PostgreSQL container ran the five selected claimed-execution/repository/service/worker/worker-shutdown suites: PASS.
+- The container was removed after the fake-Provider test pass; this was not the retained real-validation database.
+
+No test in this result performed an official-source GET or a billable Provider POST. The separately authorized controlled run is recorded only in DEEPSEEK_CONTROLLED_REAL_PROVIDER_VALIDATION.json.

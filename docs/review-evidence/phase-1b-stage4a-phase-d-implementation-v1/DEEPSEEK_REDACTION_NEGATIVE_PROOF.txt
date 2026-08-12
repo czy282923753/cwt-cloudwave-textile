@@ -1,0 +1,17 @@
+CWT Stage 4A Phase D credential/redaction negative proof
+Proof-bound code commit: 3b923ffd88166e0d03cf8d309a92b5cd98f09a50
+
+RESULTS
+- Sole production credential reader expression in implementation source: 1.
+- Reader location: src/integrations/ai/providers/deepseek-text-adapter.ts.
+- Controlled runner, CLI, official-source preflight, composition root, repository and evidence writers contain direct credential reader expressions: 0.
+- Sole isolated validation database-secret reader expression: 1, inside src/ai/testing/controlled-provider-validation.ts.
+- Ordinary, disabled, local/test, PGlite, preflight-failure and Production-empty-registry test paths invoked the credential reader: 0.
+- Valid injected preparation invoked the reader exactly once; invalid injected preparation invoked it exactly once and emitted no marker/fetch.
+- Repeated execution of a prepared closure emitted no second credential read and no second fetch.
+- Credential values, hashes, fingerprints, lengths, prefixes, suffixes and presence booleans in returned errors, durable attempt evidence, terminal projection, snapshots and logs: 0.
+- Raw Provider request/response, Prompt/input/context, Authorization value, exception text and reasoning content in durable or projected evidence: 0.
+- Controlled real run reached the database prerequisite boundary before credential read and stopped with a safe code. Billable Provider POST count: 0.
+- Evidence-package scan found no credential value or credential derivative. Only fixed environment-variable identifiers and the literal emitted header name "authorization" are retained where required by the accepted proof contract.
+
+The credential itself was never inspected, printed, logged, persisted, hashed, fingerprinted, placed on a command line or copied into evidence.
