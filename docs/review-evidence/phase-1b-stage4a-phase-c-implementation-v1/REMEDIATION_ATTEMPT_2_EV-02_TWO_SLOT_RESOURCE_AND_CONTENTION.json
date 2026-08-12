@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "envelope": {
+    "targetVcpu": 2,
+    "targetMemoryBytes": 4294967296,
+    "validationMode": "measured-demand-below-equivalent-capacity",
+    "hostAvailableParallelism": 10
+  },
+  "node": "v24.14.0",
+  "twoSlot": {
+    "maximumProviderCalls": 2,
+    "blockedState": {
+      "processing": 2,
+      "pending": 1
+    },
+    "finalDraftReady": 3,
+    "providerCalls": 3
+  },
+  "contention": {
+    "abortReason": "lease_renewal_unavailable",
+    "heartbeatBusyEvents": 5,
+    "renewalUnavailableEvents": 1,
+    "durableStatus": "processing",
+    "candidateNull": true
+  },
+  "resource": {
+    "cpuUserMicroseconds": 834013,
+    "cpuSystemMicroseconds": 69165,
+    "rssBeforeBytes": 91865088,
+    "rssAfterBytes": 136626176,
+    "maxRssKilobytes": 133424,
+    "wallDurationMs": 2932.104542,
+    "averageVcpuDemand": 0.30803062682885746,
+    "eventLoopMeanMs": 12.34426793220339,
+    "eventLoopP99Ms": 48.431103,
+    "eventLoopMaxMs": 74.317823,
+    "dbPoolMax": 8
+  },
+  "health": {
+    "advisoryLocks": 0,
+    "idleInTransaction": 0
+  }
+}

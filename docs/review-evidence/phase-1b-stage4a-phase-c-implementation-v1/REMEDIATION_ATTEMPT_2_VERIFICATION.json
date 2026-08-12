@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "role": "Phase C Implementation Engineer",
+  "finding": "PCIR-H-01",
+  "attempt": 2,
+  "proofBoundCodeCommit": "6de5fac1d676c5d01ccfedaeb90c1bcb0285c89a",
+  "preRemediationEvidenceCandidate": "a6ef39b93b4b36eeb2fa37cf93ae2106ef18902d",
+  "failedIndependentRereview": "9430baf67b4e67598eeccf3502f55c415b53f1a5",
+  "acceptedDesignBase": "21662c2c110f17cd095249fe91c2c019f6f508ab",
+  "branch": "codex/phase-1b-stage4a-phase-c-implementation-v1",
+  "runtime": {
+    "node": "v24.14.0",
+    "pnpm": "11.9.0",
+    "next": "16.2.12",
+    "postgresql": "17.10"
+  },
+  "authorization": {
+    "status": "PASS",
+    "pgliteAvailability": "7 tests PASS",
+    "postgresqlAvailabilityAndDurableMatrix": "11 files / 45 tests PASS",
+    "exactOriginalPcirH01Reproduction": "old exploit assertion fails at persisted Sales claiming Admin protected read",
+    "exactAttempt1AvailabilityReproduction": "old exploit assertion fails because forged/inactive/unknown outcomes are authorization_denied",
+    "onePersistedActorAuthority": true,
+    "callerRoleAuthorityRemoved": true,
+    "localAvailabilityRoleMapRemoved": true,
+    "unauthorizedStateNonDisclosure": true,
+    "availabilityDurableMutationOrAudit": false
+  },
+  "gates": {
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "prompt": "PASS",
+    "aiFoundation": "17 files / 175 tests PASS; 7 PostgreSQL-conditioned files / 36 tests skipped",
+    "fullRegression": "117 files / 595 tests PASS; 7 PostgreSQL-conditioned files / 36 tests skipped",
+    "postgresqlPhaseC": "11 files / 45 tests PASS",
+    "postgresqlBuild": "PASS; 43/43 static pages",
+    "serverPublicFixture": "PASS; 51 server files / 16 client files; zero marker leaks",
+    "architectureV4": "PASS; inherited gates, 28 inherited mutation probes, 6 Phase C Synthetic probes"
+  },
+  "externalValidation": {
+    "ev01": "PASS; H-01 both owner orders and 13/13 scaled plans",
+    "ev02": "PASS; maximum two Provider calls, 3/3 draft_ready, five heartbeat busy events, one renewal abort, zero residual locks/idle transaction"
+  },
+  "protectedBoundaries": {
+    "c002": "ACTIVE",
+    "c003": "ACTIVE",
+    "productionProviderRegistry": "exact-empty",
+    "productionPromptManifest": "exact-empty",
+    "schemaMigrationAdrDependencyLockfileEnvironmentChanges": false,
+    "externalProductionActions": false
+  },
+  "status": "IMPLEMENTATION_COMPLETE_PENDING_FRESH_INDEPENDENT_REREVIEW"
+}
