@@ -10,6 +10,7 @@ import { aiFailure } from "@/ai/errors";
 import { constructPreDispatchClaimedRunV2 } from "@/ai/internal/claimed-run-authority";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import type { TextProviderRegistryV1 } from "@/ai/providers/registry";
+import { noOpAiTelemetrySink, type AiTelemetrySink } from "@/ai/telemetry";
 import type { AppDatabase } from "@/db/types";
 import type {
   AiRunWorkerV1,
@@ -81,10 +82,12 @@ async function boundedLifecycleOutcome<T extends {
   operation: () => Promise<T>,
   leaseExpiresAt: () => Date,
   timing: AiRunWorkerTimingV1,
+  onLockBusy?: (attempt: number) => void,
 ): Promise<T | null> {
   for (let attempt = 1; attempt <= AI_HEARTBEAT_LOCK_ATTEMPTS_V1; attempt += 1) {
     const outcome = await operation();
     if (outcome.kind !== "lock_busy") return outcome;
+    onLockBusy?.(attempt);
     const observedAt = outcome.observedAt;
     if (observedAt === undefined || heartbeatLockRetryDecisionV1({
       completedAttempts: attempt,
@@ -107,6 +110,7 @@ async function processClaimedRun(input: {
   readonly processAbort: AbortSignal;
   readonly registerController: (controller: AbortController) => void;
   readonly unregisterController: (controller: AbortController) => void;
+  readonly telemetry: AiTelemetrySink;
 }): Promise<void> {
   const claimedResult = constructPreDispatchClaimedRunV2({
     row: input.claim.row,
@@ -148,9 +152,39 @@ async function processClaimedRun(input: {
         () => input.repository.heartbeat(lease),
         () => lease.leaseExpiresAt,
         input.timing,
+        () => {
+          try {
+            input.telemetry.emit({
+              schemaVersion: 1,
+              eventName: "ai_heartbeat_lock_busy",
+              applicationClass: claimed.applicationClass,
+              useCase: claimed.useCase,
+              capability: "text",
+              environment: input.executionEnvironment,
+              status: "processing",
+              attemptCount: claimed.attemptCount,
+            });
+          } catch {
+            // Operational telemetry is never lifecycle authority.
+          }
+        },
       ));
       if (outcome?.kind !== "renewed") {
         authorityLost = true;
+        try {
+          input.telemetry.emit({
+            schemaVersion: 1,
+            eventName: "ai_lease_renewal_unavailable",
+            applicationClass: claimed.applicationClass,
+            useCase: claimed.useCase,
+            capability: "text",
+            environment: input.executionEnvironment,
+            status: "processing",
+            attemptCount: claimed.attemptCount,
+          });
+        } catch {
+          // Operational telemetry is never lifecycle authority.
+        }
         providerAbort.abort("lease_renewal_unavailable");
         return;
       }
@@ -233,6 +267,7 @@ export function createAiRunWorkerV1(dependencies: {
   readonly promptLoader: PromptBundleLoaderV1;
   readonly pricingRegistry: PricingPolicyRegistryV1;
   readonly timing?: AiRunWorkerTimingV1;
+  readonly telemetry?: AiTelemetrySink;
   readonly workerId?: string;
 }): AiRunWorkerV1 {
   if (dependencies.trustedEnvironment.appEnvironment === "production") {
@@ -240,7 +275,8 @@ export function createAiRunWorkerV1(dependencies: {
   }
   const executionEnvironment = dependencies.trustedEnvironment.appEnvironment;
   const timing = dependencies.timing ?? productionTiming;
-  const repository = createAiRunRepositoryV1(dependencies.database);
+  const telemetry = dependencies.telemetry ?? noOpAiTelemetrySink;
+  const repository = createAiRunRepositoryV1(dependencies.database, { telemetry });
   const workerId = dependencies.workerId ?? `cwt-ai-worker-${randomUUID()}`;
   const processAbort = new AbortController();
   const activeControllers = new Set<AbortController>();
@@ -265,6 +301,7 @@ export function createAiRunWorkerV1(dependencies: {
             processAbort: processAbort.signal,
             registerController: (controller) => activeControllers.add(controller),
             unregisterController: (controller) => activeControllers.delete(controller),
+            telemetry,
           });
         } catch {
           // A malformed or otherwise unreconstructable claimed row cannot be

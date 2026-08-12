@@ -304,12 +304,14 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     };
     const abortingRegistryResult = createTextProviderRegistryV1([abortingProvider]);
     if (!abortingRegistryResult.ok) throw new Error("Aborting Provider registry failed.");
+    const telemetryEvents: string[] = [];
     const worker = createAiRunWorkerV1({
       database: db(),
       trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
       providerRegistry: abortingRegistryResult.value,
       promptLoader,
       pricingRegistry: localTestPricingPolicyRegistryV1,
+      telemetry: { emit: (event) => { telemetryEvents.push(event.eventName); } },
       timing: {
         heartbeatIntervalMs: 10,
         lockRetryDelayMs: 20,
@@ -335,6 +337,10 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
       await worker.stop("SIGTERM");
       expect(worker.running).toBe(false);
       expect(observedAbortReason).toBe("lease_renewal_unavailable");
+      expect(telemetryEvents.filter((event) => event === "ai_heartbeat_lock_busy"))
+        .toHaveLength(5);
+      expect(telemetryEvents.filter((event) => event === "ai_lease_renewal_unavailable"))
+        .toHaveLength(1);
       const [abandoned] = await db().select().from(aiRuns);
       expect(abandoned).toMatchObject({
         status: "processing",
