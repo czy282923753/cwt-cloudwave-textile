@@ -311,5 +311,13 @@ describe.skipIf(postgresUrl === undefined)("Phase C H-01 heartbeat serialization
       where datname = current_database() and state = 'idle in transaction'
     `);
     expect(Number(sessions[0]?.count ?? -1)).toBe(0);
+    const residual = await db().execute<{ readonly count: string }>(sql`
+      select count(*)::text as count
+      from pg_locks
+      where locktype = 'advisory'
+        and classid = 1129792594
+        and objid = 1
+    `);
+    expect(Number(residual[0]?.count ?? -1)).toBe(0);
   }, 30_000);
 });

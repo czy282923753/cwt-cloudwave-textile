@@ -11,6 +11,7 @@ import { createPhaseCDurableDraftAssistanceServiceV1 } from "@/ai/applications/d
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
+import type { TextAiProvider } from "@/ai/providers/text-provider";
 import { createFakeTextProviderV1 } from "@/ai/testing/fake-text-provider";
 import type { DatabaseConnection, PostgresAppDatabase } from "@/db/client";
 import { migrateDatabase } from "@/db/migrate";
@@ -27,6 +28,10 @@ import {
 } from "@/db/schema";
 import * as schema from "@/db/schema";
 import { localTestPricingPolicyRegistryV1 } from "./pricing-policy";
+import {
+  CWT_AI_TEXT_CLAIM_BUDGET_ADVISORY_KEY_V1,
+  createAiRunRepositoryV1,
+} from "./repository";
 import { createAiRunWorkerV1 } from "./worker";
 
 const postgresUrl = process.env.CWT_PHASE_C_POSTGRES_URL;
@@ -82,6 +87,15 @@ const promptLoader: PromptBundleLoaderV1 = {
     };
   },
 };
+
+function deferred(): {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<void>((accept) => { resolve = accept; });
+  return { promise, resolve };
+}
 
 let client: Sql | undefined;
 let database: PostgresAppDatabase | undefined;
@@ -193,10 +207,30 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
       const result = await service.requestDraftAssistance(command(fixture, randomUUID()));
       expect(result.ok).toBe(true);
     }
+    const releaseProvider = deferred();
+    let activeProviderCalls = 0;
+    let maximumProviderCalls = 0;
+    const deferredProvider: TextAiProvider = {
+      ...provider,
+      async generateText(input) {
+        activeProviderCalls += 1;
+        maximumProviderCalls = Math.max(maximumProviderCalls, activeProviderCalls);
+        await releaseProvider.promise;
+        try {
+          return await provider.generateText(input);
+        } finally {
+          activeProviderCalls -= 1;
+        }
+      },
+    };
+    const deferredRegistryResult = createTextProviderRegistryV1([deferredProvider]);
+    if (!deferredRegistryResult.ok) throw new Error("Deferred Provider registry failed.");
+    const memoryBefore = process.memoryUsage().rss;
+    const cpuBefore = process.cpuUsage();
     const worker = createAiRunWorkerV1({
       database: db(),
       trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-      providerRegistry,
+      providerRegistry: deferredRegistryResult.value,
       promptLoader,
       pricingRegistry: localTestPricingPolicyRegistryV1,
       timing: {
@@ -209,6 +243,12 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
       workerId: "synthetic-worker-integration",
     });
     await worker.start();
+    await waitFor(async () => activeProviderCalls === 2);
+    const whileBlocked = await db().select().from(aiRuns);
+    expect(whileBlocked.filter((row) => row.status === "processing")).toHaveLength(2);
+    expect(whileBlocked.filter((row) => row.status === "pending")).toHaveLength(1);
+    expect(requests).toHaveLength(0);
+    releaseProvider.resolve();
     await waitFor(async () => {
       const rows = await db().select().from(aiRuns);
       return rows.length === 3 && rows.every((row) => row.status === "draft_ready");
@@ -218,8 +258,135 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     expect(rows).toHaveLength(3);
     expect(rows.every((row) => row.status === "draft_ready" && row.attemptCount === 1)).toBe(true);
     expect(requests).toHaveLength(3);
+    expect(maximumProviderCalls).toBe(2);
+    expect(activeProviderCalls).toBe(0);
+    const cpuUsed = process.cpuUsage(cpuBefore);
+    expect(cpuUsed.user + cpuUsed.system).toBeLessThan(30_000_000);
+    expect(process.memoryUsage().rss - memoryBefore).toBeLessThan(512 * 1024 * 1024);
     expect(new Set(rows.map((row) => row.leaseToken))).toEqual(new Set([null]));
     const active = await db().select().from(aiRuns).where(eq(aiRuns.status, "processing"));
     expect(active).toHaveLength(0);
+  }, 20_000);
+
+  it("aborts on bounded heartbeat contention and recovers the same row after restart", async () => {
+    const fixture = await seed();
+    const service = createPhaseCDurableDraftAssistanceServiceV1({
+      database: db(),
+      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+      providerRegistry,
+      promptLoader,
+      pricingRegistry: localTestPricingPolicyRegistryV1,
+    });
+    const enqueued = await service.requestDraftAssistance(command(fixture, randomUUID()));
+    expect(enqueued.ok).toBe(true);
+    const providerEntered = deferred();
+    let observedAbortReason: unknown;
+    const abortingProvider: TextAiProvider = {
+      ...provider,
+      async generateText(input) {
+        providerEntered.resolve();
+        await new Promise<void>((resolve) => {
+          if (input.signal.aborted) {
+            resolve();
+            return;
+          }
+          input.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        observedAbortReason = input.signal.reason;
+        return {
+          kind: "failure",
+          responseStatus: "transport_error",
+          failureCode: "transport",
+          retryClass: "same_provider_transient",
+          durationMs: 1,
+        };
+      },
+    };
+    const abortingRegistryResult = createTextProviderRegistryV1([abortingProvider]);
+    if (!abortingRegistryResult.ok) throw new Error("Aborting Provider registry failed.");
+    const worker = createAiRunWorkerV1({
+      database: db(),
+      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+      providerRegistry: abortingRegistryResult.value,
+      promptLoader,
+      pricingRegistry: localTestPricingPolicyRegistryV1,
+      timing: {
+        heartbeatIntervalMs: 10,
+        lockRetryDelayMs: 20,
+        idlePollMs: 10,
+        gracefulShutdownMs: 300,
+        postAbortPersistenceMs: 150,
+      },
+      workerId: "synthetic-contention-worker",
+    });
+    await worker.start();
+    await providerEntered.promise;
+    const lockClient = postgres(postgresUrl!, { max: 1, prepare: false, onnotice: () => undefined });
+    const lockHeld = deferred();
+    const releaseLock = deferred();
+    const advisory = CWT_AI_TEXT_CLAIM_BUDGET_ADVISORY_KEY_V1;
+    const lockPromise = lockClient.begin(async (transaction) => {
+      await transaction`select pg_advisory_xact_lock(${advisory[0]}, ${advisory[1]})`;
+      lockHeld.resolve();
+      await releaseLock.promise;
+    });
+    await lockHeld.promise;
+    try {
+      await worker.stop("SIGTERM");
+      expect(worker.running).toBe(false);
+      expect(observedAbortReason).toBe("lease_renewal_unavailable");
+      const [abandoned] = await db().select().from(aiRuns);
+      expect(abandoned).toMatchObject({
+        status: "processing",
+        attemptCount: 1,
+        candidateJson: null,
+        candidateHash: null,
+      });
+    } finally {
+      releaseLock.resolve();
+      await lockPromise;
+      await lockClient.end();
+    }
+    await db().update(aiRuns).set({
+      leaseExpiresAt: sql`clock_timestamp() - interval '1 millisecond'`,
+    });
+    const recovered = await createAiRunRepositoryV1(db()).claimOrRecover({
+      executionEnvironment: "test",
+      workerId: "synthetic-recovery-owner",
+    });
+    expect(recovered.kind).toBe("recovered");
+    await db().update(aiRuns).set({ nextAttemptAt: sql`clock_timestamp()` });
+    const restarted = createAiRunWorkerV1({
+      database: db(),
+      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+      providerRegistry,
+      promptLoader,
+      pricingRegistry: localTestPricingPolicyRegistryV1,
+      timing: {
+        heartbeatIntervalMs: 15_000,
+        lockRetryDelayMs: 1_000,
+        idlePollMs: 10,
+        gracefulShutdownMs: 1_000,
+        postAbortPersistenceMs: 200,
+      },
+      workerId: "synthetic-restarted-worker",
+    });
+    await restarted.start();
+    await waitFor(async () => {
+      const [row] = await db().select().from(aiRuns);
+      return row?.status === "draft_ready";
+    });
+    await restarted.stop("SIGTERM");
+    const [final] = await db().select().from(aiRuns);
+    expect(final).toMatchObject({ status: "draft_ready", attemptCount: 2 });
+    expect(final?.attemptHistoryJson).toHaveLength(2);
+    const residualLocks = await db().execute<{ readonly count: number }>(sql`
+      select count(*)::integer as count
+      from pg_locks
+      where locktype = 'advisory'
+        and classid = 1129792594
+        and objid = 1
+    `);
+    expect(residualLocks[0]?.count).toBe(0);
   }, 20_000);
 });

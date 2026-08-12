@@ -16,6 +16,11 @@ import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import type { ReadonlyJsonValue } from "@/ai/canonical-json";
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import { aiFailure } from "@/ai/errors";
+import {
+  noOpAiTelemetrySink,
+  type AiTelemetryEvent,
+  type AiTelemetrySink,
+} from "@/ai/telemetry";
 import type { AppDatabase } from "@/db/types";
 import { aiModelConfig, aiRuns, featureFlags } from "@/db/schema";
 import {
@@ -441,14 +446,25 @@ export function createAiRunRepositoryV1(
   database: PhaseCPgDatabase,
   options: {
     readonly barriers?: AiLifecycleBarrierHooksV1;
+    readonly telemetry?: AiTelemetrySink;
     readonly uuid?: () => string;
   } = {},
 ): AiRunRepositoryV1 {
   const barriers = options.barriers;
+  const telemetry = options.telemetry ?? noOpAiTelemetrySink;
   const uuid = options.uuid ?? randomUUID;
+  const emitPostCommit = (event: AiTelemetryEvent | undefined): void => {
+    if (event === undefined) return;
+    try {
+      telemetry.emit(event);
+    } catch {
+      // Telemetry is deliberately non-critical and never reverses durable truth.
+    }
+  };
   return {
     async claimOrRecover(input) {
-      return database.transaction(async (transaction): Promise<WorkerClaimResultV1> => {
+      let postCommitEvent: AiTelemetryEvent | undefined;
+      const outcome = await database.transaction(async (transaction): Promise<WorkerClaimResultV1> => {
         const lock = await tryLifecycleLock(transaction, null);
         if (lock.kind === "lock_busy") return { kind: "idle", reason: "lock_busy" };
         await barriers?.afterAdvisoryAcquired?.({ operation: "claim_or_recover", observedAt: lock.observedAt });
@@ -532,6 +548,16 @@ export function createAiRunRepositoryV1(
           }).where(and(eq(aiRuns.id, expired.id), eq(aiRuns.stateVersion, expired.stateVersion)));
           await barriers?.afterRunMutation?.({ operation: "claim_or_recover", runId: expired.id, observedAt: lock.observedAt });
           await barriers?.beforeCommit?.({ operation: "claim_or_recover", runId: expired.id, observedAt: lock.observedAt });
+          postCommitEvent = {
+            schemaVersion: 1,
+            eventName: "ai_lease_recovered",
+            applicationClass: expired.applicationClass,
+            useCase: expired.useCase,
+            capability: "text",
+            environment: expired.executionEnvironment,
+            status: retry ? "pending" : "failed",
+            attemptCount: expired.attemptCount,
+          };
           return { kind: "recovered", runId: expired.id };
         }
 
@@ -571,7 +597,30 @@ export function createAiRunRepositoryV1(
           const total = totals[0];
           if (total === undefined || Number(total.day) + additionalReservation > due.dailyHardLimitMicrousd ||
             Number(total.month) + additionalReservation > due.monthlyHardLimitMicrousd) {
+            postCommitEvent = {
+              schemaVersion: 1,
+              eventName: "ai_budget_hard_stop",
+              applicationClass: due.applicationClass,
+              useCase: due.useCase,
+              capability: "text",
+              environment: due.executionEnvironment,
+              status: "pending",
+              attemptCount: due.attemptCount,
+            };
             return { kind: "idle", reason: "budget" };
+          }
+          if (Number(total.month) < due.monthlyWarningLimitMicrousd &&
+            Number(total.month) + additionalReservation >= due.monthlyWarningLimitMicrousd) {
+            postCommitEvent = {
+              schemaVersion: 1,
+              eventName: "ai_budget_monthly_warning_crossed",
+              applicationClass: due.applicationClass,
+              useCase: due.useCase,
+              capability: "text",
+              environment: due.executionEnvironment,
+              status: "processing",
+              attemptCount: due.attemptCount + 1,
+            };
           }
         }
         const leaseToken = uuid();
@@ -603,8 +652,22 @@ export function createAiRunRepositoryV1(
         if (row === undefined) return { kind: "idle", reason: "empty" };
         await barriers?.afterRunMutation?.({ operation: "claim_or_recover", runId: row.id, observedAt: lock.observedAt });
         await barriers?.beforeCommit?.({ operation: "claim_or_recover", runId: row.id, observedAt: lock.observedAt });
+        if (postCommitEvent === undefined) {
+          postCommitEvent = {
+            schemaVersion: 1,
+            eventName: "ai_run_claimed",
+            applicationClass: row.applicationClass,
+            useCase: row.useCase,
+            capability: "text",
+            environment: row.executionEnvironment,
+            status: "processing",
+            attemptCount: row.attemptCount,
+          };
+        }
         return { kind: "claimed", row: claimedRowProjection(row) };
       });
+      emitPostCommit(postCommitEvent);
+      return outcome;
     },
 
     async heartbeat(input) {

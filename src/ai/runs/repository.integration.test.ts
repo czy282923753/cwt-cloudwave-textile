@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
 
-import { eq, sql } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
+import type {
+  PreparedCoreRunV1,
+  ProtectedApplicationResultEnvelopeV1,
+} from "@/ai/core/contracts";
+import { aiFailure } from "@/ai/errors";
 import { normalizeAttemptEvidenceV2 } from "@/ai/runs/attempt-evidence";
 import { migrateDatabase } from "@/db/migrate";
 import {
@@ -156,7 +160,12 @@ async function seedFixture(): Promise<Fixture> {
 async function insertPrepared(
   prepared: PreparedCoreRunV1,
   executionEnvironment: "local" | "test" | "staging" = "test",
-  costs: { readonly estimatedMax?: number; readonly runLimit?: number } = {},
+  costs: {
+    readonly estimatedMax?: number;
+    readonly runLimit?: number;
+    readonly inputRate?: number;
+    readonly outputRate?: number;
+  } = {},
 ) {
   const repository = createAiRunRepositoryV1(db());
   return db().transaction((transaction) => repository.insertPreparedWithinTransaction(transaction, {
@@ -166,8 +175,8 @@ async function insertPrepared(
       version: 1,
       currency: "USD",
       billing_unit_tokens: 1_000_000,
-      input_microusd_per_unit: 1,
-      output_microusd_per_unit: 1,
+      input_microusd_per_unit: costs.inputRate ?? 1,
+      output_microusd_per_unit: costs.outputRate ?? 1,
       formula: "ceil-separate-v1",
       source_id: "synthetic-billable",
       source_version: "1",
@@ -179,6 +188,82 @@ async function insertPrepared(
     monthlyWarningLimitMicrousd: executionEnvironment === "staging" ? 50_000_000 : 0,
     monthlyHardLimitMicrousd: executionEnvironment === "staging" ? 100_000_000 : 0,
   }));
+}
+
+async function createAccountedStagingTemplate(fixture: Fixture): Promise<typeof aiRuns.$inferSelect> {
+  const inserted = await insertPrepared(preparedRun(fixture, {
+    idempotencyKey: randomUUID(),
+    fingerprint: hash("7"),
+    maxAttempts: 1,
+    runCostLimitMicrousd: 20_000,
+  }), "staging", { estimatedMax: 20_000 });
+  if (inserted.kind !== "inserted") throw new Error("Staging template insert failed.");
+  const repository = createAiRunRepositoryV1(db());
+  const claim = await repository.claimOrRecover({
+    executionEnvironment: "staging",
+    workerId: "budget-template-worker",
+  });
+  if (claim.kind !== "claimed") throw new Error("Staging template claim failed.");
+  const [processing] = await db().select().from(aiRuns).where(eq(aiRuns.id, inserted.row.id));
+  if (processing === undefined || processing.leaseOwner === null || processing.leaseToken === null ||
+    processing.leaseExpiresAt === null) throw new Error("Staging template lease was incomplete.");
+  const marker = await repository.authorizeProviderDispatch({
+    runId: processing.id,
+    executionEnvironment: "staging",
+    leaseOwner: processing.leaseOwner,
+    leaseToken: processing.leaseToken,
+    leaseExpiresAt: processing.leaseExpiresAt,
+    stateVersion: processing.stateVersion,
+    pricingCurrent: true,
+  });
+  if (marker.kind !== "authorized") throw new Error("Staging template marker failed.");
+  const failure = aiFailure("provider_transport_error");
+  if (failure.ok) throw new Error("Staging template failure was invalid.");
+  const evidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
+    version: 2,
+    dispatchState: "dispatched",
+    protectedResult: null,
+    error: failure.error,
+    responseStatus: "transport_error",
+    retryClass: "same_provider_transient",
+    returnedModel: null,
+    completion: null,
+    usage: null,
+    providerHttpStatus: null,
+    providerErrorCode: null,
+    providerRequestId: null,
+    durationMs: 1,
+  });
+  if (!evidence.ok) throw new Error("Staging template evidence failed.");
+  const settled = await repository.settle({
+    runId: processing.id,
+    executionEnvironment: "staging",
+    leaseOwner: processing.leaseOwner,
+    leaseToken: processing.leaseToken,
+    leaseExpiresAt: marker.leaseExpiresAt,
+    stateVersion: marker.stateVersion,
+    evidence: evidence.value,
+  });
+  if (settled.kind !== "settled") throw new Error("Staging template settlement failed.");
+  const [row] = await db().select().from(aiRuns).where(eq(aiRuns.id, processing.id));
+  if (row === undefined) throw new Error("Staging template disappeared.");
+  return row;
+}
+
+async function cloneAccountedRuns(templateId: string, copies: number): Promise<void> {
+  await db().execute(sql`
+    insert into ai_runs
+    select (jsonb_populate_record(
+      null::ai_runs,
+      to_jsonb(seed) || jsonb_build_object(
+        'id', gen_random_uuid(),
+        'idempotency_key', gen_random_uuid()::text
+      )
+    )).*
+    from ai_runs as seed
+    cross join generate_series(1, ${copies}) as generated(value)
+    where seed.id = ${templateId}::uuid
+  `);
 }
 
 describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repository", () => {
@@ -201,7 +286,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
 
   beforeEach(async () => {
     await db().execute(sql`truncate table ${aiRuns}, ${aiModelConfig}, ${featureFlags}, ${productLocalizations}, ${products}, ${users} cascade`);
-  });
+  }, 30_000);
 
   afterAll(async () => {
     await client?.end();
@@ -468,6 +553,264 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       actualCostMicrousd: 2,
       budgetAccountedCostMicrousd: 2,
       budgetReservedCostMicrousd: 0,
+      actualCostComplete: true,
+    });
+  });
+
+  it("serializes the daily hard boundary and emits the hard-stop signal without mutation", async () => {
+    const fixture = await seedFixture();
+    const template = await createAccountedStagingTemplate(fixture);
+    await cloneAccountedRuns(template.id, 248);
+    const firstDue = await insertPrepared(preparedRun(fixture, {
+      idempotencyKey: randomUUID(),
+      fingerprint: hash("a"),
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+    }), "staging", { estimatedMax: 20_000 });
+    const secondDue = await insertPrepared(preparedRun(fixture, {
+      idempotencyKey: randomUUID(),
+      fingerprint: hash("b"),
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+    }), "staging", { estimatedMax: 20_000 });
+    if (firstDue.kind !== "inserted" || secondDue.kind !== "inserted") {
+      throw new Error("Budget-boundary due rows failed.");
+    }
+    const events: string[] = [];
+    const repository = () => createAiRunRepositoryV1(db(), {
+      telemetry: { emit: (event) => { events.push(event.eventName); } },
+    });
+    const attempts = await Promise.all([
+      repository().claimOrRecover({ executionEnvironment: "staging", workerId: "budget-boundary-a" }),
+      repository().claimOrRecover({ executionEnvironment: "staging", workerId: "budget-boundary-b" }),
+    ]);
+    const claimed = attempts.filter((outcome) => outcome.kind === "claimed");
+    expect(claimed).toHaveLength(1);
+    const denied = attempts.find((outcome) => outcome.kind !== "claimed") ??
+      await repository().claimOrRecover({ executionEnvironment: "staging", workerId: "budget-boundary-follow-up" });
+    const finalDenied = denied.kind === "idle" && denied.reason === "lock_busy"
+      ? await repository().claimOrRecover({ executionEnvironment: "staging", workerId: "budget-boundary-follow-up" })
+      : denied;
+    expect(finalDenied).toEqual({ kind: "idle", reason: "budget" });
+    const rows = await db().select().from(aiRuns).where(or(
+      eq(aiRuns.id, firstDue.row.id),
+      eq(aiRuns.id, secondDue.row.id),
+    ));
+    expect(rows.filter((row) => row.status === "processing")).toHaveLength(1);
+    expect(rows.filter((row) => row.status === "pending")).toHaveLength(1);
+    expect(events).toContain("ai_budget_hard_stop");
+  });
+
+  it("emits the monthly warning only after a committed crossing and ignores sink failure", async () => {
+    const fixture = await seedFixture();
+    const template = await createAccountedStagingTemplate(fixture);
+    await db().update(aiRuns).set({
+      budgetChargeDay: sql`date_trunc('month', current_date)::date`,
+      budgetChargeMonth: sql`date_trunc('month', current_date)::date`,
+    }).where(eq(aiRuns.id, template.id));
+    await cloneAccountedRuns(template.id, 2_498);
+    const due = await insertPrepared(preparedRun(fixture, {
+      idempotencyKey: randomUUID(),
+      fingerprint: hash("d"),
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+    }), "staging", { estimatedMax: 20_000 });
+    if (due.kind !== "inserted") throw new Error("Monthly warning due row failed.");
+    const events: string[] = [];
+    const repository = createAiRunRepositoryV1(db(), {
+      telemetry: {
+        emit(event) {
+          events.push(event.eventName);
+          throw new Error("Synthetic non-critical telemetry failure.");
+        },
+      },
+    });
+    expect((await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "monthly-warning-worker",
+    })).kind).toBe("claimed");
+    const [row] = await db().select().from(aiRuns).where(eq(aiRuns.id, due.row.id));
+    expect(row).toMatchObject({
+      status: "processing",
+      budgetReservedCostMicrousd: 20_000,
+    });
+    expect(events).toEqual(["ai_budget_monthly_warning_crossed"]);
+  }, 30_000);
+
+  it("keeps the original charge period across expiry recovery and a later logical claim", async () => {
+    const fixture = await seedFixture();
+    const inserted = await insertPrepared(preparedRun(fixture), "staging", { estimatedMax: 6 });
+    if (inserted.kind !== "inserted") throw new Error("Expected inserted run.");
+    const repository = createAiRunRepositoryV1(db());
+    expect((await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "charge-period-attempt-1",
+    })).kind).toBe("claimed");
+    await db().update(aiRuns).set({
+      budgetChargeDay: "2025-12-31",
+      budgetChargeMonth: "2025-12-01",
+      leaseAcquiredAt: sql`clock_timestamp() - interval '2 minutes'`,
+      leaseExpiresAt: sql`clock_timestamp() - interval '1 minute'`,
+    }).where(eq(aiRuns.id, inserted.row.id));
+    expect(await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "charge-period-recovery",
+    })).toEqual({ kind: "recovered", runId: inserted.row.id });
+    await db().update(aiRuns).set({ nextAttemptAt: sql`clock_timestamp()` })
+      .where(eq(aiRuns.id, inserted.row.id));
+    expect((await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "charge-period-attempt-2",
+    })).kind).toBe("claimed");
+    const [row] = await db().select().from(aiRuns).where(eq(aiRuns.id, inserted.row.id));
+    expect(row).toMatchObject({
+      budgetChargeDay: "2025-12-31",
+      budgetChargeMonth: "2025-12-01",
+      attemptCount: 2,
+      status: "processing",
+    });
+  });
+
+  it("keeps missing usage conservative and records actual cost overrun truth", async () => {
+    const fixture = await seedFixture();
+    const repository = createAiRunRepositoryV1(db());
+    const missing = await insertPrepared(preparedRun(fixture, {
+      idempotencyKey: randomUUID(),
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+    }), "staging", { estimatedMax: 20_000 });
+    if (missing.kind !== "inserted") throw new Error("Expected missing-usage run.");
+    const missingClaim = await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "missing-usage-worker",
+    });
+    if (missingClaim.kind !== "claimed") throw new Error("Expected missing-usage claim.");
+    const [missingProcessing] = await db().select().from(aiRuns).where(eq(aiRuns.id, missing.row.id));
+    if (missingProcessing === undefined || missingProcessing.leaseOwner === null ||
+      missingProcessing.leaseToken === null || missingProcessing.leaseExpiresAt === null) {
+      throw new Error("Missing-usage lease was incomplete.");
+    }
+    const missingMarker = await repository.authorizeProviderDispatch({
+      runId: missingProcessing.id,
+      executionEnvironment: "staging",
+      leaseOwner: missingProcessing.leaseOwner,
+      leaseToken: missingProcessing.leaseToken,
+      leaseExpiresAt: missingProcessing.leaseExpiresAt,
+      stateVersion: missingProcessing.stateVersion,
+      pricingCurrent: true,
+    });
+    if (missingMarker.kind !== "authorized") throw new Error("Missing-usage marker failed.");
+    const missingFailure = aiFailure("provider_transport_error");
+    if (missingFailure.ok) throw new Error("Static missing-usage failure was invalid.");
+    const missingEvidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
+      version: 2,
+      dispatchState: "dispatched",
+      protectedResult: null,
+      error: missingFailure.error,
+      responseStatus: "transport_error",
+      retryClass: "same_provider_transient",
+      returnedModel: null,
+      completion: null,
+      usage: null,
+      providerHttpStatus: null,
+      providerErrorCode: null,
+      providerRequestId: null,
+      durationMs: 1,
+    });
+    if (!missingEvidence.ok) throw new Error("Missing-usage evidence failed.");
+    expect((await repository.settle({
+      runId: missingProcessing.id,
+      executionEnvironment: "staging",
+      leaseOwner: missingProcessing.leaseOwner,
+      leaseToken: missingProcessing.leaseToken,
+      leaseExpiresAt: missingMarker.leaseExpiresAt,
+      stateVersion: missingMarker.stateVersion,
+      evidence: missingEvidence.value,
+    })).kind).toBe("settled");
+    const [missingFinal] = await db().select().from(aiRuns).where(eq(aiRuns.id, missing.row.id));
+    expect(missingFinal).toMatchObject({
+      status: "failed",
+      retryState: "exhausted",
+      actualCostMicrousd: 0,
+      actualCostComplete: false,
+      budgetAccountedCostMicrousd: 20_000,
+      budgetReservedCostMicrousd: 0,
+    });
+
+    const overrun = await insertPrepared(preparedRun(fixture, {
+      idempotencyKey: randomUUID(),
+      fingerprint: hash("8"),
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+    }), "staging", {
+      estimatedMax: 20_000,
+      inputRate: 20_000_000_000,
+      outputRate: 20_000_000_000,
+    });
+    if (overrun.kind !== "inserted") throw new Error("Expected overrun run.");
+    const overrunClaim = await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "overrun-worker",
+    });
+    if (overrunClaim.kind !== "claimed") throw new Error("Expected overrun claim.");
+    const [overrunProcessing] = await db().select().from(aiRuns).where(eq(aiRuns.id, overrun.row.id));
+    if (overrunProcessing === undefined || overrunProcessing.leaseOwner === null ||
+      overrunProcessing.leaseToken === null || overrunProcessing.leaseExpiresAt === null) {
+      throw new Error("Overrun lease was incomplete.");
+    }
+    const overrunMarker = await repository.authorizeProviderDispatch({
+      runId: overrunProcessing.id,
+      executionEnvironment: "staging",
+      leaseOwner: overrunProcessing.leaseOwner,
+      leaseToken: overrunProcessing.leaseToken,
+      leaseExpiresAt: overrunProcessing.leaseExpiresAt,
+      stateVersion: overrunProcessing.stateVersion,
+      pricingCurrent: true,
+    });
+    if (overrunMarker.kind !== "authorized") throw new Error("Overrun marker failed.");
+    const overrunEvidence = normalizeAttemptEvidenceV2<ProtectedApplicationResultEnvelopeV1>({
+      version: 2,
+      dispatchState: "dispatched",
+      protectedResult: {
+        version: 1,
+        resultKind: "draft_assistance_candidate",
+        dispositionKind: "human_review",
+        schemaId: "cwt.product-description-draft.v1",
+        schemaVersion: 1,
+        policyVersion: "stage4a-v1",
+        value: { syntheticCandidate: true },
+        canonicalJson: '{"syntheticCandidate":true}',
+        hash: hash("c"),
+      },
+      error: null,
+      responseStatus: "success",
+      retryClass: "not_retryable",
+      returnedModel: "synthetic-text-alpha-v1",
+      completion: { kind: "complete" },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      providerHttpStatus: 200,
+      providerErrorCode: null,
+      providerRequestId: "synthetic-overrun",
+      durationMs: 2,
+    });
+    if (!overrunEvidence.ok) throw new Error("Overrun evidence failed.");
+    expect(await repository.settle({
+      runId: overrunProcessing.id,
+      executionEnvironment: "staging",
+      leaseOwner: overrunProcessing.leaseOwner,
+      leaseToken: overrunProcessing.leaseToken,
+      leaseExpiresAt: overrunMarker.leaseExpiresAt,
+      stateVersion: overrunMarker.stateVersion,
+      evidence: overrunEvidence.value,
+    })).toMatchObject({ kind: "settled", status: "failed" });
+    const [overrunFinal] = await db().select().from(aiRuns).where(eq(aiRuns.id, overrun.row.id));
+    expect(overrunFinal).toMatchObject({
+      status: "failed",
+      failureCode: "run_cost_limit_exceeded",
+      candidateJson: null,
+      candidateHash: null,
+      actualCostMicrousd: 40_000,
+      budgetAccountedCostMicrousd: 40_000,
       actualCostComplete: true,
     });
   });

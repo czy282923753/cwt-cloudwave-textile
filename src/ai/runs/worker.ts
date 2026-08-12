@@ -195,7 +195,11 @@ async function processClaimedRun(input: {
     await heartbeatLoop;
     if (authorityLost || result.kind === "dispatch_unavailable") return;
     const settlement = await serialized(() => boundedLifecycleOutcome<SettlementOutcomeV1>(
-      () => input.repository.settle({ ...lease, evidence: result.evidence }),
+      () => input.repository.settle({
+        ...lease,
+        evidence: result.evidence,
+        origin: providerAbort.signal.reason === "worker_shutdown" ? "shutdown" : "worker",
+      }),
       () => lease.leaseExpiresAt,
       input.timing,
     ));
@@ -249,18 +253,24 @@ export function createAiRunWorkerV1(dependencies: {
         workerId: `${workerId}:slot-${slot}`,
       });
       if (claim.kind === "claimed") {
-        await processClaimedRun({
-          repository,
-          claim,
-          executionEnvironment,
-          providerRegistry: dependencies.providerRegistry,
-          promptLoader: dependencies.promptLoader,
-          pricingRegistry: dependencies.pricingRegistry,
-          timing,
-          processAbort: processAbort.signal,
-          registerController: (controller) => activeControllers.add(controller),
-          unregisterController: (controller) => activeControllers.delete(controller),
-        });
+        try {
+          await processClaimedRun({
+            repository,
+            claim,
+            executionEnvironment,
+            providerRegistry: dependencies.providerRegistry,
+            promptLoader: dependencies.promptLoader,
+            pricingRegistry: dependencies.pricingRegistry,
+            timing,
+            processAbort: processAbort.signal,
+            registerController: (controller) => activeControllers.add(controller),
+            unregisterController: (controller) => activeControllers.delete(controller),
+          });
+        } catch {
+          // A malformed or otherwise unreconstructable claimed row cannot be
+          // trusted for a direct terminal mutation. Leave its fenced lease to
+          // the advisory-serialized expiry recovery path and keep the slot alive.
+        }
         continue;
       }
       if (claim.kind === "recovered") continue;
