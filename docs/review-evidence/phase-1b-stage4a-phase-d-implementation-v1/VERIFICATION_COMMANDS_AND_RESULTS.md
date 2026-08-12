@@ -40,6 +40,20 @@ All final commands in this section ran with both Provider and isolated-database 
 - Final-attempt official-source GET: `0`; Provider POST: `0`; Provider credential path: **NOT REACHED**.
 - The prior registered database target was not reused, inspected or mutated. The newly created resource was not dropped, truncated, cleaned up or disclosed after the failure.
 
+## Retained-resource HBA disposition
+
+- Exact resource identity and provenance: **PASS**, with no identifier projected.
+- Pre-correction business/AI/Audit table presence: `0`; other dedicated-database client sessions: `0`.
+- One authorized HBA correction cycle: completed.
+- Effective TCP HBA semantics: **PASS**; exactly two loopback host rules, no parse error and SCRAM-only.
+- Listener/canonical loopback proof: **PASS**.
+- Protected credential rotation: completed through process-local stdin with no value projection.
+- Application-role semantic proof: **FAIL CLOSED**, safe code `role_semantic_proof_failed`.
+- Wrong-password/correct-password authentication proof: **NOT RUN**.
+- Protected launchctl registration update: **NOT RUN**.
+- Controlled invocation: **NOT RUN**; current task `0` official GET / `0` Provider POST.
+- The single correction cycle was not retried. The exact resource remains retained; the prior registered target remains untouched.
+
 ## Authorized controlled external validation
 
 The original implementation task invoked the controlled command once after zero-network gates. It performed two fixed official-source GETs, then stopped with `isolated_database_unavailable`; the credential path and Provider POST were not reached. Two still-earlier local CLI-entry diagnostics failed before module execution and performed no network request. That first authorized result is preserved immutably at evidence HEAD `e13690c47f44848bb2304cb093f347654bf944f8`.
@@ -63,4 +77,4 @@ The controlled projection remains the immutable per-invocation result of the sec
 - Production registry remains exact-empty; no Production, protected Staging, deploy, traffic, DNS, Index, import, Push or PR action occurred.
 - Supplier questionnaire, DPA, no-training, region, subprocessor and security assurances remain Owner-accepted unresolved external assurance and are not marked `PASS`.
 - C-002/C-003 remain active residual controls.
-- Next gate is a coordinator decision on the retained resource whose final SCRAM HBA proof failed. Any inspection, correction, cleanup, replacement or new controlled invocation requires separate authorization. Fresh independent Phase D implementation review begins only after a complete immutable real-validation Candidate; this implementation task does not self-review or self-accept.
+- Next gate is a coordinator decision on the retained resource whose HBA semantics now pass but whose application-role semantic proof failed closed. Any further inspection, correction, cleanup, replacement or controlled invocation requires separate authorization. Fresh independent Phase D implementation review begins only after a complete immutable real-validation Candidate; this implementation task does not self-review or self-accept.

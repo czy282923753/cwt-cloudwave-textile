@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **Database-guard correction proof-bound; final controlled validation BLOCKED before invocation by the new resource's HBA compliance proof.**
+Status: **Database-guard correction proof-bound; retained-resource HBA semantics closed, but final controlled validation BLOCKED before invocation by application-role semantic proof.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -47,6 +47,14 @@ After all zero-network gates passed, one new local resource was provisioned from
 
 The prior registered target was not reused, inspected or mutated. The newly created resource was left retained without drop, truncate, cleanup or disclosure as required after the single failed attempt. The report does not infer the failing HBA subcondition.
 
+## Retained-resource HBA closure result
+
+The coordinator authorized one disposition cycle against only the exact retained resource. Resource provenance, pinned local image, host-network state, dedicated catalog identity, zero business/AI/Audit rows and zero other client sessions were established without projecting any identifier. The unreadable failed HBA state was replaced once with a minimal local-admin plus IPv4/IPv6 loopback SCRAM-only policy and reloaded.
+
+The effective HBA semantic proof and loopback listener proof passed. A newly generated protected application credential was rotated through stdin without disclosure. Closure then stopped fail-closed at the application-role semantic proof with safe code `role_semantic_proof_failed`. Wrong-password/correct-password proofs, launchctl registration replacement and the controlled invocation were not reached. This task therefore used `0` official GET and `0` Provider POST; aggregate history remains `4` official GET and `0` Provider POST.
+
+The one HBA correction cycle was not retried. The exact resource remains retained without cleanup, drop or truncate, and the prior protected registration target remains untouched.
+
 ## Blocker and risk treatment
 
 The accepted design requires a protected connection to an isolated non-Production PostgreSQL database whose URL shape, loopback address, database name, role, session state and public-table state pass strict guards. The coordinator-provided launchctl registration was injected exactly once into the controlled child process without separate value observation, but the runner returned `isolated_database_guard_failed`. The safe projection intentionally does not disclose or infer which individual database guard rejected the context. Creating a substitute database, weakening the guard, using PGlite, using Production/protected Staging, or bypassing the durable path would violate the accepted design; none was attempted.
@@ -66,4 +74,4 @@ Supplier questionnaire, DPA, no-training, region, subprocessor and security assu
 
 ## Required next action
 
-Status is `BLOCKED`, not implementation acceptance. The coordinator must decide whether and how to inspect, correct, dispose or replace the retained local resource after its final SCRAM HBA proof failed. Any such action and any further controlled invocation require separate authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.
+Status is `BLOCKED`, not implementation acceptance. The coordinator must decide whether and how to disposition the retained resource after its application-role semantic proof failed despite compliant HBA semantics. Any further inspection, mutation, cleanup, replacement or controlled invocation requires separate authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.

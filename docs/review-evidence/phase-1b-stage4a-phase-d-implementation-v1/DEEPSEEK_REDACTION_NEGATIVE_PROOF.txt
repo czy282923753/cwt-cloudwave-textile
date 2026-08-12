@@ -17,3 +17,5 @@ RESULTS
 The Provider credential itself was never inspected, printed, logged, persisted, hashed, fingerprinted, placed on a command line or copied into evidence. The renewed database secret was injected only into the controlled child environment; its value was never separately read, printed, logged, persisted, parsed outside the runner, or copied into evidence.
 
 The final provisioning attempt generated its new database role, password, name suffix, port and URL only inside one child process. No identifier, connection value, derivative or fingerprint entered command output, Git, report, evidence or callback. Provisioning stopped before protected registration and before controlled invocation.
+
+The separately authorized retained-resource closure uniquely resolved the exact resource without disclosing its identity, rotated the application credential through process-local stdin, and completed one HBA correction cycle. It stopped before authentication proof and protected registration with `role_semantic_proof_failed`; no resource identifier, credential, URL, port, suffix or derivative entered output or evidence.

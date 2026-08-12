@@ -68,11 +68,30 @@
     "billable_provider_post_total": 0,
     "credential_reader_reached": false
   },
+  "retained_resource_hba_closure_attempt": {
+    "status": "BLOCKED",
+    "safe_code": "role_semantic_proof_failed",
+    "resource_identity": "PASS",
+    "preexisting_business_or_ai_rows": 0,
+    "preexisting_other_client_sessions": 0,
+    "hba_correction_cycle_count": 1,
+    "hba_semantic_proof": "PASS",
+    "loopback_listener_proof": "PASS",
+    "credential_rotated": true,
+    "role_semantic_proof": "FAIL_CLOSED",
+    "wrong_password_authentication_proof": "NOT_RUN",
+    "correct_password_authentication_proof": "NOT_RUN",
+    "protected_registration_updated": false,
+    "controlled_invocation_started": false,
+    "official_source_get_total": 0,
+    "billable_provider_post_total": 0,
+    "credential_reader_reached": false
+  },
   "aggregate_authorized_external_history_after_final_attempt": {
     "controlled_invocation_count": 2,
     "official_source_get_total": 4,
     "billable_provider_post_total": 0
   },
-  "database_disposition": "The prior target was not inspected or mutated. The newly created local resource was not dropped, truncated, cleaned up or disclosed after provisioning stopped; protected registration was not updated.",
-  "conclusion": "The causal PostgreSQL representation defect is corrected and proof-bound. The final controlled invocation did not start because the new resource failed the final SCRAM HBA compliance proof. This is NOT RUN, not PASS."
+  "database_disposition": "The prior registered target was not inspected or mutated. The exact new retained resource completed one HBA correction cycle and remains retained without drop, truncate, cleanup, identifier disclosure or protected-registration update.",
+  "conclusion": "The causal PostgreSQL representation defect remains corrected and proof-bound. The retained resource's HBA semantic proof passed, but closure stopped fail-closed at the application-role semantic proof before authentication proof, registration or controlled invocation. This is NOT RUN, not PASS."
 }
