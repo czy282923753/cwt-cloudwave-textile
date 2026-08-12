@@ -11,7 +11,7 @@ RESULTS
 - Repeated execution of a prepared closure emitted no second credential read and no second fetch.
 - Credential values, hashes, fingerprints, lengths, prefixes, suffixes and presence booleans in returned errors, durable attempt evidence, terminal projection, snapshots and logs: 0.
 - Raw Provider request/response, Prompt/input/context, Authorization value, exception text and reasoning content in durable or projected evidence: 0.
-- Controlled real run reached the database prerequisite boundary before credential read and stopped with a safe code. Billable Provider POST count: 0.
+- The historical first authorized invocation stopped before database-secret availability; the renewed single invocation reached the exact database guard and stopped with `isolated_database_guard_failed`. Neither invocation reached the Provider credential reader. Aggregate billable Provider POST count across both invocations: 0.
 - Evidence-package scan found no credential value or credential derivative. Only fixed environment-variable identifiers and the literal emitted header name "authorization" are retained where required by the accepted proof contract.
 
-The credential itself was never inspected, printed, logged, persisted, hashed, fingerprinted, placed on a command line or copied into evidence.
+The Provider credential itself was never inspected, printed, logged, persisted, hashed, fingerprinted, placed on a command line or copied into evidence. The renewed database secret was injected only into the controlled child environment; its value was never separately read, printed, logged, persisted, parsed outside the runner, or copied into evidence.

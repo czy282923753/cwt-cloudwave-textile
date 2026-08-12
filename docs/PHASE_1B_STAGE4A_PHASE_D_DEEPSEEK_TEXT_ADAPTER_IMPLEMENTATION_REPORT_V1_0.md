@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **Implementation code candidate frozen; controlled real-Provider validation BLOCKED by unavailable isolated database.**
+Status: **Implementation code candidate frozen; renewed controlled real-Provider validation BLOCKED by the exact isolated-database guard.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -31,12 +31,15 @@ This report is implementation-author evidence only. It does not claim independen
 - Separate selected durable-path suites against a temporary isolated PostgreSQL container: **PASS**.
 - Full application build and isolated server/public bundle proof: **PASS**.
 - Phase D V5.0 source-clean proof-bound architecture verification at the exact code commit: **PASS**.
-- Official-source revalidation: **PASS** with exactly two fixed GETs and exact accepted hashes/facts.
-- Controlled real-Provider validation: **NOT RUN / BLOCKED** at the isolated database prerequisite. The credential reader, durable controlled row and Provider POST were not reached; billable POST count is zero.
+- Renewed-invocation official-source revalidation: **PASS** with exactly two fixed GETs and exact accepted hashes/facts.
+- Renewed controlled real-Provider validation: **NOT RUN / BLOCKED**, safe code `isolated_database_guard_failed`. The credential reader, durable controlled row and Provider POST were not reached; billable POST count is zero.
+- Historical external-call accounting is explicit: the first authorized invocation preserved at evidence HEAD `e13690c47f44848bb2304cb093f347654bf944f8` used two official GETs and zero Provider POSTs before `isolated_database_unavailable`; the renewed invocation used two official GETs and zero Provider POSTs. Aggregate authorized history is four GETs and zero Provider POSTs, while the final controlled projection correctly remains per-invocation.
 
 ## Blocker and risk treatment
 
-The accepted design requires a protected connection to an isolated non-Production PostgreSQL database whose name, role, host, session state and public-table emptiness pass strict guards. That prerequisite was unavailable in this task environment. Creating a substitute database secret, weakening the guard, using PGlite, using Production/protected Staging, or bypassing the durable path would violate the accepted design; none was attempted.
+The accepted design requires a protected connection to an isolated non-Production PostgreSQL database whose URL shape, loopback address, database name, role, session state and public-table state pass strict guards. The coordinator-provided launchctl registration was injected exactly once into the controlled child process without separate value observation, but the runner returned `isolated_database_guard_failed`. The safe projection intentionally does not disclose or infer which individual database guard rejected the context. Creating a substitute database, weakening the guard, using PGlite, using Production/protected Staging, or bypassing the durable path would violate the accepted design; none was attempted.
+
+The database was not dropped, truncated, cleaned up or inspected outside the accepted runner. Its connection information is not present in code, terminal output, Git, report or evidence.
 
 Because no Provider POST occurred, Provider output validity, cache accounting, observed cost and latency are not evidenced. These facts remain `NOT RUN`, never `PASS`. The successful source preflight cannot substitute for the real durable-path observation.
 
@@ -51,4 +54,4 @@ Supplier questionnaire, DPA, no-training, region, subprocessor and security assu
 
 ## Required next action
 
-Status is `BLOCKED`, not implementation acceptance. The coordinator should provide or separately authorize a compliant protected isolated-validation database context and a fresh bounded validation task. That task must not replay the two official GETs or attempt a Provider POST without explicit renewed authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.
+Status is `BLOCKED`, not implementation acceptance. The coordinator must decide how to correct or replace the isolated-validation database context so that the unchanged V1.2 guard can accept it, then separately authorize any further bounded invocation. No further official GET or Provider POST is authorized by this task. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.

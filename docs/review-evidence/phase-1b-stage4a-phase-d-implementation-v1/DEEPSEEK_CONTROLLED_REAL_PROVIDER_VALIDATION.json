@@ -2,7 +2,7 @@
   "schema": "cwt.phase-d.controlled-provider-validation",
   "version": 1,
   "status": "NOT_RUN",
-  "safe_code": "isolated_database_unavailable",
+  "safe_code": "isolated_database_guard_failed",
   "fixture_id": "SYN-AI-PRODUCT-BASE-01-PHASE-D-CONTROLLED-01",
   "fixture_hash": "6ee8e7504844d0a63aca49590c0d790e22cf911bea58b2d377bf23cf30bbe24a",
   "node24_loopback": {
@@ -34,7 +34,7 @@
   "official_sources": {
     "version": 1,
     "status": "PASS",
-    "retrieved_at": "2026-08-12T18:47:15.495Z",
+    "retrieved_at": "2026-08-12T19:02:51.272Z",
     "counters": {
       "official_pricing_get": 1,
       "official_chat_completion_schema_get": 1,

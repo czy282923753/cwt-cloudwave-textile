@@ -25,9 +25,10 @@
       "no second queue, retry or projection authority"
     ]
   },
-  "real_provider_proof": {
+  "historical_first_authorized_invocation": {
     "status": "NOT_RUN",
     "safe_code": "isolated_database_unavailable",
+    "preserved_evidence_head": "e13690c47f44848bb2304cb093f347654bf944f8",
     "official_source_get_total": 2,
     "official_source_status": "PASS",
     "billable_provider_post_total": 0,
@@ -35,5 +36,21 @@
     "durable_ai_run_created": false,
     "terminal_projection_available": false
   },
-  "conclusion": "Implementation durable-path behavior is locally proven with the fake Provider, but the authorized real-Provider durable path could not start because the required isolated validation database was unavailable. This is NOT RUN, not PASS."
+  "renewed_authorized_invocation": {
+    "status": "NOT_RUN",
+    "safe_code": "isolated_database_guard_failed",
+    "official_source_get_total": 2,
+    "official_source_status": "PASS",
+    "billable_provider_post_total": 0,
+    "credential_reader_reached": false,
+    "durable_ai_run_created": false,
+    "terminal_projection_available": false
+  },
+  "aggregate_authorized_external_history": {
+    "invocation_count": 2,
+    "official_source_get_total": 4,
+    "billable_provider_post_total": 0
+  },
+  "database_disposition": "No drop, truncate, cleanup or connection-value disclosure was performed. The supplied database remains outside this evidence package.",
+  "conclusion": "Implementation durable-path behavior is locally proven with the fake Provider, but the renewed real-Provider path stopped at the exact isolated-database guard before credential access or durable enqueue. This is NOT RUN, not PASS."
 }

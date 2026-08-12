@@ -2,7 +2,7 @@
   "schema": "cwt.phase-d.deepseek-official-source-revalidation",
   "version": 1,
   "status": "PASS",
-  "retrieved_at": "2026-08-12T18:47:15.495Z",
+  "retrieved_at": "2026-08-12T19:02:51.272Z",
   "counters": {
     "official_pricing_get": 1,
     "official_chat_completion_schema_get": 1,

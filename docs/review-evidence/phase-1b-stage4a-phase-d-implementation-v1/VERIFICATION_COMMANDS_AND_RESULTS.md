@@ -29,23 +29,25 @@ All final commands in this section ran with both Provider and isolated-database 
 
 ## Authorized controlled external validation
 
-The controlled command was invoked exactly once after zero-network gates. Two earlier local CLI-entry diagnostics failed before module execution and performed no network request; after the executable-entry correction, the authorized controlled invocation was not retried.
+The original implementation task invoked the controlled command once after zero-network gates. It performed two fixed official-source GETs, then stopped with `isolated_database_unavailable`; the credential path and Provider POST were not reached. Two still-earlier local CLI-entry diagnostics failed before module execution and performed no network request. That first authorized result is preserved immutably at evidence HEAD `e13690c47f44848bb2304cb093f347654bf944f8`.
+
+The coordinator then authorized one bounded continuation using the existing launchctl registration as operator secret injection. That renewed controlled command was invoked exactly once and was not retried.
 
 - Node 24 loopback semantic gate: **PASS**.
-- Official pricing source GET: **PASS**, one request.
-- Official chat-completion schema source GET: **PASS**, one request.
-- Official-source combined status/hash/fact check: **PASS**.
-- Isolated non-Production validation database gate: **NOT RUN / BLOCKED** because the protected database prerequisite was unavailable.
+- Renewed-invocation official pricing source GET: **PASS**, one request.
+- Renewed-invocation official chat-completion schema source GET: **PASS**, one request.
+- Renewed-invocation official-source combined status/hash/fact check: **PASS**.
+- Isolated non-Production validation database gate: **NOT RUN / BLOCKED**, safe code `isolated_database_guard_failed`.
 - Credential read: **NOT REACHED**.
 - Durable controlled `ai_runs` row/Worker execution: **NOT RUN**.
 - Billable Provider POST: **NOT RUN**, count `0`.
 - Real Provider output/cache/cost/latency observation: **NOT RUN**.
 
-The external request total is exactly two fixed official-source GETs and zero Provider POSTs. The flow must not be rerun without a separately authorized task and a compliant isolated database. `NOT RUN` is not represented as `PASS` anywhere in this package.
+The final controlled projection records per-invocation counters exactly: two fixed official-source GETs and zero Provider POSTs for the renewed invocation. Aggregate authorized history is four official-source GETs and zero Provider POSTs across the historical and renewed invocations. The flow must not be rerun without a separately authorized task and a compliant isolated database. `NOT RUN` is not represented as `PASS` anywhere in this package.
 
 ## Governance and unresolved facts
 
 - Production registry remains exact-empty; no Production, protected Staging, deploy, traffic, DNS, Index, import, Push or PR action occurred.
 - Supplier questionnaire, DPA, no-training, region, subprocessor and security assurances remain Owner-accepted unresolved external assurance and are not marked `PASS`.
 - C-002/C-003 remain active residual controls.
-- Next gate after prerequisite resolution and a newly authorized controlled run is a fresh independent Phase D implementation review; this implementation task does not self-review or self-accept.
+- Next gate is a coordinator decision on correcting or replacing the noncompliant isolated-database context, followed by a newly authorized controlled run. Fresh independent Phase D implementation review begins only after a complete immutable real-validation Candidate; this implementation task does not self-review or self-accept.
