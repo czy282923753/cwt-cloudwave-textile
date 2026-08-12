@@ -163,7 +163,10 @@ export function createDraftAssistanceAvailabilityFacadeV1<
 export function createDraftAssistanceDurableFacadeV1(dependencies: {
   readonly availability: DraftAssistanceAvailabilityService;
   readonly runService: AiRunServiceV1;
-}): DraftAssistanceService {
+}): DraftAssistanceService & Pick<
+  AiRunServiceV1,
+  "readRun" | "cancelRun" | "manualRetry" | "rejectDisposition"
+> {
   return {
     inspectDraftAssistanceAvailability: (query) =>
       dependencies.availability.inspectDraftAssistanceAvailability(query),
@@ -203,5 +206,9 @@ export function createDraftAssistanceDurableFacadeV1(dependencies: {
         },
       };
     },
+    readRun: (input) => dependencies.runService.readRun(input),
+    cancelRun: (input) => dependencies.runService.cancelRun(input),
+    manualRetry: (input) => dependencies.runService.manualRetry(input),
+    rejectDisposition: (input) => dependencies.runService.rejectDisposition(input),
   };
 }

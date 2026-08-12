@@ -478,7 +478,10 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
   readonly promptLoader: PromptBundleLoaderV1;
   readonly pricingRegistry: PricingPolicyRegistryV1;
   readonly governedMutationOptions?: GovernedMutationOptions;
-}): DraftAssistanceService {
+}): DraftAssistanceService & Pick<
+  import("@/ai/runs/service").AiRunServiceV1,
+  "readRun" | "cancelRun" | "manualRetry" | "rejectDisposition"
+> {
   const contextPolicy = createDraftContextPolicy(contextRepository<PostgresJsQueryResultHKT>());
   const registry = createProductionApplicationRegistryV1({
     availabilityAuthorization: createDraftAvailabilityAuthorization(

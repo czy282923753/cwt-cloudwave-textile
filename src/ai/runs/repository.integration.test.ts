@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 vi.mock("server-only", () => ({}));
 
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
+import { normalizeAttemptEvidenceV2 } from "@/ai/runs/attempt-evidence";
 import { migrateDatabase } from "@/db/migrate";
 import {
   aiModelConfig,
@@ -350,5 +351,124 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
     const claims = await db().select().from(aiRuns).where(eq(aiRuns.status, "processing"));
     expect(new Set(claims.map((row) => row.leaseToken)).size).toBe(2);
     expect(claims.every((row) => row.attemptCount === 1)).toBe(true);
+  });
+
+  it("persists pricing drift before dispatch and makes zero dispatch authority available", async () => {
+    const fixture = await seedFixture();
+    const inserted = await insertPrepared(preparedRun(fixture));
+    if (inserted.kind !== "inserted") throw new Error("Expected inserted run.");
+    const repository = createAiRunRepositoryV1(db());
+    const claim = await repository.claimOrRecover({
+      executionEnvironment: "test",
+      workerId: "pricing-stale-worker",
+    });
+    if (claim.kind !== "claimed") throw new Error("Expected claimed run.");
+    const [processing] = await db().select().from(aiRuns).where(eq(aiRuns.id, inserted.row.id));
+    if (processing === undefined || processing.leaseOwner === null || processing.leaseToken === null ||
+      processing.leaseExpiresAt === null) throw new Error("Claim projection was incomplete.");
+    const outcome = await repository.authorizeProviderDispatch({
+      runId: processing.id,
+      executionEnvironment: "test",
+      leaseOwner: processing.leaseOwner,
+      leaseToken: processing.leaseToken,
+      leaseExpiresAt: processing.leaseExpiresAt,
+      stateVersion: processing.stateVersion,
+      pricingCurrent: false,
+    });
+    expect(outcome.kind).toBe("pricing_stale");
+    const [row] = await db().select().from(aiRuns).where(eq(aiRuns.id, inserted.row.id));
+    expect(row).toMatchObject({
+      status: "failed",
+      retryState: "not_retryable",
+      failureCode: "pricing_stale",
+      providerDispatchedAt: null,
+      activeAttemptDispatchedAt: null,
+      leaseToken: null,
+      budgetReservedCostMicrousd: 0,
+      costAccountingState: "final",
+    });
+  });
+
+  it("fences a post-marker cancellation and permits one idempotent late-accounting enrichment", async () => {
+    const fixture = await seedFixture();
+    const inserted = await insertPrepared(preparedRun(fixture, {
+      runCostLimitMicrousd: 20,
+    }), "staging", { estimatedMax: 6, runLimit: 20 });
+    if (inserted.kind !== "inserted") throw new Error("Expected inserted run.");
+    const repository = createAiRunRepositoryV1(db());
+    const claim = await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "cancel-late-worker",
+    });
+    if (claim.kind !== "claimed") throw new Error("Expected claimed run.");
+    const [processing] = await db().select().from(aiRuns).where(eq(aiRuns.id, inserted.row.id));
+    if (processing === undefined || processing.leaseOwner === null || processing.leaseToken === null ||
+      processing.leaseExpiresAt === null) throw new Error("Claim projection was incomplete.");
+    const marker = await repository.authorizeProviderDispatch({
+      runId: processing.id,
+      executionEnvironment: "staging",
+      leaseOwner: processing.leaseOwner,
+      leaseToken: processing.leaseToken,
+      leaseExpiresAt: processing.leaseExpiresAt,
+      stateVersion: processing.stateVersion,
+      pricingCurrent: true,
+    });
+    if (marker.kind !== "authorized") throw new Error("Dispatch marker failed.");
+    const cancelled = await db().transaction((transaction) =>
+      repository.cancelWithinGovernedTransaction(transaction, {
+        runId: processing.id,
+        actorUserId: fixture.actorId,
+        actorRole: "product_editor",
+        expectedStateVersion: marker.stateVersion,
+        reason: "Synthetic post-marker cancellation.",
+      }));
+    if (cancelled.kind !== "updated") throw new Error("Cancellation failed.");
+    const evidence = normalizeAttemptEvidenceV2({
+      version: 2,
+      dispatchState: "dispatched",
+      protectedResult: { safeSyntheticResult: true },
+      error: null,
+      responseStatus: "success",
+      retryClass: "not_retryable",
+      returnedModel: "synthetic-text-alpha-v1",
+      completion: { kind: "complete" },
+      usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+      providerHttpStatus: 200,
+      providerErrorCode: null,
+      providerRequestId: "synthetic-late-response",
+      durationMs: 7,
+    });
+    if (!evidence.ok) throw new Error("Late evidence normalization failed.");
+    const late = await repository.recordCancelledLateAccounting({
+      runId: processing.id,
+      executionEnvironment: "staging",
+      cancelledLeaseToken: processing.leaseToken,
+      expectedStateVersion: cancelled.row.stateVersion,
+      evidence: evidence.value,
+    });
+    expect(late.kind).toBe("enriched");
+    if (late.kind !== "enriched") throw new Error("Late enrichment failed.");
+    const replay = await repository.recordCancelledLateAccounting({
+      runId: processing.id,
+      executionEnvironment: "staging",
+      cancelledLeaseToken: processing.leaseToken,
+      expectedStateVersion: late.stateVersion,
+      evidence: evidence.value,
+    });
+    expect(replay).toEqual({ kind: "exact_replay", stateVersion: late.stateVersion });
+    const [row] = await db().select().from(aiRuns).where(eq(aiRuns.id, processing.id));
+    expect(row).toMatchObject({
+      status: "cancelled",
+      providerResponseStatus: "cancelled_late_response",
+      candidateJson: null,
+      candidateHash: null,
+      inputTokens: 2,
+      outputTokens: 1,
+      totalTokens: 3,
+      actualCostMicrousd: 2,
+      budgetAccountedCostMicrousd: 2,
+      budgetReservedCostMicrousd: 0,
+      actualCostComplete: true,
+    });
   });
 });

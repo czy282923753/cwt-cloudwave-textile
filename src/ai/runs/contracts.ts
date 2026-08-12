@@ -33,6 +33,17 @@ export interface AiRunSummaryReadV1 {
   readonly queuedAt: string;
 }
 
+export interface AiRunAuthorizedReadV1 extends AiRunSummaryReadV1 {
+  readonly targetType: string;
+  readonly targetId: string;
+  readonly candidateHash: string | null;
+  readonly candidate: ReadonlyJsonObject | null;
+  readonly failureCode: string | null;
+  readonly humanDisposition: string;
+  readonly qualityRating: number | null;
+  readonly qualityLabels: readonly string[];
+}
+
 export type LifecycleLockOutcomeV1 =
   | {
       readonly kind: "acquired";
@@ -71,7 +82,7 @@ export interface NormalizeAttemptEvidenceInputV2<TProtected> {
   readonly dispatchState: "not_dispatched" | "dispatched";
   readonly protectedResult: TProtected | null;
   readonly error: SafeAiError | null;
-  readonly responseStatus: NormalizedProviderResponseStatus;
+  readonly responseStatus: NormalizedProviderResponseStatus | "not_dispatched";
   readonly retryClass: "same_provider_transient" | "not_retryable";
   readonly returnedModel: string | null;
   readonly completion: NormalizedCompletionV1 | null;
@@ -87,7 +98,7 @@ export interface NormalizedAttemptEvidenceV2<TProtected> {
   readonly dispatchState: "not_dispatched" | "dispatched";
   readonly protectedResult: TProtected | null;
   readonly error: SafeAiError | null;
-  readonly responseStatus: NormalizedProviderResponseStatus;
+  readonly responseStatus: NormalizedProviderResponseStatus | "not_dispatched";
   readonly retryClass: "same_provider_transient" | "not_retryable";
   readonly returnedModel: string | null;
   readonly completionKind:
@@ -125,7 +136,7 @@ export interface AttemptHistoryEntryV1 extends ReadonlyJsonObject {
   readonly actual_cost_microusd: number;
   readonly accounted_cost_microusd: number;
   readonly actual_cost_complete: boolean;
-  readonly provider_response_status: NormalizedProviderResponseStatus;
+  readonly provider_response_status: NormalizedProviderResponseStatus | "not_dispatched";
   readonly provider_http_status: number | null;
   readonly provider_error_code: string | null;
   readonly provider_request_id: string | null;
@@ -178,6 +189,7 @@ export type SettlementOutcomeV1 =
 export interface RunDispositionInputV1 {
   readonly runId: string;
   readonly actorUserId: string;
+  readonly actorRole: string;
   readonly expectedStateVersion: number;
   readonly disposition: "rejected";
   readonly candidateHash: string;
@@ -193,3 +205,33 @@ export interface RunDispositionInputV1 {
   )[];
   readonly qualityComment: string | null;
 }
+
+export type HumanLifecycleMutationOutcomeV1 =
+  | {
+      readonly kind: "updated";
+      readonly row: {
+        readonly runId: string;
+        readonly targetType: string;
+        readonly targetId: string;
+        readonly status: AiRunStatusV1;
+        readonly retryState: AiRunRetryStateV1;
+        readonly stateVersion: number;
+        readonly candidateHash: string | null;
+        readonly humanDisposition: string;
+        readonly qualityRating: number | null;
+        readonly qualityLabels: readonly string[];
+      };
+    }
+  | Extract<LifecycleLockOutcomeV1, { readonly kind: "lock_busy" }>
+  | {
+      readonly kind:
+        | "not_found_or_unauthorized"
+        | "state_conflict"
+        | "transition_forbidden";
+    };
+
+export type LateAccountingOutcomeV1 =
+  | { readonly kind: "enriched"; readonly stateVersion: number }
+  | { readonly kind: "exact_replay"; readonly stateVersion: number }
+  | Extract<LifecycleLockOutcomeV1, { readonly kind: "lock_busy" }>
+  | { readonly kind: "state_conflict" };

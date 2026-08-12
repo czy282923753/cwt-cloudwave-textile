@@ -24,13 +24,21 @@ import {
 } from "./attempt-evidence";
 import type {
   ClaimedLeaseHandleV1,
+  AiRunAuthorizedReadV1,
   DispatchAuthorizationOutcomeV1,
   HeartbeatOutcomeV1,
+  HumanLifecycleMutationOutcomeV1,
+  LateAccountingOutcomeV1,
   LifecycleLockOutcomeV1,
   NormalizedAttemptEvidenceV2,
+  RunDispositionInputV1,
   SettlementOutcomeV1,
   WorkerClaimResultV1,
 } from "./contracts";
+import {
+  calculateTextCostMicrousdV1,
+  type PricingSnapshotV1,
+} from "./pricing-policy";
 import {
   AI_CLAIM_LEASE_SECONDS_V1,
   automaticRetryBackoffSecondsV1,
@@ -83,7 +91,43 @@ export interface AiRunRepositoryV1 {
     readonly evidence: NormalizedAttemptEvidenceV2<
       import("@/ai/core/contracts").ProtectedApplicationResultEnvelopeV1
     >;
+    readonly origin?: "worker" | "shutdown";
   }): Promise<SettlementOutcomeV1>;
+  cancelWithinGovernedTransaction(
+    transaction: PhaseCPgDatabase,
+    input: {
+      readonly runId: string;
+      readonly actorUserId: string;
+      readonly actorRole: string;
+      readonly expectedStateVersion: number;
+      readonly reason: string;
+    },
+  ): Promise<HumanLifecycleMutationOutcomeV1>;
+  manualRetryWithinGovernedTransaction(
+    transaction: PhaseCPgDatabase,
+    input: {
+      readonly runId: string;
+      readonly actorUserId: string;
+      readonly actorRole: string;
+      readonly expectedStateVersion: number;
+    },
+  ): Promise<HumanLifecycleMutationOutcomeV1>;
+  rejectDispositionWithinGovernedTransaction(
+    transaction: PhaseCPgDatabase,
+    input: RunDispositionInputV1,
+  ): Promise<HumanLifecycleMutationOutcomeV1>;
+  recordCancelledLateAccounting(input: {
+    readonly runId: string;
+    readonly executionEnvironment: "local" | "test" | "staging";
+    readonly cancelledLeaseToken: string;
+    readonly expectedStateVersion: number;
+    readonly evidence: NormalizedAttemptEvidenceV2<unknown>;
+  }): Promise<LateAccountingOutcomeV1>;
+  readAuthorized(input: {
+    readonly runId: string;
+    readonly actorUserId: string;
+    readonly actorRole: string;
+  }): Promise<AiRunAuthorizedReadV1 | null>;
   readRunForWorker(runId: string): Promise<unknown | null>;
   findReplayWithinTransaction(
     transaction: PhaseCPgDatabase,
@@ -127,6 +171,109 @@ function isJsonValue(value: unknown): value is ReadonlyJsonValue {
 
 function attemptHistory(value: unknown): readonly ReadonlyJsonValue[] | undefined {
   return Array.isArray(value) && value.every(isJsonValue) ? value : undefined;
+}
+
+function jsonRecord(value: unknown): Readonly<Record<string, ReadonlyJsonValue>> | undefined {
+  if (!isJsonValue(value) || typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return Object.freeze(Object.fromEntries(Object.entries(value)));
+}
+
+function pricingSnapshot(value: unknown): PricingSnapshotV1 | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1 || record.currency !== "USD" ||
+    record.billing_unit_tokens !== 1_000_000 || record.formula !== "ceil-separate-v1" ||
+    typeof record.input_microusd_per_unit !== "number" ||
+    typeof record.output_microusd_per_unit !== "number" ||
+    typeof record.source_id !== "string" || typeof record.source_version !== "string" ||
+    typeof record.effective_from !== "string" || typeof record.observed_at !== "string") {
+    return undefined;
+  }
+  return {
+    version: 1,
+    currency: "USD",
+    billing_unit_tokens: 1_000_000,
+    input_microusd_per_unit: record.input_microusd_per_unit,
+    output_microusd_per_unit: record.output_microusd_per_unit,
+    formula: "ceil-separate-v1",
+    source_id: record.source_id,
+    source_version: record.source_version,
+    effective_from: record.effective_from,
+    observed_at: record.observed_at,
+  };
+}
+
+function attemptUpperCost(row: typeof aiRuns.$inferSelect): number {
+  return row.maxAttempts === 0 ? 0 : Math.ceil(row.estimatedMaxCostMicrousd / row.maxAttempts);
+}
+
+function cumulativeTokens(
+  history: readonly ReadonlyJsonValue[],
+  current: NormalizedAttemptEvidenceV2<unknown>,
+): { readonly input: number; readonly output: number; readonly total: number } | null {
+  let input = 0;
+  let output = 0;
+  let total = 0;
+  for (const value of history) {
+    const entry = jsonRecord(value);
+    if (entry === undefined) return null;
+    if (entry.dispatch_state !== "dispatched") continue;
+    if (typeof entry.input_tokens !== "number" || typeof entry.output_tokens !== "number" ||
+      typeof entry.total_tokens !== "number") return null;
+    input += entry.input_tokens;
+    output += entry.output_tokens;
+    total += entry.total_tokens;
+  }
+  if (current.dispatchState === "dispatched") {
+    if (current.usage === null) return null;
+    input += current.usage.inputTokens;
+    output += current.usage.outputTokens;
+    total += current.usage.totalTokens;
+  }
+  return Number.isSafeInteger(input) && Number.isSafeInteger(output) &&
+    Number.isSafeInteger(total) && total === input + output
+    ? { input, output, total }
+    : null;
+}
+
+function humanCanManageRun(
+  row: typeof aiRuns.$inferSelect,
+  actor: { readonly userId: string; readonly role: string },
+): boolean {
+  if (actor.role === "admin") return true;
+  if (row.requestedByUserId !== actor.userId) return false;
+  if (row.targetType === "product_draft") return actor.role === "product_editor";
+  if (row.targetType === "content_draft") return actor.role === "content_editor";
+  return actor.role === "product_editor" || actor.role === "content_editor";
+}
+
+function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
+  const targetId = row.targetProductId ?? row.targetContentId ?? row.targetRevisionId;
+  if (targetId === null) throw new Error("Stored AI run target was invalid.");
+  const status = summaryFromRow(row).status;
+  const retryState = (() => {
+    switch (row.retryState) {
+      case "none":
+      case "scheduled":
+      case "exhausted":
+      case "not_retryable": return row.retryState;
+      default: throw new Error("Stored AI run retry state was invalid.");
+    }
+  })();
+  return {
+    runId: row.id,
+    targetType: row.targetType,
+    targetId,
+    status,
+    retryState,
+    stateVersion: row.stateVersion,
+    candidateHash: row.candidateHash,
+    humanDisposition: row.humanDisposition,
+    qualityRating: row.qualityRating,
+    qualityLabels: Object.freeze([...row.qualityLabels]),
+  };
 }
 
 function shanghaiPeriods(observedAt: Date): { readonly day: string; readonly month: string } {
@@ -437,10 +584,86 @@ export function createAiRunRepositoryV1(
         const lock = await tryLifecycleLock(transaction, input.leaseExpiresAt);
         if (lock.kind === "lock_busy") return lock;
         await barriers?.afterAdvisoryAcquired?.({ operation: "dispatch", observedAt: lock.observedAt });
-        if (!input.pricingCurrent) return { kind: "pricing_stale", observedAt: lock.observedAt };
+        const selected = await transaction.select().from(aiRuns).where(and(
+          eq(aiRuns.id, input.runId),
+          eq(aiRuns.executionEnvironment, input.executionEnvironment),
+        )).limit(1).for("update", { of: aiRuns });
+        const current = selected[0];
+        if (current === undefined || current.status !== "processing" ||
+          current.leaseOwner !== input.leaseOwner || current.leaseToken !== input.leaseToken ||
+          current.stateVersion !== input.stateVersion || current.leaseExpiresAt === null ||
+          current.leaseExpiresAt <= lock.observedAt || current.activeAttemptDispatchedAt !== null ||
+          (current.actualProvider !== null && current.actualProvider !== current.requestedProvider)) {
+          return { kind: "lease_lost_or_unsafe", observedAt: lock.observedAt };
+        }
+        if (!input.pricingCurrent) {
+          const history = attemptHistory(current.attemptHistoryJson);
+          if (history === undefined) throw new Error("Stored attempt history was invalid.");
+          const failure = aiFailure("pricing_stale");
+          if (failure.ok) throw new Error("Static pricing failure was invalid.");
+          const evidence = normalizeAttemptEvidenceV2<unknown>({
+            version: 2,
+            dispatchState: "not_dispatched",
+            protectedResult: null,
+            error: failure.error,
+            responseStatus: "not_dispatched",
+            retryClass: "not_retryable",
+            returnedModel: null,
+            completion: null,
+            usage: null,
+            providerHttpStatus: null,
+            providerErrorCode: null,
+            providerRequestId: null,
+            durationMs: 0,
+          });
+          if (!evidence.ok) throw new Error("Pricing failure evidence normalization failed.");
+          const entry = createAttemptHistoryEntryV1({
+            attempt: current.attemptCount,
+            outcome: "failed",
+            requestedProvider: current.requestedProvider,
+            actualProvider: current.actualProvider,
+            requestedModel: current.requestedModel,
+            providerEnvelopeVersion: current.providerEnvelopeVersion,
+            providerEnvelopeHash: current.providerEnvelopeHash,
+            dispatchedAt: null,
+            respondedAt: null,
+            attemptUpperCostMicrousd: attemptUpperCost(current),
+            actualCostMicrousd: 0,
+            accountedCostMicrousd: 0,
+            actualCostComplete: true,
+            evidence: evidence.value,
+            candidateHash: null,
+          });
+          if (!entry.ok) throw new Error("Pricing failure attempt entry failed.");
+          await transaction.update(aiRuns).set({
+            status: "failed",
+            retryState: "not_retryable",
+            nextAttemptAt: null,
+            leaseOwner: null,
+            leaseToken: null,
+            leaseAcquiredAt: null,
+            leaseExpiresAt: null,
+            activeAttemptDispatchedAt: null,
+            attemptHistoryJson: [...history, entry.value],
+            providerResponseStatus: "not_dispatched",
+            failureCode: "pricing_stale",
+            failureDetail: "The immutable pricing source is no longer current.",
+            completedAt: lock.observedAt,
+            budgetReservedCostMicrousd: 0,
+            costAccountingState: "final",
+            stateVersion: current.stateVersion + 1,
+            updatedAt: lock.observedAt,
+          }).where(and(eq(aiRuns.id, current.id), eq(aiRuns.stateVersion, current.stateVersion)));
+          await barriers?.afterRunMutation?.({ operation: "dispatch", runId: current.id, observedAt: lock.observedAt });
+          await barriers?.beforeCommit?.({ operation: "dispatch", runId: current.id, observedAt: lock.observedAt });
+          return { kind: "pricing_stale", observedAt: lock.observedAt };
+        }
         const rows = await transaction.update(aiRuns).set({
           activeAttemptDispatchedAt: lock.observedAt,
-          providerDispatchedAt: sql`coalesce(${aiRuns.providerDispatchedAt}, ${lock.observedAt})`,
+          providerDispatchedAt: sql`coalesce(
+            ${aiRuns.providerDispatchedAt},
+            ${lock.observedAt.toISOString()}::timestamptz
+          )`,
           actualProvider: sql`coalesce(${aiRuns.actualProvider}, ${aiRuns.requestedProvider})`,
           stateVersion: input.stateVersion + 1,
           updatedAt: lock.observedAt,
@@ -482,7 +705,8 @@ export function createAiRunRepositoryV1(
       return database.transaction(async (transaction): Promise<SettlementOutcomeV1> => {
         const lock = await tryLifecycleLock(transaction, input.leaseExpiresAt);
         if (lock.kind === "lock_busy") return lock;
-        await barriers?.afterAdvisoryAcquired?.({ operation: "settlement", observedAt: lock.observedAt });
+        const operation = input.origin === "shutdown" ? "shutdown_settlement" : "settlement";
+        await barriers?.afterAdvisoryAcquired?.({ operation, observedAt: lock.observedAt });
         const selected = await transaction.select().from(aiRuns).where(and(
           eq(aiRuns.id, input.runId),
           eq(aiRuns.executionEnvironment, input.executionEnvironment),
@@ -497,12 +721,21 @@ export function createAiRunRepositoryV1(
         }
         const history = attemptHistory(row.attemptHistoryJson);
         if (history === undefined) throw new Error("Stored attempt history was invalid.");
-        const attemptUpper = Math.ceil(row.estimatedMaxCostMicrousd / row.maxAttempts);
+        const attemptUpper = attemptUpperCost(row);
         const usageComplete = input.evidence.usage !== null;
-        const actualAttemptCost = row.executionEnvironment === "staging" && usageComplete
-          ? attemptUpper
+        const storedPricing = pricingSnapshot(row.pricingSnapshotJson);
+        if (storedPricing === undefined) throw new Error("Stored pricing snapshot was invalid.");
+        const calculated = usageComplete ? calculateTextCostMicrousdV1({
+          inputTokens: input.evidence.usage?.inputTokens ?? 0,
+          outputTokens: input.evidence.usage?.outputTokens ?? 0,
+          pricing: storedPricing,
+        }) : null;
+        if (calculated !== null && !calculated.ok) throw new Error("Stored pricing calculation failed.");
+        const actualAttemptCost = row.executionEnvironment === "staging" && calculated?.ok === true
+          ? calculated.value : 0;
+        const accountedAttemptCost = row.executionEnvironment === "staging"
+          ? usageComplete ? actualAttemptCost : attemptUpper
           : 0;
-        const accountedAttemptCost = usageComplete ? actualAttemptCost : attemptUpper;
         const accounted = row.budgetAccountedCostMicrousd + accountedAttemptCost;
         const actual = row.actualCostMicrousd + actualAttemptCost;
         const overrun = accounted > row.runCostLimitMicrousd;
@@ -544,6 +777,7 @@ export function createAiRunRepositoryV1(
           : null;
         const reserved = status === "pending" && row.executionEnvironment === "staging"
           ? Math.max(0, row.runCostLimitMicrousd - accounted) : 0;
+        const tokens = cumulativeTokens(history, input.evidence);
         const updated = await transaction.update(aiRuns).set({
           status,
           retryState,
@@ -566,9 +800,9 @@ export function createAiRunRepositoryV1(
           generatedAt: lock.observedAt,
           completedAt: status === "pending" ? null : lock.observedAt,
           generationDurationMs: row.generationDurationMs + input.evidence.durationMs,
-          inputTokens: usageComplete ? input.evidence.usage?.inputTokens ?? null : null,
-          outputTokens: usageComplete ? input.evidence.usage?.outputTokens ?? null : null,
-          totalTokens: usageComplete ? input.evidence.usage?.totalTokens ?? null : null,
+          inputTokens: tokens?.input ?? null,
+          outputTokens: tokens?.output ?? null,
+          totalTokens: tokens?.total ?? null,
           actualCostMicrousd: actual,
           actualCostComplete: row.actualCostComplete && usageComplete,
           budgetAccountedCostMicrousd: accounted,
@@ -581,10 +815,318 @@ export function createAiRunRepositoryV1(
         });
         const result = updated[0];
         if (result === undefined) return { kind: "lease_lost_or_unsafe", observedAt: lock.observedAt };
-        await barriers?.afterRunMutation?.({ operation: "settlement", runId: row.id, observedAt: lock.observedAt });
-        await barriers?.beforeCommit?.({ operation: "settlement", runId: row.id, observedAt: lock.observedAt });
+        await barriers?.afterRunMutation?.({ operation, runId: row.id, observedAt: lock.observedAt });
+        await barriers?.beforeCommit?.({ operation, runId: row.id, observedAt: lock.observedAt });
         return { kind: "settled", status, retryState, stateVersion: result.stateVersion };
       });
+    },
+
+    async cancelWithinGovernedTransaction(transaction, input) {
+      const lock = await tryLifecycleLock(transaction, null);
+      if (lock.kind === "lock_busy") return lock;
+      await barriers?.afterAdvisoryAcquired?.({ operation: "cancellation", observedAt: lock.observedAt });
+      const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
+        .limit(1).for("update", { of: aiRuns });
+      const row = selected[0];
+      if (row === undefined || !humanCanManageRun(row, {
+        userId: input.actorUserId,
+        role: input.actorRole,
+      })) return { kind: "not_found_or_unauthorized" };
+      if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
+      if (row.status !== "pending" && row.status !== "processing") {
+        return { kind: "transition_forbidden" };
+      }
+      const history = attemptHistory(row.attemptHistoryJson);
+      if (history === undefined) throw new Error("Stored attempt history was invalid.");
+      const processing = row.status === "processing";
+      const dispatched = processing && row.activeAttemptDispatchedAt !== null;
+      let nextHistory = history;
+      if (processing) {
+        const failure = aiFailure("provider_cancelled");
+        if (failure.ok) throw new Error("Static cancellation failure was invalid.");
+        const evidence = normalizeAttemptEvidenceV2<unknown>({
+          version: 2,
+          dispatchState: dispatched ? "dispatched" : "not_dispatched",
+          protectedResult: null,
+          error: failure.error,
+          responseStatus: dispatched ? "cancelled_no_response" : "not_dispatched",
+          retryClass: "not_retryable",
+          returnedModel: null,
+          completion: { kind: "cancelled" },
+          usage: null,
+          providerHttpStatus: null,
+          providerErrorCode: null,
+          providerRequestId: null,
+          durationMs: 0,
+        });
+        if (!evidence.ok) throw new Error("Cancellation evidence normalization failed.");
+        const entry = createAttemptHistoryEntryV1({
+          attempt: row.attemptCount,
+          outcome: "discarded_cancelled",
+          requestedProvider: row.requestedProvider,
+          actualProvider: row.actualProvider,
+          requestedModel: row.requestedModel,
+          providerEnvelopeVersion: row.providerEnvelopeVersion,
+          providerEnvelopeHash: row.providerEnvelopeHash,
+          dispatchedAt: row.activeAttemptDispatchedAt,
+          respondedAt: null,
+          attemptUpperCostMicrousd: attemptUpperCost(row),
+          actualCostMicrousd: 0,
+          accountedCostMicrousd: dispatched && row.executionEnvironment === "staging"
+            ? attemptUpperCost(row) : 0,
+          actualCostComplete: !dispatched,
+          evidence: evidence.value,
+          candidateHash: null,
+        });
+        if (!entry.ok) throw new Error("Cancellation attempt entry failed.");
+        nextHistory = [...history, entry.value];
+      }
+      const cancellationDebit = dispatched && row.executionEnvironment === "staging"
+        ? attemptUpperCost(row) : 0;
+      const updated = await transaction.update(aiRuns).set({
+        status: "cancelled",
+        retryState: "none",
+        nextAttemptAt: null,
+        leaseOwner: null,
+        leaseToken: null,
+        leaseAcquiredAt: null,
+        leaseExpiresAt: null,
+        activeAttemptDispatchedAt: null,
+        cancelledLeaseToken: processing ? row.leaseToken : null,
+        cancelledByUserId: input.actorUserId,
+        cancellationReason: input.reason,
+        cancelledAt: lock.observedAt,
+        completedAt: lock.observedAt,
+        attemptHistoryJson: nextHistory,
+        candidateJson: null,
+        candidateHash: null,
+        returnedModel: null,
+        providerResponseStatus: dispatched ? "cancelled_no_response" : "not_dispatched",
+        providerHttpStatus: null,
+        providerErrorCode: null,
+        providerRequestId: null,
+        failureCode: null,
+        failureDetail: null,
+        actualCostComplete: row.actualCostComplete && !dispatched,
+        budgetAccountedCostMicrousd: row.budgetAccountedCostMicrousd + cancellationDebit,
+        budgetReservedCostMicrousd: 0,
+        costAccountingState: "final",
+        stateVersion: row.stateVersion + 1,
+        updatedAt: lock.observedAt,
+      }).where(and(eq(aiRuns.id, row.id), eq(aiRuns.stateVersion, row.stateVersion))).returning();
+      const result = updated[0];
+      if (result === undefined) return { kind: "state_conflict" };
+      await barriers?.afterRunMutation?.({ operation: "cancellation", runId: row.id, observedAt: lock.observedAt });
+      await barriers?.beforeCommit?.({ operation: "cancellation", runId: row.id, observedAt: lock.observedAt });
+      return { kind: "updated", row: humanMutationProjection(result) };
+    },
+
+    async manualRetryWithinGovernedTransaction(transaction, input) {
+      const lock = await tryLifecycleLock(transaction, null);
+      if (lock.kind === "lock_busy") return lock;
+      await barriers?.afterAdvisoryAcquired?.({ operation: "manual_retry", observedAt: lock.observedAt });
+      const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
+        .limit(1).for("update", { of: aiRuns });
+      const row = selected[0];
+      if (row === undefined || !humanCanManageRun(row, {
+        userId: input.actorUserId,
+        role: input.actorRole,
+      })) return { kind: "not_found_or_unauthorized" };
+      if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
+      if (row.status !== "failed" || row.retryState !== "not_retryable" ||
+        row.attemptCount >= row.maxAttempts ||
+        (row.failureCode !== "provider_auth_failed" && row.failureCode !== "provider_quota_exceeded")) {
+        return { kind: "transition_forbidden" };
+      }
+      const feature = await transaction.select({ enabled: featureFlags.enabled }).from(featureFlags)
+        .where(eq(featureFlags.key, "ai")).limit(2);
+      const config = await transaction.select({ enabled: aiModelConfig.enabled }).from(aiModelConfig)
+        .where(eq(aiModelConfig.id, row.modelConfigId)).limit(1);
+      if (feature.length !== 1 || feature[0]?.enabled !== true || config[0]?.enabled !== true) {
+        return { kind: "transition_forbidden" };
+      }
+      const reservation = row.executionEnvironment === "staging"
+        ? Math.max(0, row.runCostLimitMicrousd - row.budgetAccountedCostMicrousd) : 0;
+      if (row.executionEnvironment === "staging") {
+        if (row.budgetChargeDay === null || row.budgetChargeMonth === null) {
+          throw new Error("A failed billable run had no charge period.");
+        }
+        const totals = await transaction.select({
+          day: sql<number>`coalesce(sum(${aiRuns.budgetAccountedCostMicrousd} + ${aiRuns.budgetReservedCostMicrousd}) filter (where ${aiRuns.budgetChargeDay} = ${row.budgetChargeDay}), 0)`,
+          month: sql<number>`coalesce(sum(${aiRuns.budgetAccountedCostMicrousd} + ${aiRuns.budgetReservedCostMicrousd}) filter (where ${aiRuns.budgetChargeMonth} = ${row.budgetChargeMonth}), 0)`,
+        }).from(aiRuns).where(eq(aiRuns.executionEnvironment, "staging"));
+        const total = totals[0];
+        if (total === undefined || Number(total.day) + reservation > row.dailyHardLimitMicrousd ||
+          Number(total.month) + reservation > row.monthlyHardLimitMicrousd) {
+          return { kind: "transition_forbidden" };
+        }
+      }
+      const updated = await transaction.update(aiRuns).set({
+        status: "pending",
+        retryState: "scheduled",
+        nextAttemptAt: lock.observedAt,
+        completedAt: null,
+        budgetReservedCostMicrousd: reservation,
+        costAccountingState: "reserved",
+        stateVersion: row.stateVersion + 1,
+        updatedAt: lock.observedAt,
+      }).where(and(eq(aiRuns.id, row.id), eq(aiRuns.stateVersion, row.stateVersion))).returning();
+      const result = updated[0];
+      if (result === undefined) return { kind: "state_conflict" };
+      await barriers?.afterRunMutation?.({ operation: "manual_retry", runId: row.id, observedAt: lock.observedAt });
+      await barriers?.beforeCommit?.({ operation: "manual_retry", runId: row.id, observedAt: lock.observedAt });
+      return { kind: "updated", row: humanMutationProjection(result) };
+    },
+
+    async rejectDispositionWithinGovernedTransaction(transaction, input) {
+      const selected = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
+        .limit(1).for("update", { of: aiRuns });
+      const row = selected[0];
+      if (row === undefined || !humanCanManageRun(row, {
+        userId: input.actorUserId,
+        role: input.actorRole,
+      })) return { kind: "not_found_or_unauthorized" };
+      if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
+      if (row.status !== "draft_ready" || row.humanDisposition !== "not_evaluated" ||
+        row.candidateHash !== input.candidateHash || input.disposition !== "rejected") {
+        return { kind: "transition_forbidden" };
+      }
+      const updated = await transaction.update(aiRuns).set({
+        humanDisposition: "rejected",
+        qualityRating: input.qualityRating,
+        qualityLabels: [...input.qualityLabels],
+        qualityComment: input.qualityComment,
+        evaluatedByUserId: input.actorUserId,
+        evaluatedAt: sql`statement_timestamp()`,
+        stateVersion: row.stateVersion + 1,
+        updatedAt: sql`statement_timestamp()`,
+      }).where(and(eq(aiRuns.id, row.id), eq(aiRuns.stateVersion, row.stateVersion))).returning();
+      const result = updated[0];
+      return result === undefined
+        ? { kind: "state_conflict" }
+        : { kind: "updated", row: humanMutationProjection(result) };
+    },
+
+    async recordCancelledLateAccounting(input) {
+      return database.transaction(async (transaction): Promise<LateAccountingOutcomeV1> => {
+        const lock = await tryLifecycleLock(transaction, null);
+        if (lock.kind === "lock_busy") return lock;
+        await barriers?.afterAdvisoryAcquired?.({ operation: "late_accounting", observedAt: lock.observedAt });
+        const selected = await transaction.select().from(aiRuns).where(and(
+          eq(aiRuns.id, input.runId),
+          eq(aiRuns.executionEnvironment, input.executionEnvironment),
+        )).limit(1).for("update", { of: aiRuns });
+        const row = selected[0];
+        if (row === undefined || row.status !== "cancelled" ||
+          row.cancelledLeaseToken !== input.cancelledLeaseToken ||
+          row.stateVersion !== input.expectedStateVersion || input.evidence.dispatchState !== "dispatched" ||
+          input.evidence.usage === null) return { kind: "state_conflict" };
+        const history = attemptHistory(row.attemptHistoryJson);
+        const lastValue = history?.at(-1);
+        const last = lastValue === undefined ? undefined : jsonRecord(lastValue);
+        if (history === undefined || last === undefined || last.outcome !== "discarded_cancelled" ||
+          last.attempt !== row.attemptCount || last.dispatch_state !== "dispatched" ||
+          typeof last.accounted_cost_microusd !== "number" ||
+          typeof last.actual_cost_microusd !== "number" ||
+          typeof last.responded_at !== "string" && last.responded_at !== null) {
+          return { kind: "state_conflict" };
+        }
+        const storedPricing = pricingSnapshot(row.pricingSnapshotJson);
+        if (storedPricing === undefined) throw new Error("Stored pricing snapshot was invalid.");
+        const calculated = calculateTextCostMicrousdV1({
+          inputTokens: input.evidence.usage.inputTokens,
+          outputTokens: input.evidence.usage.outputTokens,
+          pricing: storedPricing,
+        });
+        if (!calculated.ok) throw new Error("Late accounting pricing calculation failed.");
+        const lateCost = row.executionEnvironment === "staging" ? calculated.value : 0;
+        const priorRespondedAt = typeof last.responded_at === "string"
+          ? new Date(last.responded_at) : lock.observedAt;
+        const entry = createAttemptHistoryEntryV1({
+          attempt: row.attemptCount,
+          outcome: "discarded_cancelled",
+          requestedProvider: row.requestedProvider,
+          actualProvider: row.actualProvider,
+          requestedModel: row.requestedModel,
+          providerEnvelopeVersion: row.providerEnvelopeVersion,
+          providerEnvelopeHash: row.providerEnvelopeHash,
+          dispatchedAt: typeof last.dispatched_at === "string" ? new Date(last.dispatched_at) : row.providerDispatchedAt,
+          respondedAt: priorRespondedAt,
+          attemptUpperCostMicrousd: attemptUpperCost(row),
+          actualCostMicrousd: lateCost,
+          accountedCostMicrousd: lateCost,
+          actualCostComplete: true,
+          evidence: input.evidence,
+          candidateHash: null,
+        });
+        if (!entry.ok) throw new Error("Late accounting attempt entry failed.");
+        if (row.providerResponseStatus === "cancelled_late_response") {
+          return last.response_fingerprint === entry.value.response_fingerprint
+            ? { kind: "exact_replay", stateVersion: row.stateVersion }
+            : { kind: "state_conflict" };
+        }
+        const prefix = history.slice(0, -1);
+        const tokens = cumulativeTokens(prefix, input.evidence);
+        const accounted = row.budgetAccountedCostMicrousd - last.accounted_cost_microusd + lateCost;
+        const actual = row.actualCostMicrousd - last.actual_cost_microusd + lateCost;
+        const updated = await transaction.update(aiRuns).set({
+          attemptHistoryJson: [...prefix, entry.value],
+          returnedModel: input.evidence.returnedModel,
+          providerResponseStatus: "cancelled_late_response",
+          providerHttpStatus: input.evidence.providerHttpStatus,
+          providerErrorCode: input.evidence.providerErrorCode,
+          providerRequestId: input.evidence.providerRequestId,
+          generatedAt: lock.observedAt,
+          generationDurationMs: row.generationDurationMs + input.evidence.durationMs,
+          inputTokens: tokens?.input ?? null,
+          outputTokens: tokens?.output ?? null,
+          totalTokens: tokens?.total ?? null,
+          actualCostMicrousd: actual,
+          actualCostComplete: prefix.every((value) => jsonRecord(value)?.actual_cost_complete === true),
+          budgetAccountedCostMicrousd: accounted,
+          stateVersion: row.stateVersion + 1,
+          updatedAt: lock.observedAt,
+        }).where(and(eq(aiRuns.id, row.id), eq(aiRuns.stateVersion, row.stateVersion))).returning({
+          stateVersion: aiRuns.stateVersion,
+        });
+        const result = updated[0];
+        if (result === undefined) return { kind: "state_conflict" };
+        await barriers?.afterRunMutation?.({ operation: "late_accounting", runId: row.id, observedAt: lock.observedAt });
+        await barriers?.beforeCommit?.({ operation: "late_accounting", runId: row.id, observedAt: lock.observedAt });
+        return { kind: "enriched", stateVersion: result.stateVersion };
+      });
+    },
+
+    async readAuthorized(input) {
+      const selected = await database.select().from(aiRuns).where(eq(aiRuns.id, input.runId)).limit(1);
+      const row = selected[0];
+      if (row === undefined || !humanCanManageRun(row, {
+        userId: input.actorUserId,
+        role: input.actorRole,
+      })) return null;
+      const targetId = row.targetProductId ?? row.targetContentId ?? row.targetRevisionId;
+      if (targetId === null) throw new Error("Stored AI run target was invalid.");
+      const summary = humanMutationProjection(row);
+      const candidate = row.candidateJson === null || jsonRecord(row.candidateJson) === undefined
+        ? null : jsonRecord(row.candidateJson) ?? null;
+      return {
+        runId: row.id,
+        applicationClass: "draft_assistance",
+        useCase: row.useCase,
+        status: summary.status,
+        retryState: summary.retryState,
+        attemptCount: row.attemptCount,
+        stateVersion: row.stateVersion,
+        queuedAt: row.queuedAt.toISOString(),
+        targetType: row.targetType,
+        targetId,
+        candidateHash: row.candidateHash,
+        candidate,
+        failureCode: row.failureCode,
+        humanDisposition: row.humanDisposition,
+        qualityRating: row.qualityRating,
+        qualityLabels: Object.freeze([...row.qualityLabels]),
+      };
     },
 
     async readRunForWorker(runId) {
