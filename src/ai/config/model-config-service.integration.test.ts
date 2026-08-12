@@ -251,6 +251,18 @@ describe.skipIf(postgresUrl === undefined)("Phase C model configuration service"
     expect(await db().select().from(aiModelConfig)).toHaveLength(0);
     const created = await createConfig(admin);
     if (!created.ok) throw new Error("Configuration fixture failed.");
+    await expect(failing.updateSubstantive({
+      actor: admin,
+      id: created.value.id,
+      expectedRecordVersion: 1,
+      ...substantive,
+      maxOutputTokens: 201,
+    })).rejects.toThrow(/required Audit failure/);
+    await expect(failing.disable({
+      actor: admin,
+      id: created.value.id,
+      expectedRecordVersion: 1,
+    })).rejects.toThrow(/required Audit failure/);
     await expect(failing.activateDefault({
       actor: admin,
       useCase: "product_description_draft",

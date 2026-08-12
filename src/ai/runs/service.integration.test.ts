@@ -12,6 +12,7 @@ import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistanc
 import type { ProtectedApplicationResultEnvelopeV1 } from "@/ai/core/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
+import { createAiModelConfigServiceV1 } from "@/ai/config/model-config-service";
 import { localTestPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { normalizeAttemptEvidenceV2 } from "@/ai/runs/attempt-evidence";
 import { createAiRunRepositoryV1 } from "@/ai/runs/repository";
@@ -128,7 +129,7 @@ async function seedFixture() {
     return product.id;
   });
   await db().insert(featureFlags).values({ key: "ai", enabled: true });
-  await db().insert(aiModelConfig).values({
+  const [config] = await db().insert(aiModelConfig).values({
     useCase: "product_description_draft",
     provider: "synthetic_alpha",
     model: "synthetic-text-alpha-v1",
@@ -144,8 +145,9 @@ async function seedFixture() {
     isDefault: true,
     createdByUserId: actor.id,
     updatedByUserId: actor.id,
-  });
-  return { actorId: actor.id, productId };
+  }).returning({ id: aiModelConfig.id });
+  if (config === undefined) throw new Error("Config fixture failed.");
+  return { actorId: actor.id, productId, configId: config.id };
 }
 
 function command(fixture: Awaited<ReturnType<typeof seedFixture>>, input: {
@@ -277,6 +279,118 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       .toHaveLength(1);
   });
 
+  it("keeps run reads record-scoped and existence-nondisclosing", async () => {
+    const fixture = await seedFixture();
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic enqueue failed.");
+    const insertedActors = await db().insert(users).values([
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Unrelated Product Editor",
+        role: "product_editor",
+        passwordHash: "test-only",
+      },
+      {
+        email: `${randomUUID()}@run-service.example.test`,
+        displayName: "Synthetic Admin",
+        role: "admin",
+        passwordHash: "test-only",
+      },
+    ]).returning({ id: users.id, role: users.role });
+    const unrelated = insertedActors[0];
+    const admin = insertedActors[1];
+    if (unrelated === undefined || admin === undefined) throw new Error("Read actors failed.");
+    expect((await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: fixture.actorId, role: "product_editor" },
+    })).ok).toBe(true);
+    expect((await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: admin.id, role: "admin" },
+    })).ok).toBe(true);
+    const unrelatedResult = await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: unrelated.id, role: "product_editor" },
+    });
+    const missingResult = await service().readRun({
+      runId: randomUUID(),
+      actor: { userId: unrelated.id, role: "product_editor" },
+    });
+    const wrongRoleResult = await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: fixture.actorId, role: "content_editor" },
+    });
+    expect(unrelatedResult).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(missingResult).toEqual(unrelatedResult);
+    expect(wrongRoleResult).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+  });
+
+  it("serializes default switching with enqueue into an exact snapshot or clean conflict", async () => {
+    const fixture = await seedFixture();
+    const [admin] = await db().insert(users).values({
+      email: `${randomUUID()}@run-service.example.test`,
+      displayName: "Synthetic Config Admin",
+      role: "admin",
+      passwordHash: "test-only",
+    }).returning({ id: users.id, role: users.role });
+    if (admin === undefined) throw new Error("Admin fixture failed.");
+    const [second] = await db().insert(aiModelConfig).values({
+      useCase: "product_description_draft",
+      provider: "synthetic_alpha",
+      model: "synthetic-text-alpha-v1",
+      parametersJson: { temperature: 0 },
+      maxInputTokens: 1_000,
+      maxOutputTokens: 200,
+      maxAttempts: 3,
+      runCostLimitMicrousd: 20_000,
+      promptId: "product-description-draft",
+      promptVersion: 1,
+      promptHash: hash("a"),
+      enabled: false,
+      isDefault: false,
+      createdByUserId: admin.id,
+      updatedByUserId: admin.id,
+    }).returning({ id: aiModelConfig.id });
+    if (second === undefined) throw new Error("Second config fixture failed.");
+    const configService = createAiModelConfigServiceV1(db(), {
+      contracts: [{
+        useCase: "product_description_draft",
+        inputSchemaVersion: 1,
+        outputSchemaVersion: 1,
+        policyVersion: "draft-product-description-v1",
+      }],
+      providerRegistry,
+      promptLoader,
+      pricingRegistry: localTestPricingPolicyRegistryV1,
+    });
+    const [requestOutcome, switchOutcome] = await Promise.all([
+      service().requestDraftAssistance(command(fixture, { idempotencyKey: randomUUID() })),
+      configService.activateDefault({
+        actor: { userId: admin.id, role: "admin" },
+        useCase: "product_description_draft",
+        selectedConfigId: second.id,
+        expectedRecordVersions: {
+          [fixture.configId]: 1,
+          [second.id]: 1,
+        },
+      }),
+    ]);
+    expect(switchOutcome.ok).toBe(true);
+    if (requestOutcome.ok) {
+      const [run] = await db().select().from(aiRuns).where(eq(aiRuns.id, requestOutcome.value.runId));
+      expect([fixture.configId, second.id]).toContain(run?.modelConfigId);
+      expect(run?.modelConfigVersion).toBe(1);
+      const [snapshot] = await db().select().from(aiModelConfig)
+        .where(eq(aiModelConfig.id, run!.modelConfigId));
+      expect(snapshot).toBeDefined();
+    } else {
+      expect(requestOutcome.error.code).toBe("state_conflict");
+      expect(await db().select().from(aiRuns)).toHaveLength(0);
+    }
+  });
+
   it("rolls target/run/Audit back atomically on required Audit failure", async () => {
     const fixture = await seedFixture();
     await expect(service(async () => {
@@ -369,6 +483,20 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       evidence: evidence.value,
     });
     if (settled.kind !== "settled") throw new Error("Synthetic failure settlement failed.");
+    await expect(service(async () => {
+      throw new Error("TEST manual retry Audit failure");
+    }).manualRetry({
+      runId: created.value.runId,
+      actor: { userId: fixture.actorId, role: "product_editor" },
+      expectedStateVersion: settled.stateVersion,
+    })).rejects.toThrow(/manual retry Audit failure/);
+    const [afterAuditFailure] = await db().select().from(aiRuns)
+      .where(eq(aiRuns.id, created.value.runId));
+    expect(afterAuditFailure).toMatchObject({
+      status: "failed",
+      retryState: "not_retryable",
+      stateVersion: settled.stateVersion,
+    });
     const retried = await service().manualRetry({
       runId: created.value.runId,
       actor: { userId: fixture.actorId, role: "product_editor" },
