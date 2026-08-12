@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "task": "Stage 4A Phase C implementation remediation attempt 1",
+  "finding": "PCIR-H-01",
+  "result": "PASS",
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-c-implementation-v1",
+    "proofBoundCodeCommit": "ac8101d17713727266c2076969834d201090c268",
+    "acceptedDesignBase": "21662c2c110f17cd095249fe91c2c019f6f508ab",
+    "reviewedPreRemediationCandidate": "e10073c4602d91fa944245864b0b5637017d81b7",
+    "failedIndependentReview": "91c5805b609ff687370be6610f586f641e382097",
+    "acceptedPhaseBCheckpointUnchanged": "cc5715f4a9eb07293bf932cfbd822bfa6bf14a45"
+  },
+  "authorization": {
+    "actorAuthority": "one transaction-local active users row resolution with exact persisted-role/claim agreement",
+    "operationPolicy": "one capability-local closed Phase C operation policy over the persisted schema role",
+    "revisionAuthority": "editorial_revisions.entity_type and locale resolved inside the same service/repository transaction",
+    "protectedRead": "Admin, matching Product/Content Editor, and Reviewer/Publisher only",
+    "cancelAndManualRetry": "Admin or own-request matching Product/Content Editor only",
+    "enqueue": "Admin or matching Product/Content Editor only",
+    "disposition": "Admin, matching Product/Content Editor, or Reviewer/Publisher",
+    "configMutation": "persisted active Admin only",
+    "requiredAuditActor": "resolved persisted actor identity",
+    "unauthorizedMutationOrAudit": false
+  },
+  "reviewReproduction": {
+    "sourceCommit": "91c5805b609ff687370be6610f586f641e382097",
+    "test": "AUTHORIZATION_ROLE_TRUST_REPRODUCTION.test.ts",
+    "config": "REPRODUCTION.vitest.config.ts",
+    "expectedDefectObservationBecameImpossible": true,
+    "observedFailure": "the original defect test expected persisted Sales plus claimed Admin protected read to succeed, but received ok=false",
+    "result": "PASS"
+  },
+  "gates": {
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "prompt": "PASS",
+    "aiFoundation": {
+      "result": "PASS",
+      "filesPassed": 17,
+      "filesSkipped": 7,
+      "testsPassed": 174,
+      "testsSkipped": 35
+    },
+    "fullRegression": {
+      "result": "PASS",
+      "filesPassed": 117,
+      "filesSkipped": 7,
+      "testsPassed": 594,
+      "testsSkipped": 35
+    },
+    "realPostgresqlPhaseC": {
+      "result": "PASS",
+      "filesPassed": 11,
+      "testsPassed": 44,
+      "postgresql": "17.10"
+    },
+    "h01BothOwnerOrders": "PASS",
+    "postgresqlBuild": "PASS",
+    "serverPublicBundle": "PASS",
+    "architectureV4Emission": "PASS",
+    "ev01": "PASS: 13/13 scale plans and zero residual locks/scale databases",
+    "ev02": "PASS: two-slot, five heartbeat-busy attempts, one renewal abort, candidate null, zero residual lock/idle transaction"
+  },
+  "activeConditions": [
+    "C-002: RW-005/RW-006/RW-007 remain active",
+    "C-003: FEATURE_PRODUCT_IMPORT remains false and PF-007 remains outside Phase C"
+  ],
+  "nextGate": "Fresh independent Phase C implementation re-review"
+}

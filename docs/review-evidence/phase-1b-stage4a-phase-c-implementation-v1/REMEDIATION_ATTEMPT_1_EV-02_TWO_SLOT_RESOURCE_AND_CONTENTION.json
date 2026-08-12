@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "candidateCommit": "ac8101d17713727266c2076969834d201090c268",
+  "synthetic": true,
+  "harnessSource": "EV-02_HARNESS_SOURCE.ts.txt",
+  "harnessSourceSha256": "5e1362fd8795b86d288efc456099815d6d28094ba2b6f8982288f1fd2351e444",
+  "envelope": {
+    "targetVcpu": 2,
+    "targetMemoryBytes": 4294967296,
+    "validationMode": "measured-demand-below-equivalent-capacity",
+    "hostAvailableParallelism": 10
+  },
+  "node": "v24.14.0",
+  "twoSlot": {
+    "maximumProviderCalls": 2,
+    "blockedState": {
+      "processing": 2,
+      "pending": 1
+    },
+    "finalDraftReady": 3,
+    "providerCalls": 3
+  },
+  "contention": {
+    "abortReason": "lease_renewal_unavailable",
+    "heartbeatBusyEvents": 5,
+    "renewalUnavailableEvents": 1,
+    "durableStatus": "processing",
+    "candidateNull": true
+  },
+  "resource": {
+    "cpuUserMicroseconds": 909817,
+    "cpuSystemMicroseconds": 80823,
+    "rssBeforeBytes": 92078080,
+    "rssAfterBytes": 178929664,
+    "maxRssKilobytes": 174752,
+    "wallDurationMs": 3920.8632500000003,
+    "averageVcpuDemand": 0.2526586460264841,
+    "eventLoopMeanMs": 11.755976481927712,
+    "eventLoopP99Ms": 44.171263,
+    "eventLoopMaxMs": 53.837823,
+    "dbPoolMax": 8
+  },
+  "health": {
+    "advisoryLocks": 0,
+    "idleInTransaction": 0
+  },
+  "result": "PASS"
+}
