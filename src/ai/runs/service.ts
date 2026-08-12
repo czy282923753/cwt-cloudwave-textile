@@ -18,12 +18,19 @@ import {
 import type { GenericAiOrchestratorV1 } from "@/ai/core/contracts";
 import { aiFailure, type AiServiceResult } from "@/ai/errors";
 import type { ProtectedDraftCandidateV1 } from "@/ai/output/common";
+import { aiModelConfigMutationReadRepositoryV1 } from "@/ai/config/model-config-repository";
 import type {
   AiRunAuthorizedReadV1,
   RunDispositionInputV1,
 } from "@/ai/runs/contracts";
-import type { PricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
-import { createAiRunRepositoryV1 } from "@/ai/runs/repository";
+import {
+  calculateAttemptUpperCostMicrousdV1,
+  type PricingPolicyRegistryV1,
+} from "@/ai/runs/pricing-policy";
+import {
+  coreRunSummaryFromRepositoryRowV1,
+  createAiRunRepositoryV1,
+} from "@/ai/runs/repository";
 import {
   runGovernedMutation,
   type GovernedMutationOptions,
@@ -135,6 +142,10 @@ export function createAiRunServiceV1(
           executionEnvironment,
           pricingRegistry: dependencies.pricingRegistry,
           audit,
+          runRepository: createAiRunRepositoryV1(transaction),
+          configRepository: aiModelConfigMutationReadRepositoryV1,
+          calculateAttemptUpperCost: calculateAttemptUpperCostMicrousdV1,
+          summarizeRun: coreRunSummaryFromRepositoryRowV1,
         });
         return withTransactionBoundDraftEnqueueScope<
           PostgresJsQueryResultHKT,

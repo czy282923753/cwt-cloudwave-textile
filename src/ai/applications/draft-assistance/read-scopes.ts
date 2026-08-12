@@ -15,16 +15,12 @@ import type {
 import type { AiServiceResult } from "@/ai/errors";
 import { aiFailure, aiSuccess } from "@/ai/errors";
 import {
-  aiModelConfigMutationReadRepositoryV1,
   type AiModelConfigMutationReadRepositoryV1,
 } from "@/ai/config/model-config-repository";
 import {
-  calculateAttemptUpperCostMicrousdV1,
   type PricingPolicyRegistryV1,
 } from "@/ai/runs/pricing-policy";
 import {
-  coreRunSummaryFromRepositoryRowV1,
-  createAiRunRepositoryV1,
   type AiRunRepositoryV1,
 } from "@/ai/runs/repository";
 import {
@@ -209,14 +205,16 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
   readonly executionEnvironment: "local" | "test" | "staging";
   readonly pricingRegistry: PricingPolicyRegistryV1;
   readonly audit: (input: AuditInput) => Promise<string>;
-  readonly runRepository?: AiRunRepositoryV1;
-  readonly configRepository?: AiModelConfigMutationReadRepositoryV1;
+  readonly runRepository: AiRunRepositoryV1;
+  readonly configRepository: AiModelConfigMutationReadRepositoryV1;
+  readonly calculateAttemptUpperCost:
+    typeof import("@/ai/runs/pricing-policy").calculateAttemptUpperCostMicrousdV1;
+  readonly summarizeRun:
+    typeof import("@/ai/runs/repository").coreRunSummaryFromRepositoryRowV1;
 }): DraftTransactionScopeOperationsV1 {
-  const runRepository = input.runRepository ?? createAiRunRepositoryV1(input.transaction);
-  const configRepository = input.configRepository ?? aiModelConfigMutationReadRepositoryV1;
   return {
     async findReplay(lookup) {
-      const replay = await runRepository.findReplayWithinTransaction(input.transaction, {
+      const replay = await input.runRepository.findReplayWithinTransaction(input.transaction, {
         idempotencyKey: lookup.idempotencyKey,
         requestedByUserId: lookup.requestedByPrincipalId,
         requestFingerprintVersion: lookup.fingerprintVersion,
@@ -228,7 +226,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
       }
       return aiSuccess({
         kind: "exact_replay",
-        summary: coreRunSummaryFromRepositoryRowV1(replay.row),
+        summary: input.summarizeRun(replay.row),
       });
     },
 
@@ -302,7 +300,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
     },
 
     async lockSelectedConfigForNewRequest(configuration) {
-      const locked = await configRepository.lockUseCaseRows(input.transaction, {
+      const locked = await input.configRepository.lockUseCaseRows(input.transaction, {
         capability: "text",
         useCase: input.command.useCase,
       });
@@ -323,7 +321,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         at,
       });
       if (!pricing.ok) return pricing;
-      const cost = calculateAttemptUpperCostMicrousdV1({
+      const cost = input.calculateAttemptUpperCost({
         maxInputTokens: preparedRun.resolvedConfig.maxInputTokens,
         maxOutputTokens: preparedRun.resolvedConfig.maxOutputTokens,
         maxAttempts: preparedRun.resolvedConfig.maxAttempts,
@@ -334,7 +332,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         return aiFailure("config_invalid");
       }
       const local = input.executionEnvironment !== "staging";
-      const committed = await runRepository.insertPreparedWithinTransaction(input.transaction, {
+      const committed = await input.runRepository.insertPreparedWithinTransaction(input.transaction, {
         preparedRun,
         executionEnvironment: input.executionEnvironment,
         pricingSnapshot: { ...pricing.value },
@@ -352,7 +350,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
         }
         return aiSuccess({
           kind: "unique_loser_exact_replay",
-          summary: coreRunSummaryFromRepositoryRowV1(committed.row),
+          summary: input.summarizeRun(committed.row),
         });
       }
       await input.audit({
@@ -368,7 +366,7 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
       });
       return aiSuccess({
         kind: "inserted",
-        summary: coreRunSummaryFromRepositoryRowV1(committed.row),
+        summary: input.summarizeRun(committed.row),
       });
     },
   };
