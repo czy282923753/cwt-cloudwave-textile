@@ -16,7 +16,7 @@ import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import type { ReadonlyJsonValue } from "@/ai/canonical-json";
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import { aiFailure } from "@/ai/errors";
-import { hasPermission, type UserRole } from "@/auth/permissions";
+import type { UserRole } from "@/auth/permissions";
 import {
   noOpAiTelemetrySink,
   type AiTelemetryEvent,
@@ -106,14 +106,16 @@ export function authoritativeAiActorCanPerformV1(
   operation: HumanAiOperationV1,
   entityType?: "product" | "content",
 ): boolean {
-  if (operation === "config_mutation") return hasPermission(actor.role, "settings.manage");
+  if (operation === "config_mutation") return actor.role === "admin";
+  if (actor.role === "admin") return true;
   if (entityType === undefined) return false;
-  const writePermission = entityType === "product" ? "products.write" : "content.write";
+  const matchingEditor = entityType === "product"
+    ? actor.role === "product_editor"
+    : actor.role === "content_editor";
   if (operation === "enqueue" || operation === "cancel" || operation === "manual_retry") {
-    return hasPermission(actor.role, writePermission);
+    return matchingEditor;
   }
-  const reviewPermission = entityType === "product" ? "products.review" : "content.review";
-  return hasPermission(actor.role, writePermission) || hasPermission(actor.role, reviewPermission);
+  return matchingEditor || actor.role === "reviewer_publisher";
 }
 type LifecycleOperation =
   | "claim_or_recover"
@@ -345,7 +347,7 @@ async function humanCanPerformRunOperationV1(
     return false;
   }
   if (operation !== "cancel" && operation !== "manual_retry") return true;
-  return hasPermission(actor.role, "settings.manage") || row.requestedByUserId === actor.userId;
+  return actor.role === "admin" || row.requestedByUserId === actor.userId;
 }
 
 function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
