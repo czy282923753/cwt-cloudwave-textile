@@ -550,7 +550,7 @@ async function runControlledDatabasePath(input: {
       is_superuser: boolean;
       other_sessions: number;
     }[]>`
-      select inet_server_addr()::text as server_addr,
+      select host(inet_server_addr())::text as server_addr,
         current_database()::text as database_name,
         coalesce((select rolsuper from pg_roles where rolname = current_user), true) as is_superuser,
         (select count(*)::int from pg_stat_activity
@@ -558,7 +558,7 @@ async function runControlledDatabasePath(input: {
             and backend_type = 'client backend') as other_sessions
     `;
     const observed = guard[0];
-    if (observed === undefined || !["127.0.0.1", "::1"].includes(observed.server_addr) ||
+    if (observed === undefined || !isControlledValidationDatabaseLoopbackHostV1(observed.server_addr) ||
       observed.database_name !== databaseName || observed.is_superuser || Number(observed.other_sessions) !== 0) {
       return safeFailure("NOT_RUN", "isolated_database_guard_failed", input);
     }
@@ -637,6 +637,10 @@ async function runControlledDatabasePath(input: {
     await worker?.stop("SIGTERM").catch(() => undefined);
     await client?.end().catch(() => undefined);
   }
+}
+
+export function isControlledValidationDatabaseLoopbackHostV1(serverAddress: string): boolean {
+  return serverAddress === "127.0.0.1" || serverAddress === "::1";
 }
 
 async function inspectControlledDatabaseState(

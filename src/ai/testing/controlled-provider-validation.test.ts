@@ -6,6 +6,7 @@ vi.mock("server-only", () => ({}));
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import {
   createControlledValidationAuthoritiesV1,
+  isControlledValidationDatabaseLoopbackHostV1,
   loadControlledDeepSeekFixtureV1,
   parseControlledDeepSeekFixtureBytesForTestV1,
   runNode24LoopbackSemanticGateV1,
@@ -135,5 +136,15 @@ describe("Phase D controlled Provider validation authority", () => {
       redirect_destination_hits: 0,
       runtime: { node: "24.14.0", platform: "darwin", arch: "arm64" },
     });
+  });
+
+  it("accepts only PostgreSQL bare loopback host projections", async () => {
+    const source = await readFile(new URL("./controlled-provider-validation.ts", import.meta.url), "utf8");
+    expect(source).toContain("host(inet_server_addr())::text as server_addr");
+    expect(source).not.toContain("select inet_server_addr()::text as server_addr");
+    expect(isControlledValidationDatabaseLoopbackHostV1("127.0.0.1")).toBe(true);
+    expect(isControlledValidationDatabaseLoopbackHostV1("::1")).toBe(true);
+    expect(isControlledValidationDatabaseLoopbackHostV1("127.0.0.1/32")).toBe(false);
+    expect(isControlledValidationDatabaseLoopbackHostV1("203.0.113.10")).toBe(false);
   });
 });
