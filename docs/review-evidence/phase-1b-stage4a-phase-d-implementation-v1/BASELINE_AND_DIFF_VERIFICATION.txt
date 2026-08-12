@@ -3,13 +3,13 @@ Generated at: 2026-08-12T18:54:54Z
 
 Accepted exact design base: 09eb6b3296dc43f579025213004606e0f0f744c0
 Implementation branch: codex/phase-1b-stage4a-phase-d-implementation-v1
-Proof-bound code commit: 3b923ffd88166e0d03cf8d309a92b5cd98f09a50
+Proof-bound code commit: 250b07d928fbdddc5b81c31162c601643fd0ee21
 
 RESULTS
 - Exact-base ancestry: PASS
 - Proof-bound commit branch identity: PASS
 - git diff --check: PASS
-- Changed path count relative to exact base: 39
+- Changed path count relative to exact base before report/evidence successors: 40
 - Exact add/modify/delete allowlist comparison: PASS
 - Added paths outside allowlist: 0
 - Modified paths outside allowlist: 0
@@ -22,8 +22,14 @@ RESULTS
 - Phase C root removal and Phase D root replacement: PASS
 
 DIFF SUMMARY
-- Insertions: 6110
+- Insertions: 6564
 - Deletions: 343
 - The apparent phase-c-composition.test.ts to phase-d-provider-composition.test.ts rename is Git similarity reporting; both exact delete/add paths are authorized.
 
-This proof binds implementation code only. The implementation report and this evidence package are authorized docs-only successors.
+CORRECTION BOUNDARY
+- Causal correction paths relative to the prior evidence HEAD: 2 product-code paths, both expressly authorized.
+- PostgreSQL guard projection changed only from CIDR-form `inet_server_addr()::text` to canonical bare-host `host(inet_server_addr())::text`.
+- Existing exact database-name, loopback allowlist, non-superuser, zero-session, migration, empty/retained-state, seed, Audit, ai_runs, Worker, fence, attempt, settlement and fail-closed checks remain in order and unchanged.
+- Added proof coverage: PostgreSQL CIDR-to-bare-host canonical semantics, bare IPv4/IPv6 positive checks, CIDR-form direct negative and non-loopback negative.
+
+This proof binds implementation code only. The implementation report and evidence package are authorized docs-only successors.

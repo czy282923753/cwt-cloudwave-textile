@@ -1,11 +1,11 @@
 CWT Stage 4A Phase D DeepSeek contract test results
-Proof-bound code commit: 3b923ffd88166e0d03cf8d309a92b5cd98f09a50
+Proof-bound code commit: 250b07d928fbdddc5b81c31162c601643fd0ee21
 Final zero-secret run: 2026-08-12 UTC
 
 FINAL RESULTS
-- Phase D focused contract aggregate: PASS; 6 files, 57 tests.
-- AI foundation aggregate: PASS; 18 files / 184 tests passed, 7 files / 36 tests skipped only where an external PostgreSQL fixture was not configured.
-- Full repository regression: PASS; 122 files / 653 tests passed, 7 files / 36 tests skipped on the same external PostgreSQL condition.
+- Phase D focused contract aggregate: PASS; 6 files, 58 tests.
+- AI foundation aggregate: PASS; 18 files / 185 tests passed, 7 files / 36 tests skipped only where an external PostgreSQL fixture was not configured.
+- Full repository regression: PASS; 122 files / 654 tests passed, 7 files / 36 tests skipped on the same external PostgreSQL condition.
 - Prompt bundle gate: PASS.
 - TypeScript typecheck: PASS.
 - ESLint with zero-warning limit: PASS.
@@ -21,6 +21,7 @@ COVERED CONTRACTS
 - Phase D composition matrix, Production empty registries and Phase C root removal.
 - Worker dispatch-fence ordering, normalized attempt evidence, terminal settlement and shutdown behavior.
 - Controlled CLI import boundary and safe projected output.
+- PostgreSQL canonical address boundary: `inet_server_addr()` CIDR-form behavior is normalized by `host(...)`, bare IPv4/IPv6 loopback remains exact, and non-loopback remains rejected.
 
 ADDITIONAL DURABLE-PATH TEST
 - A local isolated PostgreSQL container ran the five selected claimed-execution/repository/service/worker/worker-shutdown suites: PASS.

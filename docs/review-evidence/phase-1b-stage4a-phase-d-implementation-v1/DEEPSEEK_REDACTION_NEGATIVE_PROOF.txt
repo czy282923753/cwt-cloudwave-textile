@@ -1,5 +1,5 @@
 CWT Stage 4A Phase D credential/redaction negative proof
-Proof-bound code commit: 3b923ffd88166e0d03cf8d309a92b5cd98f09a50
+Proof-bound code commit: 250b07d928fbdddc5b81c31162c601643fd0ee21
 
 RESULTS
 - Sole production credential reader expression in implementation source: 1.
@@ -15,3 +15,5 @@ RESULTS
 - Evidence-package scan found no credential value or credential derivative. Only fixed environment-variable identifiers and the literal emitted header name "authorization" are retained where required by the accepted proof contract.
 
 The Provider credential itself was never inspected, printed, logged, persisted, hashed, fingerprinted, placed on a command line or copied into evidence. The renewed database secret was injected only into the controlled child environment; its value was never separately read, printed, logged, persisted, parsed outside the runner, or copied into evidence.
+
+The final provisioning attempt generated its new database role, password, name suffix, port and URL only inside one child process. No identifier, connection value, derivative or fingerprint entered command output, Git, report, evidence or callback. Provisioning stopped before protected registration and before controlled invocation.

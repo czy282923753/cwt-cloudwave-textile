@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **Implementation code candidate frozen; renewed controlled real-Provider validation BLOCKED by the exact isolated-database guard.**
+Status: **Database-guard correction proof-bound; final controlled validation BLOCKED before invocation by the new resource's HBA compliance proof.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -8,7 +8,7 @@ This report is implementation-author evidence only. It does not claim independen
 
 - Exact accepted Design Candidate base: `09eb6b3296dc43f579025213004606e0f0f744c0`.
 - Branch: `codex/phase-1b-stage4a-phase-d-implementation-v1`.
-- Proof-bound code commit: `3b923ffd88166e0d03cf8d309a92b5cd98f09a50`.
+- Proof-bound code commit: `250b07d928fbdddc5b81c31162c601643fd0ee21`.
 - Evidence directory: `docs/review-evidence/phase-1b-stage4a-phase-d-implementation-v1/`.
 - The final evidence/report commit is docs-only relative to the proof-bound code commit.
 
@@ -35,6 +35,18 @@ This report is implementation-author evidence only. It does not claim independen
 - Renewed controlled real-Provider validation: **NOT RUN / BLOCKED**, safe code `isolated_database_guard_failed`. The credential reader, durable controlled row and Provider POST were not reached; billable POST count is zero.
 - Historical external-call accounting is explicit: the first authorized invocation preserved at evidence HEAD `e13690c47f44848bb2304cb093f347654bf944f8` used two official GETs and zero Provider POSTs before `isolated_database_unavailable`; the renewed invocation used two official GETs and zero Provider POSTs. Aggregate authorized history is four GETs and zero Provider POSTs, while the final controlled projection correctly remains per-invocation.
 
+## Database-guard causal correction
+
+The coordinator's read-only reproduction identified a representation mismatch: PostgreSQL returns IPv4 `inet_server_addr()::text` with a CIDR suffix, while the semantic guard accepts the bare loopback host. The correction changes only the query projection to `host(inet_server_addr())::text`; the exact bare IPv4/IPv6 loopback allowlist and all following guards remain unchanged.
+
+Tests bind the SQL operation, prove canonical CIDR-to-bare-host behavior, accept only the two existing bare loopbacks and retain a non-loopback negative. Final `typecheck`, zero-warning `lint`, Prompt, focused Phase D, AI foundation, full regression and proof-bound V5 architecture gates passed against the new code commit.
+
+## Final provisioning result
+
+After all zero-network gates passed, one new local resource was provisioned from a pinned local PostgreSQL image using host networking and protected ephemeral initialization inputs. Provisioning stopped fail-closed at the final host-HBA compliance proof with safe code `hba_verification_failed`. No protected launchctl registration update occurred, so the authorized controlled invocation did not start: current-attempt official GET count `0`, Provider POST count `0`, Provider credential path not reached.
+
+The prior registered target was not reused, inspected or mutated. The newly created resource was left retained without drop, truncate, cleanup or disclosure as required after the single failed attempt. The report does not infer the failing HBA subcondition.
+
 ## Blocker and risk treatment
 
 The accepted design requires a protected connection to an isolated non-Production PostgreSQL database whose URL shape, loopback address, database name, role, session state and public-table state pass strict guards. The coordinator-provided launchctl registration was injected exactly once into the controlled child process without separate value observation, but the runner returned `isolated_database_guard_failed`. The safe projection intentionally does not disclose or infer which individual database guard rejected the context. Creating a substitute database, weakening the guard, using PGlite, using Production/protected Staging, or bypassing the durable path would violate the accepted design; none was attempted.
@@ -54,4 +66,4 @@ Supplier questionnaire, DPA, no-training, region, subprocessor and security assu
 
 ## Required next action
 
-Status is `BLOCKED`, not implementation acceptance. The coordinator must decide how to correct or replace the isolated-validation database context so that the unchanged V1.2 guard can accept it, then separately authorize any further bounded invocation. No further official GET or Provider POST is authorized by this task. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.
+Status is `BLOCKED`, not implementation acceptance. The coordinator must decide whether and how to inspect, correct, dispose or replace the retained local resource after its final SCRAM HBA proof failed. Any such action and any further controlled invocation require separate authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.

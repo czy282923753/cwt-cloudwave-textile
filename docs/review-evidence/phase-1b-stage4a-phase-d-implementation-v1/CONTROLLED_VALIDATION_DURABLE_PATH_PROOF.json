@@ -2,7 +2,7 @@
   "schema": "cwt.phase-d.controlled-validation-durable-path-proof",
   "version": 1,
   "status": "PARTIAL_BLOCKED",
-  "proof_bound_code_commit": "3b923ffd88166e0d03cf8d309a92b5cd98f09a50",
+  "proof_bound_code_commit": "250b07d928fbdddc5b81c31162c601643fd0ee21",
   "fake_provider_postgresql_proof": {
     "status": "PASS",
     "database": "isolated local PostgreSQL container",
@@ -51,6 +51,28 @@
     "official_source_get_total": 4,
     "billable_provider_post_total": 0
   },
-  "database_disposition": "No drop, truncate, cleanup or connection-value disclosure was performed. The supplied database remains outside this evidence package.",
-  "conclusion": "Implementation durable-path behavior is locally proven with the fake Provider, but the renewed real-Provider path stopped at the exact isolated-database guard before credential access or durable enqueue. This is NOT RUN, not PASS."
+  "guard_correction": {
+    "status": "PASS",
+    "boundary": "PostgreSQL host(inet_server_addr()) canonical bare-host projection",
+    "loopback_allowlist_unchanged": true,
+    "non_loopback_negative": "PASS",
+    "other_database_guards_unchanged": true
+  },
+  "final_provisioning_attempt": {
+    "status": "BLOCKED",
+    "safe_code": "hba_verification_failed",
+    "local_container_created": true,
+    "protected_registration_updated": false,
+    "controlled_invocation_started": false,
+    "official_source_get_total": 0,
+    "billable_provider_post_total": 0,
+    "credential_reader_reached": false
+  },
+  "aggregate_authorized_external_history_after_final_attempt": {
+    "controlled_invocation_count": 2,
+    "official_source_get_total": 4,
+    "billable_provider_post_total": 0
+  },
+  "database_disposition": "The prior target was not inspected or mutated. The newly created local resource was not dropped, truncated, cleaned up or disclosed after provisioning stopped; protected registration was not updated.",
+  "conclusion": "The causal PostgreSQL representation defect is corrected and proof-bound. The final controlled invocation did not start because the new resource failed the final SCRAM HBA compliance proof. This is NOT RUN, not PASS."
 }
