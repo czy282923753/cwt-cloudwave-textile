@@ -144,3 +144,52 @@ export interface AiRunWorkerV1 {
   stop(signal?: "SIGINT" | "SIGTERM"): Promise<void>;
   readonly running: boolean;
 }
+
+export interface ClaimedLeaseHandleV1 {
+  readonly runId: string;
+  readonly executionEnvironment: "local" | "test" | "staging" | "production";
+  readonly leaseOwner: string;
+  readonly leaseToken: string;
+  readonly leaseExpiresAt: Date;
+  readonly stateVersion: number;
+}
+
+export type HeartbeatOutcomeV1 =
+  | {
+      readonly kind: "renewed";
+      readonly observedAt: Date;
+      readonly leaseExpiresAt: Date;
+      readonly stateVersion: number;
+    }
+  | Extract<LifecycleLockOutcomeV1, { readonly kind: "lock_busy" }>
+  | { readonly kind: "lease_lost_or_unsafe"; readonly observedAt: Date };
+
+export type SettlementOutcomeV1 =
+  | {
+      readonly kind: "settled";
+      readonly status: "pending" | "draft_ready" | "failed";
+      readonly retryState: AiRunRetryStateV1;
+      readonly stateVersion: number;
+    }
+  | Extract<LifecycleLockOutcomeV1, { readonly kind: "lock_busy" }>
+  | { readonly kind: "lease_lost_or_unsafe"; readonly observedAt: Date }
+  | { readonly kind: "cancelled_fence"; readonly observedAt: Date };
+
+export interface RunDispositionInputV1 {
+  readonly runId: string;
+  readonly actorUserId: string;
+  readonly expectedStateVersion: number;
+  readonly disposition: "rejected";
+  readonly candidateHash: string;
+  readonly qualityRating: number | null;
+  readonly qualityLabels: readonly (
+    | "factual_issue"
+    | "relevance"
+    | "clarity"
+    | "tone"
+    | "format"
+    | "duplication"
+    | "unsafe_claim"
+  )[];
+  readonly qualityComment: string | null;
+}
