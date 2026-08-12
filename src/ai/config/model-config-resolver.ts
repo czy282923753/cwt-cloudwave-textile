@@ -12,6 +12,11 @@ import type { LoadedPromptResourceV1 } from "@/ai/prompts/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import type { TextProviderRegistryV1 } from "@/ai/providers/registry";
 import { resolvedConfigHashV1 } from "@/ai/internal/preparation";
+import {
+  calculateAttemptUpperCostMicrousdV1,
+  localTestPricingPolicyRegistryV1,
+  type PricingPolicyRegistryV1,
+} from "@/ai/runs/pricing-policy";
 
 const uuid = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -102,6 +107,8 @@ export function resolveModelConfigV1(input: {
   readonly outputSchemaId: string;
   readonly providerRegistry: TextProviderRegistryV1;
   readonly promptLoader: PromptBundleLoaderV1;
+  readonly pricingRegistry?: PricingPolicyRegistryV1;
+  readonly pricingObservedAt?: Date;
 }): AiServiceResult<ResolvedPhaseBConfigurationV1> {
   const rows = validateRepositoryResult(input.read, input.key);
   if (!rows.ok) return rows;
@@ -135,6 +142,21 @@ export function resolveModelConfigV1(input: {
     policyVersion: input.policyVersion,
   });
   if (!prompt.ok) return prompt;
+  const pricing = (input.pricingRegistry ?? localTestPricingPolicyRegistryV1).resolve({
+    provider: row.provider,
+    model: row.model,
+    at: input.pricingObservedAt ?? row.updatedAt,
+  });
+  if (!pricing.ok) return pricing;
+  const cost = calculateAttemptUpperCostMicrousdV1({
+    maxInputTokens: row.maxInputTokens,
+    maxOutputTokens: row.maxOutputTokens,
+    maxAttempts: row.maxAttempts,
+    pricing: pricing.value,
+  });
+  if (!cost.ok || cost.value.estimatedMax > row.runCostLimitMicrousd) {
+    return aiFailure("config_invalid");
+  }
   const protectedHash = resolvedConfigHashV1({
     applicationClass: input.key.applicationClass,
     capability: "text",

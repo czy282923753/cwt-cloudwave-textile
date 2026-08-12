@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -10,7 +10,8 @@ import type {
   AiModelConfigRow,
 } from "@/ai/core/contracts";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
-import { aiModelConfig } from "@/db/schema";
+import { aiModelConfig, aiRuns } from "@/db/schema";
+import type { AppDatabase } from "@/db/types";
 
 export interface AiModelConfigRepository {
   readResolutionState<TQueryResult extends PgQueryResultHKT>(
@@ -21,6 +22,21 @@ export interface AiModelConfigRepository {
       readonly useCase: string;
     },
   ): Promise<AiServiceResult<AiModelConfigResolutionReadV1>>;
+}
+
+export interface AiModelConfigMutationReadRepositoryV1 {
+  lockUseCaseRows<TQueryResult extends PgQueryResultHKT>(
+    transaction: AppDatabase<TQueryResult>,
+    input: { readonly capability: "text"; readonly useCase: string },
+  ): Promise<AiServiceResult<readonly AiModelConfigRow[]>>;
+  lockRowById<TQueryResult extends PgQueryResultHKT>(
+    transaction: AppDatabase<TQueryResult>,
+    id: string,
+  ): Promise<AiServiceResult<AiModelConfigRow | null>>;
+  countRunReferences<TQueryResult extends PgQueryResultHKT>(
+    transaction: AppDatabase<TQueryResult>,
+    id: string,
+  ): Promise<AiServiceResult<number>>;
 }
 
 const uuid = z.string().regex(
@@ -148,6 +164,56 @@ export const aiModelConfigRepositoryV1: AiModelConfigRepository = {
         enabledDefaultRowCount,
         enabledDefaultRows: rows,
       });
+    } catch {
+      return aiFailure("config_repository_invalid");
+    }
+  },
+};
+
+export const aiModelConfigMutationReadRepositoryV1: AiModelConfigMutationReadRepositoryV1 = {
+  async lockUseCaseRows(transaction, input) {
+    try {
+      const selected = await transaction.select().from(aiModelConfig).where(and(
+        eq(aiModelConfig.capability, input.capability),
+        eq(aiModelConfig.useCase, input.useCase),
+      )).orderBy(asc(aiModelConfig.id)).for("update", { of: aiModelConfig });
+      const rows: AiModelConfigRow[] = [];
+      for (const candidate of selected) {
+        const parsed = modelRowSchema.safeParse(candidate);
+        if (!parsed.success || parsed.data.capability !== input.capability ||
+          parsed.data.useCase !== input.useCase) return aiFailure("config_repository_invalid");
+        const row = mapRow(parsed.data);
+        if (!row.ok) return row;
+        rows.push(row.value);
+      }
+      return aiSuccess(rows);
+    } catch {
+      return aiFailure("config_repository_invalid");
+    }
+  },
+
+  async lockRowById(transaction, id) {
+    try {
+      const selected = await transaction.select().from(aiModelConfig)
+        .where(eq(aiModelConfig.id, id)).limit(1).for("update", { of: aiModelConfig });
+      const candidate = selected[0];
+      if (candidate === undefined) return aiSuccess(null);
+      const parsed = modelRowSchema.safeParse(candidate);
+      if (!parsed.success) return aiFailure("config_repository_invalid");
+      return mapRow(parsed.data);
+    } catch {
+      return aiFailure("config_repository_invalid");
+    }
+  },
+
+  async countRunReferences(transaction, id) {
+    try {
+      const selected = await transaction.select({ value: count() }).from(aiRuns)
+        .where(eq(aiRuns.modelConfigId, id));
+      const value = selected[0]?.value;
+      return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+        ? aiSuccess(value)
+        : aiFailure("config_repository_invalid");
     } catch {
       return aiFailure("config_repository_invalid");
     }
