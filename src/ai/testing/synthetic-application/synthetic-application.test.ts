@@ -44,7 +44,6 @@ describe("structurally distinct Synthetic application", () => {
     expect(binding.ok).toBe(true);
     if (!binding.ok) return;
     const orchestrator = createGenericAiOrchestratorV1({
-      durableEnqueueAvailable: false,
       appEnvironment: "test",
       processFeatureAiEnabled: false,
       async validateConfiguration() { return aiFailure("integration_not_ready"); },

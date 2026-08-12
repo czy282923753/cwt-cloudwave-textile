@@ -9,7 +9,7 @@ import type {
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import { resolvedConfigHashV1 } from "./preparation";
 
-const claimedRunBrand = Symbol("claimed-ai-run");
+const claimedRunBrand = Symbol("pre-dispatch-claimed-ai-run-v2");
 function claimedRunMarker(): true {
   return true;
 }
@@ -33,7 +33,7 @@ const rowSchema = z.object({
   modelConfigVersion: z.number().int().positive(),
   resolvedConfigHash: hash,
   requestedProvider: z.string().min(1).max(64),
-  actualProvider: z.string().min(1).max(64),
+  actualProvider: z.string().min(1).max(64).nullable(),
   requestedModel: z.string().min(1).max(128),
   parametersSnapshotJson: z.unknown(),
   maxInputTokens: z.number().int().min(1).max(16_000),
@@ -53,11 +53,12 @@ const rowSchema = z.object({
   status: z.literal("processing"),
   retryState: z.literal("none"),
   attemptCount: z.number().int().positive(),
+  leaseOwner: z.string().min(1).max(128),
   leaseToken: uuid,
   leaseExpiresAt: z.date(),
   stateVersion: z.number().int().positive(),
-  activeAttemptDispatchedAt: z.date(),
-  providerDispatchedAt: z.date(),
+  activeAttemptDispatchedAt: z.null(),
+  providerDispatchedAt: z.date().nullable(),
 }).strict();
 
 function jsonValue(value: unknown): value is ReadonlyJsonValue {
@@ -87,9 +88,9 @@ function copyJsonObject(value: ReadonlyJsonObject): ReadonlyJsonObject {
   return Object.freeze(copy);
 }
 
-export interface ConstructedClaimedRunV1 {
+export interface PreDispatchClaimedRunV2 {
   readonly [claimedRunBrand]: true;
-  readonly version: 1;
+  readonly version: 2;
   readonly runId: string;
   readonly applicationClass: string;
   readonly capability: "text";
@@ -100,7 +101,7 @@ export interface ConstructedClaimedRunV1 {
   readonly modelConfigVersion: number;
   readonly resolvedConfigHash: string;
   readonly requestedProvider: string;
-  readonly actualProvider: string;
+  readonly actualProvider: string | null;
   readonly requestedModel: string;
   readonly parametersSnapshot: ReadonlyJsonObject;
   readonly maxInputTokens: number;
@@ -121,18 +122,19 @@ export interface ConstructedClaimedRunV1 {
   readonly status: "processing";
   readonly retryState: "none";
   readonly attemptCount: number;
+  readonly leaseOwner: string;
   readonly leaseToken: string;
   readonly leaseExpiresAt: Date;
   readonly stateVersion: number;
-  readonly activeAttemptDispatchedAt: Date;
-  readonly providerDispatchedAt: Date;
+  readonly activeAttemptDispatchedAt: null;
+  readonly providerDispatchedAt: Date | null;
   readonly claimedContext: OpaqueClaimedContextStageV1;
 }
 
-export function constructClaimedRunV1(input: {
+export function constructPreDispatchClaimedRunV2(input: {
   readonly row: unknown;
   readonly applicationRegistry: ClaimedApplicationRuntimeRegistryV1;
-}): AiServiceResult<ConstructedClaimedRunV1> {
+}): AiServiceResult<PreDispatchClaimedRunV2> {
   const parsed = rowSchema.safeParse(input.row);
   if (!parsed.success) return aiFailure("claimed_run_required");
   const row = parsed.data;
@@ -141,7 +143,12 @@ export function constructClaimedRunV1(input: {
   }
   const parametersSnapshot = copyJsonObject(row.parametersSnapshotJson);
   const inputContext = copyJsonObject(row.inputContextJson);
-  if (row.actualProvider !== row.requestedProvider) return aiFailure("config_provenance_mismatch");
+  if (row.actualProvider !== null && row.actualProvider !== row.requestedProvider) {
+    return aiFailure("config_provenance_mismatch");
+  }
+  if ((row.actualProvider === null) !== (row.providerDispatchedAt === null)) {
+    return aiFailure("config_provenance_mismatch");
+  }
   if (row.attemptCount > row.maxAttempts) return aiFailure("claimed_run_required");
   const runtime = input.applicationRegistry.resolve({
     applicationClass: row.applicationClass,
@@ -194,9 +201,9 @@ export function constructClaimedRunV1(input: {
   if (!configHash.ok || configHash.value.hash !== row.resolvedConfigHash) {
     return aiFailure("config_provenance_mismatch");
   }
-  const claimed: ConstructedClaimedRunV1 = Object.freeze({
+  const claimed: PreDispatchClaimedRunV2 = Object.freeze({
     [claimedRunBrand]: claimedRunMarker(),
-    version: 1,
+    version: 2,
     runId: row.runId,
     applicationClass: row.applicationClass,
     capability: "text",
@@ -228,6 +235,7 @@ export function constructClaimedRunV1(input: {
     status: "processing",
     retryState: "none",
     attemptCount: row.attemptCount,
+    leaseOwner: row.leaseOwner,
     leaseToken: row.leaseToken,
     leaseExpiresAt: row.leaseExpiresAt,
     stateVersion: row.stateVersion,

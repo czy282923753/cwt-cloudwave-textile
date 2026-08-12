@@ -1,4 +1,4 @@
-import selectedProfileSource from "./context-integrity-profile.v2_0.json";
+import selectedProfileSource from "./context-integrity-profile.v3_0.json";
 
 import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json";
 import {
@@ -48,7 +48,7 @@ export interface DraftContextIntegrityProductV1 {
   readonly summary: {
     readonly assignmentCount: 35;
     readonly domainCount: 3;
-    readonly errorCodeCount: 69;
+    readonly errorCodeCount: 71;
     readonly claimedReplayStepCount: 14;
   };
   validateContext(value: unknown): AiServiceResult<true>;
@@ -63,9 +63,9 @@ const selectedTraversalCodes = [
 ] as const satisfies readonly AiErrorCode[];
 
 const expectedProfileId =
-  "cwt.phase1b.stage4a.phaseb.corrected-design.v1_10.v18-m01-m03-attempt-2.v1";
-const expectedProfileVersion = "2.0.0";
-const expectedProfileSha256 = "efdec023f886a9ca9d1a558bfba0e54781292e0e8215609c4b68a68268caba01";
+  "cwt.phase1b.stage4a.phasec.durable-run-worker.context-integrity.v3";
+const expectedProfileVersion = "3.0.0";
+const expectedProfileSha256 = "ba6a0b9bbb3cc259a25ca70616a85076a212611016400b673539cd2e1e54f49d";
 const expectedProfileKeys = [
   "associationIntegrity", "authority", "compiledAuthority", "compilerContract",
   "contextNodeAssignments", "decision", "domains", "errorTaxonomy", "executionOrders",
@@ -212,7 +212,7 @@ function assertErrorClosure(profile: Record<string, PlainJson>): void {
   const taxonomy = profileRecord(profileMember(profile, "errorTaxonomy"), "error_taxonomy");
   const codes = profileArray(profileMember(taxonomy, "codes"), "error_codes");
   const traversalCodes = stringArray(profileMember(taxonomy, "traversalReturnCodes"));
-  if (codes.length !== 69 || aiErrorCodes.length !== 69 || traversalCodes === undefined ||
+  if (codes.length !== 71 || aiErrorCodes.length !== 71 || traversalCodes === undefined ||
     traversalCodes.length !== selectedTraversalCodes.length ||
     traversalCodes.some((code, index) => code !== selectedTraversalCodes[index])) {
     throw new ProfileCompilationFailure("error_closure_count_or_subset");
@@ -318,7 +318,7 @@ function compileProfile(source: unknown): DraftContextIntegrityProductV1 {
   const summary = Object.freeze({
     assignmentCount: 35 as const,
     domainCount: 3 as const,
-    errorCodeCount: 69 as const,
+    errorCodeCount: 71 as const,
     claimedReplayStepCount: 14 as const,
   });
 

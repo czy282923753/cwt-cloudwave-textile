@@ -1,4 +1,4 @@
-import selectedProfileSource from "./context-integrity-profile.v2_0.json";
+import selectedProfileSource from "./context-integrity-profile.v3_0.json";
 
 import { describe, expect, it } from "vitest";
 
@@ -41,16 +41,16 @@ function validContext() {
 }
 
 describe("compiled Draft context integrity product", () => {
-  it("materializes the sealed 35/3/69/14 identity and accepts recursive evidence", () => {
+  it("materializes the sealed 35/3/71/14 identity and accepts recursive evidence", () => {
     expect(draftContextIntegrityV1.identity).toEqual({
-      profileId: "cwt.phase1b.stage4a.phaseb.corrected-design.v1_10.v18-m01-m03-attempt-2.v1",
-      profileVersion: "2.0.0",
-      sha256: "efdec023f886a9ca9d1a558bfba0e54781292e0e8215609c4b68a68268caba01",
+      profileId: "cwt.phase1b.stage4a.phasec.durable-run-worker.context-integrity.v3",
+      profileVersion: "3.0.0",
+      sha256: "ba6a0b9bbb3cc259a25ca70616a85076a212611016400b673539cd2e1e54f49d",
     });
     expect(draftContextIntegrityV1.summary).toEqual({
       assignmentCount: 35,
       domainCount: 3,
-      errorCodeCount: 69,
+      errorCodeCount: 71,
       claimedReplayStepCount: 14,
     });
     expect(Object.isFrozen(draftContextIntegrityV1)).toBe(true);

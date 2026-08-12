@@ -316,31 +316,32 @@ export interface GenericAiOrchestratorV1 {
     Promise<AiServiceResult<CoreCommittedRunSummaryV1>>;
 }
 
-export interface ExecuteClaimedTextAttemptCommand {
-  readonly claimed: import("../internal/claimed-run-authority").ConstructedClaimedRunV1;
+export interface ExecutePreDispatchTextAttemptCommandV2 {
+  readonly claimed: import("../internal/claimed-run-authority").PreDispatchClaimedRunV2;
   readonly signal: AbortSignal;
+  authorizeProviderDispatch(): Promise<
+    import("../runs/contracts").DispatchAuthorizationOutcomeV1
+  >;
 }
 
-export type AiAttemptResult<TProtected> =
+export type ClaimedExecutionResultV2<TProtected> =
   | {
-      readonly kind: "protected_result";
-      readonly protectedResult: TProtected;
-      readonly returnedModel: string;
-      readonly responseStatus: "success";
-      readonly usage?: import("../providers/text-provider").NormalizedTokenUsage;
-      readonly providerRequestId?: string;
-      readonly durationMs: number;
+      readonly kind: "attempt_evidence";
+      readonly evidence: import("../runs/contracts").NormalizedAttemptEvidenceV2<TProtected>;
+      readonly dispatchAuthorization:
+        | Extract<import("../runs/contracts").DispatchAuthorizationOutcomeV1, { readonly kind: "authorized" }>
+        | null;
     }
   | {
-      readonly kind: "failure";
-      readonly error: import("../errors").SafeAiError;
-      readonly responseStatus: import("../providers/text-provider").NormalizedProviderResponseStatus;
-      readonly retryClass: "same_provider_transient" | "not_retryable";
-      readonly durationMs: number;
+      readonly kind: "dispatch_unavailable";
+      readonly outcome: Exclude<
+        import("../runs/contracts").DispatchAuthorizationOutcomeV1,
+        { readonly kind: "authorized" }
+      >;
     };
 
-export interface AiClaimedExecutionService {
-  executeClaimedTextAttempt(
-    command: ExecuteClaimedTextAttemptCommand,
-  ): Promise<AiAttemptResult<ProtectedApplicationResultEnvelopeV1>>;
+export interface AiClaimedExecutionServiceV2 {
+  executePreDispatchTextAttempt(
+    command: ExecutePreDispatchTextAttemptCommandV2,
+  ): Promise<ClaimedExecutionResultV2<ProtectedApplicationResultEnvelopeV1>>;
 }

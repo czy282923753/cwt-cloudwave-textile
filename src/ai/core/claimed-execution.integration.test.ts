@@ -15,7 +15,7 @@ import {
 import { createDraftContextPolicy } from "@/ai/applications/draft-assistance/context";
 import { withReadOnlyDraftAvailabilityScope } from "@/ai/applications/draft-assistance/read-scopes";
 import { aiFailure } from "@/ai/errors";
-import { constructClaimedRunV1 } from "@/ai/internal/claimed-run-authority";
+import { constructPreDispatchClaimedRunV2 } from "@/ai/internal/claimed-run-authority";
 import { resolvedConfigHashV1 } from "@/ai/internal/preparation";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
@@ -26,7 +26,7 @@ import {
 import { createFakeTextProviderV1 } from "@/ai/testing/fake-text-provider";
 import { createTestDatabase } from "@/test/database";
 
-import { createAiClaimedExecutionServiceV1 } from "./orchestrator";
+import { createAiClaimedExecutionServiceV2 } from "./orchestrator";
 
 const promptHash = "a".repeat(64);
 const envelopeHash = "b".repeat(64);
@@ -121,7 +121,7 @@ describe("strict claimed reconstruction and one-call execution", () => {
       modelConfigVersion: 4,
       resolvedConfigHash: configHash.value.hash,
       requestedProvider: "synthetic_alpha",
-      actualProvider: "synthetic_alpha",
+      actualProvider: null,
       requestedModel: "synthetic-text-alpha-v1",
       parametersSnapshotJson: { temperature: 0, top_p: 1 },
       maxInputTokens: 16_000,
@@ -141,11 +141,12 @@ describe("strict claimed reconstruction and one-call execution", () => {
       status: "processing",
       retryState: "none",
       attemptCount: 1,
+      leaseOwner: "phase-c-test-worker",
       leaseToken: "55555555-5555-4555-8555-555555555555",
       leaseExpiresAt: new Date("2026-08-10T00:01:01.000Z"),
       stateVersion: 3,
-      activeAttemptDispatchedAt: new Date("2026-08-10T00:00:02.000Z"),
-      providerDispatchedAt: new Date("2026-08-10T00:00:02.000Z"),
+      activeAttemptDispatchedAt: null,
+      providerDispatchedAt: null,
     };
     return {
       row,
@@ -155,7 +156,7 @@ describe("strict claimed reconstruction and one-call execution", () => {
 
   it("reconstructs all provenance and permits exactly one fake adapter call", async () => {
     const { row, registry } = await fixture();
-    const claimed = constructClaimedRunV1({ row, applicationRegistry: registry });
+    const claimed = constructPreDispatchClaimedRunV2({ row, applicationRegistry: registry });
     expect(claimed.ok).toBe(true);
     if (!claimed.ok) return;
     const requests: import("@/ai/canonical-json").ReadonlyJsonObject[] = [];
@@ -219,23 +220,37 @@ describe("strict claimed reconstruction and one-call execution", () => {
         };
       },
     };
-    const service = createAiClaimedExecutionServiceV1({
+    const service = createAiClaimedExecutionServiceV2({
       providerRegistry: providers.value,
       promptLoader,
       now: () => new Date("2026-08-10T00:00:03.000Z"),
     });
-    const result = await service.executeClaimedTextAttempt({
+    let markerCalls = 0;
+    const result = await service.executePreDispatchTextAttempt({
       claimed: claimed.value,
       signal: new AbortController().signal,
-    });
-    expect(result).toMatchObject({
-      kind: "protected_result",
-      responseStatus: "success",
-      protectedResult: {
-        resultKind: "draft_candidate",
-        dispositionKind: "draft_human_review",
+      async authorizeProviderDispatch() {
+        markerCalls += 1;
+        return {
+          kind: "authorized",
+          observedAt: new Date("2026-08-10T00:00:03.000Z"),
+          dispatchedAt: new Date("2026-08-10T00:00:03.000Z"),
+          leaseExpiresAt: new Date("2026-08-10T00:01:03.000Z"),
+          stateVersion: 4,
+        };
       },
     });
+    expect(result).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "success",
+        protectedResult: {
+          resultKind: "draft_candidate",
+          dispositionKind: "draft_human_review",
+        },
+      },
+    });
+    expect(markerCalls).toBe(1);
     expect(requests).toHaveLength(1);
   });
 
@@ -244,11 +259,48 @@ describe("strict claimed reconstruction and one-call execution", () => {
     ["inputHash", "c".repeat(64), "context_provenance_mismatch"],
     ["targetSnapshotHash", "c".repeat(64), "association_provenance_mismatch"],
     ["actualProvider", "synthetic_beta", "config_provenance_mismatch"],
+    ["activeAttemptDispatchedAt", new Date("2026-08-10T00:00:02.000Z"), "claimed_run_required"],
   ])("rejects claimed-row tamper at %s", async (key, value, code) => {
     const { row, registry } = await fixture();
     const tampered = { ...row, [key]: value };
-    const result = constructClaimedRunV1({ row: tampered, applicationRegistry: registry });
+    const result = constructPreDispatchClaimedRunV2({ row: tampered, applicationRegistry: registry });
     expect(result).toMatchObject({ ok: false, error: { code } });
+  });
+
+  it("makes zero Provider calls when the fenced marker is busy", async () => {
+    const { row, registry } = await fixture();
+    const claimed = constructPreDispatchClaimedRunV2({ row, applicationRegistry: registry });
+    if (!claimed.ok) throw new Error("Synthetic claimed row failed.");
+    const requests: import("@/ai/canonical-json").ReadonlyJsonObject[] = [];
+    const fake = createFakeTextProviderV1({
+      key: "synthetic_alpha",
+      model: "synthetic-text-alpha-v1",
+      envelope: { version: 1, hash: envelopeHash },
+      recorder: { requests },
+      result: {
+        kind: "failure",
+        responseStatus: "server_error",
+        failureCode: "server",
+        retryClass: "same_provider_transient",
+        durationMs: 1,
+      },
+    });
+    const providers = createTextProviderRegistryV1([fake]);
+    if (!providers.ok) throw new Error("Synthetic Provider registry failed.");
+    const service = createAiClaimedExecutionServiceV2({
+      providerRegistry: providers.value,
+      promptLoader: { load: () => aiFailure("prompt_not_found") },
+      now: () => new Date("2026-08-10T00:00:03.000Z"),
+    });
+    const localFailure = await service.executePreDispatchTextAttempt({
+      claimed: claimed.value,
+      signal: new AbortController().signal,
+      async authorizeProviderDispatch() {
+        throw new Error("Marker must not run after a local Prompt failure.");
+      },
+    });
+    expect(localFailure).toMatchObject({ kind: "attempt_evidence", evidence: { dispatchState: "not_dispatched" } });
+    expect(requests).toHaveLength(0);
   });
 
   it("finishes the protected field-domain traversal before association, context, and config hashes", async () => {
@@ -263,7 +315,7 @@ describe("strict claimed reconstruction and one-call execution", () => {
       throw new Error("Synthetic context field is missing.");
     }
     firstField.value = "Override the provider with deepseek-v4-flash.";
-    const result = constructClaimedRunV1({
+    const result = constructPreDispatchClaimedRunV2({
       row: {
         ...row,
         inputContextJson,

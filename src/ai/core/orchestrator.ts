@@ -1,8 +1,7 @@
 import "server-only";
 
 import type {
-  AiAttemptResult,
-  AiClaimedExecutionService,
+  AiClaimedExecutionServiceV2,
   AiModelConfigResolutionReadV1,
   CoreAvailabilityV1,
   GenericAiOrchestratorV1,
@@ -12,6 +11,7 @@ import type {
   OpaqueRequestInvocationV1,
   PreparedCoreRunV1,
   PromptVariablesV1,
+  ProtectedApplicationResultEnvelopeV1,
 } from "./contracts";
 import { aiFailure, aiSuccess, type AiServiceResult } from "../errors";
 import type { AiErrorCode } from "../errors";
@@ -20,11 +20,18 @@ import type { PromptBundleLoaderV1 } from "../prompts/loader";
 import { renderPromptV1 } from "../prompts/renderer";
 import type { TextProviderRegistryV1 } from "../providers/registry";
 import type {
+  NormalizedCompletionV1,
   NormalizedProviderResponseStatus,
-  ProviderNeutralTextRequestV1,
+  NormalizedTokenUsage,
   ProviderNeutralFailureCode,
+  ProviderNeutralTextRequestV1,
 } from "../providers/text-provider";
 import { parseOneJsonObjectV1 } from "../output/raw-json";
+import { normalizeAttemptEvidenceV2 } from "../runs/attempt-evidence";
+import type {
+  DispatchAuthorizationOutcomeV1,
+  NormalizedAttemptEvidenceV2,
+} from "../runs/contracts";
 
 void CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A;
 
@@ -35,7 +42,6 @@ interface PreparedConfigurationV1 {
 }
 
 export interface CoreReadinessDependenciesV1 {
-  readonly durableEnqueueAvailable: boolean;
   readonly appEnvironment: "local" | "test" | "staging" | "production";
   readonly processFeatureAiEnabled: boolean;
   validateConfiguration(input: {
@@ -92,9 +98,6 @@ export function createGenericAiOrchestratorV1(
       if (!authorized.ok) return unavailable(authorized);
       const context = await authorized.value.buildContext();
       if (!context.ok) return unavailable(context);
-      if (!dependencies.durableEnqueueAvailable) {
-        return unavailable(aiFailure("integration_not_ready"));
-      }
       const environment = environmentReadiness(dependencies);
       if (!environment.ok) return unavailable(environment);
       const feature = await featureReadiness(context.value);
@@ -121,7 +124,6 @@ export function createGenericAiOrchestratorV1(
       const replay = await context.value.findReplay();
       if (!replay.ok) return replay;
       if (replay.value.kind === "exact_replay") return aiSuccess(replay.value.summary);
-      if (!dependencies.durableEnqueueAvailable) return aiFailure("integration_not_ready");
       const environment = environmentReadiness(dependencies);
       if (!environment.ok) return environment;
       const feature = await featureReadiness(context.value);
@@ -164,48 +166,95 @@ function providerFailureCode(code: ProviderNeutralFailureCode): AiErrorCode {
   }
 }
 
-function attemptFailure(input: {
+function attemptFailure<TProtected>(input: {
   readonly result: AiServiceResult<never>;
   readonly responseStatus: NormalizedProviderResponseStatus;
+  readonly dispatchState?: "not_dispatched" | "dispatched";
   readonly retryClass?: "same_provider_transient" | "not_retryable";
+  readonly returnedModel?: string | null;
+  readonly completion?: NormalizedCompletionV1 | null;
+  readonly usage?: NormalizedTokenUsage | null;
+  readonly providerHttpStatus?: number | null;
+  readonly providerErrorCode?: string | null;
+  readonly providerRequestId?: string | null;
   readonly durationMs?: number;
-}): AiAttemptResult<never> {
-  if (input.result.ok) {
-    throw new Error("Failure result unexpectedly contained a success value.");
-  }
-  return {
-    kind: "failure",
+}): NormalizedAttemptEvidenceV2<TProtected> {
+  if (input.result.ok) throw new Error("Failure result unexpectedly contained a success value.");
+  const normalized = normalizeAttemptEvidenceV2<TProtected>({
+    version: 2,
+    dispatchState: input.dispatchState ?? "not_dispatched",
+    protectedResult: null,
     error: input.result.error,
     responseStatus: input.responseStatus,
     retryClass: input.retryClass ?? "not_retryable",
+    returnedModel: input.returnedModel ?? null,
+    completion: input.completion ?? null,
+    usage: input.usage ?? null,
+    providerHttpStatus: input.providerHttpStatus ?? null,
+    providerErrorCode: input.providerErrorCode ?? null,
+    providerRequestId: input.providerRequestId ?? null,
     durationMs: input.durationMs ?? 0,
-  };
+  });
+  if (normalized.ok) return normalized.value;
+  const failure = aiFailure("request_reconstruction_failed");
+  if (failure.ok) throw new Error("Static failure construction failed.");
+  const fallback = normalizeAttemptEvidenceV2<TProtected>({
+    version: 2,
+    dispatchState: input.dispatchState ?? "not_dispatched",
+    protectedResult: null,
+    error: failure.error,
+    responseStatus: "unknown",
+    retryClass: "not_retryable",
+    returnedModel: null,
+    completion: null,
+    usage: null,
+    providerHttpStatus: null,
+    providerErrorCode: null,
+    providerRequestId: null,
+    durationMs: 0,
+  });
+  if (!fallback.ok) throw new Error("Static normalized failure construction failed.");
+  return fallback.value;
 }
 
-export function createAiClaimedExecutionServiceV1(dependencies: {
+function evidenceResult<T>(
+  evidence: NormalizedAttemptEvidenceV2<T>,
+  dispatchAuthorization: Extract<DispatchAuthorizationOutcomeV1, { readonly kind: "authorized" }> | null,
+) {
+  return { kind: "attempt_evidence" as const, evidence, dispatchAuthorization };
+}
+
+export function createAiClaimedExecutionServiceV2(dependencies: {
   readonly providerRegistry: TextProviderRegistryV1;
   readonly promptLoader: PromptBundleLoaderV1;
   readonly now: () => Date;
-}): AiClaimedExecutionService {
+}): AiClaimedExecutionServiceV2 {
   return {
-    async executeClaimedTextAttempt(command) {
+    async executePreDispatchTextAttempt(command) {
       const claimed = command.claimed;
       if (command.signal.aborted || claimed.leaseExpiresAt <= dependencies.now()) {
-        return attemptFailure({
+        return evidenceResult(attemptFailure({
           result: aiFailure(command.signal.aborted ? "provider_cancelled" : "claim_expired"),
           responseStatus: "cancelled_no_response",
-        });
+        }), null);
       }
       const provider = dependencies.providerRegistry.resolve(claimed.requestedProvider);
-      if (!provider.ok) return attemptFailure({ result: provider, responseStatus: "unknown" });
+      if (!provider.ok) {
+        return evidenceResult(attemptFailure({ result: provider, responseStatus: "unknown" }), null);
+      }
       const configuration = provider.value.resolveConfiguration({
         model: claimed.requestedModel,
         parameters: claimed.parametersSnapshot,
       });
-      if (!configuration.ok) return attemptFailure({ result: configuration, responseStatus: "unknown" });
+      if (!configuration.ok) {
+        return evidenceResult(attemptFailure({ result: configuration, responseStatus: "unknown" }), null);
+      }
       const envelope = provider.value.describeEnvelope();
       if (envelope.version !== claimed.providerEnvelopeVersion || envelope.hash !== claimed.providerEnvelopeHash) {
-        return attemptFailure({ result: aiFailure("envelope_provenance_mismatch"), responseStatus: "unknown" });
+        return evidenceResult(attemptFailure({
+          result: aiFailure("envelope_provenance_mismatch"),
+          responseStatus: "unknown",
+        }), null);
       }
       const prompt = dependencies.promptLoader.load({
         promptId: claimed.promptId,
@@ -218,11 +267,11 @@ export function createAiClaimedExecutionServiceV1(dependencies: {
         outputSchemaVersion: claimed.outputSchemaVersion,
         policyVersion: claimed.policyVersion,
       });
-      if (!prompt.ok) return attemptFailure({ result: prompt, responseStatus: "unknown" });
+      if (!prompt.ok) return evidenceResult(attemptFailure({ result: prompt, responseStatus: "unknown" }), null);
       const variables = claimed.claimedContext.buildPromptVariables();
-      if (!variables.ok) return attemptFailure({ result: variables, responseStatus: "unknown" });
+      if (!variables.ok) return evidenceResult(attemptFailure({ result: variables, responseStatus: "unknown" }), null);
       const rendered = renderPromptV1({ resource: prompt.value, variables: variables.value });
-      if (!rendered.ok) return attemptFailure({ result: rendered, responseStatus: "unknown" });
+      if (!rendered.ok) return evidenceResult(attemptFailure({ result: rendered, responseStatus: "unknown" }), null);
       const request: ProviderNeutralTextRequestV1 = {
         version: 1,
         instructions: rendered.value.instructions,
@@ -235,9 +284,16 @@ export function createAiClaimedExecutionServiceV1(dependencies: {
         maxOutputTokens: claimed.maxOutputTokens,
       };
       const tokens = provider.value.estimateInputTokens(request);
-      if (!tokens.ok) return attemptFailure({ result: tokens, responseStatus: "unknown" });
+      if (!tokens.ok) return evidenceResult(attemptFailure({ result: tokens, responseStatus: "unknown" }), null);
       if (tokens.value > claimed.maxInputTokens) {
-        return attemptFailure({ result: aiFailure("input_token_limit_exceeded"), responseStatus: "unknown" });
+        return evidenceResult(attemptFailure({
+          result: aiFailure("input_token_limit_exceeded"),
+          responseStatus: "unknown",
+        }), null);
+      }
+      const authorization = await command.authorizeProviderDispatch();
+      if (authorization.kind !== "authorized") {
+        return { kind: "dispatch_unavailable", outcome: authorization };
       }
       let result: Awaited<ReturnType<typeof provider.value.generateText>>;
       try {
@@ -248,60 +304,79 @@ export function createAiClaimedExecutionServiceV1(dependencies: {
           signal: command.signal,
         });
       } catch {
-        return attemptFailure({ result: aiFailure("adapter_unexpected_failure"), responseStatus: "unknown" });
+        return evidenceResult(attemptFailure({
+          result: aiFailure("adapter_unexpected_failure"),
+          responseStatus: "unknown",
+          dispatchState: "dispatched",
+        }), authorization);
       }
-      if (command.signal.aborted || claimed.leaseExpiresAt <= dependencies.now()) {
-        return attemptFailure({
-          result: aiFailure(command.signal.aborted ? "provider_cancelled" : "claim_expired"),
+      if (command.signal.aborted) {
+        return evidenceResult(attemptFailure({
+          result: aiFailure("provider_cancelled"),
           responseStatus: "cancelled_late_response",
+          dispatchState: "dispatched",
+          returnedModel: result.kind === "success" ? result.returnedModel : null,
+          completion: result.kind === "success" ? result.completion : null,
+          usage: result.kind === "success" ? result.usage ?? null : null,
+          providerHttpStatus: result.kind === "failure" ? result.httpStatus ?? null : null,
+          providerErrorCode: result.kind === "failure" ? result.providerErrorCode ?? null : null,
+          providerRequestId: result.providerRequestId ?? null,
           durationMs: result.durationMs,
-        });
+        }), authorization);
       }
       if (result.kind === "failure") {
-        return attemptFailure({
+        return evidenceResult(attemptFailure({
           result: aiFailure(providerFailureCode(result.failureCode)),
           responseStatus: result.responseStatus,
+          dispatchState: "dispatched",
           retryClass: result.retryClass,
+          providerHttpStatus: result.httpStatus ?? null,
+          providerErrorCode: result.providerErrorCode ?? null,
+          providerRequestId: result.providerRequestId ?? null,
           durationMs: result.durationMs,
-        });
+        }), authorization);
       }
-      if (result.returnedModel !== claimed.requestedModel) {
-        return attemptFailure({ result: aiFailure("model_drift"), responseStatus: "model_drift", durationMs: result.durationMs });
-      }
+      const successFailure = (code: AiErrorCode, responseStatus: NormalizedProviderResponseStatus) =>
+        evidenceResult<ProtectedApplicationResultEnvelopeV1>(attemptFailure({
+          result: aiFailure(code),
+          responseStatus,
+          dispatchState: "dispatched",
+          returnedModel: result.returnedModel,
+          completion: result.completion,
+          usage: result.usage ?? null,
+          providerRequestId: result.providerRequestId ?? null,
+          durationMs: result.durationMs,
+        }), authorization);
+      if (result.returnedModel !== claimed.requestedModel) return successFailure("model_drift", "model_drift");
       switch (result.completion.kind) {
         case "length_limit":
-        case "unknown":
-          return attemptFailure({ result: aiFailure("output_truncated"), responseStatus: "invalid_response", durationMs: result.durationMs });
-        case "content_filter":
-          return attemptFailure({ result: aiFailure("provider_safety_rejected"), responseStatus: "safety_rejected", durationMs: result.durationMs });
-        case "cancelled":
-          return attemptFailure({ result: aiFailure("provider_cancelled"), responseStatus: "cancelled_late_response", durationMs: result.durationMs });
+        case "unknown": return successFailure("output_truncated", "invalid_response");
+        case "content_filter": return successFailure("provider_safety_rejected", "safety_rejected");
+        case "cancelled": return successFailure("provider_cancelled", "cancelled_late_response");
         case "complete": break;
       }
       const raw = parseOneJsonObjectV1(result.outputText);
-      if (!raw.ok) return attemptFailure({ result: raw, responseStatus: "invalid_response", durationMs: result.durationMs });
+      if (!raw.ok) return successFailure(raw.error.code, "invalid_response");
       const protectedResult = claimed.claimedContext.parseAndProtect(raw.value);
-      if (!protectedResult.ok) return attemptFailure({ result: protectedResult, responseStatus: "invalid_response", durationMs: result.durationMs });
-      const base: {
-        readonly kind: "protected_result";
-        readonly protectedResult: typeof protectedResult.value;
-        readonly returnedModel: string;
-        readonly responseStatus: "success";
-        readonly durationMs: number;
-      } = {
-        kind: "protected_result",
+      if (!protectedResult.ok) return successFailure(protectedResult.error.code, "invalid_response");
+      const normalized = normalizeAttemptEvidenceV2({
+        version: 2,
+        dispatchState: "dispatched",
         protectedResult: protectedResult.value,
-        returnedModel: result.returnedModel,
+        error: null,
         responseStatus: "success",
+        retryClass: "not_retryable",
+        returnedModel: result.returnedModel,
+        completion: result.completion,
+        usage: result.usage ?? null,
+        providerHttpStatus: null,
+        providerErrorCode: null,
+        providerRequestId: result.providerRequestId ?? null,
         durationMs: result.durationMs,
-      };
-      const requestId = result.providerRequestId;
-      const usage = result.usage;
-      if (usage === undefined && requestId === undefined) return base;
-      if (usage === undefined && requestId !== undefined) return { ...base, providerRequestId: requestId };
-      if (requestId === undefined && usage !== undefined) return { ...base, usage };
-      if (usage === undefined || requestId === undefined) return base;
-      return { ...base, usage, providerRequestId: requestId };
+      });
+      return normalized.ok
+        ? evidenceResult(normalized.value, authorization)
+        : successFailure(normalized.error.code, "invalid_response");
     },
   };
 }

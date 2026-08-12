@@ -152,7 +152,6 @@ export function createPhaseBAvailabilityServiceV1<
     configRepository: aiModelConfigRepositoryV1,
   });
   const orchestrator = createGenericAiOrchestratorV1({
-    durableEnqueueAvailable: false,
     appEnvironment: dependencies.trustedEnvironment.appEnvironment,
     processFeatureAiEnabled: dependencies.trustedEnvironment.processFeatureAiEnabled,
     async validateConfiguration() {
