@@ -16,7 +16,6 @@ import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import type { ReadonlyJsonValue } from "@/ai/canonical-json";
 import type { PreparedCoreRunV1 } from "@/ai/core/contracts";
 import { aiFailure } from "@/ai/errors";
-import type { UserRole } from "@/auth/permissions";
 import {
   noOpAiTelemetrySink,
   type AiTelemetryEvent,
@@ -68,7 +67,7 @@ const authoritativeAiActorBrand = Symbol("authoritative-ai-actor");
 export interface AuthoritativeAiActorV1 {
   readonly [authoritativeAiActorBrand]: true;
   readonly userId: string;
-  readonly role: UserRole;
+  readonly role: typeof users.$inferSelect.role;
 }
 
 export type HumanAiOperationV1 =
