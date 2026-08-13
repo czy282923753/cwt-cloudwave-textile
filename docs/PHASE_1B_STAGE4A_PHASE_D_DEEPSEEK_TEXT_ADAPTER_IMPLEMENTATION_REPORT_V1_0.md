@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **The accepted V1.3 one-file implementation remains frozen; the corrected root-authority self-test passed syntax preflight but its 21-case matrix did not fully pass, so the formal sequence stayed frozen.**
+Status: **The accepted V1.3 one-file implementation remains frozen; the replacement root-authority self-test now passes all 21 closed cases, while the formal V1.3 sequence remains separately gated and unexecuted.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -123,3 +123,13 @@ The next bounded task generated one fresh temporary entrypoint from the accepted
 The self-test entrypoint then launched exactly once with retry zero. Fourteen of 21 closed cases passed; seven case expectations returned false. The safe projection retained the case booleans but not the observed leaf for each false case, so this report does not infer a single causal subcondition. It records the fixed task result `ROOT_AUTHORITY_SELF_TEST_MATRIX_FAILED` rather than reclassifying the independent 30/30 Product/config/root diagnosis.
 
 The formal V1.3 sequence remained frozen with launch count zero. Build, verifier, projection, V5 and immutable V4 reference remain `NOT_RUN`; all current external, official-source, Provider and protected-state counts remain zero. The temporary entrypoint, exact Candidate worktree, fixture state and task root were removed with zero scoped residue. The minimum next step is a Coordinator decision on a bounded zero-resource diagnosis or a revised closed projection that retains the observed leaf for every failed self-test case. Phase E–G remain prohibited.
+
+## V1.3 root-authority self-test Attempt 9 result
+
+Independent diagnosis `62d297bd7641aa7e8e2502a5de593c64b9a367a5` resolved every Attempt 8 failed case with `UNKNOWN=0` and froze the deterministic replacement order and fixtures. Attempt 9 regenerated one self-test authority from that plan rather than layering patches over discarded harness text.
+
+The verified physical Node completed exactly one native syntax preflight and exactly one self-test launch, both with retry zero. All 21 cases matched their expected closed leaves; every executable route reported `authority_path_count=1`; the distinct-ambient exact-Candidate control passed; and the matrix retained full case id, construction class, expected leaf, observed leaf, terminal status and expectation correctness. `UNKNOWN`, generic `ROOT_IDENTITY`, mismatch and alternate authority counts are all zero.
+
+The detailed result was atomically retained before fixture cleanup and revalidated before removal of the temporary result. The entrypoint, result, exact Candidate worktree, fixtures and task root were removed with zero scoped process or worktree residue. No Product config was imported and the formal V1.3 sequence, build, verifier, projection, V5 and immutable V4 reference remained unexecuted. Current external, official-source, Provider and protected-state counts remain zero.
+
+This is a completed self-test gate, not Phase D acceptance or authorization to proceed automatically. The next gate is Coordinator verification and separate authorization for one formal V1.3 sequence. Phase E–G remain prohibited, and the Owner-directed project pause still follows only after independent Phase D acceptance and completion-checkpoint verification.

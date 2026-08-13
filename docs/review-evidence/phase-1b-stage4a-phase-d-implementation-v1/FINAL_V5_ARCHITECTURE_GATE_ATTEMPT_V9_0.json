@@ -1,0 +1,302 @@
+{
+  "schema_version": 9,
+  "accepted_design_candidate": "a3e90244693eb093983e45f5f0e1e0c12d7cb6c7",
+  "accepted_design_review": "815e77e9220ea6f629da264a658be7245f302346",
+  "independent_root_identity_diagnosis": "c733a38feace0739a55e7b980a9101606ddb3dc3",
+  "attempt_8_failed_case_diagnosis": "62d297bd7641aa7e8e2502a5de593c64b9a367a5",
+  "predecessor_evidence_head": "6f1187cad9acd98bfb83d369d16c49fc20d19240",
+  "proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+  "result": "COMPLETED",
+  "syntax_preflight": {
+    "status": "PASS",
+    "launch_count": 1,
+    "retry_count": 0,
+    "absolute_runtime_binding": true,
+    "self_test_cases_executed": 0,
+    "formal_sequence_launch_count": 0,
+    "external_call_count": 0,
+    "protected_state_access_count": 0
+  },
+  "root_authority_self_test": {
+    "schema_version": 9,
+    "kind": "PHASE_D_V1_3_ROOT_AUTHORITY_SELF_TEST_ATTEMPT_9",
+    "status": "PASS",
+    "proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+    "syntax_preflight_status": "PASS",
+    "self_test_launch_count": 1,
+    "self_test_retry_count": 0,
+    "case_count": 21,
+    "matched_case_count": 21,
+    "mismatched_case_count": 0,
+    "unknown_leaf_count": 0,
+    "authority_path_count_one_for_every_case": true,
+    "distinct_ambient_candidate_control": true,
+    "cases": [
+      {
+        "case_id": "valid_candidate_from_distinct_ambient",
+        "construction_class": "EXACT_CANDIDATE_DISTINCT_AMBIENT",
+        "expected_leaf": "PASS_ROOT_AUTHORITY",
+        "observed_leaf": "PASS_ROOT_AUTHORITY",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "missing_or_non_string_output_root",
+        "construction_class": "NULL_OUTPUT_ROOT",
+        "expected_leaf": "OUTPUT_ROOT_MISSING_OR_NON_STRING",
+        "observed_leaf": "OUTPUT_ROOT_MISSING_OR_NON_STRING",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "missing_or_non_string_turbopack_root",
+        "construction_class": "NON_STRING_TURBOPACK_ROOT",
+        "expected_leaf": "TURBOPACK_ROOT_MISSING_OR_NON_STRING",
+        "observed_leaf": "TURBOPACK_ROOT_MISSING_OR_NON_STRING",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "asymmetric_roots",
+        "construction_class": "DISTINCT_LEXICAL_ROOT_VALUES",
+        "expected_leaf": "ASYMMETRIC_CONFIG_ROOTS",
+        "observed_leaf": "ASYMMETRIC_CONFIG_ROOTS",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "lexical_drift",
+        "construction_class": "EQUAL_NON_CANDIDATE_LEXICAL_ROOTS",
+        "expected_leaf": "ROOT_LEXICAL_DRIFT",
+        "observed_leaf": "ROOT_LEXICAL_DRIFT",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "realpath_failure",
+        "construction_class": "NONEXISTENT_EQUAL_ROOTS_WITH_VALID_FILE_URL",
+        "expected_leaf": "ROOT_REALPATH_RESOLUTION_FAILED",
+        "observed_leaf": "ROOT_REALPATH_RESOLUTION_FAILED",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "non_directory",
+        "construction_class": "REGULAR_FILE_EQUAL_ROOTS_WITH_VALID_FILE_URL",
+        "expected_leaf": "ROOT_NOT_DIRECTORY",
+        "observed_leaf": "ROOT_NOT_DIRECTORY",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "physical_realpath_mismatch",
+        "construction_class": "ROLE_AWARE_CANONICAL_REALPATH_INJECTION",
+        "expected_leaf": "ROOT_PHYSICAL_REALPATH_MISMATCH",
+        "observed_leaf": "ROOT_PHYSICAL_REALPATH_MISMATCH",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "symlink_alias",
+        "construction_class": "ACTUAL_SYMLINK_EQUAL_ROOTS",
+        "expected_leaf": "ROOT_SYMLINK_ALIAS",
+        "observed_leaf": "ROOT_SYMLINK_ALIAS",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "case_alias",
+        "construction_class": "LEXICAL_CASE_ALIAS",
+        "expected_leaf": "ROOT_CASE_ALIAS",
+        "observed_leaf": "ROOT_CASE_ALIAS",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "device_inode_alias",
+        "construction_class": "ROLE_AWARE_STAT_METADATA_INJECTION",
+        "expected_leaf": "ROOT_DEVICE_INODE_MISMATCH",
+        "observed_leaf": "ROOT_DEVICE_INODE_MISMATCH",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "common_git_dir_confusion",
+        "construction_class": "WORKTREE_COMMON_GIT_DIRECTORY_SUBSTITUTION",
+        "expected_leaf": "COMMON_GIT_DIR_SUBSTITUTION",
+        "observed_leaf": "COMMON_GIT_DIR_SUBSTITUTION",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "normalization_defect",
+        "construction_class": "DOT_SEGMENT_LEXICAL_ROOT",
+        "expected_leaf": "ROOT_LEXICAL_NORMALIZATION_DEFECT",
+        "observed_leaf": "ROOT_LEXICAL_NORMALIZATION_DEFECT",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "file_url_defect",
+        "construction_class": "DECODABLE_ALTERNATE_FILE_URL",
+        "expected_leaf": "CONFIG_FILE_URL_ROUNDTRIP_MISMATCH",
+        "observed_leaf": "CONFIG_FILE_URL_ROUNDTRIP_MISMATCH",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "ambient_workspace_mismatch",
+        "construction_class": "DISTINCT_AMBIENT_WORKTREE_AS_BOUND_ROOT",
+        "expected_leaf": "CANDIDATE_WORKSPACE_MISMATCH",
+        "observed_leaf": "CANDIDATE_WORKSPACE_MISMATCH",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "generic_unprojected_root_identity_fallback_absent",
+        "construction_class": "VALID_RUNTIME_CLOSED_LEAF_CONTROL",
+        "expected_leaf": "PASS_ROOT_AUTHORITY",
+        "observed_leaf": "PASS_ROOT_AUTHORITY",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "no_ambient_process_cwd_authority",
+        "construction_class": "DISTINCT_AMBIENT_IGNORED_BY_CHECKER",
+        "expected_leaf": "PASS_ROOT_AUTHORITY",
+        "observed_leaf": "PASS_ROOT_AUTHORITY",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "no_alternate_fallback_dual_root_path",
+        "construction_class": "EXECUTABLE_SINGLE_AUTHORITY_PATH_COUNTER",
+        "expected_leaf": "PASS_SINGLE_AUTHORITY_PATH",
+        "observed_leaf": "PASS_SINGLE_AUTHORITY_PATH",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "absolute_node_binding_sole_runtime_authority",
+        "construction_class": "PHYSICAL_NATIVE_NODE_IDENTITY",
+        "expected_leaf": "PASS_ABSOLUTE_NODE_AUTHORITY",
+        "observed_leaf": "PASS_ABSOLUTE_NODE_AUTHORITY",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "ancestry_success_by_no_throw_sole_authority",
+        "construction_class": "NO_THROW_WITH_STATUS_GETTER_TRAP",
+        "expected_leaf": "PASS_ANCESTRY_NO_THROW_AUTHORITY",
+        "observed_leaf": "PASS_ANCESTRY_NO_THROW_AUTHORITY",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      },
+      {
+        "case_id": "secret_free_environment_preserved",
+        "construction_class": "EXPLICIT_SECRET_FREE_CHILD_ENVIRONMENT",
+        "expected_leaf": "PASS_SECRET_FREE_ENVIRONMENT",
+        "observed_leaf": "PASS_SECRET_FREE_ENVIRONMENT",
+        "terminal_status": "MATCH",
+        "authority_path_count": 1,
+        "expectation_correct": true
+      }
+    ],
+    "formal_sequence_launch_count": 0,
+    "config_import_count": 0,
+    "build_launch_count": 0,
+    "verifier_launch_count": 0,
+    "projection_launch_count": 0,
+    "v5_generation_launch_count": 0,
+    "v5_verification_launch_count": 0,
+    "v4_reference_launch_count": 0,
+    "external_call_count": 0,
+    "official_source_get_count": 0,
+    "provider_post_count": 0,
+    "protected_state_access_count": 0,
+    "closed_observation_retained_before_cleanup": true,
+    "raw_output_persisted": false,
+    "absolute_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "current_run_counts": {
+    "syntax_preflight_launch": 1,
+    "root_authority_self_test_launch": 1,
+    "formal_zero_build_gate_attempt": 0,
+    "zero_build_checker_launch": 0,
+    "isolated_server_bundle_build": 0,
+    "isolated_fixture_verifier": 0,
+    "physical_scoped_projection": 0,
+    "canonical_v5_generation": 0,
+    "bound_v5_verification": 0,
+    "immutable_v4_reference_verification": 0,
+    "official_source_get": 0,
+    "provider_post": 0,
+    "protected_state_access": 0
+  },
+  "v1_3_aggregate_counts_through_attempt_9": {
+    "formal_zero_build_gate_attempt": 3,
+    "zero_build_checker_launch": 2,
+    "isolated_server_bundle_build": 0,
+    "isolated_fixture_verifier": 0,
+    "physical_scoped_projection": 0,
+    "canonical_v5_generation": 0,
+    "bound_v5_verification": 0,
+    "immutable_v4_reference_verification": 0,
+    "aggregate_official_source_get": 6,
+    "aggregate_provider_post": 0
+  },
+  "preserved_authorities": {
+    "frozen_product_code_unchanged": true,
+    "attempts_4_through_8_immutable": true,
+    "independent_30_of_30_root_diagnosis_not_reclassified": true,
+    "formal_sequence_remained_frozen": true
+  },
+  "cleanup": {
+    "atomic_result_revalidated_before_cleanup": true,
+    "temporary_entrypoint_removed": true,
+    "temporary_result_removed_after_retention": true,
+    "disposable_candidate_worktree_removed": true,
+    "disposable_task_root_removed": true,
+    "self_test_fixture_root_removed": true,
+    "temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0,
+    "source_worktree_clean_before_evidence_update": true
+  },
+  "evidence_safety": {
+    "raw_parser_output_persisted": false,
+    "raw_self_test_output_persisted": false,
+    "absolute_runtime_path_persisted": false,
+    "absolute_candidate_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  }
+}
