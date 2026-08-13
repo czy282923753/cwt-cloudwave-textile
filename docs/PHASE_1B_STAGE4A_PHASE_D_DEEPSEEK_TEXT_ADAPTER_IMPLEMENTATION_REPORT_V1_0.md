@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **The accepted V1.3 one-file implementation remains frozen; the ancestry-authority continuation passed its self-test and ancestry assertion, then stopped fail-closed at the zero-build root-identity assertion.**
+Status: **The accepted V1.3 one-file implementation remains frozen; the Candidate-bound root-authority continuation stopped before its self-test cases because the temporary entrypoint did not parse.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -107,3 +107,11 @@ The next separately authorized continuation retained the verified physical nativ
 The one formal sequence then passed the exact Candidate ancestry assertion and reached the corrected config import. It stopped at the fixed safe boundary `ZERO_BUILD_CONFIG_ROOT_PHYSICAL_IDENTITY_ASSERTION` with code `ROOT_IDENTITY`. The projection did not expose which root-identity subcondition differed, so this report does not infer or relabel it. No further diagnostic or retry occurred.
 
 Attempts 4 and 5 remain immutable. For this continuation, isolated build, verifier, projection, canonical V5 generation, bound verification and immutable V4 reference remain `NOT_RUN`; current external/official-source/Provider/protected-state counts are zero. The minimum next action is a Coordinator decision on a bounded read-only root-identity subcondition diagnosis before any new formal sequence. Phase E–G remain prohibited, and the project pause still follows only after independent Phase D acceptance and completion-checkpoint verification.
+
+## V1.3 Candidate-bound root-authority continuation result
+
+The Coordinator accepted independent diagnosis `c733a38feace0739a55e7b980a9101606ddb3dc3`, which proves all 30 frozen config/root subconditions pass and classifies Attempt 6 as a temporary ambient-workspace authority failure rather than Product/config/filesystem state. A new continuation created one clean disposable exact-`584b…` Candidate root and prepared the required Candidate-bound, `git -C`, single-realpath/device/inode self-test.
+
+The temporary self-test entrypoint failed to parse before executing any case. It emitted no Product/config/build/V5 result and the formal sequence did not start. In accordance with the one-shot fail-closed contract, the syntax error was not corrected or retried. The exact disposable Candidate worktree and task root were removed, with zero registry or process residue.
+
+Attempts 4–6 and the independent 30/30 diagnosis remain unchanged. This continuation used zero external/official-source/Provider/protected-state calls; build, verifier, projection, V5 and V4 reference remain `NOT_RUN`. The minimum next action is separate authorization for one corrected zero-resource root-authority self-test before any formal sequence. Phase E–G remain prohibited.

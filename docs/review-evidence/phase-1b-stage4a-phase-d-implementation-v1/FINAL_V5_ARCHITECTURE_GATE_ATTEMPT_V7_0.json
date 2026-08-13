@@ -1,0 +1,97 @@
+{
+  "schema_version": 7,
+  "accepted_design_candidate": "a3e90244693eb093983e45f5f0e1e0c12d7cb6c7",
+  "accepted_design_review": "815e77e9220ea6f629da264a658be7245f302346",
+  "independent_root_identity_diagnosis": "c733a38feace0739a55e7b980a9101606ddb3dc3",
+  "predecessor_evidence_head": "08791aa4da589c179283058d7cda5c8ec67854c5",
+  "proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+  "result": "BLOCKED",
+  "failure": {
+    "boundary": "ZERO_RESOURCE_ROOT_AUTHORITY_SELF_TEST_PARSE",
+    "code": "ROOT_AUTHORITY_SELF_TEST_SYNTAX_INVALID",
+    "safe_summary": "THE_TEMPORARY_SELF_TEST_ENTRYPOINT_FAILED_TO_PARSE_BEFORE_ANY_TEST_CASE_OR_FORMAL_CHECKER_EXECUTION",
+    "candidate_root_created": true,
+    "self_test_process_launch_count": 1,
+    "self_test_case_count_executed": 0,
+    "self_test_status": "BLOCKED",
+    "formal_sequence_started": false,
+    "retry_performed": false,
+    "minimum_next_step": "SEPARATELY_AUTHORIZE_ONE_CORRECTED_ZERO_RESOURCE_ROOT_AUTHORITY_SELF_TEST_BEFORE_ANY_FORMAL_SEQUENCE"
+  },
+  "preserved_authorities": {
+    "absolute_runtime_binding_prior_pass_preserved": true,
+    "ancestry_no_throw_prior_pass_preserved": true,
+    "frozen_product_code_unchanged": true,
+    "attempts_4_through_6_immutable": true,
+    "independent_30_of_30_root_diagnosis_not_reclassified": true
+  },
+  "current_run_counts": {
+    "root_authority_self_test_launch": 1,
+    "root_authority_self_test_cases_executed": 0,
+    "formal_zero_build_gate_attempt": 0,
+    "zero_build_checker_launch": 0,
+    "isolated_server_bundle_build": 0,
+    "isolated_server_bundle_build_retry": 0,
+    "isolated_fixture_verifier": 0,
+    "physical_scoped_projection": 0,
+    "canonical_v5_generation": 0,
+    "bound_v5_verification": 0,
+    "immutable_v4_reference_verification": 0,
+    "full_application_build": 0,
+    "migration": 0
+  },
+  "v1_3_aggregate_counts_through_attempt_7": {
+    "formal_zero_build_gate_attempt": 3,
+    "zero_build_checker_launch": 2,
+    "isolated_server_bundle_build": 0,
+    "isolated_fixture_verifier": 0,
+    "physical_scoped_projection": 0,
+    "canonical_v5_generation": 0,
+    "bound_v5_verification": 0,
+    "immutable_v4_reference_verification": 0
+  },
+  "ordered_proof_status": {
+    "root_authority_self_test": "BLOCKED",
+    "zero_build_exact_config_root_containment": "NOT_RUN",
+    "isolated_server_bundle_build": "NOT_RUN",
+    "isolated_fixture_verifier": "NOT_RUN",
+    "physical_scoped_projection": "NOT_RUN",
+    "canonical_v5_generation": "NOT_RUN",
+    "bound_source_clean_v5_verification": "NOT_RUN",
+    "immutable_v4_reference_verification": "NOT_RUN"
+  },
+  "protected_boundaries": {
+    "successful_external_call_count": 0,
+    "current_official_source_get_count": 0,
+    "current_provider_post_count": 0,
+    "aggregate_official_source_get_count": 6,
+    "aggregate_provider_post_count": 0,
+    "credential_access_count": 0,
+    "protected_database_access_count": 0,
+    "retained_registration_access_count": 0,
+    "staging_operation_count": 0,
+    "production_operation_count": 0
+  },
+  "evidence_safety": {
+    "raw_parser_output_persisted": false,
+    "absolute_candidate_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "cleanup": {
+    "disposable_candidate_worktree_removed": true,
+    "disposable_task_root_removed": true,
+    "fixture_build_artifact_created": false,
+    "projection_created": false,
+    "canonical_v5_directory_created": false,
+    "temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0,
+    "source_worktree_clean_before_evidence_update": true
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  }
+}
