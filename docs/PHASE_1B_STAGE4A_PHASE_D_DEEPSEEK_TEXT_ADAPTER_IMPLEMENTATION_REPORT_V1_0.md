@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **The accepted V1.3 one-file implementation remains frozen; the replacement root-authority self-test now passes all 21 closed cases, while the formal V1.3 sequence remains separately gated and unexecuted.**
+Status: **The accepted V1.3 one-file implementation remains frozen; the first separately authorized formal sequence stopped at Step 1 with an unexpected closed zero-build failure before any build or V5 action.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -133,3 +133,13 @@ The verified physical Node completed exactly one native syntax preflight and exa
 The detailed result was atomically retained before fixture cleanup and revalidated before removal of the temporary result. The entrypoint, result, exact Candidate worktree, fixtures and task root were removed with zero scoped process or worktree residue. No Product config was imported and the formal V1.3 sequence, build, verifier, projection, V5 and immutable V4 reference remained unexecuted. Current external, official-source, Provider and protected-state counts remain zero.
 
 This is a completed self-test gate, not Phase D acceptance or authorization to proceed automatically. The next gate is Coordinator verification and separate authorization for one formal V1.3 sequence. Phase E–G remain prohibited, and the Owner-directed project pause still follows only after independent Phase D acceptance and completion-checkpoint verification.
+
+## V1.3 formal proof sequence Attempt 10 result
+
+After Coordinator verification of Attempt 9, one formal V1.3 sequence was separately authorized. The pre-execution seal passed the exact clean evidence head, frozen config blob, accepted authority identities, Attempt 9 hash/PASS projection and immutable V4 object hash. A fresh formal harness then passed one native syntax preflight and an eleven-condition static semantic-binding comparison to the Attempt 9 authority contract; the 21-case self-test was not rerun.
+
+The formal zero-build gate launched exactly once with retry zero. Its bound Candidate authority path count was one, but it returned the safe leaf `UNEXPECTED_ZERO_BUILD_FORMAL_FAILURE`, outside the harness's distinct closed formal-leaf allowlist. No raw exception or subcondition was retained, and this report does not infer the cause. No additional diagnostic, harness edit or retry occurred.
+
+The failure stopped the ordered sequence at Step 1. Isolated build, unchanged fixture verifier, physical projection, canonical V5 generation, bound/source-clean verification and the formal immutable V4 reference step all remain `NOT_RUN`. The pre-execution V4 identity seal is not relabeled as the unexecuted Step 6 authority. Current official-source GET, Provider POST, credential and protected-state access counts are zero; aggregate history remains six GETs and zero POSTs.
+
+The temporary formal harness, exact Candidate worktree, copied dependency topology and task root were removed with zero scoped residue; no fixture build, projection or canonical V5 directory was created. Status is `BLOCKED`, not Phase D acceptance. The minimum next step is Coordinator disposition of a bounded read-only diagnosis for the unexpected Step 1 leaf before any new formal sequence. Phase E–G remain prohibited.

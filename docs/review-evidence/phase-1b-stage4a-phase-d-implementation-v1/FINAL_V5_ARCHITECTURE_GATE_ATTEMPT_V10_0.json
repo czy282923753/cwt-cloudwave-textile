@@ -1,0 +1,112 @@
+{
+  "schema_version": 10,
+  "accepted_design_candidate": "a3e90244693eb093983e45f5f0e1e0c12d7cb6c7",
+  "accepted_design_review": "815e77e9220ea6f629da264a658be7245f302346",
+  "root_identity_diagnosis": "c733a38feace0739a55e7b980a9101606ddb3dc3",
+  "failed_case_diagnosis": "62d297bd7641aa7e8e2502a5de593c64b9a367a5",
+  "passed_root_authority_contract_evidence_head": "433cb8da222b8be6c761e3857a55a4ee189832c8",
+  "proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+  "result": "BLOCKED",
+  "pre_execution_seal": {
+    "status": "PASS",
+    "exact_predecessor_evidence_head": true,
+    "source_worktree_clean": true,
+    "frozen_config_blob_exact": true,
+    "accepted_authority_identities_present": true,
+    "attempt_9_sha256_exact": true,
+    "attempt_9_pass_projection_exact": true,
+    "immutable_v4_sha256_exact": true,
+    "immutable_v4_formal_reference_executed": false
+  },
+  "formal_harness_binding_seal": {
+    "status": "PASS",
+    "syntax_preflight_launch_count": 1,
+    "syntax_preflight_retry_count": 0,
+    "absolute_physical_node_only": true,
+    "ancestry_success_by_no_throw_only": true,
+    "candidate_root_bound_once": true,
+    "git_c_candidate_root_only": true,
+    "validation_order_bound": true,
+    "authority_path_count_one": true,
+    "ambient_cwd_authority_absent": true,
+    "common_git_dir_authority_absent": true,
+    "fallback_authority_absent": true,
+    "dual_authority_absent": true,
+    "distinct_closed_root_leaves_present": true,
+    "root_authority_self_test_rerun_count": 0
+  },
+  "failure": {
+    "boundary": "FORMAL_ZERO_BUILD_GATE",
+    "leaf": "UNEXPECTED_ZERO_BUILD_FORMAL_FAILURE",
+    "safe_subcondition": "NOT_IN_CLOSED_FORMAL_LEAF_ALLOWLIST",
+    "formal_gate_launch_count": 1,
+    "formal_gate_retry_count": 0,
+    "authority_path_count": 1,
+    "child_exit_nonzero": true,
+    "child_signal": null,
+    "parent_projection_valid": true,
+    "additional_diagnostic_launch_count": 0,
+    "retry_performed": false,
+    "minimum_next_step": "COORDINATOR_DECISION_ON_A_BOUNDED_READ_ONLY_DIAGNOSIS_OF_THE_UNEXPECTED_FORMAL_ZERO_BUILD_LEAF_BEFORE_ANY_NEW_FORMAL_SEQUENCE"
+  },
+  "ordered_sequence": {
+    "step_1_zero_build_gate": "BLOCKED",
+    "step_2_isolated_build": "NOT_RUN",
+    "step_3_fixture_verifier": "NOT_RUN",
+    "step_4_physical_scoped_projection": "NOT_RUN",
+    "step_5_canonical_v5_generation": "NOT_RUN",
+    "step_5_bound_source_clean_v5_verification": "NOT_RUN",
+    "step_6_immutable_v4_reference": "NOT_RUN"
+  },
+  "current_run_counts": {
+    "formal_harness_syntax_preflight": 1,
+    "formal_zero_build_gate": 1,
+    "formal_zero_build_gate_retry": 0,
+    "isolated_server_bundle_build": 0,
+    "isolated_server_bundle_build_retry": 0,
+    "fixture_verifier": 0,
+    "fixture_verifier_retry": 0,
+    "physical_scoped_projection": 0,
+    "physical_scoped_projection_retry": 0,
+    "canonical_v5_generation": 0,
+    "canonical_v5_generation_retry": 0,
+    "bound_v5_verification": 0,
+    "bound_v5_verification_retry": 0,
+    "immutable_v4_reference_verification": 0,
+    "full_application_build": 0,
+    "migration": 0,
+    "official_source_get": 0,
+    "provider_post": 0,
+    "credential_access": 0,
+    "protected_state_access": 0
+  },
+  "aggregate_external_history": {
+    "official_source_get": 6,
+    "provider_post": 0
+  },
+  "evidence_safety": {
+    "raw_formal_output_persisted": false,
+    "absolute_runtime_path_persisted": false,
+    "absolute_candidate_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "cleanup": {
+    "temporary_formal_harness_removed": true,
+    "disposable_candidate_worktree_removed": true,
+    "copied_dependency_topology_removed": true,
+    "disposable_task_root_removed": true,
+    "fixture_build_artifact_created": false,
+    "projection_created": false,
+    "canonical_v5_directory_created": false,
+    "temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0,
+    "source_worktree_clean_before_evidence_update": true
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  }
+}
