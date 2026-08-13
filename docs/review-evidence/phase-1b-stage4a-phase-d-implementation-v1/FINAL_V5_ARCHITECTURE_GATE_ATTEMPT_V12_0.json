@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "artifact": "PHASE_1B_STAGE4A_PHASE_D_FULLY_OBSERVED_FORMAL_V1_3_ATTEMPT_V12",
+  "task": "Phase D fully observed formal V1.3 sequence using exact Attempt 11 authority",
+  "status": "BLOCKED",
+  "terminal_failure": {
+    "stage": "PRE_FORMAL_AUTHORITY_REPRODUCTION",
+    "leaf": "AUTHORITY_HASH_REPRODUCTION_MISMATCH",
+    "normalized_category": "AUTHORITY_INTEGRITY",
+    "stable_code": "SHA256_MISMATCH",
+    "expected_sha256": "5772575773cfaaaec092ad487aa61ee6de6eeaa1d40abee77b54ed4ca798a556",
+    "observed_sha256": "43cbe308ec9aede15ccbeecbbfc12982f8bb5fb2fa212d32f96e948f2f753a97",
+    "raw_bytes_persisted": false,
+    "retry_performed": false,
+    "second_authority_created": false,
+    "formal_step_1_reached": false
+  },
+  "authority_binding": {
+    "accepted_design_commit": "a3e90244693eb093983e45f5f0e1e0c12d7cb6c7",
+    "independent_design_review_commit": "815e77e9220ea6f629da264a658be7245f302346",
+    "frozen_proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+    "predecessor_evidence_head": "4aa0f94222d5bac008bb799f47520832fb620579",
+    "attempt_9_head": "433cb8da222b8be6c761e3857a55a4ee189832c8",
+    "attempt_10_diagnosis_commit": "e3f32dc416b0fadcd80ff70e1ff034e80cc1669c",
+    "immutable_v4_sha256": "c52b476e79c597c816c7389fa98a7fb1bd74ae4e5b4ba3da3d3059d8fe6134f4"
+  },
+  "launches": {
+    "authority_reconstruction": {
+      "launches": 1,
+      "retries": 0,
+      "status": "HASH_MISMATCH"
+    },
+    "native_syntax_preflight": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "schema_and_leaf_seal": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "formal_step_1": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "isolated_build": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "fixture_verifier": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "physical_projection": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "canonical_v5_generation": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "bound_source_clean_v5_verification": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "immutable_v4_reference": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    }
+  },
+  "protected_boundaries": {
+    "external_call_count": 0,
+    "official_source_get_count": 0,
+    "provider_post_count": 0,
+    "credential_access_count": 0,
+    "retained_database_access_count": 0,
+    "protected_registration_access_count": 0,
+    "staging_or_production_access_count": 0,
+    "aggregate_prior_official_source_get_count": 6,
+    "aggregate_prior_provider_post_count": 0
+  },
+  "evidence_safety": {
+    "raw_authority_bytes_persisted": false,
+    "raw_output_persisted": false,
+    "absolute_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "stack_or_message_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "cleanup": {
+    "temporary_mismatched_authority_removed": true,
+    "temporary_task_root_removed": true,
+    "disposable_candidate_created": false,
+    "build_or_projection_state_created": false,
+    "scoped_process_residue_count": 0,
+    "tracked_product_mutation_count": 0,
+    "status": "PASS"
+  },
+  "minimum_next_step": "Coordinator authorization is required for a fresh exact-byte reconstruction attempt; the current task consumed its single reconstruction and cannot proceed to syntax or formal Step 1.",
+  "owner_boundary": {
+    "phase_d_only": true,
+    "phase_e_f_g_not_authorized": true,
+    "project_pause_after_independent_phase_d_acceptance_and_completion_checkpoint": true
+  }
+}

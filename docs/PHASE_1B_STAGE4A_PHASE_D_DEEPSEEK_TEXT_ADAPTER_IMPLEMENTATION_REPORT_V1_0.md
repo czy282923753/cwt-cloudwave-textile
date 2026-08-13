@@ -154,3 +154,14 @@ The verified physical Node 24.14.0 authority completed exactly one native syntax
 The atomic result was validated before cleanup. The temporary authority, result, exact disposable Candidate topology and task fixtures were removed with zero scoped residue. No tracked Product/config/test/tooling source changed. The formal V1.3 sequence, formal Step 1 continuation, isolated build, verifier, projection, V5 generation/verification and immutable V4 reference all remained `NOT_RUN`; current external, official-source, Provider and protected-state counts are zero, and aggregate DeepSeek history remains six official GETs and zero Provider POSTs.
 
 This is a completed temporary-authority fault-test gate, not Phase D acceptance or authorization to continue automatically. The next gate is Coordinator verification and separate authorization for one fully observed formal V1.3 sequence using the exact hash-frozen authority. Phase E–G remain prohibited, and the Owner-directed project pause still follows only after independent Phase D acceptance and completion-checkpoint verification.
+
+
+## V1.3 exact-authority formal sequence Attempt 12 result
+
+The Coordinator authorized one fully observed formal sequence only after exact reconstruction of the Attempt 11 temporary authority bytes. The single reconstruction was hash-checked before syntax or formal execution and returned the closed prerequisite leaf `AUTHORITY_HASH_REPRODUCTION_MISMATCH` with category `AUTHORITY_INTEGRITY` and code `SHA256_MISMATCH`.
+
+The task therefore stopped before the native syntax preflight, schema/leaf seal and formal Step 1. No edit, second reconstruction, fault-test rerun or semantically similar authority was attempted. Isolated build, unchanged fixture verifier, physical projection, canonical V5 generation, bound/source-clean verification and immutable V4 reference all remain `NOT_RUN`.
+
+The mismatched temporary authority and task root were removed. No disposable Candidate, build or projection state was created, no tracked Product/config/test/tooling source changed, and current external, official-source, Provider and protected-state counts are zero. Aggregate DeepSeek history remains six official GETs and zero Provider POSTs.
+
+Status is `BLOCKED`, not Phase D acceptance. The minimum next step is Coordinator authorization for a fresh exact-byte reconstruction attempt; this task consumed its single reconstruction and cannot proceed to syntax or formal Step 1. Phase E–G remain prohibited, and the Owner-directed pause boundary remains unchanged.
