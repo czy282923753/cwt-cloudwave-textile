@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **The accepted V1.3 one-file root-containment implementation is frozen, but its first V5 prerequisite stopped fail-closed before Node/config import; no build, V5 or Provider action followed.**
+Status: **The accepted V1.3 one-file implementation remains frozen; the separately authorized absolute-runtime continuation passed its binding self-test but stopped at a zero-build harness ancestry-result authority error before config import.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -92,4 +92,10 @@ No disposable build or V5 directory was created. Current-task external calls, of
 
 ## Required next action
 
-Status remains `BLOCKED`, not implementation acceptance. The minimum next action is a separately authorized correction that binds the zero-build checker to the already verified native Node executable by its runtime absolute identity while retaining the same secret-free environment. Phase D must complete independent acceptance and its completion checkpoint before the Owner-directed project pause; Phase E–G remain prohibited.
+The separately authorized continuation replaced command-name/PATH authority with the verified physical native Node identity. Its zero-resource matrix passed all nine cases, including altered path, non-file, non-executable, wrong version, alias/physical mismatch, altered ownership identity, missing identity and name-lookup fallback rejection. The formal checker then launched successfully under the explicit secret-free environment.
+
+The formal sequence stopped at its Candidate ancestry assertion before config import. The temporary harness incorrectly treated the successful return value of a synchronous Git command as a status-bearing process result. It therefore emitted the safe fixed failure `ZERO_BUILD_CANDIDATE_ANCESTRY_CHECK_FAILED` with root category `HARNESS_EXIT_STATUS_AUTHORITY_MISMATCH`. This result does not reclassify the already Coordinator-verified Candidate ancestry and does not establish a Product/config/dependency failure.
+
+No retry occurred. Isolated build, unchanged verifier, physical projection, canonical V5 generation, bound verification and immutable V4 reference remain `NOT_RUN`; current external/official-source/Provider/protected-state counts remain zero. Attempt 4 is unchanged and retained.
+
+Status remains `BLOCKED`, not implementation acceptance. The minimum next action is separate authorization to replace only the ancestry-command result authority with success-by-no-throw or an actual status-bearing process result before beginning a new formal sequence. Phase D must complete independent acceptance and its completion checkpoint before the Owner-directed project pause; Phase E–G remain prohibited.
