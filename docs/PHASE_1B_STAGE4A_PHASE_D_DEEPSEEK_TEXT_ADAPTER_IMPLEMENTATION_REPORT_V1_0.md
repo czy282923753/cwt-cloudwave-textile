@@ -1,14 +1,14 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **Database/resource/role prerequisites closed; the one final controlled validation returned `controlled_validation_internal_failure` with zero billable Provider POSTs.**
+Status: **The accepted V1.3 one-file root-containment implementation is frozen, but its first V5 prerequisite stopped fail-closed before Node/config import; no build, V5 or Provider action followed.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
 ## Candidate identity
 
-- Exact accepted Design Candidate base: `09eb6b3296dc43f579025213004606e0f0f744c0`.
+- Exact accepted Design Candidate base: `09eb6b3296dc43f579025213004606e0f0f744c0`; accepted bounded successor: `a3e90244693eb093983e45f5f0e1e0c12d7cb6c7`.
 - Branch: `codex/phase-1b-stage4a-phase-d-implementation-v1`.
-- Proof-bound code commit: `250b07d928fbdddc5b81c31162c601643fd0ee21`.
+- Original Phase D proof-bound code commit: `250b07d928fbdddc5b81c31162c601643fd0ee21`; current V1.3 proof-bound code commit: `584b13f6c20a893d42aba9ede69a6e86a2ed04a4`.
 - Evidence directory: `docs/review-evidence/phase-1b-stage4a-phase-d-implementation-v1/`.
 - The final evidence/report commit is docs-only relative to the proof-bound code commit.
 
@@ -82,6 +82,14 @@ Supplier questionnaire, DPA, no-training, region, subprocessor and security assu
 - No Production, protected Staging, deploy, traffic, DNS, Index, formal import, Push, PR or checkpoint movement occurred.
 - Rollback is a new branch at the exact accepted base or explicit linear reverts; no checkpoint ref is moved.
 
+## Accepted V1.3 implementation and V5 prerequisite result
+
+The Coordinator formally accepted the bounded V1.3 Design successor after fresh independent Design review PASS. The implementation replaces only `test-fixtures/ai-server-bundle/next.config.ts`: `outputFileTracingRoot` and `turbopack.root` now share the one repository root derived exactly from the retained fixture root. The frozen code Candidate changes that sole authorized path relative to evidence HEAD `2848ebc42f90e5fc47fc4ee1606aae354b18f6bd`; the old fixture-local values, fallback and dual authority are absent.
+
+The mandatory ordered proof then stopped at its first prerequisite. The explicit secret-free zero-build environment could not resolve the verified native Node executable, so the Node checker did not start and the config/root/containment/dependency claims were not promoted to PASS. In accordance with V1.3, no retry occurred. The isolated build, unchanged fixture verifier, physical projection, canonical V5 generation, bound/source-clean verification and immutable V4 reference step all remain `NOT_RUN`.
+
+No disposable build or V5 directory was created. Current-task external calls, official-source GETs, Provider POSTs, credential access, protected database/registration access and Staging/Production operations are all zero. Aggregate historical DeepSeek accounting remains six official GETs and zero Provider POSTs.
+
 ## Required next action
 
-Status is `BLOCKED`, not implementation acceptance. The coordinator must decide whether to authorize diagnosis/remediation of the safe `controlled_validation_internal_failure`; this task does not infer its redacted subcause. Any database inspection, mutation, cleanup, replacement or further controlled invocation requires separate authorization. Only after a complete real durable-path result and an immutable clean evidence Candidate should a different fresh independent reviewer begin the Phase D implementation review.
+Status remains `BLOCKED`, not implementation acceptance. The minimum next action is a separately authorized correction that binds the zero-build checker to the already verified native Node executable by its runtime absolute identity while retaining the same secret-free environment. Phase D must complete independent acceptance and its completion checkpoint before the Owner-directed project pause; Phase E–G remain prohibited.
