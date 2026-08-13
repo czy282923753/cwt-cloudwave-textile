@@ -3,6 +3,18 @@ import { join, relative } from "node:path";
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
 const serverAppRoot = join(buildRoot, "server/app");
+const clientReferenceManifestFramings = [
+  {
+    preamble:
+      "globalThis.__RSC_MANIFEST = globalThis.__RSC_MANIFEST || {};\nglobalThis.__RSC_MANIFEST[",
+    delimiter: "] = ",
+  },
+  {
+    preamble:
+      "globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST[",
+    delimiter: "]=",
+  },
+];
 const forbidden = [
   "@refinedev",
   "/src/admin/",
@@ -23,6 +35,97 @@ async function filesUnder(directory) {
     else files.push(path);
   }
   return files;
+}
+
+function hasSafeRouteKeyShape(routeKey) {
+  if (routeKey === "/") return true;
+  if (!routeKey.startsWith("/") || routeKey.endsWith("/")) return false;
+
+  for (const encodedSegment of routeKey.slice(1).split("/")) {
+    if (!encodedSegment) return false;
+
+    let segment;
+    try {
+      segment = decodeURIComponent(encodedSegment);
+    } catch {
+      return false;
+    }
+    if (!segment || segment === "." || segment === "..") return false;
+
+    for (const character of segment) {
+      const code = character.codePointAt(0);
+      const isAsciiAlphaNumeric =
+        (code >= 0x30 && code <= 0x39) ||
+        (code >= 0x41 && code <= 0x5a) ||
+        (code >= 0x61 && code <= 0x7a);
+      if (!isAsciiAlphaNumeric && !"-._~@()[]".includes(character)) return false;
+    }
+  }
+
+  return true;
+}
+
+function parseClientReferenceManifest(manifest, manifestPath) {
+  let framedEnd = manifest.length;
+  while (framedEnd > 0) {
+    const code = manifest.charCodeAt(framedEnd - 1);
+    if (code !== 0x09 && code !== 0x0a && code !== 0x0d && code !== 0x20) break;
+    framedEnd -= 1;
+  }
+  const framed = manifest.slice(0, framedEnd);
+
+  const framing = clientReferenceManifestFramings.find(({ preamble }) =>
+    framed.startsWith(preamble),
+  );
+  if (framing === undefined || !framed.endsWith(";")) {
+    throw new Error(`Unrecognized client-reference manifest framing: ${manifestPath}`);
+  }
+
+  const assignment = framed.slice(framing.preamble.length, -1);
+  if (!assignment.startsWith('"')) {
+    throw new Error(`Invalid client-reference manifest route key: ${manifestPath}`);
+  }
+
+  let routeLiteralEnd = -1;
+  let escaped = false;
+  for (let index = 1; index < assignment.length; index += 1) {
+    const character = assignment[index];
+    if (escaped) {
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === '"') {
+      routeLiteralEnd = index + 1;
+      break;
+    }
+  }
+  if (routeLiteralEnd < 0) {
+    throw new Error(`Invalid client-reference manifest route key: ${manifestPath}`);
+  }
+
+  let routeKey;
+  try {
+    routeKey = JSON.parse(assignment.slice(0, routeLiteralEnd));
+  } catch {
+    throw new Error(`Invalid client-reference manifest route key: ${manifestPath}`);
+  }
+  if (typeof routeKey !== "string" || !hasSafeRouteKeyShape(routeKey)) {
+    throw new Error(`Invalid client-reference manifest route key: ${manifestPath}`);
+  }
+
+  const afterRouteKey = assignment.slice(routeLiteralEnd);
+  if (!afterRouteKey.startsWith(framing.delimiter)) {
+    throw new Error(`Unrecognized client-reference manifest framing: ${manifestPath}`);
+  }
+  const jsonRhs = afterRouteKey.slice(framing.delimiter.length);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonRhs);
+  } catch {
+    throw new Error(`Invalid client-reference manifest JSON: ${manifestPath}`);
+  }
+  return parsed;
 }
 
 async function assertFreshBuild() {
@@ -94,12 +197,15 @@ for (const chunkPath of rootChunks) {
 for (const manifestPath of manifests) {
   const manifest = await readFile(manifestPath, "utf8");
   checked.add(manifestPath);
-  const assignmentAt = manifest.lastIndexOf("]=");
-  if (assignmentAt < 0 || !manifest.endsWith(";")) {
-    throw new Error(`Unrecognized client-reference manifest framing: ${manifestPath}`);
-  }
-  const parsed = JSON.parse(manifest.slice(assignmentAt + 2, -1));
-  if (typeof parsed.clientModules !== "object" || parsed.clientModules === null) {
+  const parsed = parseClientReferenceManifest(manifest, manifestPath);
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    typeof parsed.clientModules !== "object" ||
+    parsed.clientModules === null ||
+    Array.isArray(parsed.clientModules)
+  ) {
     throw new Error(`Client-reference manifest has no clientModules object: ${manifestPath}`);
   }
   const chunkPaths = new Set();
