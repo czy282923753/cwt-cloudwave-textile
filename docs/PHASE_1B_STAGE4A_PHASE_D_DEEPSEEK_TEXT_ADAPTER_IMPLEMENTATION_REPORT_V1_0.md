@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **The accepted V1.3 one-file implementation remains frozen; the Candidate-bound root-authority continuation stopped before its self-test cases because the temporary entrypoint did not parse.**
+Status: **The accepted V1.3 one-file implementation remains frozen; the corrected root-authority self-test passed syntax preflight but its 21-case matrix did not fully pass, so the formal sequence stayed frozen.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -115,3 +115,11 @@ The Coordinator accepted independent diagnosis `c733a38feace0739a55e7b980a910160
 The temporary self-test entrypoint failed to parse before executing any case. It emitted no Product/config/build/V5 result and the formal sequence did not start. In accordance with the one-shot fail-closed contract, the syntax error was not corrected or retried. The exact disposable Candidate worktree and task root were removed, with zero registry or process residue.
 
 Attempts 4–6 and the independent 30/30 diagnosis remain unchanged. This continuation used zero external/official-source/Provider/protected-state calls; build, verifier, projection, V5 and V4 reference remain `NOT_RUN`. The minimum next action is separate authorization for one corrected zero-resource root-authority self-test before any formal sequence. Phase E–G remain prohibited.
+
+## V1.3 corrected root-authority self-test result
+
+The next bounded task generated one fresh temporary entrypoint from the accepted Candidate-bound replacement plan. The verified physical Node executed exactly one native syntax preflight, which passed without executing a self-test case, importing Product config, mutating Git, building, accessing network or touching protected state.
+
+The self-test entrypoint then launched exactly once with retry zero. Fourteen of 21 closed cases passed; seven case expectations returned false. The safe projection retained the case booleans but not the observed leaf for each false case, so this report does not infer a single causal subcondition. It records the fixed task result `ROOT_AUTHORITY_SELF_TEST_MATRIX_FAILED` rather than reclassifying the independent 30/30 Product/config/root diagnosis.
+
+The formal V1.3 sequence remained frozen with launch count zero. Build, verifier, projection, V5 and immutable V4 reference remain `NOT_RUN`; all current external, official-source, Provider and protected-state counts remain zero. The temporary entrypoint, exact Candidate worktree, fixture state and task root were removed with zero scoped residue. The minimum next step is a Coordinator decision on a bounded zero-resource diagnosis or a revised closed projection that retains the observed leaf for every failed self-test case. Phase E–G remain prohibited.
