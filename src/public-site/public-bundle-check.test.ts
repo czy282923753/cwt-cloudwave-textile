@@ -1,28 +1,35 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const currentManifestPreamble =
   "globalThis.__RSC_MANIFEST = globalThis.__RSC_MANIFEST || {};\nglobalThis.__RSC_MANIFEST[";
 const legacyManifestPreamble =
   "globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST[";
+const currentChunkPath = "/_next/static/chunks/app/public.js";
+const legacyChunkPath = "static/chunks/app/public.js";
 const disposableBuilds: string[] = [];
 
 type ManifestPayload = Record<string, unknown>;
 
-function manifestPayload(overrides: ManifestPayload = {}): ManifestPayload {
+function manifestPayload({
+  modulePath = "/src/public-site/example.tsx",
+  chunks = [currentChunkPath],
+}: {
+  modulePath?: string;
+  chunks?: unknown;
+} = {}): ManifestPayload {
   return {
     clientModules: {
-      "/src/public-site/example.tsx": {
+      [modulePath]: {
         id: "fixture-module",
         name: "*",
-        chunks: ["fixture-chunk", "static/chunks/app/public.js"],
+        chunks,
         async: false,
       },
     },
-    ...overrides,
   };
 }
 
@@ -42,24 +49,35 @@ function frameManifest({
   return `${preamble}${JSON.stringify(routeKey)}${delimiter}${JSON.stringify(payload)};${trailing}`;
 }
 
+async function writeBuildFile(buildRoot: string, relativePath: string, content: string) {
+  const path = join(buildRoot, relativePath);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content);
+}
+
 async function createBuildFixture({
   manifest = frameManifest(),
-  chunk = "public fixture",
+  manifestRelativePath = "page_client-reference-manifest.js",
+  rootChunks = [],
+  chunkFiles = { "static/chunks/app/public.js": "public fixture" },
 }: {
   manifest?: string;
-  chunk?: string;
+  manifestRelativePath?: string;
+  rootChunks?: unknown[];
+  chunkFiles?: Record<string, string>;
 } = {}) {
   const buildRoot = await mkdtemp(join(tmpdir(), "cwt-public-bundle-"));
   disposableBuilds.push(buildRoot);
-  await mkdir(join(buildRoot, "server/app"), { recursive: true });
-  await mkdir(join(buildRoot, "static/chunks/app"), { recursive: true });
-  await writeFile(join(buildRoot, "BUILD_ID"), "fixture-build\n");
-  await writeFile(
-    join(buildRoot, "build-manifest.json"),
-    JSON.stringify({ polyfillFiles: [], rootMainFiles: [] }),
+  await writeBuildFile(buildRoot, "BUILD_ID", "fixture-build\n");
+  await writeBuildFile(
+    buildRoot,
+    "build-manifest.json",
+    JSON.stringify({ polyfillFiles: [], rootMainFiles: rootChunks }),
   );
-  await writeFile(join(buildRoot, "server/app/page_client-reference-manifest.js"), manifest);
-  await writeFile(join(buildRoot, "static/chunks/app/public.js"), chunk);
+  await writeBuildFile(buildRoot, `server/app/${manifestRelativePath}`, manifest);
+  for (const [relativePath, content] of Object.entries(chunkFiles)) {
+    await writeBuildFile(buildRoot, relativePath, content);
+  }
 
   const freshTime = new Date(Date.now() + 60_000);
   await utimes(join(buildRoot, "BUILD_ID"), freshTime, freshTime);
@@ -83,24 +101,31 @@ afterEach(async () => {
 });
 
 describe("public bundle checker", () => {
-  it("accepts the current Next 16.2.12 assignment framing", async () => {
+  it("accepts current Next framing and reports nonzero manifest chunk coverage", async () => {
     const result = runChecker(await createBuildFixture());
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/1 public page manifests and 2 manifest\/chunk files/i);
+    expect(result.stdout).toMatch(
+      /1 public page manifests; 0 root chunks; 1 manifest chunks; 1 distinct chunk files/i,
+    );
   });
 
-  it("retains the exact legacy assignment framing for Webpack rollback compatibility", async () => {
+  it("retains exact legacy framing and chunk pairs for rollback compatibility", async () => {
     const result = runChecker(
       await createBuildFixture({
-        manifest: frameManifest({ preamble: legacyManifestPreamble, delimiter: "]=" }),
+        manifest: frameManifest({
+          preamble: legacyManifestPreamble,
+          delimiter: "]=",
+          payload: manifestPayload({ chunks: ["fixture-chunk", legacyChunkPath] }),
+        }),
       }),
     );
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/1 manifest chunks/i);
   });
 
-  it("accepts only the permitted trailing ASCII whitespace", async () => {
+  it("accepts only permitted trailing ASCII whitespace", async () => {
     const result = runChecker(
       await createBuildFixture({ manifest: frameManifest({ trailing: "\n\r\n\t " }) }),
     );
@@ -108,7 +133,59 @@ describe("public bundle checker", () => {
     expect(result.status).toBe(0);
   });
 
+  it("accepts a valid escaped JSON route literal without executing the manifest", async () => {
+    const payload = JSON.stringify(manifestPayload());
+    const manifest = `${currentManifestPreamble}"\\/page"] = ${payload};`;
+    const result = runChecker(await createBuildFixture({ manifest }));
+
+    expect(result.status).toBe(0);
+  });
+
+  it("does not confuse delimiter-looking JSON string content with manifest framing", async () => {
+    const result = runChecker(
+      await createBuildFixture({
+        manifest: frameManifest({
+          payload: manifestPayload({ modulePath: "/src/public-site/delimiters-]= ] = .tsx" }),
+        }),
+      }),
+    );
+
+    expect(result.status).toBe(0);
+  });
+
   it.each([
+    ["page_client-reference-manifest.js", "/page"],
+    ["about/page_client-reference-manifest.js", "/about/page"],
+    ["products/[slug]/page_client-reference-manifest.js", "/products/[slug]/page"],
+    [
+      "(marketing)/catalog/[slug]/page_client-reference-manifest.js",
+      "/(marketing)/catalog/[slug]/page",
+    ],
+  ])("binds %s to route key %s", async (manifestRelativePath, routeKey) => {
+    const result = runChecker(
+      await createBuildFixture({
+        manifestRelativePath,
+        manifest: frameManifest({ routeKey }),
+      }),
+    );
+
+    expect(result.status).toBe(0);
+  });
+
+  it("rejects a safe-shaped route key that does not match the manifest path", async () => {
+    const result = runChecker(
+      await createBuildFixture({
+        manifestRelativePath: "about/page_client-reference-manifest.js",
+        manifest: frameManifest({ routeKey: "/different/page" }),
+      }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/route key does not match its path/i);
+  });
+
+  it.each([
+    ["a leading prefix", ` ${frameManifest()}`, /unrecognized.*framing/i],
     ["a missing final semicolon", frameManifest().slice(0, -1), /unrecognized.*framing/i],
     ["a second statement", `${frameManifest()}globalThis.extra={};`, /invalid.*manifest json/i],
     [
@@ -122,13 +199,18 @@ describe("public bundle checker", () => {
       /invalid.*route key/i,
     ],
     [
-      "an unsafe route key",
-      frameManifest({ routeKey: "/../page" }),
-      /invalid.*route key/i,
-    ],
-    [
       "an unrecognized delimiter",
       frameManifest({ delimiter: "]  = " }),
+      /unrecognized.*framing/i,
+    ],
+    [
+      "current preamble with legacy delimiter",
+      frameManifest({ delimiter: "]=" }),
+      /unrecognized.*framing/i,
+    ],
+    [
+      "legacy preamble with current delimiter",
+      frameManifest({ preamble: legacyManifestPreamble }),
       /unrecognized.*framing/i,
     ],
     ["a non-ASCII trailing suffix", `${frameManifest()}\u00a0`, /unrecognized.*framing/i],
@@ -144,6 +226,29 @@ describe("public bundle checker", () => {
     expect(combinedOutput(result)).toMatch(expected);
   });
 
+  it.each([
+    ["an invalid JSON escape", `${currentManifestPreamble}"/\\x/page"] = ${JSON.stringify(manifestPayload())};`],
+    ["a lone surrogate", `${currentManifestPreamble}"/\\uD800/page"] = ${JSON.stringify(manifestPayload())};`],
+    ["a replacement character", frameManifest({ routeKey: "/�/page" })],
+  ])("rejects %s in the route literal", async (_case, manifest) => {
+    const result = runChecker(await createBuildFixture({ manifest }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/invalid.*route key/i);
+  });
+
+  it.each(["/../page", "/%2e%2e/page", "/encoded%2Fseparator/page", "//page", "/café/page"])(
+    "rejects unsafe route key %s",
+    async (routeKey) => {
+      const result = runChecker(
+        await createBuildFixture({ manifest: frameManifest({ routeKey }) }),
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/invalid.*route key/i);
+    },
+  );
+
   it("rejects a manifest without a clientModules object", async () => {
     const result = runChecker(
       await createBuildFixture({ manifest: frameManifest({ payload: {} }) }),
@@ -153,12 +258,25 @@ describe("public bundle checker", () => {
     expect(combinedOutput(result)).toMatch(/no clientModules object/i);
   });
 
-  it("rejects an invalid client module descriptor", async () => {
+  it.each([
+    ["an array RHS", []],
+    ["an array clientModules value", { clientModules: [] }],
+  ])("rejects %s", async (_case, payload) => {
+    const result = runChecker(
+      await createBuildFixture({ manifest: frameManifest({ payload }) }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/no clientModules object/i);
+  });
+
+  it.each([
+    ["a non-array chunks field", "not-an-array"],
+    ["a non-string chunk entry", [42]],
+  ])("rejects a descriptor with %s", async (_case, chunks) => {
     const result = runChecker(
       await createBuildFixture({
-        manifest: frameManifest({
-          payload: manifestPayload({ clientModules: { invalid: { chunks: "not-an-array" } } }),
-        }),
+        manifest: frameManifest({ payload: manifestPayload({ chunks }) }),
       }),
     );
 
@@ -166,31 +284,191 @@ describe("public bundle checker", () => {
     expect(combinedOutput(result)).toMatch(/invalid client module descriptor/i);
   });
 
-  it("rejects a malformed encoded client chunk path", async () => {
+  it("fails closed when selected public manifests reference zero normalized chunks", async () => {
     const result = runChecker(
       await createBuildFixture({
-        manifest: frameManifest({
-          payload: manifestPayload({
-            clientModules: {
-              invalid: { chunks: ["static/chunks/%E0%A4%A.js"] },
-            },
-          }),
-        }),
+        manifest: frameManifest({ payload: manifestPayload({ chunks: [] }) }),
       }),
     );
 
     expect(result.status).not.toBe(0);
-    expect(combinedOutput(result)).toMatch(/malformed chunk path/i);
+    expect(combinedOutput(result)).toMatch(/no normalized manifest-referenced public chunks/i);
   });
 
-  it("fails the positive forbidden-marker leak control", async () => {
+  it("fails a current-format non-root forbidden-marker chunk control", async () => {
     const result = runChecker(
-      await createBuildFixture({ chunk: "const leak = 'RefineAdminProvider';" }),
+      await createBuildFixture({
+        manifestRelativePath: "products/page_client-reference-manifest.js",
+        manifest: frameManifest({ routeKey: "/products/page" }),
+        chunkFiles: {
+          "static/chunks/app/public.js": "const leak = 'RefineAdminProvider';",
+        },
+      }),
     );
 
     expect(result.status).not.toBe(0);
     expect(combinedOutput(result)).toMatch(/admin-only dependencies leaked/i);
     expect(combinedOutput(result)).toMatch(/RefineAdminProvider/);
+  });
+
+  it("checks active module forbidden paths for the current chunk namespace", async () => {
+    const result = runChecker(
+      await createBuildFixture({
+        manifest: frameManifest({
+          payload: manifestPayload({ modulePath: "/src/admin/current-leak.tsx" }),
+        }),
+      }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/active module \/src\/admin\//i);
+  });
+
+  it.each([
+    ["raw traversal", "/_next/static/chunks/../escape.js"],
+    ["raw dot segment", "/_next/static/chunks/./escape.js"],
+    ["encoded traversal", "/_next/static/chunks/%2e%2e/escape.js"],
+    ["encoded separator", "/_next/static/chunks/nested%2Fescape.js"],
+    ["encoded backslash", "/_next/static/chunks/nested%5Cescape.js"],
+    ["absolute filesystem path", "/tmp/outside.js"],
+    ["alternate URL origin", "https://example.test/static/chunks/outside.js"],
+    ["query suffix", "/_next/static/chunks/app/public.js?x=1"],
+    ["fragment suffix", "/_next/static/chunks/app/public.js#x"],
+    ["raw backslash", "/_next/static/chunks/app\\public.js"],
+    ["malformed encoding", "/_next/static/chunks/%E0%A4%A.js"],
+    ["empty suffix", "/_next/static/chunks/"],
+    ["missing JavaScript suffix", "/_next/static/chunks/app/public.css"],
+    ["empty path segment", "/_next/static/chunks/app//public.js"],
+    ["unrecognized namespace", "/_next/assets/public.js"],
+    ["non-file ambiguity", "fixture-chunk"],
+  ])("rejects descriptor chunk path with %s", async (_case, chunkPath) => {
+    const result = runChecker(
+      await createBuildFixture({
+        manifest: frameManifest({ payload: manifestPayload({ chunks: [chunkPath] }) }),
+      }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/chunk (path|namespace|entry)|malformed chunk path/i);
+  });
+
+  it("uses the same closed normalization authority for root build-manifest chunks", async () => {
+    const result = runChecker(
+      await createBuildFixture({ rootChunks: ["static/chunks/../../outside.js"] }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/invalid public bundle chunk path/i);
+  });
+
+  it("scans root build-manifest chunks for forbidden markers", async () => {
+    const result = runChecker(
+      await createBuildFixture({
+        rootChunks: ["static/chunks/root.js"],
+        chunkFiles: {
+          "static/chunks/root.js": "const rootLeak = '@refinedev/core';",
+          "static/chunks/app/public.js": "manifest fixture",
+        },
+      }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/admin-only dependencies leaked/i);
+    expect(combinedOutput(result)).toMatch(/@refinedev/);
+  });
+
+  it("reports separate valid root and manifest chunk coverage", async () => {
+    const result = runChecker(
+      await createBuildFixture({
+        rootChunks: ["static/chunks/root.js"],
+        chunkFiles: {
+          "static/chunks/root.js": "root fixture",
+          "static/chunks/app/public.js": "manifest fixture",
+        },
+      }),
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(
+      /1 public page manifests; 1 root chunks; 1 manifest chunks; 2 distinct chunk files/i,
+    );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "fails closed when an in-root manifest chunk symlink escapes the real build root",
+    async () => {
+      const buildRoot = await createBuildFixture();
+      const outsideRoot = await mkdtemp(join(tmpdir(), "cwt-public-bundle-outside-"));
+      disposableBuilds.push(outsideRoot);
+      const outsidePath = join(outsideRoot, "outside.js");
+      const outsideContent = "OUTSIDE_CONTENT_MUST_NOT_BE_PRINTED";
+      await writeFile(outsidePath, outsideContent);
+      const inRootPath = join(buildRoot, "static/chunks/app/public.js");
+      await rm(inRootPath);
+      await symlink(outsidePath, inRootPath);
+
+      const result = runChecker(buildRoot);
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/escapes the real build root/i);
+      expect(combinedOutput(result)).not.toContain(outsideContent);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "applies real-root symlink containment to root build-manifest chunks",
+    async () => {
+      const buildRoot = await createBuildFixture({
+        rootChunks: ["static/chunks/root.js"],
+      });
+      const outsideRoot = await mkdtemp(join(tmpdir(), "cwt-public-bundle-root-outside-"));
+      disposableBuilds.push(outsideRoot);
+      const outsidePath = join(outsideRoot, "outside.js");
+      await writeFile(outsidePath, "outside root fixture");
+      await symlink(outsidePath, join(buildRoot, "static/chunks/root.js"));
+
+      const result = runChecker(buildRoot);
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/escapes the real build root/i);
+    },
+  );
+
+  it("rejects a directory where a normalized chunk file is required", async () => {
+    const buildRoot = await createBuildFixture();
+    const chunkPath = join(buildRoot, "static/chunks/app/public.js");
+    await rm(chunkPath);
+    await mkdir(chunkPath);
+
+    const result = runChecker(buildRoot);
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/chunk is not a file/i);
+  });
+
+  it("preserves public manifest selection exclusions", async () => {
+    const buildRoot = await createBuildFixture();
+    const invalidManifest = "this excluded manifest must not be parsed";
+    await writeBuildFile(
+      buildRoot,
+      "server/app/admin/page_client-reference-manifest.js",
+      invalidManifest,
+    );
+    await writeBuildFile(
+      buildRoot,
+      "server/app/(admin-preview)/admin/preview/page_client-reference-manifest.js",
+      invalidManifest,
+    );
+    await writeBuildFile(
+      buildRoot,
+      "server/app/operations-login/page_client-reference-manifest.js",
+      invalidManifest,
+    );
+
+    const result = runChecker(buildRoot);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/1 public page manifests/i);
   });
 
   it("fails clearly when no fresh production build exists", async () => {

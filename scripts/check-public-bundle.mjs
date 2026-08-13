@@ -1,14 +1,19 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
 const serverAppRoot = join(buildRoot, "server/app");
+const absoluteBuildRoot = resolve(buildRoot);
+const currentChunkPrefix = "/_next/static/chunks/";
+const legacyChunkPrefix = "static/chunks/";
 const clientReferenceManifestFramings = [
   {
     preamble:
       "globalThis.__RSC_MANIFEST = globalThis.__RSC_MANIFEST || {};\nglobalThis.__RSC_MANIFEST[",
     delimiter: "] = ",
   },
+  // Rollback-only compatibility owned by the public-bundle checker. Remove when the
+  // supported rollback baseline no longer emits this exact legacy Webpack framing.
   {
     preamble:
       "globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST[",
@@ -65,6 +70,138 @@ function hasSafeRouteKeyShape(routeKey) {
   return true;
 }
 
+function expectedRouteKeyForManifest(manifestPath) {
+  const portablePath = relative(serverAppRoot, manifestPath).replaceAll("\\", "/");
+  const suffix = "_client-reference-manifest.js";
+  if (
+    !portablePath.endsWith(suffix) ||
+    portablePath === suffix ||
+    portablePath.startsWith("../")
+  ) {
+    throw new Error(`Invalid client-reference manifest path: ${manifestPath}`);
+  }
+  return `/${portablePath.slice(0, -suffix.length)}`;
+}
+
+function hasSafeChunkSegment(segment) {
+  if (!segment || segment === "." || segment === "..") return false;
+  for (const character of segment) {
+    const code = character.codePointAt(0);
+    const isAsciiAlphaNumeric =
+      (code >= 0x30 && code <= 0x39) ||
+      (code >= 0x41 && code <= 0x5a) ||
+      (code >= 0x61 && code <= 0x7a);
+    if (!isAsciiAlphaNumeric && !"-._~@()[]".includes(character)) return false;
+  }
+  return true;
+}
+
+function normalizeChunkPath(chunkPath, source) {
+  if (
+    typeof chunkPath !== "string" ||
+    chunkPath.includes("\\") ||
+    chunkPath.includes("?") ||
+    chunkPath.includes("#")
+  ) {
+    throw new Error(`Invalid public bundle chunk path in ${source}`);
+  }
+
+  let encodedSuffix;
+  if (chunkPath.startsWith(currentChunkPrefix)) {
+    encodedSuffix = chunkPath.slice(currentChunkPrefix.length);
+  } else if (chunkPath.startsWith(legacyChunkPrefix)) {
+    encodedSuffix = chunkPath.slice(legacyChunkPrefix.length);
+  } else {
+    throw new Error(`Unrecognized public bundle chunk namespace in ${source}`);
+  }
+
+  if (!encodedSuffix) {
+    throw new Error(`Invalid public bundle chunk path in ${source}`);
+  }
+
+  const decodedSegments = encodedSuffix.split("/").map((encodedSegment) => {
+    if (!encodedSegment) {
+      throw new Error(`Invalid public bundle chunk path in ${source}`);
+    }
+    let segment;
+    try {
+      segment = decodeURIComponent(encodedSegment);
+    } catch {
+      throw new Error(`Public bundle manifest contains a malformed chunk path in ${source}`);
+    }
+    if (segment.includes("/") || segment.includes("\\") || !hasSafeChunkSegment(segment)) {
+      throw new Error(`Invalid public bundle chunk path in ${source}`);
+    }
+    return segment;
+  });
+
+  if (!decodedSegments.at(-1).endsWith(".js")) {
+    throw new Error(`Invalid public bundle chunk path in ${source}`);
+  }
+  return ["static", "chunks", ...decodedSegments].join("/");
+}
+
+function normalizedDescriptorChunks(chunks, manifestPath) {
+  const normalized = new Set();
+  for (let index = 0; index < chunks.length; index += 1) {
+    const value = chunks[index];
+    if (typeof value !== "string") {
+      throw new Error(`Invalid client module descriptor in ${manifestPath}`);
+    }
+    if (value.startsWith(currentChunkPrefix) || value.startsWith(legacyChunkPrefix)) {
+      normalized.add(normalizeChunkPath(value, manifestPath));
+      continue;
+    }
+
+    const following = chunks[index + 1];
+    const isLegacyChunkId =
+      value !== "." && value !== ".." && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+    if (
+      isLegacyChunkId &&
+      typeof following === "string" &&
+      following.startsWith(legacyChunkPrefix)
+    ) {
+      normalized.add(normalizeChunkPath(following, manifestPath));
+      index += 1;
+      continue;
+    }
+    throw new Error(`Invalid client chunk entry in ${manifestPath}`);
+  }
+  return normalized;
+}
+
+function isContainedPath(root, candidate) {
+  const relativePath = relative(root, candidate);
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  );
+}
+
+async function resolveChunkIdentity(identity, realBuildRoot, source) {
+  const lexicalPath = resolve(absoluteBuildRoot, ...identity.split("/"));
+  if (!isContainedPath(absoluteBuildRoot, lexicalPath)) {
+    throw new Error(`Public bundle chunk escapes the lexical build root in ${source}`);
+  }
+
+  let physicalPath;
+  try {
+    physicalPath = await realpath(lexicalPath);
+  } catch {
+    throw new Error(`Public bundle chunk is missing or inaccessible in ${source}`);
+  }
+  if (!isContainedPath(realBuildRoot, physicalPath)) {
+    throw new Error(`Public bundle chunk escapes the real build root in ${source}`);
+  }
+  const details = await stat(physicalPath);
+  if (!details.isFile()) {
+    throw new Error(`Public bundle chunk is not a file in ${source}`);
+  }
+  return physicalPath;
+}
+
 function parseClientReferenceManifest(manifest, manifestPath) {
   let framedEnd = manifest.length;
   while (framedEnd > 0) {
@@ -111,6 +248,9 @@ function parseClientReferenceManifest(manifest, manifestPath) {
   }
   if (typeof routeKey !== "string" || !hasSafeRouteKeyShape(routeKey)) {
     throw new Error(`Invalid client-reference manifest route key: ${manifestPath}`);
+  }
+  if (routeKey !== expectedRouteKeyForManifest(manifestPath)) {
+    throw new Error(`Client-reference manifest route key does not match its path: ${manifestPath}`);
   }
 
   const afterRouteKey = assignment.slice(routeLiteralEnd);
@@ -164,6 +304,7 @@ async function assertFreshBuild() {
 }
 
 await assertFreshBuild();
+const realBuildRoot = await realpath(absoluteBuildRoot);
 
 const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
   const name = relative(serverAppRoot, path).replaceAll("\\", "/");
@@ -179,24 +320,36 @@ if (manifests.length === 0) {
   throw new Error("No fresh public page client-reference manifests were found.");
 }
 
-const checked = new Set();
 const leaks = [];
+const scannedPhysicalChunks = new Set();
+const rootChunkIdentities = new Set();
+const manifestChunkIdentities = new Set();
+
+async function scanChunk(identity, source, coverage) {
+  coverage.add(identity);
+  const physicalPath = await resolveChunkIdentity(identity, realBuildRoot, source);
+  if (scannedPhysicalChunks.has(physicalPath)) return;
+  scannedPhysicalChunks.add(physicalPath);
+  const chunk = await readFile(physicalPath, "utf8");
+  for (const needle of forbidden) {
+    if (chunk.includes(needle)) leaks.push(`${identity}: ${needle}`);
+  }
+}
+
 const buildManifest = JSON.parse(await readFile(join(buildRoot, "build-manifest.json"), "utf8"));
+if (typeof buildManifest !== "object" || buildManifest === null || Array.isArray(buildManifest)) {
+  throw new Error("Invalid build-manifest.json root chunk contract.");
+}
 const rootChunks = [
   ...(buildManifest.polyfillFiles ?? []),
   ...(buildManifest.rootMainFiles ?? []),
-].filter((path) => typeof path === "string" && path.endsWith(".js"));
+];
 for (const chunkPath of rootChunks) {
-  const localPath = join(buildRoot, chunkPath);
-  checked.add(localPath);
-  const chunk = await readFile(localPath, "utf8");
-  for (const needle of forbidden) {
-    if (chunk.includes(needle)) leaks.push(`${localPath}: ${needle}`);
-  }
+  const identity = normalizeChunkPath(chunkPath, "build-manifest.json");
+  await scanChunk(identity, "build-manifest.json", rootChunkIdentities);
 }
 for (const manifestPath of manifests) {
   const manifest = await readFile(manifestPath, "utf8");
-  checked.add(manifestPath);
   const parsed = parseClientReferenceManifest(manifest, manifestPath);
   if (
     typeof parsed !== "object" ||
@@ -213,30 +366,20 @@ for (const manifestPath of manifests) {
     if (typeof descriptor !== "object" || descriptor === null || !Array.isArray(descriptor.chunks)) {
       throw new Error(`Invalid client module descriptor in ${manifestPath}`);
     }
-    const activeChunks = descriptor.chunks.filter(
-      (value) => typeof value === "string" && value.startsWith("static/chunks/") && value.endsWith(".js"),
-    );
-    if (activeChunks.length === 0) continue;
+    const activeChunks = normalizedDescriptorChunks(descriptor.chunks, manifestPath);
+    if (activeChunks.size === 0) continue;
     for (const needle of forbidden) {
       if (modulePath.includes(needle)) leaks.push(`${manifestPath}: active module ${needle}`);
     }
     for (const chunkPath of activeChunks) chunkPaths.add(chunkPath);
   }
-  for (const chunkPath of chunkPaths) {
-    let decodedChunkPath;
-    try {
-      decodedChunkPath = decodeURIComponent(chunkPath);
-    } catch {
-      throw new Error(`Public bundle manifest contains a malformed chunk path: ${chunkPath}`);
-    }
-    const localPath = join(buildRoot, decodedChunkPath);
-    if (checked.has(localPath)) continue;
-    checked.add(localPath);
-    const chunk = await readFile(localPath, "utf8");
-    for (const needle of forbidden) {
-      if (chunk.includes(needle)) leaks.push(`${localPath}: ${needle}`);
-    }
+  for (const identity of chunkPaths) {
+    await scanChunk(identity, manifestPath, manifestChunkIdentities);
   }
+}
+
+if (manifestChunkIdentities.size === 0) {
+  throw new Error("No normalized manifest-referenced public chunks were found.");
 }
 
 if (leaks.length > 0) {
@@ -244,5 +387,5 @@ if (leaks.length > 0) {
 }
 
 process.stdout.write(
-  `Public bundle boundary verified across ${manifests.length} public page manifests and ${checked.size} manifest/chunk files.\n`,
+  `Public bundle boundary verified: ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
 );
