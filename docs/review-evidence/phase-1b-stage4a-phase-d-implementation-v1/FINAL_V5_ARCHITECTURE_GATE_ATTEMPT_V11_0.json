@@ -1,0 +1,1622 @@
+{
+  "schema_version": 1,
+  "artifact": "PHASE_1B_STAGE4A_PHASE_D_HASH_FROZEN_STEP1_AUTHORITY_FAULT_TEST_V1",
+  "task": "Phase D hash-frozen 13-stage Step 1 authority fault-test only",
+  "status": "COMPLETED",
+  "terminal_leaf": "HASH_FROZEN_13_STAGE_AUTHORITY_FAULT_TEST_PASS",
+  "authority_binding": {
+    "accepted_design_commit": "a3e90244693eb093983e45f5f0e1e0c12d7cb6c7",
+    "independent_design_review_commit": "815e77e9220ea6f629da264a658be7245f302346",
+    "frozen_proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+    "predecessor_evidence_head": "e590cbdc699f1c8b6a9a68f80cca7c129d247392",
+    "attempt_9_authority_self_test_head": "433cb8da222b8be6c761e3857a55a4ee189832c8",
+    "attempt_10_diagnosis_commit": "e3f32dc416b0fadcd80ff70e1ff034e80cc1669c",
+    "temporary_authority_sha256": "5772575773cfaaaec092ad487aa61ee6de6eeaa1d40abee77b54ed4ca798a556",
+    "temporary_authority_hash_bound_before_execution": true,
+    "temporary_authority_bytes_persisted": false
+  },
+  "runtime_authority": {
+    "node_version": "24.14.0",
+    "absolute_physical_identity_verified": true,
+    "executable_regular_file_verified": true,
+    "authority_path_count": 1,
+    "absolute_path_persisted": false,
+    "name_lookup_fallback_used": false
+  },
+  "frozen_stage_matrix": [
+    {
+      "stage_id": "S01",
+      "name": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING"
+    },
+    {
+      "stage_id": "S02",
+      "name": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY"
+    },
+    {
+      "stage_id": "S03",
+      "name": "ANCESTRY_SUCCESS_BY_NO_THROW"
+    },
+    {
+      "stage_id": "S04",
+      "name": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT"
+    },
+    {
+      "stage_id": "S05",
+      "name": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+    },
+    {
+      "stage_id": "S06",
+      "name": "CONFIG_FILE_URL_PATH_ROUNDTRIP"
+    },
+    {
+      "stage_id": "S07",
+      "name": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+    },
+    {
+      "stage_id": "S08",
+      "name": "REQUIRED_TARGET_CONTAINMENT"
+    },
+    {
+      "stage_id": "S09",
+      "name": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY"
+    },
+    {
+      "stage_id": "S10",
+      "name": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION"
+    },
+    {
+      "stage_id": "S11",
+      "name": "STALE_FIXTURE_NEXT_ABSENCE"
+    },
+    {
+      "stage_id": "S12",
+      "name": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE"
+    },
+    {
+      "stage_id": "S13",
+      "name": "CLEANUP_LIFECYCLE_ORDERING"
+    }
+  ],
+  "launches": {
+    "syntax_only_preflight": {
+      "launches": 1,
+      "retries": 0,
+      "status": "PASS",
+      "executed_fault_cases": false
+    },
+    "runtime_fault_test": {
+      "launches": 1,
+      "retries": 0,
+      "status": "PASS",
+      "case_count": 15
+    },
+    "formal_v1_3_sequence": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "formal_step_1": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "isolated_build": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "fixture_verifier": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "physical_projection": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "v5_generation": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "v5_bound_verification": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    },
+    "immutable_v4_reference": {
+      "launches": 0,
+      "retries": 0,
+      "status": "NOT_RUN"
+    }
+  },
+  "decisive_projection": {
+    "status": "PASS",
+    "cases_total": 15,
+    "stage_fault_cases": 13,
+    "all_pass_controls": 1,
+    "unclassified_own_code_controls": 1,
+    "all_pass_stage_count": 13,
+    "all_pass_contained_target_count": 11,
+    "all_pass_dependency_identity_count": 6,
+    "authority_path_count_one_for_every_case": true,
+    "unknown_count": 0,
+    "mismatch_count": 0,
+    "generic_remap_count": 0,
+    "fallback_authority_count": 0,
+    "parent_projection_schema_valid": true,
+    "exact_child_leaf_preservation": true,
+    "cleanup_after_parent_projection": true,
+    "first_failure_stops_downstream": true
+  },
+  "fault_test_projection": {
+    "schema_version": 1,
+    "kind": "PHASE_D_HASH_FROZEN_STEP1_FAULT_TEST_PARENT",
+    "status": "PASS",
+    "authority_sha256": "5772575773cfaaaec092ad487aa61ee6de6eeaa1d40abee77b54ed4ca798a556",
+    "proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+    "case_count": 15,
+    "cases": [
+      {
+        "injected_stage_id": null,
+        "construction_class": "EXACT_584B_PHYSICAL_TOPOLOGY_ALL_STAGES",
+        "expected_failure_leaf": "PASS_ALL_13_STAGES",
+        "observed_child_leaf": "PASS_ALL_13_STAGES",
+        "observed_parent_leaf": "PASS_ALL_13_STAGES",
+        "normalized_category": "NONE",
+        "stable_code": "NONE",
+        "first_failure_stage_id": null,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "PASS",
+            "leaf": "S08_PASS_ALL_REQUIRED_TARGETS_CONTAINED"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "PASS",
+            "leaf": "S09_PASS_DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "PASS",
+            "leaf": "S10_PASS_ALIAS_CASE_SPECIAL_ESCAPE_COLLISION"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "PASS",
+            "leaf": "S11_PASS_STALE_FIXTURE_NEXT_ABSENT"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "PASS",
+            "leaf": "S12_PASS_STRUCTURED_SERIALIZATION_PARENT_PARSE"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "PASS",
+            "leaf": "S13_PASS_CLEANUP_AFTER_ATOMIC_RETENTION"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 1,
+        "construction_class": "FIRST_FAILURE_INJECTION_CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+        "expected_failure_leaf": "S01_FAIL_GIT_INJECTED_FAULT",
+        "observed_child_leaf": "S01_FAIL_GIT_INJECTED_FAULT",
+        "observed_parent_leaf": "S01_FAIL_GIT_INJECTED_FAULT",
+        "normalized_category": "GIT",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 1,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "FAIL",
+            "leaf": "S01_FAIL_GIT_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "NOT_RUN",
+            "leaf": "S02_NOT_RUN"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "NOT_RUN",
+            "leaf": "S03_NOT_RUN"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "NOT_RUN",
+            "leaf": "S04_NOT_RUN"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "NOT_RUN",
+            "leaf": "S05_NOT_RUN"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "NOT_RUN",
+            "leaf": "S06_NOT_RUN"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 2,
+        "construction_class": "FIRST_FAILURE_INJECTION_ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+        "expected_failure_leaf": "S02_FAIL_NODE_RUNTIME_INJECTED_FAULT",
+        "observed_child_leaf": "S02_FAIL_NODE_RUNTIME_INJECTED_FAULT",
+        "observed_parent_leaf": "S02_FAIL_NODE_RUNTIME_INJECTED_FAULT",
+        "normalized_category": "NODE_RUNTIME",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 2,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "FAIL",
+            "leaf": "S02_FAIL_NODE_RUNTIME_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "NOT_RUN",
+            "leaf": "S03_NOT_RUN"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "NOT_RUN",
+            "leaf": "S04_NOT_RUN"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "NOT_RUN",
+            "leaf": "S05_NOT_RUN"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "NOT_RUN",
+            "leaf": "S06_NOT_RUN"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 3,
+        "construction_class": "FIRST_FAILURE_INJECTION_ANCESTRY_SUCCESS_BY_NO_THROW",
+        "expected_failure_leaf": "S03_FAIL_GIT_INJECTED_FAULT",
+        "observed_child_leaf": "S03_FAIL_GIT_INJECTED_FAULT",
+        "observed_parent_leaf": "S03_FAIL_GIT_INJECTED_FAULT",
+        "normalized_category": "GIT",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 3,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "FAIL",
+            "leaf": "S03_FAIL_GIT_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "NOT_RUN",
+            "leaf": "S04_NOT_RUN"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "NOT_RUN",
+            "leaf": "S05_NOT_RUN"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "NOT_RUN",
+            "leaf": "S06_NOT_RUN"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 4,
+        "construction_class": "FIRST_FAILURE_INJECTION_CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+        "expected_failure_leaf": "S04_FAIL_MODULE_IMPORT_INJECTED_FAULT",
+        "observed_child_leaf": "S04_FAIL_MODULE_IMPORT_INJECTED_FAULT",
+        "observed_parent_leaf": "S04_FAIL_MODULE_IMPORT_INJECTED_FAULT",
+        "normalized_category": "MODULE_IMPORT",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 4,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "FAIL",
+            "leaf": "S04_FAIL_MODULE_IMPORT_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "NOT_RUN",
+            "leaf": "S05_NOT_RUN"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "NOT_RUN",
+            "leaf": "S06_NOT_RUN"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 5,
+        "construction_class": "FIRST_FAILURE_INJECTION_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+        "expected_failure_leaf": "S05_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_child_leaf": "S05_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_parent_leaf": "S05_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "normalized_category": "PATH_IDENTITY",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 5,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "FAIL",
+            "leaf": "S05_FAIL_PATH_IDENTITY_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "NOT_RUN",
+            "leaf": "S06_NOT_RUN"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 6,
+        "construction_class": "FIRST_FAILURE_INJECTION_CONFIG_FILE_URL_PATH_ROUNDTRIP",
+        "expected_failure_leaf": "S06_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_child_leaf": "S06_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_parent_leaf": "S06_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "normalized_category": "PATH_IDENTITY",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 6,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "FAIL",
+            "leaf": "S06_FAIL_PATH_IDENTITY_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 7,
+        "construction_class": "FIRST_FAILURE_INJECTION_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+        "expected_failure_leaf": "S07_FAIL_FILESYSTEM_INJECTED_FAULT",
+        "observed_child_leaf": "S07_FAIL_FILESYSTEM_INJECTED_FAULT",
+        "observed_parent_leaf": "S07_FAIL_FILESYSTEM_INJECTED_FAULT",
+        "normalized_category": "FILESYSTEM",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 7,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "FAIL",
+            "leaf": "S07_FAIL_FILESYSTEM_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 8,
+        "construction_class": "FIRST_FAILURE_INJECTION_REQUIRED_TARGET_CONTAINMENT",
+        "expected_failure_leaf": "S08_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_child_leaf": "S08_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_parent_leaf": "S08_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "normalized_category": "PATH_IDENTITY",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 8,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "FAIL",
+            "leaf": "S08_FAIL_PATH_IDENTITY_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 9,
+        "construction_class": "FIRST_FAILURE_INJECTION_DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+        "expected_failure_leaf": "S09_FAIL_DEPENDENCY_TOPOLOGY_INJECTED_FAULT",
+        "observed_child_leaf": "S09_FAIL_DEPENDENCY_TOPOLOGY_INJECTED_FAULT",
+        "observed_parent_leaf": "S09_FAIL_DEPENDENCY_TOPOLOGY_INJECTED_FAULT",
+        "normalized_category": "DEPENDENCY_TOPOLOGY",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 9,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "PASS",
+            "leaf": "S08_PASS_ALL_REQUIRED_TARGETS_CONTAINED"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "FAIL",
+            "leaf": "S09_FAIL_DEPENDENCY_TOPOLOGY_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 10,
+        "construction_class": "FIRST_FAILURE_INJECTION_ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+        "expected_failure_leaf": "S10_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_child_leaf": "S10_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "observed_parent_leaf": "S10_FAIL_PATH_IDENTITY_INJECTED_FAULT",
+        "normalized_category": "PATH_IDENTITY",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 10,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "PASS",
+            "leaf": "S08_PASS_ALL_REQUIRED_TARGETS_CONTAINED"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "PASS",
+            "leaf": "S09_PASS_DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "FAIL",
+            "leaf": "S10_FAIL_PATH_IDENTITY_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 11,
+        "construction_class": "FIRST_FAILURE_INJECTION_STALE_FIXTURE_NEXT_ABSENCE",
+        "expected_failure_leaf": "S11_FAIL_FILESYSTEM_INJECTED_FAULT",
+        "observed_child_leaf": "S11_FAIL_FILESYSTEM_INJECTED_FAULT",
+        "observed_parent_leaf": "S11_FAIL_FILESYSTEM_INJECTED_FAULT",
+        "normalized_category": "FILESYSTEM",
+        "stable_code": "INJECTED_FAULT",
+        "first_failure_stage_id": 11,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "PASS",
+            "leaf": "S08_PASS_ALL_REQUIRED_TARGETS_CONTAINED"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "PASS",
+            "leaf": "S09_PASS_DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "PASS",
+            "leaf": "S10_PASS_ALIAS_CASE_SPECIAL_ESCAPE_COLLISION"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "FAIL",
+            "leaf": "S11_FAIL_FILESYSTEM_INJECTED_FAULT"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 12,
+        "construction_class": "FIRST_FAILURE_INJECTION_STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+        "expected_failure_leaf": "S12_FAIL_SERIALIZATION_JSON_PARSE_FAILED",
+        "observed_child_leaf": "S12_FAIL_SERIALIZATION_JSON_PARSE_FAILED",
+        "observed_parent_leaf": "S12_FAIL_SERIALIZATION_JSON_PARSE_FAILED",
+        "normalized_category": "SERIALIZATION",
+        "stable_code": "JSON_PARSE_FAILED",
+        "first_failure_stage_id": 12,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "PASS",
+            "leaf": "S08_PASS_ALL_REQUIRED_TARGETS_CONTAINED"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "PASS",
+            "leaf": "S09_PASS_DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "PASS",
+            "leaf": "S10_PASS_ALIAS_CASE_SPECIAL_ESCAPE_COLLISION"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "PASS",
+            "leaf": "S11_PASS_STALE_FIXTURE_NEXT_ABSENT"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "FAIL",
+            "leaf": "S12_FAIL_SERIALIZATION_JSON_PARSE_FAILED"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 13,
+        "construction_class": "FIRST_FAILURE_INJECTION_CLEANUP_LIFECYCLE_ORDERING",
+        "expected_failure_leaf": "S13_FAIL_LIFECYCLE_CLEANUP_ORDER_VIOLATION",
+        "observed_child_leaf": "S13_FAIL_LIFECYCLE_CLEANUP_ORDER_VIOLATION",
+        "observed_parent_leaf": "S13_FAIL_LIFECYCLE_CLEANUP_ORDER_VIOLATION",
+        "normalized_category": "LIFECYCLE",
+        "stable_code": "CLEANUP_ORDER_VIOLATION",
+        "first_failure_stage_id": 13,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "PASS",
+            "leaf": "S04_PASS_CANDIDATE_GIT_TOP_LEVEL_CONFIG_IMPORT"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S05_PASS_CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "PASS",
+            "leaf": "S06_PASS_CONFIG_FILE_URL_PATH_ROUNDTRIP"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "PASS",
+            "leaf": "S07_PASS_REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "PASS",
+            "leaf": "S08_PASS_ALL_REQUIRED_TARGETS_CONTAINED"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "PASS",
+            "leaf": "S09_PASS_DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "PASS",
+            "leaf": "S10_PASS_ALIAS_CASE_SPECIAL_ESCAPE_COLLISION"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "PASS",
+            "leaf": "S11_PASS_STALE_FIXTURE_NEXT_ABSENT"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "PASS",
+            "leaf": "S12_PASS_STRUCTURED_SERIALIZATION_PARENT_PARSE"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "FAIL",
+            "leaf": "S13_FAIL_LIFECYCLE_CLEANUP_ORDER_VIOLATION"
+          }
+        ]
+      },
+      {
+        "injected_stage_id": 4,
+        "construction_class": "OWN_CODE_NOT_IN_STABLE_ALLOWLIST_AT_S04",
+        "expected_failure_leaf": "S04_FAIL_OWN_CODE_UNCLASSIFIED_OWN_CODE",
+        "observed_child_leaf": "S04_FAIL_OWN_CODE_UNCLASSIFIED_OWN_CODE",
+        "observed_parent_leaf": "S04_FAIL_OWN_CODE_UNCLASSIFIED_OWN_CODE",
+        "normalized_category": "OWN_CODE",
+        "stable_code": "UNCLASSIFIED_OWN_CODE",
+        "first_failure_stage_id": 4,
+        "authority_path_count": 1,
+        "terminal_status": "MATCH",
+        "expectation_correct": true,
+        "cleanup_after_projection": true,
+        "stages": [
+          {
+            "stage_id": 1,
+            "stage": "CANDIDATE_REF_CLEAN_SOLE_DIFF_BINDING",
+            "status": "PASS",
+            "leaf": "S01_PASS_EXACT_CANDIDATE_CLEAN_SOLE_DIFF"
+          },
+          {
+            "stage_id": 2,
+            "stage": "ABSOLUTE_NODE_RUNTIME_VERSION_PHYSICAL_IDENTITY",
+            "status": "PASS",
+            "leaf": "S02_PASS_ABSOLUTE_NODE_24_14_0_PHYSICAL_IDENTITY"
+          },
+          {
+            "stage_id": 3,
+            "stage": "ANCESTRY_SUCCESS_BY_NO_THROW",
+            "status": "PASS",
+            "leaf": "S03_PASS_ANCESTRY_SUCCESS_BY_NO_THROW"
+          },
+          {
+            "stage_id": 4,
+            "stage": "CANDIDATE_GIT_TOP_LEVEL_AND_CONFIG_IMPORT",
+            "status": "FAIL",
+            "leaf": "S04_FAIL_OWN_CODE_UNCLASSIFIED_OWN_CODE"
+          },
+          {
+            "stage_id": 5,
+            "stage": "CONFIG_ROOT_LEXICAL_PHYSICAL_IDENTITY",
+            "status": "NOT_RUN",
+            "leaf": "S05_NOT_RUN"
+          },
+          {
+            "stage_id": 6,
+            "stage": "CONFIG_FILE_URL_PATH_ROUNDTRIP",
+            "status": "NOT_RUN",
+            "leaf": "S06_NOT_RUN"
+          },
+          {
+            "stage_id": 7,
+            "stage": "REQUIRED_TARGET_EXISTENCE_TYPE_REALPATH",
+            "status": "NOT_RUN",
+            "leaf": "S07_NOT_RUN"
+          },
+          {
+            "stage_id": 8,
+            "stage": "REQUIRED_TARGET_CONTAINMENT",
+            "status": "NOT_RUN",
+            "leaf": "S08_NOT_RUN"
+          },
+          {
+            "stage_id": 9,
+            "stage": "DEPENDENCY_VERSION_REALPATH_PNPM_TOPOLOGY",
+            "status": "NOT_RUN",
+            "leaf": "S09_NOT_RUN"
+          },
+          {
+            "stage_id": 10,
+            "stage": "ALIAS_CASE_SPECIAL_ESCAPE_COLLISION",
+            "status": "NOT_RUN",
+            "leaf": "S10_NOT_RUN"
+          },
+          {
+            "stage_id": 11,
+            "stage": "STALE_FIXTURE_NEXT_ABSENCE",
+            "status": "NOT_RUN",
+            "leaf": "S11_NOT_RUN"
+          },
+          {
+            "stage_id": 12,
+            "stage": "STRUCTURED_RESULT_SERIALIZATION_PARENT_PARSE",
+            "status": "NOT_RUN",
+            "leaf": "S12_NOT_RUN"
+          },
+          {
+            "stage_id": 13,
+            "stage": "CLEANUP_LIFECYCLE_ORDERING",
+            "status": "NOT_RUN",
+            "leaf": "S13_NOT_RUN"
+          }
+        ]
+      }
+    ],
+    "all_pass_stage_count": 13,
+    "all_pass_contained_target_count": 11,
+    "all_pass_dependency_identity_count": 6,
+    "authority_path_count_one_for_every_case": true,
+    "unknown_count": 0,
+    "mismatch_count": 0,
+    "generic_remap_count": 0,
+    "fallback_authority_count": 0,
+    "formal_sequence_launch_count": 0,
+    "build_launch_count": 0,
+    "v5_launch_count": 0,
+    "external_call_count": 0,
+    "protected_state_access_count": 0,
+    "parent_projection_valid": true,
+    "exact_child_leaf_preservation": true,
+    "cleanup_after_parent_projection": true,
+    "child_exit_status": 0,
+    "child_signal": null
+  },
+  "network_and_protected_state": {
+    "current_external_call_count": 0,
+    "current_official_source_get_count": 0,
+    "current_provider_post_count": 0,
+    "current_credential_access_count": 0,
+    "current_retained_database_access_count": 0,
+    "current_protected_registration_access_count": 0,
+    "aggregate_prior_official_source_get_count": 6,
+    "aggregate_prior_provider_post_count": 0
+  },
+  "cleanup": {
+    "atomic_result_retained_before_cleanup": true,
+    "parent_closed_projection_validated_before_cleanup": true,
+    "temporary_authority_removed": true,
+    "temporary_result_removed": true,
+    "disposable_candidate_removed": true,
+    "temporary_fixture_root_removed": true,
+    "scoped_process_residue_count": 0,
+    "tracked_product_mutation_count": 0,
+    "status": "PASS"
+  },
+  "redaction": {
+    "raw_output_persisted": false,
+    "raw_authority_bytes_persisted": false,
+    "absolute_paths_persisted": false,
+    "environment_values_persisted": false,
+    "process_identity_persisted": false,
+    "stack_or_message_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "conclusion": "The one hash-frozen 13-stage Step 1 authority passed syntax preflight and all deterministic fault-test controls. This task did not authorize or execute the formal V1.3 sequence."
+}
