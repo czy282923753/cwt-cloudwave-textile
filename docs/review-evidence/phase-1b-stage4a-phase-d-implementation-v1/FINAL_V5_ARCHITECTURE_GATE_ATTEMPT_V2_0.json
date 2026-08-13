@@ -1,0 +1,133 @@
+{
+  "schema_version": 2,
+  "candidate_commit": "0a461a96eed3ac146607190b37b9d3187e47747d",
+  "proof_bound_product_commit": "b4401302d7137a423198853d619a08655eeaa103",
+  "predecessor_evidence_head": "e12d7103df66877858034c6617ff236af1ddd756",
+  "result": "BLOCKED",
+  "failure": {
+    "boundary": "PHYSICAL_SCOPED_SERVER_PROJECTION_VALIDATION",
+    "code": "SERVER_MARKER_MISSING",
+    "root": "V5_SERVER_BUNDLE_MARKER_SOURCE_CONTRACT_MISMATCH",
+    "actual_scoped_server_surface": "NEXT_SERVER_RECURSIVE",
+    "required_server_marker_count": 4,
+    "present_required_server_marker_count": 0,
+    "all_required_marker_counts_zero": true,
+    "public_projection_involvement": false,
+    "v5_generation_started": false,
+    "retry_performed": false,
+    "minimum_next_step": "COORDINATOR_MUST_RECONCILE_THE_EXACT_NEXT_SERVER_SURFACE_WITH_THE_MARKER_POSITIVE_SERVER_BUNDLE_AUTHORITY_BEFORE_ANOTHER_BUILD"
+  },
+  "projection_self_test": {
+    "status": "PASS",
+    "case_count": 19,
+    "valid_projection_passed": true,
+    "source_root_alias_failed_closed": true,
+    "nested_file_symlink_failed_closed": true,
+    "nested_directory_symlink_failed_closed": true,
+    "external_symlink_failed_closed": true,
+    "special_node_failed_closed": true,
+    "traversal_dot_and_backslash_failed_closed": true,
+    "duplicate_and_case_collision_failed_closed": true,
+    "hard_link_ambiguity_failed_closed": true,
+    "source_mutation_failed_closed": true,
+    "empty_server_public_and_client_chunks_failed_closed": true,
+    "public_marker_leak_failed_closed": true,
+    "source_root_escape_failed_closed": true,
+    "preexisting_output_failed_closed": true,
+    "migration_launch_count": 0,
+    "build_launch_count": 0,
+    "network_call_count": 0,
+    "protected_state_access_count": 0
+  },
+  "fresh_proof": {
+    "preflight": {
+      "exact_candidate": true,
+      "product_commit_is_ancestor": true,
+      "source_clean": true,
+      "package_and_lock_hashes_match": true,
+      "node": "24.14.0",
+      "pnpm": "11.9.0",
+      "next": "16.2.12",
+      "typescript": "5.9.3",
+      "tsx": "4.23.1",
+      "dependency_topology_preserved": true,
+      "secret_free_environment": true
+    },
+    "migration": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "signal": null,
+      "close_count": 1,
+      "success_marker_count": 1,
+      "observer_outcome": "PASS_EMPTY_IMMEDIATE",
+      "migration_state_proof_passed": true
+    },
+    "build": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "signal": null,
+      "close_count": 1,
+      "build_id_nonempty": true,
+      "observer_outcome": "PASS_EMPTY_IMMEDIATE",
+      "term_sent": false,
+      "kill_sent": false
+    },
+    "network": {
+      "fonts_googleapis_connect_count": 2,
+      "fonts_gstatic_connect_count": 11,
+      "blocked_target_count": 0,
+      "non_connect_count": 0,
+      "upstream_error_count": 0,
+      "external_non_font_call_count": 0
+    },
+    "projection": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "source_roots_physical": true,
+      "raw_next_used": false,
+      "standalone_or_dependency_tree_used": false,
+      "aliases_dereferenced_or_skipped": false,
+      "exclusive_physical_copy_and_reenumeration_reached": true,
+      "result": "FAIL_CLOSED_SERVER_MARKER_MISSING"
+    }
+  },
+  "v5": {
+    "generation_launch_count": 0,
+    "generation_retry_count": 0,
+    "canonical_directory_created": false,
+    "canonical_artifact_count": 0,
+    "proof_bound_reverification": "NOT_RUN",
+    "prompt_gate_after_generation": "NOT_RUN"
+  },
+  "protected_state": {
+    "retained_database_accessed": false,
+    "retained_registration_accessed": false,
+    "credential_accessed": false,
+    "current_official_source_get_count": 0,
+    "current_provider_post_count": 0,
+    "aggregate_official_source_get_count": 6,
+    "aggregate_provider_post_count": 0
+  },
+  "evidence_safety": {
+    "raw_build_output_persisted": false,
+    "raw_checker_output_persisted": false,
+    "absolute_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "cleanup": {
+    "disposable_source_removed": true,
+    "disposable_dependency_build_and_projection_state_removed": true,
+    "disposable_pglite_storage_cache_and_proxy_removed": true,
+    "temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  }
+}
