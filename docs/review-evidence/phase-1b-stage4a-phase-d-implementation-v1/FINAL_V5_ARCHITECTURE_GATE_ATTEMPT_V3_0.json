@@ -1,0 +1,132 @@
+{
+  "schema_version": 3,
+  "candidate_commit": "0a461a96eed3ac146607190b37b9d3187e47747d",
+  "proof_bound_product_commit": "b4401302d7137a423198853d619a08655eeaa103",
+  "predecessor_evidence_head": "2e3898705fac9e06b4fc680c8e1e98c470be086c",
+  "result": "BLOCKED",
+  "authority_disposition": {
+    "actual_application_server_marker_requirement_superseded": true,
+    "isolated_ai_server_bundle_is_marker_positive_authority": true,
+    "v4_is_actual_public_application_absence_authority": true,
+    "v4_identity_and_sha256_immutable": true,
+    "full_application_build_required": false,
+    "database_migration_required": false
+  },
+  "failure": {
+    "boundary": "ISOLATED_FIXTURE_BUILD",
+    "code": "ISOLATED_FIXTURE_BUILD_FAILED",
+    "exit_code": 1,
+    "signal": null,
+    "timeout": false,
+    "build_id_nonempty": false,
+    "stable_subcause": "UNKNOWN_NOT_RETAINED",
+    "raw_output_retained": false,
+    "retry_performed": false,
+    "same_causal_root_as_attempt_v2": false,
+    "minimum_next_step": "COORDINATOR_DIAGNOSIS_OF_THE_SINGLE_ISOLATED_FIXTURE_BUILD_FAILURE_BEFORE_ANY_FURTHER_V5_ATTEMPT"
+  },
+  "zero_build_authority_and_projection_self_test": {
+    "status": "PASS",
+    "case_count": 23,
+    "physical_projection_matrix_passed": true,
+    "source_root_and_nested_aliases_failed_closed": true,
+    "external_alias_and_special_node_failed_closed": true,
+    "traversal_dot_backslash_collision_failed_closed": true,
+    "hard_link_and_source_mutation_failed_closed": true,
+    "empty_surfaces_and_client_chunks_failed_closed": true,
+    "public_marker_leak_failed_closed": true,
+    "public_positive_control_absence_failed_closed": true,
+    "actual_application_server_substitution_failed_closed": true,
+    "fabricated_marker_only_directory_failed_closed": true,
+    "isolated_fixture_identity_and_hashes_passed": true,
+    "actual_application_server_marker_zero_not_v5_failure": true,
+    "v4_actual_public_authority_immutable": true,
+    "full_application_build_launch_count": 0,
+    "migration_launch_count": 0,
+    "isolated_build_launch_count": 0,
+    "network_call_count": 0,
+    "protected_state_access_count": 0
+  },
+  "fresh_isolated_proof": {
+    "preflight": {
+      "exact_candidate": true,
+      "product_commit_is_ancestor": true,
+      "source_clean": true,
+      "package_and_lock_hashes_match": true,
+      "node": "24.14.0",
+      "pnpm": "11.9.0",
+      "next": "16.2.12",
+      "typescript": "5.9.3",
+      "dependency_topology_preserved": true,
+      "next_identity_and_constants_passed": true,
+      "isolated_fixture_identity_and_hashes_passed": true,
+      "no_stale_fixture_next": true,
+      "secret_free_environment": true
+    },
+    "full_application_build_launch_count": 0,
+    "migration_launch_count": 0,
+    "isolated_build": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 1,
+      "signal": null,
+      "timeout": false,
+      "close_count": 1,
+      "build_id_nonempty": false,
+      "identity_verified": true,
+      "timers_cleared": true,
+      "observer_outcome": "PASS_EMPTY_IMMEDIATE",
+      "term_sent": false,
+      "kill_sent": false
+    },
+    "fixture_verify": {
+      "launch_count": 0,
+      "retry_count": 0,
+      "result": "NOT_RUN"
+    },
+    "projection": {
+      "launch_count": 0,
+      "retry_count": 0,
+      "result": "NOT_RUN"
+    },
+    "external_call_count": 0
+  },
+  "v5": {
+    "generation_launch_count": 0,
+    "generation_retry_count": 0,
+    "canonical_directory_created": false,
+    "canonical_artifact_count": 0,
+    "proof_bound_reverification": "NOT_RUN",
+    "prompt_gate_after_generation": "NOT_RUN",
+    "source_clean_architecture_gate_after_generation": "NOT_RUN"
+  },
+  "protected_state": {
+    "retained_database_accessed": false,
+    "retained_registration_accessed": false,
+    "credential_accessed": false,
+    "current_official_source_get_count": 0,
+    "current_provider_post_count": 0,
+    "aggregate_official_source_get_count": 6,
+    "aggregate_provider_post_count": 0
+  },
+  "evidence_safety": {
+    "raw_build_output_persisted": false,
+    "raw_checker_output_persisted": false,
+    "absolute_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "cleanup": {
+    "disposable_source_removed": true,
+    "disposable_dependency_and_fixture_build_state_removed": true,
+    "disposable_projection_and_temporary_state_removed": true,
+    "temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  }
+}
