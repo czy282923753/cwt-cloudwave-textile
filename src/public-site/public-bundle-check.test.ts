@@ -172,6 +172,24 @@ describe("public bundle checker", () => {
     expect(result.status).toBe(0);
   });
 
+  it.skipIf(process.platform === "win32")(
+    "rejects a POSIX manifest segment containing a raw backslash",
+    async () => {
+      const result = runChecker(
+        await createBuildFixture({
+          manifestRelativePath: "bad\\segment/page_client-reference-manifest.js",
+          manifest: frameManifest({ routeKey: "/bad/segment/page" }),
+        }),
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toContain(
+        "Invalid client-reference manifest filesystem path.",
+      );
+      expect(combinedOutput(result)).not.toContain("bad\\segment");
+    },
+  );
+
   it("rejects a safe-shaped route key that does not match the manifest path", async () => {
     const result = runChecker(
       await createBuildFixture({

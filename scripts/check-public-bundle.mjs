@@ -71,7 +71,11 @@ function hasSafeRouteKeyShape(routeKey) {
 }
 
 function expectedRouteKeyForManifest(manifestPath) {
-  const portablePath = relative(serverAppRoot, manifestPath).replaceAll("\\", "/");
+  const relativePath = relative(serverAppRoot, manifestPath);
+  if (sep === "/" && relativePath.includes("\\")) {
+    throw new Error("Invalid client-reference manifest filesystem path.");
+  }
+  const portablePath = relativePath.split(sep).join("/");
   const suffix = "_client-reference-manifest.js";
   if (
     !portablePath.endsWith(suffix) ||
