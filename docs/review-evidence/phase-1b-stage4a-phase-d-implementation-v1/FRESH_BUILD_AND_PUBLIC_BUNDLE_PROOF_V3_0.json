@@ -1,0 +1,183 @@
+{
+  "schema_version": 3,
+  "candidate_commit": "b4401302d7137a423198853d619a08655eeaa103",
+  "result": "BLOCKED",
+  "remediation_disposition": {
+    "confirmed_original_root_removed": true,
+    "old_exact_proxy_port_only_profile_retained": false,
+    "corrected_profile": "separate_loopback_inbound_and_outbound",
+    "product_code_change_required": false
+  },
+  "safe_failure": {
+    "boundary": "BUILD_RESULT",
+    "category": "BUILD_PROCESS_GROUP_RESIDUE_AFTER_CLOSE",
+    "observed_remaining_process_group_count": 1,
+    "build_itself_completed_successfully": true,
+    "checker_and_marker_correctly_not_run": true,
+    "retry_performed": false,
+    "minimum_next_step": "coordinator_disposition_of_post_close_process_group_residue_and_separately_authorized_proof_continuation"
+  },
+  "zero_build_self_test": {
+    "schema_version": 1,
+    "kind": "SANDBOX_REMEDIATION_SELF_TEST",
+    "candidate_commit": "b4401302d7137a423198853d619a08655eeaa103",
+    "status": "PASS",
+    "profile": {
+      "exact_port_only_authority_absent": true,
+      "separate_loopback_inbound_rule_present": true,
+      "separate_loopback_outbound_rule_present": true,
+      "ephemeral_listener_and_client_pass": true,
+      "direct_non_loopback_egress_denied": true
+    },
+    "proxy_policy": {
+      "exact_two_authorities": true,
+      "allowed_connect_pass": true,
+      "other_target_denied": true,
+      "wrong_port_denied": true,
+      "non_connect_denied": true
+    },
+    "lifecycle": {
+      "synthetic_child_launch_count": 1,
+      "close_observed_count": 1,
+      "exit_code": 0,
+      "signal": null,
+      "elapsed_ms": 49,
+      "active_hard_timer_count": 0,
+      "active_escalation_timer_count": 0,
+      "remaining_process_group_count": 0
+    },
+    "result_authority": {
+      "atomic_write_fsync_close_rename": true,
+      "exactly_one_result": true,
+      "survives_separate_work_cleanup": true,
+      "partial_rejected": true,
+      "duplicate_rejected": true,
+      "malformed_rejected": true,
+      "wrong_candidate_rejected": true,
+      "unknown_field_rejected": true,
+      "missing_field_rejected": true,
+      "trailing_output_rejected": true,
+      "secret_shape_rejected": true
+    },
+    "migration_launch_count": 0,
+    "build_launch_count": 0,
+    "external_call_count": 0,
+    "secret_access_count": 0,
+    "active_child_count": 0
+  },
+  "fresh_proof": {
+    "schema_version": 3,
+    "kind": "SANDBOX_REMEDIATION_FRESH_BUILD_PROOF",
+    "candidate_commit": "b4401302d7137a423198853d619a08655eeaa103",
+    "status": "FAIL",
+    "failure_boundary": "BUILD_RESULT",
+    "sandbox": {
+      "old_exact_port_authority_absent": true,
+      "corrected_profile_exact": true,
+      "localhost_inbound_allowed": true,
+      "localhost_outbound_allowed": true,
+      "direct_non_loopback_egress_denied": true
+    },
+    "preflight": {
+      "exact_candidate": true,
+      "detached": true,
+      "clean_source": true,
+      "package_hash_match": true,
+      "lock_hash_match": true,
+      "node": "24.14.0",
+      "pnpm": "11.9.0",
+      "next": "16.2.12",
+      "tsx": "4.23.1",
+      "dependency_root_physical": true,
+      "dependency_topology_preserved": true,
+      "next_realpath_contained": true,
+      "next_constants_loaded": true,
+      "no_stale_next": true,
+      "default_turbopack": true,
+      "font_mock_present": false,
+      "plugin_runtime_override_present": false,
+      "secret_free_environment": true
+    },
+    "migration": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "signal": null,
+      "timeout": false,
+      "close_observed_count": 1,
+      "success_marker_count": 1,
+      "remaining_process_group_count": 0,
+      "active_timer_count": 0,
+      "scaffold": true,
+      "journal": true,
+      "journal_rows_positive": true,
+      "system_settings": true
+    },
+    "build": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "signal": null,
+      "timeout": false,
+      "close_observed_count": 1,
+      "remaining_process_group_count": 1,
+      "active_timer_count": 0,
+      "build_id_nonempty": true,
+      "stable_stage": "BUILD_SUCCEEDED"
+    },
+    "network": {
+      "fonts_googleapis_connect_count": 2,
+      "fonts_gstatic_connect_count": 11,
+      "blocked_target_count": 0,
+      "non_connect_count": 0,
+      "upstream_error_count": 0,
+      "external_non_font_call_count": 0
+    },
+    "checker": {
+      "launch_count": 0,
+      "retry_count": 0,
+      "exit_code": null,
+      "public_page_manifests": 0,
+      "root_chunks": 0,
+      "manifest_chunks": 0,
+      "distinct_chunk_files": 0
+    },
+    "marker_control": {
+      "launch_count": 0,
+      "retry_count": 0,
+      "manifest_referenced_non_root_chunk_selected": false,
+      "checker_exit_nonzero": false,
+      "original_artifact_unchanged": false
+    },
+    "protected_state": {
+      "retained_database_accessed": false,
+      "retained_registration_accessed": false,
+      "credential_accessed": false,
+      "current_official_source_get_count": 0,
+      "current_provider_post_count": 0,
+      "aggregate_official_source_get_count": 6,
+      "aggregate_provider_post_count": 0,
+      "v5_launch_count": 0
+    },
+    "authority": {
+      "atomic_projection_before_cleanup": true,
+      "raw_output_persisted": false,
+      "absolute_path_persisted": false,
+      "environment_value_persisted": false
+    },
+    "source_clean_before_cleanup": false
+  },
+  "outer_authority": {
+    "atomic_safe_projection_validated_once": true,
+    "closed_schema_passed": true,
+    "candidate_identity_passed": true,
+    "result_file_count": 1,
+    "stdout_empty": true,
+    "stderr_empty": true,
+    "disposable_work_root_removed": true,
+    "current_temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0,
+    "original_branch_clean_after_proof": true,
+    "raw_output_persisted": false
+  }
+}
