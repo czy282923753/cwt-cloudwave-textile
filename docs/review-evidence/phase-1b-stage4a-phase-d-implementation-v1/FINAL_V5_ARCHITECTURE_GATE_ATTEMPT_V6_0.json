@@ -1,0 +1,104 @@
+{
+  "schema_version": 6,
+  "accepted_design_candidate": "a3e90244693eb093983e45f5f0e1e0c12d7cb6c7",
+  "accepted_design_review": "815e77e9220ea6f629da264a658be7245f302346",
+  "predecessor_evidence_head": "68e4a6c4e46fb8dd53d99ce1cb10dabf355250a0",
+  "proof_bound_code_commit": "584b13f6c20a893d42aba9ede69a6e86a2ed04a4",
+  "result": "BLOCKED",
+  "ancestry_authority_self_test": {
+    "status": "PASS",
+    "case_count": 8,
+    "valid_ancestry_data_return_accepted_by_no_throw": true,
+    "non_ancestor_throw_failed_closed": true,
+    "missing_ref_throw_failed_closed": true,
+    "fake_status_payload_cannot_change_no_throw_result": true,
+    "status_property_access_count": 0,
+    "single_command_path_no_fallback": true,
+    "verified_absolute_node_only_runtime_authority": true,
+    "secret_free_child_environment_preserved": true,
+    "product_config_import_count": 0,
+    "build_launch_count": 0,
+    "v5_launch_count": 0,
+    "external_call_count": 0,
+    "protected_state_access_count": 0
+  },
+  "formal_sequence_failure": {
+    "boundary": "ZERO_BUILD_CONFIG_ROOT_PHYSICAL_IDENTITY_ASSERTION",
+    "code": "ROOT_IDENTITY",
+    "safe_subcondition": "UNKNOWN_NOT_PROJECTED",
+    "absolute_runtime_binding_passed": true,
+    "ancestry_authority": "SUCCESS_BY_NO_THROW",
+    "ancestry_assertion_passed": true,
+    "checker_entered": true,
+    "config_import_reached": true,
+    "root_identity_assertion_passed": false,
+    "retry_performed": false,
+    "minimum_next_step": "COORDINATOR_DECISION_ON_BOUNDED_READ_ONLY_ROOT_IDENTITY_SUBCONDITION_DIAGNOSIS_BEFORE_ANY_NEW_FORMAL_SEQUENCE"
+  },
+  "current_run_counts": {
+    "ancestry_authority_self_test": 1,
+    "formal_zero_build_gate_attempt": 1,
+    "zero_build_checker_launch": 1,
+    "isolated_server_bundle_build": 0,
+    "isolated_server_bundle_build_retry": 0,
+    "isolated_fixture_verifier": 0,
+    "physical_scoped_projection": 0,
+    "canonical_v5_generation": 0,
+    "bound_v5_verification": 0,
+    "immutable_v4_reference_verification": 0,
+    "full_application_build": 0,
+    "migration": 0
+  },
+  "v1_3_aggregate_counts_through_attempt_6": {
+    "formal_zero_build_gate_attempt": 3,
+    "zero_build_checker_launch": 2,
+    "isolated_server_bundle_build": 0,
+    "isolated_fixture_verifier": 0,
+    "physical_scoped_projection": 0,
+    "canonical_v5_generation": 0,
+    "bound_v5_verification": 0,
+    "immutable_v4_reference_verification": 0
+  },
+  "ordered_proof_status": {
+    "zero_build_exact_config_root_containment": "BLOCKED",
+    "isolated_server_bundle_build": "NOT_RUN",
+    "isolated_fixture_verifier": "NOT_RUN",
+    "physical_scoped_projection": "NOT_RUN",
+    "canonical_v5_generation": "NOT_RUN",
+    "bound_source_clean_v5_verification": "NOT_RUN",
+    "immutable_v4_reference_verification": "NOT_RUN"
+  },
+  "protected_boundaries": {
+    "successful_external_call_count": 0,
+    "current_official_source_get_count": 0,
+    "current_provider_post_count": 0,
+    "aggregate_official_source_get_count": 6,
+    "aggregate_provider_post_count": 0,
+    "credential_access_count": 0,
+    "protected_database_access_count": 0,
+    "retained_registration_access_count": 0,
+    "staging_operation_count": 0,
+    "production_operation_count": 0
+  },
+  "evidence_safety": {
+    "raw_command_output_persisted": false,
+    "absolute_runtime_path_persisted": false,
+    "absolute_repository_path_persisted": false,
+    "environment_value_persisted": false,
+    "process_identity_persisted": false,
+    "secret_or_protected_identifier_persisted": false
+  },
+  "cleanup": {
+    "disposable_build_created": false,
+    "fixture_build_artifact_created": false,
+    "projection_created": false,
+    "canonical_v5_directory_created": false,
+    "temporary_process_reference_count": 0,
+    "source_worktree_clean_before_evidence_update": true
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  }
+}

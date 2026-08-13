@@ -1,6 +1,6 @@
 # CWT Stage 4A Phase D DeepSeek Text Adapter Implementation Report V1.0
 
-Status: **The accepted V1.3 one-file implementation remains frozen; the separately authorized absolute-runtime continuation passed its binding self-test but stopped at a zero-build harness ancestry-result authority error before config import.**
+Status: **The accepted V1.3 one-file implementation remains frozen; the ancestry-authority continuation passed its self-test and ancestry assertion, then stopped fail-closed at the zero-build root-identity assertion.**
 
 This report is implementation-author evidence only. It does not claim independent review, acceptance, checkpoint movement or authorization for Phase E/F/G.
 
@@ -90,7 +90,7 @@ The mandatory ordered proof then stopped at its first prerequisite. The explicit
 
 No disposable build or V5 directory was created. Current-task external calls, official-source GETs, Provider POSTs, credential access, protected database/registration access and Staging/Production operations are all zero. Aggregate historical DeepSeek accounting remains six official GETs and zero Provider POSTs.
 
-## Required next action
+## V1.3 runtime-binding continuation result
 
 The separately authorized continuation replaced command-name/PATH authority with the verified physical native Node identity. Its zero-resource matrix passed all nine cases, including altered path, non-file, non-executable, wrong version, alias/physical mismatch, altered ownership identity, missing identity and name-lookup fallback rejection. The formal checker then launched successfully under the explicit secret-free environment.
 
@@ -98,4 +98,12 @@ The formal sequence stopped at its Candidate ancestry assertion before config im
 
 No retry occurred. Isolated build, unchanged verifier, physical projection, canonical V5 generation, bound verification and immutable V4 reference remain `NOT_RUN`; current external/official-source/Provider/protected-state counts remain zero. Attempt 4 is unchanged and retained.
 
-Status remains `BLOCKED`, not implementation acceptance. The minimum next action is separate authorization to replace only the ancestry-command result authority with success-by-no-throw or an actual status-bearing process result before beginning a new formal sequence. Phase D must complete independent acceptance and its completion checkpoint before the Owner-directed project pause; Phase E–G remain prohibited.
+That attempt ended `BLOCKED`, not implementation acceptance. Its required next action was separate authorization to replace only the ancestry-command result authority with success-by-no-throw before beginning a new formal sequence. Phase D acceptance and checkpoint state did not change.
+
+## V1.3 ancestry-authority continuation result
+
+The next separately authorized continuation retained the verified physical native Node authority and replaced the temporary ancestry check with success-by-no-throw as its sole result authority. Its eight-case zero-resource matrix passed: valid ancestry data was accepted without inspecting a return status; non-ancestor and missing refs threw and failed closed; a fake status-bearing payload could not affect the outcome; status-property access remained zero; no fallback or alternate command path was used.
+
+The one formal sequence then passed the exact Candidate ancestry assertion and reached the corrected config import. It stopped at the fixed safe boundary `ZERO_BUILD_CONFIG_ROOT_PHYSICAL_IDENTITY_ASSERTION` with code `ROOT_IDENTITY`. The projection did not expose which root-identity subcondition differed, so this report does not infer or relabel it. No further diagnostic or retry occurred.
+
+Attempts 4 and 5 remain immutable. For this continuation, isolated build, verifier, projection, canonical V5 generation, bound verification and immutable V4 reference remain `NOT_RUN`; current external/official-source/Provider/protected-state counts are zero. The minimum next action is a Coordinator decision on a bounded read-only root-identity subcondition diagnosis before any new formal sequence. Phase E–G remain prohibited, and the project pause still follows only after independent Phase D acceptance and completion-checkpoint verification.
