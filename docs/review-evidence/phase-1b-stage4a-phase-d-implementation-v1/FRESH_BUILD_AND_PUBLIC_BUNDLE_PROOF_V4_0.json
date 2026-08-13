@@ -1,0 +1,227 @@
+{
+  "schema_version": 4,
+  "candidate_commit": "b4401302d7137a423198853d619a08655eeaa103",
+  "predecessor_evidence_head": "1086d3b33e7152a962f00d553c0fbf5befa9dcb7",
+  "result": "COMPLETED",
+  "remediation_disposition": {
+    "v3_immediate_count_authority_removed": true,
+    "spawn_verified_state_aware_observer_is_sole_authority": true,
+    "historical_v3_subtype_remains": "UNKNOWN_TRANSIENT_PROCESS_GROUP_MEMBER",
+    "product_code_change_required": false
+  },
+  "zero_build_self_test": {
+    "schema_version": 1,
+    "kind": "LIFECYCLE_AUTHORITY_ZERO_BUILD_SELF_TEST",
+    "candidate_commit": "b4401302d7137a423198853d619a08655eeaa103",
+    "status": "PASS",
+    "replacement": {
+      "v3_immediate_count_authority_absent": true,
+      "spawn_identity_verification_present": true,
+      "state_aware_observer_present": true,
+      "corrected_sandbox_preserved": true,
+      "observer_interval_ms": 50,
+      "observer_deadline_ms": 5000
+    },
+    "cases": {
+      "immediate_empty": {
+        "outcome": "PASS_EMPTY_IMMEDIATE",
+        "close_count": 1,
+        "identity_verified": true
+      },
+      "delayed_same_group_natural_exit": {
+        "outcome": "PASS_TRANSIENT_MEMBER",
+        "saw_live": true,
+        "naturally_exited": true
+      },
+      "live_at_deadline": {
+        "outcome": "FAIL_LIVE_OWNED_DESCENDANT_AFTER_GRACE",
+        "no_signal": true,
+        "later_natural_exit": true
+      },
+      "defunct_at_deadline_controlled": {
+        "outcome": "FAIL_DEFUNCT_OWNED_MEMBER_AFTER_GRACE",
+        "saw_defunct": true
+      },
+      "observer_unavailable": {
+        "outcome": "FAIL_OBSERVER_UNAVAILABLE"
+      },
+      "detached_group_exclusion": {
+        "outcome": "PASS_EMPTY_IMMEDIATE",
+        "detached_child_naturally_exited": true
+      },
+      "pid_pgid_alias_refusal": {
+        "identity_verified": false,
+        "outcome": "FAIL_OBSERVER_UNAVAILABLE",
+        "child_naturally_exited": true
+      }
+    },
+    "lifecycle": {
+      "all_close_counts_one": true,
+      "all_hard_timers_cleared": true,
+      "all_escalation_timers_cleared": true,
+      "signals_sent": 0,
+      "active_synthetic_process_count": 0
+    },
+    "atomic_authority": {
+      "exactly_one_result": true,
+      "survives_work_cleanup": true,
+      "partial_rejected": true,
+      "duplicate_rejected": true,
+      "malformed_rejected": true,
+      "wrong_candidate_rejected": true,
+      "unknown_field_rejected": true,
+      "missing_field_rejected": true,
+      "trailing_output_rejected": true,
+      "secret_shape_rejected": true
+    },
+    "migration_launch_count": 0,
+    "build_launch_count": 0,
+    "checker_launch_count": 0,
+    "marker_launch_count": 0,
+    "network_call_count": 0,
+    "external_call_count": 0
+  },
+  "fresh_proof": {
+    "schema_version": 4,
+    "kind": "LIFECYCLE_AUTHORITY_FINAL_BUILD_PROOF",
+    "candidate_commit": "b4401302d7137a423198853d619a08655eeaa103",
+    "status": "PASS",
+    "failure_boundary": "NONE",
+    "failure_code": "NONE",
+    "replacement": {
+      "v3_immediate_count_authority_absent": true,
+      "spawn_verified_identity_only": true,
+      "state_aware_targeted_observer_only": true,
+      "poll_interval_ms": 50,
+      "grace_ms": 5000,
+      "signal_after_successful_build": false
+    },
+    "sandbox": {
+      "corrected_profile_exact": true,
+      "old_fixed_port_profile_absent": true,
+      "localhost_inbound_allowed": true,
+      "localhost_outbound_allowed": true,
+      "non_loopback_direct_egress_denied": true
+    },
+    "preflight": {
+      "exact_candidate": true,
+      "detached_head": true,
+      "clean_source": true,
+      "package_hash_match": true,
+      "lock_hash_match": true,
+      "node": "24.14.0",
+      "pnpm": "11.9.0",
+      "next": "16.2.12",
+      "tsx": "4.23.1",
+      "dependency_root_physical": true,
+      "dependency_topology_preserved": true,
+      "next_realpath_contained": true,
+      "next_constants_loaded": true,
+      "tsx_loader_contained": true,
+      "no_stale_next": true,
+      "secret_free_environment": true,
+      "default_turbopack": true,
+      "font_mock_present": false,
+      "webpack_present": false,
+      "plugin_runtime_override_present": false
+    },
+    "migration": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "signal": null,
+      "timeout": false,
+      "close_count": 1,
+      "marker_count": 1,
+      "identity_verified": true,
+      "timers_cleared": true,
+      "observer_outcome": "PASS_EMPTY_IMMEDIATE",
+      "observer_saw_live": false,
+      "observer_saw_defunct": false,
+      "scaffold": true,
+      "journal": true,
+      "journal_rows_positive": true,
+      "system_settings": true
+    },
+    "build": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "signal": null,
+      "timeout": false,
+      "close_count": 1,
+      "build_id_nonempty": true,
+      "identity_verified": true,
+      "timers_cleared": true,
+      "observer_outcome": "PASS_EMPTY_IMMEDIATE",
+      "observer_saw_live": false,
+      "observer_saw_defunct": false,
+      "stable_stage": "BUILD_SUCCEEDED",
+      "term_sent": false,
+      "kill_sent": false
+    },
+    "network": {
+      "fonts_googleapis_connect_count": 2,
+      "fonts_gstatic_connect_count": 11,
+      "blocked_target_count": 0,
+      "non_connect_count": 0,
+      "upstream_error_count": 0,
+      "external_non_font_call_count": 0
+    },
+    "checker": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "exit_code": 0,
+      "public_page_manifests": 20,
+      "root_chunks": 7,
+      "manifest_chunks": 8,
+      "distinct_chunk_files": 15
+    },
+    "marker_control": {
+      "launch_count": 1,
+      "retry_count": 0,
+      "manifest_referenced_non_root_chunk_selected": true,
+      "checker_exit_nonzero": true,
+      "original_artifact_unchanged": true
+    },
+    "authority": {
+      "atomic_result_before_cleanup": true,
+      "closed_schema_validated": true,
+      "raw_output_persisted": false,
+      "pid_pgid_start_process_identity_persisted": false,
+      "absolute_path_persisted": false,
+      "environment_value_persisted": false
+    },
+    "protected_state": {
+      "retained_database_accessed": false,
+      "retained_registration_accessed": false,
+      "credential_accessed": false,
+      "current_official_source_get_count": 0,
+      "current_provider_post_count": 0,
+      "aggregate_official_source_get_count": 6,
+      "aggregate_provider_post_count": 0,
+      "v5_launch_count": 0
+    }
+  },
+  "outer_authority": {
+    "atomic_safe_projection_validated_once": true,
+    "closed_schema_passed": true,
+    "candidate_identity_passed": true,
+    "result_file_count": 1,
+    "stdout_empty": true,
+    "stderr_empty": true,
+    "disposable_source_and_work_root_removed": true,
+    "disposable_dependency_and_build_state_removed": true,
+    "disposable_pglite_storage_cache_and_proxy_removed": true,
+    "current_temporary_process_reference_count": 0,
+    "worktree_registry_residue_count": 0,
+    "original_branch_clean_after_proof": true,
+    "raw_output_persisted": false
+  },
+  "owner_boundary": {
+    "phase_d_only": true,
+    "pause_after_independent_acceptance_and_completion_checkpoint": true,
+    "phase_e_f_g_not_authorized": true
+  },
+  "next_gate": "COORDINATOR_VERIFICATION_THEN_SEPARATELY_AUTHORIZED_PHASE_D_V5_AND_FINAL_CONTROLLED_VALIDATION"
+}
