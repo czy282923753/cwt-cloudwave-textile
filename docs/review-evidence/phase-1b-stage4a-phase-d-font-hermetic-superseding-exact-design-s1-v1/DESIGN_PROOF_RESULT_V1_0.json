@@ -1,0 +1,81 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-s1-author-design-proof-result",
+  "version": "1.0",
+  "classification": "S1_AUTHOR_DOCS_EVIDENCE_ONLY_DECISIVE_PROOF_NOT_RUN",
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-d-font-hermetic-s1-v1",
+    "commit": "RESOLVE_FROM_GIT_COMMIT_CONTAINING_THIS_FILE",
+    "requiredSoleParent": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "requiredSourceTree": "2525cf1b99b5a99986a959c357ce58235308e18e",
+    "docsEvidenceOnly": true,
+    "closedChangedPathCount": 13
+  },
+  "authority": {
+    "ownerApprovalRecordedExactly": true,
+    "proofAuthority": "B_HASH_BOUND_NATIVE_NODE_24_14_0_TO_PROJECT_LOCAL_NEXT_16_2_12_PUBLIC_CLI",
+    "networkBoundary": "RUNTIME_NUMERIC_127_0_0_1_EPHEMERAL_LOCALHOST_IPC_ONLY_DNS_NON_LOOPBACK_EXTERNAL_DENIED",
+    "implementationPnpmCurrentnessAndPnpmBuildRemainSeparate": true,
+    "s1Accepted": false,
+    "implementationAuthorized": false,
+    "phaseDAccepted": false
+  },
+  "custody": {
+    "artifactCandidate": "ce55eab9261a06a1b6cc551f7b6132617c6a1b01",
+    "artifactCandidateSoleParent": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "bundleSha256": "58fc07310f36084d1feb375631424b1836b080e120a73fd9d831b806c2d371cd",
+    "bundleCompleteHistory": "PASS",
+    "sixEscalationArtifactCopies": "PASS_BYTE_IDENTICAL",
+    "retainedOwnerDecisionBlob": "1ed9558ca539176dfeccd6bf8466524757f66d1c",
+    "retainedOwnerDecisionIdentity": "PASS_BYTE_IDENTICAL"
+  },
+  "authorVerification": {
+    "governanceRead": "PASS",
+    "checkpointIdentity": "PASS",
+    "ownerApprovalNotBroadened": "PASS",
+    "adr0020UniqueAndIndexed": "PASS",
+    "s2ImplementationPathCount": 22,
+    "s2ImplementationPathContract": "PASS_CLOSED_ALLOWLIST",
+    "historicalSourceReuseAuthority": "PROHIBITED",
+    "jsonParse": "PASS",
+    "manifestHashes": "PASS",
+    "relativeLinks": "PASS_CURRENT_AUTHORITY_LINKS_TWO_IMPORTED_OWNER_BLOB_HISTORICAL_TARGETS_NOT_CARRIED",
+    "docsEvidenceOnlyDiff": "PASS",
+    "credentialPrivateKeySecretShapePersistenceScan": "PASS",
+    "privateAbsolutePathPersistenceScan": "PASS"
+  },
+  "decisiveDesignProof": {
+    "authorizedRole": "FRESH_INDEPENDENT_S1_DESIGN_SECURITY_REVIEWER_ONLY",
+    "preflight": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "dependencyTreeMaterialization": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "migration": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "typegen": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "localhostIpcSelfConnect": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "buildCommand": "node node_modules/next/dist/bin/next build",
+    "buildAttemptCount": 0,
+    "buildStatus": "NOT_RUN",
+    "buildReason": "AUTHOR_NOT_AUTHORIZED",
+    "nextBanner": "NOT_OBSERVED",
+    "buildId": "NOT_OBSERVED",
+    "localFontInputsConsumed": "NOT_OBSERVED",
+    "emittedWoff2": "NOT_OBSERVED",
+    "generatedCssLocalMediaOnly": "NOT_OBSERVED",
+    "externalNetworkDenied": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "focusedPublicBundleObservation": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "generatedRootRestore": "NOT_RUN_AUTHOR_NOT_AUTHORIZED",
+    "retryCount": 0,
+    "result": "OPEN_UNPROVEN"
+  },
+  "authorProhibitedActions": {
+    "productMutation": "NOT_RUN",
+    "build": "NOT_RUN",
+    "typegen": "NOT_RUN",
+    "migrationOrDatabase": "NOT_RUN",
+    "packageOrProjectScript": "NOT_RUN",
+    "gate": "NOT_RUN",
+    "installOrDownload": "NOT_RUN",
+    "dnsOrExternalNetwork": "NOT_RUN",
+    "selfReviewOrAcceptance": "NOT_RUN",
+    "pushDeployOrCheckpointMovement": "NOT_RUN"
+  },
+  "nextGate": "DIFFERENT_FRESH_INDEPENDENT_FULL_S1_DESIGN_SECURITY_REVIEW_WITH_EXACTLY_ONE_AUTHORITY_B_PROOF"
+}

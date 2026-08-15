@@ -1,0 +1,78 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-technical-escalation-manifest",
+  "version": "1.0",
+  "classification": "TECHNICAL_ESCALATION_ARTIFACT_ONLY_NOT_DESIGN_ACCEPTANCE_NOT_IMPLEMENTATION",
+  "date": "2026-08-15",
+  "timezone": "Asia/Shanghai",
+  "rollbackCheckpoint": "fbe88cdd7639f32f48d92a0627833918b4924458",
+  "subjectStatus": "NEEDS_OWNER_DECISION",
+  "fontHermetic01": "OPEN_UNPROVEN",
+  "artifacts": [
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_TECHNICAL_ESCALATION_ROOT_CAUSE_ANALYSIS_V1_0.md",
+      "sha256": "9bc100bbae7216a12c632539ba93a09b75d9e98855f90c4a50c626fb43d2e746"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_REPLACEMENT_AND_CONVERGENCE_PLAN_V1_0.md",
+      "sha256": "ee1f68fa944f247855d0863b1092c9e0975ca668faf10a5507ce49e5383dc0ec"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/ROOT_CAUSE_EVIDENCE_V1_0.json",
+      "sha256": "0806f66b1c837225c77f0e2a9c443e46534a34fbf891c2d7730db4de59733388"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/DIAGNOSTIC_BUILD_RESULT_V1_0.json",
+      "sha256": "4eacf6c12b6b6ea150ed073b7e149033c04e57fd1748491215f5f87e11c8a092"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/COMPLEXITY_AND_LINEAGE_EVIDENCE_V1_0.json",
+      "sha256": "9d251d625ae328355c76b3575106c55eb9ace90973e266619c33acdf935f7edc"
+    }
+  ],
+  "selfHashExcluded": true,
+  "evidenceDirectoryFileCountIncludingSelf": 4,
+  "reportCountOutsideEvidenceDirectory": 2,
+  "verification": {
+    "jsonParse": "PASS_4_OF_4",
+    "g10ReviewBundleSha256": "e85612e7477beee78952f4f0dfa8125ddd9eadc58ea159bac3589559df22768b",
+    "g10ReviewBundleCloneAndFsck": "PASS",
+    "zeroBuildPnpmProbe": "PASS_CAUSAL_REPRODUCTION_WITH_CI_FAIL_WITHOUT_CI_PASS",
+    "migrations": "PASS_ONCE_DIAGNOSTIC_ONLY",
+    "directTypegen": "PASS_ONCE_DIAGNOSTIC_ONLY",
+    "actualDiagnosticBuildInvocations": 1,
+    "actualDiagnosticBuildRetries": 0,
+    "actualDiagnosticBuild": "FAIL_INCOMPLETE_EXECUTION_SANDBOX_LOOPBACK_BIND_DENIED",
+    "defaultTurbopackEntered": true,
+    "buildId": "ABSENT",
+    "fontEmission": "UNPROVEN",
+    "focusedPublicBundleObservation": "NOT_RUN_NO_COMPLETE_BUILD",
+    "replacementLoopbackRunnerZeroBuildPreflight": "PASS_NUMERIC_127_0_0_1_SELF_CONNECT_EXTERNAL_NETWORK_DENIED",
+    "productOrCheckerImplementation": false,
+    "installDownloadUpdateRemove": false,
+    "externalDnsOrEgress": false,
+    "realSecretDatabaseProviderOrApi": false,
+    "pushDeployCheckpointMovement": false
+  },
+  "evidenceCeiling": {
+    "rawLogsRetained": 0,
+    "fullDependencyInventoriesRetained": 0,
+    "buildCacheRetained": false,
+    "pgliteOrStorageRetained": false,
+    "credentialValuesRetained": false
+  },
+  "candidateBinding": {
+    "method": "EXTERNAL_COMPLETE_HISTORY_PORTABLE_CUSTODY_BUNDLE",
+    "candidateCommit": "BOUND_AFTER_ARTIFACT_COMMIT_NOT_EMBEDDED_TO_AVOID_SELF_REFERENCE",
+    "candidateParentRequired": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "sharedCheckpointRefMutation": false
+  },
+  "decision": {
+    "recommendedDesignProofAuthority": "B_HASH_BOUND_NATIVE_NODE_TO_PROJECT_LOCAL_NEXT_PUBLIC_CLI",
+    "ownerDecisionRequired": true,
+    "newSupersedingExactDesignRequired": true,
+    "adr0020AmendmentRequired": true,
+    "ordinaryRemediationAttempt4": false,
+    "implementationAuthorized": false,
+    "nextGate": "COORDINATOR_VERIFICATION_THEN_OWNER_DECISION"
+  }
+}

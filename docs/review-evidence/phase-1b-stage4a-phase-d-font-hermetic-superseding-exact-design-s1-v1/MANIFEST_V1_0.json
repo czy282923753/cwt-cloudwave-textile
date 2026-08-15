@@ -1,0 +1,101 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-s1-author-manifest",
+  "version": "1.0",
+  "classification": "S1_AUTHOR_DOCS_EVIDENCE_ONLY_MANIFEST",
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-d-font-hermetic-s1-v1",
+    "commit": "RESOLVE_FROM_GIT_COMMIT_CONTAINING_THIS_FILE",
+    "requiredSoleParent": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "docsEvidenceOnly": true,
+    "closedChangedPathCount": 13
+  },
+  "custody": {
+    "artifactCandidate": "ce55eab9261a06a1b6cc551f7b6132617c6a1b01",
+    "artifactCandidateSoleParent": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "bundleSha256": "58fc07310f36084d1feb375631424b1836b080e120a73fd9d831b806c2d371cd",
+    "bundleCompleteHistory": true,
+    "copiedEscalationArtifactCount": 6,
+    "retainedOwnerDecisionBlob": "1ed9558ca539176dfeccd6bf8466524757f66d1c"
+  },
+  "manifestContract": {
+    "algorithm": "SHA-256",
+    "pathOrder": "UTF8_LEXICOGRAPHIC",
+    "fileCountExcludingManifest": 12,
+    "selfHashExcluded": true,
+    "hostPrivatePathsExcluded": true
+  },
+  "files": [
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_REPLACEMENT_AND_CONVERGENCE_PLAN_V1_0.md",
+      "bytes": 23243,
+      "sha256": "ee1f68fa944f247855d0863b1092c9e0975ca668faf10a5507ce49e5383dc0ec",
+      "gitBlob": "58a47c92de3270a80767c427816bd3308cbb9ae0"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_SUPERSEDING_EXACT_DESIGN_V1_0.md",
+      "bytes": 33286,
+      "sha256": "ed7cf7fb22a95f8f420b13473a90132584c9675d8f2c33117ba44b01580948da",
+      "gitBlob": "46474cacdc4b9ba08f06b87a262c972f623c6db0"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_TECHNICAL_ESCALATION_OWNER_DECISION_AMENDMENT_V1_0.md",
+      "bytes": 4057,
+      "sha256": "63d6b7355a83d83477c2f381b607ee2e67f3ddac009c9a8393df4ad7e806c437",
+      "gitBlob": "5607b3b78f7bf618ea06c08276d2d2dd17b3a414"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_TECHNICAL_ESCALATION_ROOT_CAUSE_ANALYSIS_V1_0.md",
+      "bytes": 23019,
+      "sha256": "9bc100bbae7216a12c632539ba93a09b75d9e98855f90c4a50c626fb43d2e746",
+      "gitBlob": "804c3f078bbb1eacd89255dc4de65e1774783732"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_SYNTHETIC_ONLY_BOUNDARY_OWNER_DECISION_V1_0.md",
+      "bytes": 9802,
+      "sha256": "f05db21b657b635826def344ba4f0abc694c26ff72256e4d5dfa66b196e23c30",
+      "gitBlob": "1ed9558ca539176dfeccd6bf8466524757f66d1c"
+    },
+    {
+      "path": "docs/adr/ADR-0020-phase-d-synthetic-only-bounded-convergence.md",
+      "bytes": 6563,
+      "sha256": "007b3af15d0fd19ed4e7bbf9d6e230d63be3dd9cf54d5a71758db1fa535e70db",
+      "gitBlob": "3badc56ba979589e61fdcb94d5ddc2847237dd5c"
+    },
+    {
+      "path": "docs/adr/README.md",
+      "bytes": 2871,
+      "sha256": "2716bd304ec8bc062d8a2eee2a86c7e3b7501e4cf0670d0a72a9845fe1cbeb52",
+      "gitBlob": "c3704c74c25ee98550849e962295b3dbd6a913cc"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-superseding-exact-design-s1-v1/DESIGN_PROOF_RESULT_V1_0.json",
+      "bytes": 3582,
+      "sha256": "aa554419317afcc11e9517b72f2fc4020b064bc25ffbee764904d35f7c907938",
+      "gitBlob": "6bd1f6e234dfb92415c8cd92bfa582aa5c2cb1de"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/COMPLEXITY_AND_LINEAGE_EVIDENCE_V1_0.json",
+      "bytes": 7162,
+      "sha256": "9d251d625ae328355c76b3575106c55eb9ace90973e266619c33acdf935f7edc",
+      "gitBlob": "645d2de8c634c5e1a9c21c0881390792c766d20f"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/DIAGNOSTIC_BUILD_RESULT_V1_0.json",
+      "bytes": 6747,
+      "sha256": "4eacf6c12b6b6ea150ed073b7e149033c04e57fd1748491215f5f87e11c8a092",
+      "gitBlob": "3183a5784a0319497830fdb0b166b81787f92e8e"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/MANIFEST_V1_0.json",
+      "bytes": 3563,
+      "sha256": "8c1bbc3cec4e77556bdea85cd5e0524793d2f4696b04fdf7ee08c8a3651eeb66",
+      "gitBlob": "bacb4cfb65dac7626383e40bac22eb44746c6004"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-technical-escalation-v1/ROOT_CAUSE_EVIDENCE_V1_0.json",
+      "bytes": 7631,
+      "sha256": "0806f66b1c837225c77f0e2a9c443e46534a34fbf891c2d7730db4de59733388",
+      "gitBlob": "4d2a9047cf2163cbd7b19e6d804af891d5ce6932"
+    }
+  ]
+}

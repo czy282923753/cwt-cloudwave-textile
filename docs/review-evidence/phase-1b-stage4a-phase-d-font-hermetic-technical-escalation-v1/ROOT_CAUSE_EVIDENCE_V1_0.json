@@ -1,0 +1,156 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-technical-escalation-root-cause-evidence",
+  "version": "1.0",
+  "classification": "TECHNICAL_ESCALATION_ANALYSIS_ONLY_NOT_DESIGN_ACCEPTANCE_NOT_IMPLEMENTATION",
+  "date": "2026-08-15",
+  "rollback": {
+    "ref": "refs/heads/codex/checkpoint/phase-1b-stage4a-phase-d-pre-formal-proof-replacement-v1",
+    "commit": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "tree": "2525cf1b99b5a99986a959c357ce58235308e18e",
+    "moved": false,
+    "candidateAuthority": false
+  },
+  "immutableInputs": {
+    "acceptedG9Design": "5e6310256c36edbf22ce404d85891c1c869bd9db",
+    "g9PassReview": "ee7a7172f412804ed5c8f973207abcac1fc1cbe4",
+    "failedG9Successor": "37056086f802b812a096a1907ef089d6fa4a167a",
+    "g10Design": "1bc6e16b79b24c429826857ff16a71ae67d75271",
+    "g10Tree": "c3e9b6c8733b9ef6d96ce06a7797cd8592064ac2",
+    "g10Review": "60811c4d67b5a751ac8ce73df81e3c7df53851f8",
+    "g10ReviewBundleSha256": "e85612e7477beee78952f4f0dfa8125ddd9eadc58ea159bac3589559df22768b",
+    "g10ReviewBundleVerification": "PASS_COMPLETE_HISTORY_FSCK",
+    "g6Design": "6ca4d4863d642d77ef81a4c87c049ea7a74ce8ce",
+    "g6PassReview": "03c2428a32b057682850e25b85a34c441b818044",
+    "g5Design": "0f7591c93d85c0fcbd0fef6c7f845da8c3a2ac58",
+    "g5PassReview": "d8f5584c93bff92bdfc613e701a190c53538442a"
+  },
+  "historicalAvailability": {
+    "g10ReviewTimePhysicalPnpmStateCandidates": 6,
+    "currentlySurvivingPhysicalPnpmStateCandidates": 3,
+    "destroyedOrUnavailableHistoricalLeafDetails": "UNKNOWN",
+    "unknownStopsAnalysis": false,
+    "reason": "The immutable G10 review result, review session evidence, pinned pnpm 11.9.0 source and a current zero-build reproduction prove the first authority defect without reconstructing destroyed leaves."
+  },
+  "g10Projection": {
+    "checkout": "EXACT_G10",
+    "dependencyTransport": "APFS_COW_PHYSICAL_CLONE_OF_ONE_FULL_INSTALLED_NODE_MODULES_TREE",
+    "targetFilesRetained": [
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml"
+    ],
+    "dependencyMetadataMutation": "ONE_PROJECT_ROOT_KEY_REBIND_IN_NODE_MODULES_DOT_PNPM_WORKSPACE_STATE_V1_JSON",
+    "productProjection": [
+      "src/app/layout.tsx",
+      "src/seo/nonproduction-indexing.test.ts",
+      "src/app/fonts/geist-latin.woff2",
+      "src/app/fonts/geist-mono-latin.woff2"
+    ],
+    "checkerConfigOrOtherProductMutation": false,
+    "sourceRootPackageSha256": "31e8a1698e6abe68e0f78d2118448ef8bdede0e98df9460764e791302e2c2379",
+    "targetPackageSha256": "21d7b63e54e802c26765ba4ea759aebdae6f6e4f446265452f2a52e613536a83",
+    "sourceAndTargetPackageDifference": "SCRIPTS_ONLY",
+    "dependencyDevDependencyPackageManagerEngineSemanticsEqual": true,
+    "dependencySemanticsAggregateSha256Prefix": "187a9d74",
+    "sourceAndTargetWantedLockSha256": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb",
+    "sourceWorkspaceSha256": "c996ef64a6382a15c30198d8f9c41938d8524e44e8b7c654ec12b32ccdf14df3",
+    "targetWorkspaceSha256": "735fc96d5067d9260e40aadfd04f8f4eb6ecb5f17354003d34272f845940cf10",
+    "sourceWorkspaceTextOmittedPackagesDot": true,
+    "installedWorkspacePatternsAlreadyDot": true,
+    "exactFullSourcePackageAndLockCount": 0,
+    "exactDependencySemanticsAndLockCount": 1,
+    "authorityDefect": "The review froze exact source-root package bytes as a prerequisite although those script-only bytes were neither dependency content nor the target package authority."
+  },
+  "firstPnpmFailure": {
+    "command": "pnpm exec next typegen .",
+    "environmentalInput": "CI=1",
+    "verificationMode": "pnpm_config_verify_deps_before_run=error",
+    "exitCode": 1,
+    "code": "ERR_PNPM_VERIFY_DEPS_BEFORE_RUN",
+    "message": "The value of the enableGlobalVirtualStore setting has changed",
+    "storedValue": null,
+    "computedCurrentValueUnderCi": false,
+    "pnpmSourceRule": "pnpm 11.9.0 sets enableGlobalVirtualStore=false when CI is true and the setting is otherwise null, then compares that setting before lockfile or manifest status.",
+    "nextCliStarted": false,
+    "nextEnvPresent": false,
+    "generatedRootPresent": false,
+    "buildInvocations": 0,
+    "focusedBundleInvocations": 0,
+    "installOrRetry": false,
+    "rootCause": "REVIEW_HARNESS_CI_INJECTION_CHANGED_PNPM_CURRENTNESS_AUTHORITY"
+  },
+  "independentZeroBuildProbe": {
+    "exactG10TargetPackageLockWorkspace": true,
+    "transport": "APFS_COW_PHYSICAL_CLONE_AND_ROOT_REBIND",
+    "withCi": {
+      "commandClass": "PNPM_EXEC_CHILD_MARKER",
+      "result": "FAIL_SAME_ENABLE_GLOBAL_VIRTUAL_STORE_ERROR",
+      "childEntered": false
+    },
+    "withoutCi": {
+      "commandClass": "PNPM_EXEC_CHILD_MARKER",
+      "result": "PASS",
+      "childEntered": true,
+      "node": "24.14.0 arm64"
+    },
+    "normalizedWorkspaceStateSha256PrefixBeforeAndAfter": "067d981e",
+    "onlyObservedStateChange": "lastValidatedTimestamp",
+    "conclusion": "The projected installed tree can satisfy pnpm currentness without install when the unauthorized CI input is absent."
+  },
+  "authorities": {
+    "productLocalFontCorrectness": {
+      "status": "STATIC_PASS_RUNTIME_REACHED_NOT_CONCLUSIVELY_PROVEN_NOT_DISPROVED",
+      "failed": false
+    },
+    "pinnedNextDefaultTurbopackBuildSemantics": {
+      "status": "ENTERED_NEXT_16_2_12_TURBOPACK_BUT_COMPLETION_UNPROVEN",
+      "failed": false
+    },
+    "dependencySnapshotMaterialization": {
+      "status": "ADEQUATE_FOR_HASH_BOUND_DIRECT_NEXT_EXECUTION",
+      "failed": false,
+      "operationalRisk": "Ambient full installed source availability is not durable authority; absence must block rather than trigger install or partial projection."
+    },
+    "pnpmPackageScriptAndCurrentness": {
+      "status": "G10_REVIEW_HARNESS_FAILED_ZERO_BUILD_NO_CI_CURRENTNESS_PASS_FUTURE_PACKAGE_BUILD_UNPROVEN",
+      "failed": true,
+      "failureScope": "G10_DECISIVE_REVIEW_PREREQUISITE_ONLY"
+    },
+    "executionSandboxLoopbackIpc": {
+      "status": "ACTUAL_DIAGNOSTIC_BUILD_FAILED_ON_DENIED_127_0_0_1_EPHEMERAL_BIND",
+      "failed": true,
+      "classification": "EXECUTION_ENVIRONMENT_AUTHORITY"
+    }
+  },
+  "dependencyVerificationForDirectAuthority": {
+    "next": "16.2.12",
+    "node": "24.14.0 arm64",
+    "declaredDirectDependencies": 37,
+    "resolvedDirectDependencies": 37,
+    "missing": 0,
+    "versionMismatch": 0,
+    "canonicalEscape": 0,
+    "aggregateSha256": "030d8bf2504dab5d774d3b9c483eada3e64da677ed78032aad39181e4dce2ad3",
+    "nextPackageJsonSha256": "297079fdc10beaf4f8ea52def582807768f086cc4cff516e1c7e2482c97fa309",
+    "nextPublicBinSha256": "1938ac0ac437a7bb312f9f871aa6dcefc71bcad928b4eb627d101e664e2f9841",
+    "nextSwcDarwinArm64BinarySha256": "388f0483f2dfc075d8b2188edc7389f959a364b09064aa1fd7e785d2b42baee"
+  },
+  "proofAuthorityEvaluation": {
+    "A_exactPnpmPackageScript": "REJECT_FOR_DESIGN_PROOF_RETAIN_FOR_FUTURE_IMPLEMENTATION_GATE",
+    "B_hashBoundDirectNativeNodeProjectLocalNextCli": "RECOMMENDED_EXACTLY_ONE",
+    "C_completeTaskLocalCowCloneAndRootRebind": "TRANSPORT_ONLY_NOT_AUTHORITY",
+    "D_contentAddressedDependencySnapshot": "REJECT_DISPROPORTIONATE_NEW_LIFECYCLE_AND_INSTALL_AUTHORITY",
+    "E_other": "REJECT_WRAPPER_INTERNAL_RUNNER_WEBPACK_OR_LOADER_SUBSTITUTES",
+    "recommendation": "B"
+  },
+  "ownerDecisionRequired": true,
+  "ownerDecisionScope": [
+    "DESIGN_PROOF_AUTHORITY_B",
+    "LOOPBACK_ONLY_TURBOPACK_IPC_SECURITY_BOUNDARY",
+    "SUPERSEDING_EXACT_DESIGN_AND_ADR_0020_AMENDMENT",
+    "FRESH_LINEAGE_FROM_FBE_WITH_NAMED_SEMANTIC_REUSE_ONLY"
+  ],
+  "ordinaryRemediationFrozen": true,
+  "attempt4Authorized": false,
+  "fontHermetic01": "OPEN_UNPROVEN"
+}

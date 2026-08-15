@@ -1,0 +1,152 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-technical-escalation-diagnostic-build",
+  "version": "1.0",
+  "classification": "TECHNICAL_ESCALATION_DIAGNOSTIC_ONLY_NOT_DESIGN_ACCEPTANCE_NOT_IMPLEMENTATION_GATE",
+  "date": "2026-08-15",
+  "timezone": "Asia/Shanghai",
+  "source": {
+    "rollbackCheckpoint": "fbe88cdd7639f32f48d92a0627833918b4924458",
+    "exactG10ProjectionBase": "1bc6e16b79b24c429826857ff16a71ae67d75271",
+    "g10Tree": "c3e9b6c8733b9ef6d96ce06a7797cd8592064ac2",
+    "productProjectionPaths": [
+      "src/app/layout.tsx",
+      "src/seo/nonproduction-indexing.test.ts",
+      "src/app/fonts/geist-latin.woff2",
+      "src/app/fonts/geist-mono-latin.woff2"
+    ],
+    "checkerOrConfigChanged": false,
+    "otherProductSourceChanged": false
+  },
+  "identities": {
+    "node": {
+      "version": "24.14.0",
+      "platform": "darwin",
+      "arch": "arm64"
+    },
+    "pnpmVersionInspectedNotUsedForBuild": "11.9.0",
+    "nextVersion": "16.2.12",
+    "packageSha256": "21d7b63e54e802c26765ba4ea759aebdae6f6e4f446265452f2a52e613536a83",
+    "wantedLockSha256": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb",
+    "virtualStoreLockSha256": "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb",
+    "workspaceSha256": "735fc96d5067d9260e40aadfd04f8f4eb6ecb5f17354003d34272f845940cf10",
+    "nextPackageJsonSha256": "297079fdc10beaf4f8ea52def582807768f086cc4cff516e1c7e2482c97fa309",
+    "nextPublicBinSha256": "1938ac0ac437a7bb312f9f871aa6dcefc71bcad928b4eb627d101e664e2f9841",
+    "nextTypegenCliSha256": "86fee6331bfa6fca27a6e2859eca53a7ffc5c70e4dcda08a5715ffe497c3d003",
+    "nextSwcDarwinArm64PackageJsonSha256": "eb8a7b6373133e5abc6066fed875c7467bccc9f5366483eee176f3a9412ac695",
+    "nextSwcDarwinArm64BinarySha256": "388f0483f2dfc075d8b2188edc7389f959a364b09064aa1fd7e785d2b42baee8",
+    "declaredDirectDependencies": 37,
+    "resolvedDirectDependencies": 37,
+    "directDependencyMissingCount": 0,
+    "directDependencyVersionMismatchCount": 0,
+    "directDependencyCanonicalEscapeCount": 0,
+    "directDependencyAggregateSha256": "030d8bf2504dab5d774d3b9c483eada3e64da677ed78032aad39181e4dce2ad3"
+  },
+  "projectedSource": {
+    "layoutSha256": "7d4de1649916159fd4be48127edc674cee4bf821abeb53aec0763cef6f3c2204",
+    "seoTestSha256": "68b18aa982ce2ddfbb7a7e387dc87da4085a3a3ebbb4269dce7954071c677889",
+    "geistLatin": {
+      "bytes": 28356,
+      "sha256": "1b5ebfb3a01a97343ac96873e6d59a8cb285c66012b6a1ac509cb2765e995ba8",
+      "regularSingleLinkMode0644": true
+    },
+    "geistMonoLatin": {
+      "bytes": 31288,
+      "sha256": "b7ac144b394cbd81052d6397ec0c33397977b1d7e9bc095e744e652a378c6fb3",
+      "regularSingleLinkMode0644": true
+    },
+    "productGoogleImportMockEnvOrHostOccurrenceCountExcludingDocsDependenciesGit": 0
+  },
+  "environment": {
+    "constructedFromScratch": true,
+    "numericSiteOrigin": "http://127.0.0.1:3200",
+    "pglite": "TASK_OWNED_MIGRATED_0000_THROUGH_0020_NO_SEED_OR_BUSINESS_DATA",
+    "storage": "TASK_OWNED_PUBLIC_PRIVATE_IMPORT_ROOTS",
+    "credentials": "CONSPICUOUSLY_SYNTHETIC_NOT_RETAINED",
+    "proxyRegistryRealCredentialProviderAuthority": "ABSENT",
+    "platformExecutionSandboxExternalNetwork": "RESTRICTED",
+    "nestedSandboxExecAttempt": {
+      "targetProcessStarted": false,
+      "exitCode": 71,
+      "error": "sandbox_apply Operation not permitted",
+      "effectOnMigrationOrBuildInvocationCount": 0
+    }
+  },
+  "migration": {
+    "authority": "HASH_BOUND_NATIVE_NODE_PROJECT_LOCAL_TSX",
+    "invocations": 1,
+    "exitCode": 0,
+    "successMarker": "Database migrations applied.",
+    "successMarkerCount": 1,
+    "taskOwnedPgliteFileCountAfter": 68
+  },
+  "typegen": {
+    "authority": "HASH_BOUND_NATIVE_NODE_TO_PROJECT_LOCAL_NEXT_PUBLIC_CLI",
+    "command": "node node_modules/next/dist/bin/next typegen .",
+    "invocations": 1,
+    "exitCode": 0,
+    "nextEnvSha256": "7b550dda9686c16f36a17bf9051d5dbf31e98555b30d114ac49fc49a1e712651",
+    "generatedFileCount": 3,
+    "generatedFiles": {
+      ".next/types/cache-life.d.ts": "d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7",
+      ".next/types/routes.d.ts": "e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4",
+      ".next/types/validator.ts": "8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df"
+    },
+    "atomicTypegenHold": "PASS_SAME_DEVICE_INODE_PRESERVED"
+  },
+  "build": {
+    "authorityUnderTest": "HASH_BOUND_NATIVE_NODE_TO_PROJECT_LOCAL_NEXT_PUBLIC_CLI",
+    "command": "node node_modules/next/dist/bin/next build",
+    "arguments": ["build"],
+    "pnpmInvoked": false,
+    "webpackFlagPresent": false,
+    "invocations": 1,
+    "retryInvocations": 0,
+    "nextBanner": "Next.js 16.2.12 (Turbopack)",
+    "buildStage": "compile",
+    "exitCode": 1,
+    "result": "FAIL_INCOMPLETE_EXECUTION_SANDBOX_LOOPBACK_BIND_DENIED",
+    "firstAffectedModule": "[project]/src/app/geistmono_a59faa87.module.css [app-rsc] (css module)",
+    "causalChain": [
+      "PostCssTransformedAsset::process",
+      "evaluate_webpack_loader",
+      "creating new process",
+      "binding to a port",
+      "Operation not permitted (os error 1)"
+    ],
+    "nativeBinaryStaticCorroboration": "PINNED_NEXT_SWC_BINARY_CONTAINS_127_0_0_1_0_BIND_ACCEPT_CHILD_PROCESS_POOL_PATH",
+    "independentSameSandboxLoopbackProbe": {
+      "bind": "127.0.0.1:0",
+      "result": "EPERM",
+      "syscall": "listen"
+    },
+    "buildIdPresent": false,
+    "emittedWoff2Count": 0,
+    "emittedCssCount": 0,
+    "googleOrNativeGoogleFailureObserved": false,
+    "localFontTransformReached": true,
+    "localFontTransformEvidence": "GENERATED_GEIST_MONO_CSS_MODULE_WAS_THE_POSTCSS_INPUT",
+    "productLocalFontCorrectness": "NOT_DISPROVED_BUT_NOT_CONCLUSIVELY_PROVEN",
+    "defaultTurbopackCompletion": "UNPROVEN"
+  },
+  "focusedPublicBundleObservation": {
+    "invocations": 0,
+    "result": "NOT_RUN_NO_COMPLETE_BUILD"
+  },
+  "replacementRunnerPreflightAfterBuildNoBuildRetry": {
+    "macSandboxProfile": "ALLOW_DEFAULT_DENY_NETWORK_STAR_ALLOW_LOCALHOST_EPHEMERAL_BIND_INBOUND_OUTBOUND_ONLY",
+    "runtimeBindHost": "127.0.0.1",
+    "runtimeSelfConnect": "PASS",
+    "nonLoopbackNetworkAllowedByProfile": false,
+    "numericLiteralSandboxGrammarProbe": "PROFILE_PARSE_REJECTED_BEFORE_NODE_BECAUSE_MAC_SANDBOX_REQUIRES_HOST_TOKEN_LOCALHOST",
+    "actualBuildUnderReplacementRunner": "NOT_RUN_BUILD_CEILING_ALREADY_CONSUMED"
+  },
+  "result": {
+    "fontHermetic01": "OPEN_UNPROVEN",
+    "g10ProductLogicDisproved": false,
+    "diagnosticBuildPass": false,
+    "implementationGate8Pass": false,
+    "designAccepted": false,
+    "implementationAuthorized": false,
+    "nextGate": "OWNER_DECISION_THEN_SUPERSEDING_EXACT_DESIGN_AND_INDEPENDENT_REVIEW"
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-technical-escalation-complexity-lineage-evidence",
+  "version": "1.0",
+  "classification": "TECHNICAL_ESCALATION_ANALYSIS_ONLY",
+  "date": "2026-08-15",
+  "drift": [
+    {
+      "generation": "G3",
+      "commit": "a22c8d1b20aa04198b135b68dd6723bfa2910e80",
+      "mechanisms": ["migrated PGlite", "localhost Google mock server", "request counters", "APFS CoW dependency projection", "pnpm currentness", "ten gates and two runtime outputs"],
+      "disposition": "REMOVE_GOOGLE_MOCK_AND_FONT_SERVER_RETAIN_ONLY_GENUINELY_NEEDED_ISOLATION_AND_GATE_SEMANTICS"
+    },
+    {
+      "generation": "G4",
+      "commit": "eb388a71f40af9062311ce6ff16167d0289eff6d",
+      "mechanisms": ["copied-font filesystem map", "quoted absolute mock CSS URLs"],
+      "disposition": "REMOVE"
+    },
+    {
+      "generation": "G5",
+      "commit": "0f7591c93d85c0fcbd0fef6c7f845da8c3a2ac58",
+      "mechanisms": ["unquoted-path grammar", "custom parser", "full JavaScript Google loader probe"],
+      "diagnosis": "PROVED_WEBPACK_JAVASCRIPT_LOADER_ONLY_NOT_NATIVE_DEFAULT_TURBOPACK_GOOGLE_AUTHORITY",
+      "disposition": "REMOVE"
+    },
+    {
+      "generation": "G6",
+      "commit": "6ca4d4863d642d77ef81a4c87c049ea7a74ce8ce",
+      "mechanisms": ["official typegen", "two physical holds", "S0-S6 generated-root state machine", "inode and hash ceremony"],
+      "disposition": "RETAIN_SEMANTIC_TYPEGEN_FRESH_BUILD_RESTORE_ZERO_RETRY_LIFECYCLE_REMOVE_PER_STATE_INODE_CEREMONY"
+    },
+    {
+      "generation": "G7",
+      "mechanisms": ["four route tests", "thirteen origin cases", "initial Vitest cache assertions"],
+      "disposition": "RETAIN_ACCEPTED_ORIGIN_BEHAVIOR_REMOVE_INCIDENTAL_CACHE_PROOF"
+    },
+    {
+      "generation": "G8",
+      "mechanisms": ["Vite .vite-temp state machine", "twenty-one one-second observations per gate", "cache normalization", "four metadata classes", "full clone delta"],
+      "disposition": "REMOVE_AND_REPLACE_WITH_ONE_BOUNDED_PREFLIGHT_AND_RESULT"
+    },
+    {
+      "generation": "G9",
+      "commit": "5e6310256c36edbf22ce404d85891c1c869bd9db",
+      "mechanisms": ["checker binding", "parent-directory timestamp and temporary-leaf checks", "synthetic proof ceiling"],
+      "disposition": "RETAIN_ACCEPTED_CHECKER_BINDING_AND_PROOF_CEILING_SEMANTICS_REMOVE_INCIDENTAL_FILESYSTEM_CEREMONY"
+    },
+    {
+      "generation": "G10",
+      "commit": "1bc6e16b79b24c429826857ff16a71ae67d75271",
+      "mechanisms": ["next/font/local", "two repository-contained fonts", "exact full-source package prerequisite", "retained G6/G9 machinery"],
+      "disposition": "RETAIN_ONLY_UNACCEPTED_PROPOSAL_SEMANTICS_PENDING_NEW_DESIGN_REVIEW_REMOVE_EXACT_SOURCE_PACKAGE_PREREQUISITE_AND_REPEATED_MACHINERY"
+    }
+  ],
+  "retainedNamedAuthorities": [
+    {
+      "artifact": "docs/PHASE_1B_STAGE4A_PHASE_D_SYNTHETIC_ONLY_BOUNDARY_OWNER_DECISION_V1_0.md",
+      "sourceCommit": "5e6310256c36edbf22ce404d85891c1c869bd9db",
+      "blob": "1ed9558ca539176dfeccd6bf8466524757f66d1c",
+      "sha256": "f05db21b657b635826def344ba4f0abc694c26ff72256e4d5dfa66b196e23c30",
+      "semantics": ["synthetic-only Phase D", "external validation deferred to Phase F", "affected credential rotation required", "terminal pause"]
+    },
+    {
+      "artifact": "G6 accepted Design and PASS review",
+      "sourceCommits": ["6ca4d4863d642d77ef81a4c87c049ea7a74ce8ce", "03c2428a32b057682850e25b85a34c441b818044"],
+      "semantics": ["official typegen", "fresh build boundary", "generated-root restore", "zero Build retry"]
+    },
+    {
+      "artifact": "G9 accepted Design and PASS review",
+      "sourceCommits": ["5e6310256c36edbf22ce404d85891c1c869bd9db", "ee7a7172f412804ed5c8f973207abcac1fc1cbe4"],
+      "semantics": ["synthetic profile", "two runtime outputs", "four-probe ceiling", "thirteen accepted origin cases", "clean direct-parent checker binding", "task-local dependency and error-mode", "fresh ten-gate no-retry contract"]
+    }
+  ],
+  "retainedProposalMaterialNotAuthority": {
+    "source": "G10 1bc6e16b79b24c429826857ff16a71ae67d75271",
+    "paths": ["src/app/layout.tsx", "src/seo/nonproduction-indexing.test.ts", "src/app/fonts/geist-latin.woff2", "src/app/fonts/geist-mono-latin.woff2"],
+    "rule": "MAY_BE_SPECIFIED_BY_NEW_DESIGN_AND_IMPLEMENTED_FRESH_ONLY_AFTER_OWNER_AND_INDEPENDENT_DESIGN_APPROVAL_NO_CHERRY_PICK"
+  },
+  "discarded": [
+    "ALL_G3_G5_GOOGLE_MOCK_COPY_ENV_PARSER_AND_LOADER_PROOF",
+    "G7_G9_INCIDENTAL_CACHE_TIMESTAMP_POLLING_METADATA_AND_INODE_PROOF_MACHINERY",
+    "G10_EXACT_AMBIENT_SOURCE_ROOT_PACKAGE_BYTES_PREREQUISITE",
+    "DESIGN_LEVEL_PNPM_CURRENTNESS_OR_CI_INJECTION",
+    "ALL_FAILED_IMPLEMENTATION_ANCESTRY_CONSTANTS_AND_IMPLEMENTATION_CODE",
+    "REPEATED_RAW_LOGS_AND_FULL_DEPENDENCY_BUILD_CACHE_INVENTORIES"
+  ],
+  "requiredConvergence": {
+    "newSupersedingExactDesign": true,
+    "adr0020Amendment": true,
+    "ownerDecision": true,
+    "freshLineage": "fbe88cdd7639f32f48d92a0627833918b4924458 -> docs-only superseding governance/design -> independently approved design -> fresh implementation by a different agent",
+    "ordinaryRemediationAttemptNumber": null,
+    "g11OrAttempt4": false,
+    "cherryPickFailedHistory": false
+  },
+  "futureImplementationAllowlist": [
+    "package.json",
+    "pnpm-workspace.yaml",
+    "scripts/validate-deepseek-text-adapter.test.ts",
+    "scripts/validate-deepseek-text-adapter.ts",
+    "scripts/verify-ai-architecture.ts",
+    "src/ai/testing/controlled-provider-validation.test.ts",
+    "src/ai/testing/controlled-provider-validation.ts",
+    "src/app/api/admin/upload-intents/[token]/route.test.ts",
+    "src/app/api/conversion-events/route.test.ts",
+    "src/app/api/upload-intents/[token]/route.test.ts",
+    "src/app/api/upload-intents/route.test.ts",
+    "src/integrations/ai/providers/deepseek-official-source-preflight.test.ts",
+    "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+    "src/integrations/ai/providers/deepseek-text-adapter.test.ts",
+    "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+    "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
+    "test-fixtures/ai/deepseek-controlled-validation.v1.json",
+    "test-fixtures/ai/deepseek-synthetic-contract.v1.json",
+    "src/app/layout.tsx",
+    "src/seo/nonproduction-indexing.test.ts",
+    "src/app/fonts/geist-latin.woff2",
+    "src/app/fonts/geist-mono-latin.woff2"
+  ],
+  "futureImplementationAllowlistCount": 22,
+  "decisionImpact": {
+    "dependencyOrLockChange": false,
+    "schemaOrMigrationChange": false,
+    "productBusinessBehaviorChange": false,
+    "seoUrlRedirectPublishingChange": false,
+    "securityBoundaryChange": true,
+    "securityBoundaryChangeDescription": "Permit Turbopack internal ephemeral localhost IPC only while runtime uses numeric 127.0.0.1 and DNS and non-loopback network remain denied."
+  },
+  "evidenceCeiling": {
+    "technicalEscalationDirectoryFiles": 4,
+    "technicalEscalationReportsOutsideDirectory": 2,
+    "rawLogs": 0,
+    "fullDependencyOrBuildCacheInventories": 0
+  },
+  "terminal": "PAUSE_FOR_COORDINATOR_VERIFICATION_AND_OWNER_DECISION"
+}
