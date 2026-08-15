@@ -1,0 +1,120 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-s1-1-hybrid-c-author-manifest",
+  "version": "1.0",
+  "classification": "S1_1_AUTHOR_READINESS_DOCS_EVIDENCE_ONLY_NOT_ACCEPTED",
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-d-font-hermetic-s1-1-hybrid-c-v1",
+    "commit": "RESOLVE_FROM_GIT_COMMIT_CONTAINING_THIS_FILE",
+    "requiredSoleParent": "adcbfe7984466f87ba7e530c0c9903dc02ce1260",
+    "authorizedMutationPathCount": 4,
+    "docsEvidenceOnly": true
+  },
+  "immutableAuthorities": {
+    "acceptedS1": "adcbfe7984466f87ba7e530c0c9903dc02ce1260",
+    "s1IndependentPassReview": "17b6cb7add4238b33bf08e7837d68cca48ea6388",
+    "s1ReviewIsS1_1Ancestry": false,
+    "ownerApprovalRecordedExactly": true
+  },
+  "hybridC": {
+    "soleHistoricalByteException": {
+      "role": "CANONICAL_JSON_FIXTURE_DOCS_EVIDENCE_AUTHORITY",
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-s1-1-hybrid-c-v1/DEEPSEEK_SYNTHETIC_CONTRACT_CANONICAL_V1_0.json",
+      "sourceGitBlob": "1082d3cb3449118b259177601b13e43bdc22587d",
+      "bytes": 5201,
+      "sha256": "01a41b23f31667b158d57c81f77957e5da4648219a385c83dda81cd6c79cac34",
+      "encoding": "UTF-8",
+      "bom": "ABSENT",
+      "finalLfCount": 1,
+      "trailingBytes": "ABSENT",
+      "futureS2Source": "EXACT_ACCEPTED_S1_1_ARTIFACT_ONLY",
+      "finalImplementationIdentity": "BYTE_IDENTICAL_REQUIRED"
+    },
+    "typescriptTestOracle": {
+      "normativeBytesOrHash": false,
+      "historicalBytes": 17163,
+      "historicalGitBlob": "a82f31ed8b981190d93c00226c16e6e3d4fc0617",
+      "historicalSha256": "9420547d503a0a0d1c4ac2f540af909214e432d00b3e6151f4e0867a1845476a",
+      "historicalIdentityDisposition": "EVIDENCE_ONLY_NOT_COPY_OR_GENERATIVE_AUTHORITY",
+      "currentAuthority": "S1_1_COMPLETE_SEMANTIC_RUNTIME_CONTRACT",
+      "futureIdentityDisposition": "C2_EVIDENCE_ONLY"
+    }
+  },
+  "fixtureCaseInventory": {
+    "configuration": 5,
+    "http": 12,
+    "invalidResponseMutations": 7,
+    "bodyFailures": 6,
+    "partialBody": 1,
+    "timeout": 1,
+    "finishReasons": 2,
+    "alreadyAborted": 1,
+    "insufficientResource": 1,
+    "oneShot": 1,
+    "redirect": 1,
+    "success": 1,
+    "total": 39
+  },
+  "preservedAuthority": {
+    "s2ImplementationPathCount": 22,
+    "syntheticOnly": true,
+    "externalEgress": "DENIED",
+    "gateSequence": "GATES_1_TO_10_FRESH_ONCE_NO_RETRY",
+    "bespokeRuntimeProofOutputCount": 2,
+    "authorityBFontSecurityProof": "UNCHANGED_IMMUTABLE",
+    "affectedCredential": "ROTATION_REQUIRED_BEFORE_ANY_REUSE",
+    "phaseEF": "PROHIBITED_WITHOUT_NEW_OWNER_AUTHORITY"
+  },
+  "authorVerification": {
+    "canonicalSourceObjectType": "PASS_BLOB",
+    "canonicalArtifactByteIdentity": "PASS",
+    "memberNamesNestingArrayOrderScalarValuesRawSerialization": "PASS_BOUND_BY_EXACT_BYTES",
+    "utf8NoBomExactlyOneFinalLfNoTrailingBytes": "PASS",
+    "s1Section43RequestCasesAndValues": "PASS",
+    "fixtureCaseCount39": "PASS",
+    "credentialPlaceholderEnvDatabasePrivatePathAccountProjectOfficialSourceTimestampAbsence": "PASS",
+    "ownerApprovalExactLine": "PASS",
+    "s1ImplementationAllowlistCount22Unchanged": "PASS",
+    "otherG3G10ProductSourceTestCheckerProfileBytesCopied": "NO",
+    "jsonParse": "PASS",
+    "manifestHashes": "PASS",
+    "currentAuthorityRelativeLinks": "PASS",
+    "docsEvidenceOnlyClosedDiff": "PASS"
+  },
+  "prohibitedActions": {
+    "s2OrProductImplementation": "NOT_RUN",
+    "buildOrTypegen": "NOT_RUN",
+    "packageCommandOrGate": "NOT_RUN",
+    "migrationOrDatabase": "NOT_RUN",
+    "networkSecretProviderApi": "NOT_RUN",
+    "selfReviewOrAcceptance": "NOT_RUN",
+    "checkpointPushDeployPhaseEF": "NOT_RUN"
+  },
+  "manifestContract": {
+    "algorithm": "SHA-256",
+    "pathOrder": "UTF8_LEXICOGRAPHIC",
+    "fileCountExcludingManifest": 3,
+    "selfHashExcluded": true,
+    "hostPrivatePathsExcluded": true
+  },
+  "files": [
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_1_HYBRID_C_BYTE_ORACLE_AUTHORITY_AMENDMENT_V1_0.md",
+      "bytes": 14059,
+      "sha256": "0af10f329c94c8332789b9d1dad2cfe268c63a891b6e964956b269da73a56353",
+      "gitBlob": "b370e3953768b04f13dcc737f8a822eeb7fc7f2f"
+    },
+    {
+      "path": "docs/adr/ADR-0020-phase-d-synthetic-only-bounded-convergence.md",
+      "bytes": 8716,
+      "sha256": "d155ffc87bc54145495e354c0427a928c51c4ff3446bfcecbff9da3428da7c44",
+      "gitBlob": "ae18f4aa74948b2ac42f413430ce54a7c1800566"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-s1-1-hybrid-c-v1/DEEPSEEK_SYNTHETIC_CONTRACT_CANONICAL_V1_0.json",
+      "bytes": 5201,
+      "sha256": "01a41b23f31667b158d57c81f77957e5da4648219a385c83dda81cd6c79cac34",
+      "gitBlob": "1082d3cb3449118b259177601b13e43bdc22587d"
+    }
+  ],
+  "nextGate": "DIFFERENT_FRESH_INDEPENDENT_FULL_S1_1_EXACT_DESIGN_SECURITY_REVIEW"
+}
