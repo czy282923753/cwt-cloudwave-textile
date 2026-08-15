@@ -1,0 +1,143 @@
+{
+  "schema": "cwt.phase-d.font-hermetic-s1-2-canonical-temperature-author-manifest",
+  "version": "1.0",
+  "classification": "S1_2_AUTHOR_READINESS_DOCS_EVIDENCE_ONLY_NOT_ACCEPTED",
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-d-font-hermetic-s1-2-canonical-temperature-v1",
+    "commit": "RESOLVE_FROM_GIT_COMMIT_CONTAINING_THIS_FILE",
+    "requiredSoleParent": "a545681e027f80932df3978a41cd72a5b3bfc992",
+    "authorizedMutationPathCount": 4,
+    "docsEvidenceOnly": true
+  },
+  "immutableAuthorities": {
+    "acceptedS1": "adcbfe7984466f87ba7e530c0c9903dc02ce1260",
+    "acceptedS1_1": "a545681e027f80932df3978a41cd72a5b3bfc992",
+    "failedS2EvidenceOnly": "1f2f7b8472ac0357748911ab547bf72cd033ae8e",
+    "failedS2IsAncestryOrCopyAuthority": false,
+    "s1AndS1_1ReviewCustodyArtifactsModified": false,
+    "ownerApprovedScopeRecorded": true
+  },
+  "canonicalSource": {
+    "commit": "a545681e027f80932df3978a41cd72a5b3bfc992",
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-s1-1-hybrid-c-v1/DEEPSEEK_SYNTHETIC_CONTRACT_CANONICAL_V1_0.json",
+    "bytes": 5201,
+    "gitBlob": "1082d3cb3449118b259177601b13e43bdc22587d",
+    "sha256": "01a41b23f31667b158d57c81f77957e5da4648219a385c83dda81cd6c79cac34"
+  },
+  "canonicalTarget": {
+    "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-s1-2-canonical-temperature-v1/DEEPSEEK_SYNTHETIC_CONTRACT_CANONICAL_V1_1.json",
+    "bytes": 5216,
+    "gitBlob": "19ad4373146bc909d66cfdddd2a70d6c2345334d",
+    "sha256": "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42",
+    "encoding": "UTF-8",
+    "bom": "ABSENT",
+    "finalLfCount": 1,
+    "trailingBytes": "ABSENT",
+    "futureS2CopyAuthority": "CONDITIONAL_ON_FRESH_INDEPENDENT_PASS_AND_COORDINATOR_FORMAL_ACCEPTANCE",
+    "finalImplementationIdentity": "BYTE_IDENTICAL_REQUIRED"
+  },
+  "canonicalDelta": {
+    "changedJsonPointerCount": 1,
+    "jsonPointer": "/request/parameters",
+    "oldValue": {},
+    "newValue": {
+      "temperature": 0
+    },
+    "rawReplacementCount": 1,
+    "rawReplacementBoundary": "REQUEST_MODEL_TO_RESPONSE_FORMAT",
+    "allOtherRawBytesUnchanged": true,
+    "structureEqualAfterDeletingPointer": true,
+    "configurationFailureEmptyParametersUnchanged": true,
+    "expectedBodyRawAndSemanticUnchanged": true,
+    "expectedBodyTemperature": 0,
+    "expectedBodyThinkingType": "disabled",
+    "casesRawAndSemanticUnchanged": true,
+    "productDefaultIntroduced": false
+  },
+  "fixtureCaseInventory": {
+    "configuration": 5,
+    "http": 12,
+    "invalidResponseMutations": 7,
+    "bodyFailures": 6,
+    "partialBody": 1,
+    "timeout": 1,
+    "finishReasons": 2,
+    "alreadyAborted": 1,
+    "insufficientResource": 1,
+    "oneShot": 1,
+    "redirect": 1,
+    "success": 1,
+    "total": 39,
+    "allCaseIdsCountsAndValuesUnchangedFromS1_1": true
+  },
+  "preservedAuthority": {
+    "hybridCCanonicalJsonSoleByteAuthority": true,
+    "typescriptTestAuthority": "SEMANTIC_RUNTIME_ONLY",
+    "s2ImplementationPathCount": 22,
+    "futureFixtureSource": "EXACT_ACCEPTED_S1_2_ARTIFACT_ONLY",
+    "futureTestConsumesExplicitTemperatureParameter": true,
+    "futureCheckerParentBinding": "MECHANICAL_ACCEPTED_S1_2_BINDING_WITHIN_EXISTING_ALLOWLIST_PATH",
+    "productAdapterBytes": "UNCHANGED",
+    "gateSequence": "GATES_1_TO_10_FRESH_ONCE_NO_RETRY",
+    "bespokeRuntimeProofOutputCount": 2,
+    "syntheticOnly": true,
+    "externalEgress": "DENIED",
+    "authorityBFontSecurityProof": "UNCHANGED_IMMUTABLE",
+    "affectedCredential": "ROTATION_REQUIRED_BEFORE_ANY_REUSE",
+    "phaseEF": "PROHIBITED_WITHOUT_NEW_OWNER_AUTHORITY"
+  },
+  "authorVerification": {
+    "exactS1_1StartAndCleanState": "PASS",
+    "canonicalDerivedOnlyFromExactAcceptedS1_1Tree": "PASS",
+    "singlePointerStructuralDelta": "PASS",
+    "rawDeltaReconstruction": "PASS",
+    "expectedBodyUnchanged": "PASS",
+    "casesAnd39CaseContractUnchanged": "PASS",
+    "utf8NoBomExactlyOneFinalLfNoTrailingBytes": "PASS",
+    "credentialPlaceholderEnvDatabasePrivatePathAccountProjectOfficialSourceTimestampAbsence": "PASS",
+    "s1ImplementationAllowlistCount22Unchanged": "PASS",
+    "jsonParse": "PASS",
+    "manifestHashes": "PASS",
+    "currentAuthorityRelativeLinks": "PASS",
+    "docsEvidenceOnlyClosedDiff": "PASS",
+    "immutableHistory": "PASS"
+  },
+  "prohibitedActions": {
+    "s2OrProductImplementation": "NOT_RUN",
+    "packageCommandOrGate": "NOT_RUN",
+    "migrationTypegenOrBuild": "NOT_RUN",
+    "databaseOrNetwork": "NOT_RUN",
+    "secretProviderApi": "NOT_RUN",
+    "selfReviewOrAcceptance": "NOT_RUN",
+    "reviewCreationOrDispatch": "NOT_RUN",
+    "checkpointPushDeployPhaseEF": "NOT_RUN"
+  },
+  "manifestContract": {
+    "algorithm": "SHA-256",
+    "pathOrder": "UTF8_LEXICOGRAPHIC",
+    "fileCountExcludingManifest": 3,
+    "selfHashExcluded": true,
+    "hostPrivatePathsExcluded": true
+  },
+  "files": [
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_2_CANONICAL_TEMPERATURE_PARAMETER_AUTHORITY_AMENDMENT_V1_0.md",
+      "bytes": 8416,
+      "sha256": "c4446b6a4585e99e409fac2d38524b4badf1057c36981704dfff9c92a33d9eef",
+      "gitBlob": "c82064cb8a138732722550d2ab692491a6d83a6d"
+    },
+    {
+      "path": "docs/adr/ADR-0020-phase-d-synthetic-only-bounded-convergence.md",
+      "bytes": 10462,
+      "sha256": "5de74c92971d8175dfb0b09d5cc4fd6c6c6065ef306d0f3101c7374262f6519f",
+      "gitBlob": "ff9a350e39d3203802ced921bf354bd2264682f2"
+    },
+    {
+      "path": "docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-s1-2-canonical-temperature-v1/DEEPSEEK_SYNTHETIC_CONTRACT_CANONICAL_V1_1.json",
+      "bytes": 5216,
+      "sha256": "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42",
+      "gitBlob": "19ad4373146bc909d66cfdddd2a70d6c2345334d"
+    }
+  ],
+  "nextGate": "DIFFERENT_FRESH_INDEPENDENT_FULL_S1_2_EXACT_DESIGN_SECURITY_REVIEW"
+}

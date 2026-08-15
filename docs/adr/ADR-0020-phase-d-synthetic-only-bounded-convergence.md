@@ -1,13 +1,15 @@
 # ADR-0020: Phase D Synthetic-Only Bounded Convergence and FONT-HERMETIC Proof Authority
 
-Status: **Owner-approved S1.1 Hybrid-C narrow clarification Candidate pending fresh independent full Design/security review and Coordinator acceptance; S2, Product implementation and Phase D acceptance are not authorized.**
+Status: **Owner-approved S1.2 minimal canonical-temperature clarification Candidate pending fresh independent full Design/security review and Coordinator acceptance; S2, Product implementation and Phase D acceptance are not authorized.**
 
 Owner authorities:
 
 - [Phase D Synthetic-Only Boundary Owner Decision V1.0](../PHASE_1B_STAGE4A_PHASE_D_SYNTHETIC_ONLY_BOUNDARY_OWNER_DECISION_V1_0.md)
 - [FONT-HERMETIC Technical Escalation Owner Decision Amendment V1.0](../PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_TECHNICAL_ESCALATION_OWNER_DECISION_AMENDMENT_V1_0.md)
 
-Current narrow authority amendment / Exact Design Candidate: [Phase D FONT-HERMETIC S1.1 Hybrid-C Byte-Oracle Authority Amendment V1.0](../PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_1_HYBRID_C_BYTE_ORACLE_AUTHORITY_AMENDMENT_V1_0.md)
+Current narrow authority amendment / Exact Design Candidate: [Phase D FONT-HERMETIC S1.2 Canonical Temperature Parameter Authority Amendment V1.0](../PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_2_CANONICAL_TEMPERATURE_PARAMETER_AUTHORITY_AMENDMENT_V1_0.md)
+
+Immutable accepted S1.1 predecessor: [Phase D FONT-HERMETIC S1.1 Hybrid-C Byte-Oracle Authority Amendment V1.0](../PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_1_HYBRID_C_BYTE_ORACLE_AUTHORITY_AMENDMENT_V1_0.md) at `a545681e027f80932df3978a41cd72a5b3bfc992`
 
 Immutable accepted S1 predecessor: [Phase D FONT-HERMETIC Superseding Exact Design V1.0](../PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_SUPERSEDING_EXACT_DESIGN_V1_0.md) at `adcbfe7984466f87ba7e530c0c9903dc02ce1260`
 
@@ -28,8 +30,8 @@ A fresh authority boundary is required because proof-runner capability and forwa
 5. **Separate implementation authority.** S2 independently proves no-`CI`, error-mode pnpm currentness and executes the unchanged `pnpm build` at Gate 8. S1 Design proof cannot substitute for any implementation prerequisite, gate, aggregate, C2 evidence or acceptance.
 6. **Local-font replacement.** S2 uses exactly `next/font/local` and two repository-contained, hash-bound Geist/Geist Mono WOFF2 files sourced only from the verified installed Next `16.2.12` package. Source fonts stay outside `public`; browser delivery is only Next-generated content-hashed `/_next/static/media/...woff2` referenced by generated CSS. No stable raw source-font route or second font authority is allowed.
 7. **Retained semantic controls.** Preserve the G6 official typegen → atomic hold → fresh Build → restore lifecycle without inode/timestamp/polling ceremony, and preserve G9's synthetic profile, package/workspace/checker convergence, numeric-origin correction, exactly two bespoke runtime outputs, exactly four new Phase D mutation-probe classes, inherited controls and fresh ten-gate/no-retry sequence.
-8. **Fresh linear lineage.** The current forward line is exact `fbe` → accepted docs/evidence-only S1 → docs/evidence-only S1.1 as S1's sole/direct child → fresh independent S1.1 PASS → Coordinator acceptance → fresh S2 only after a separate resume decision → C2 only after full fresh PASS → different independent implementation/security review → Coordinator acceptance/checkpoint decision → pause. The immutable S1 PASS review is evidence, not S1.1 ancestry. S1.1/S2 are not G11 or Attempt 4.
-9. **Supersession and sole byte exception.** G3–G10 history/evidence remains immutable. Its incidental proof mechanics and failed implementation source are not forward authority and may not be cherry-picked or copied. The only exception is exact canonical JSON fixture blob `1082d3cb3449118b259177601b13e43bdc22587d`, admitted solely as the S1.1 docs/evidence artifact bound below; S2 may copy that fixture only from exact accepted S1.1. No TypeScript test/checker/profile or other G3–G10 source byte gains authority.
+8. **Fresh linear lineage.** The current forward line is exact `fbe` → accepted docs/evidence-only S1 → accepted docs/evidence-only S1.1 → proposed docs/evidence-only S1.2 as S1.1's sole/direct child → fresh independent S1.2 PASS → Coordinator acceptance → fresh S2 using the same 22 paths → C2 only after full fresh PASS → different independent implementation/security review → Coordinator acceptance/checkpoint decision → pause. Failed S2 evidence is not ancestry or forward authority. S1.2/S2 are not G11 or Attempt 4.
+9. **Supersession and sole byte exception.** G3–G10 history/evidence remains immutable. Its incidental proof mechanics and failed implementation source are not forward authority and may not be cherry-picked or copied. The only historical-byte exception remains exact canonical JSON fixture blob `1082d3cb3449118b259177601b13e43bdc22587d`, admitted solely as the immutable S1.1 docs/evidence artifact bound below. S1.2 derives only from that accepted artifact and does not enlarge the exception. Only after S1.2 independent PASS and Coordinator acceptance may S2 copy the fixture, and then only from the exact accepted S1.2 artifact. No TypeScript test/checker/profile or other G3–G10 source byte gains authority.
 
 ## S1.1 Hybrid-C narrow clarification
 
@@ -38,6 +40,12 @@ S1's §4.3 canonical fixture remains exact and is now carried as `docs/review-ev
 The TypeScript adapter test has no normative byte length, blob or SHA-256. It is implemented fresh under the complete S1.1 semantic/runtime contract: exact fixture-owned 39-case inventory, explicit in-memory fetch and synthetic credential-reader seams, closed import set, exhaustive registration/mutation dispatch, complete relevant tuple assertions, four invalid-credential negatives and no default fetch/credential execution. Future test identity is C2 evidence only.
 
 This clarification supersedes the S1 review's implementation-readiness/zero-finding conclusion only for the two byte-oracle authority claims. It does not invalidate the unchanged Authority-B font/localhost-IPC/emission/public-bundle proof. The 22-path implementation allowlist, synthetic-only boundary, Gates 1–10/no retry, exactly two runtime outputs and Phase E/F prohibitions remain unchanged.
+
+## S1.2 canonical temperature parameter narrow clarification
+
+S1.2 changes only canonical JSON pointer `/request/parameters` from `{}` to `{"temperature":0}`. The proposed authority artifact is `docs/review-evidence/phase-1b-stage4a-phase-d-font-hermetic-s1-2-canonical-temperature-v1/DEEPSEEK_SYNTHETIC_CONTRACT_CANONICAL_V1_1.json`: 5,216 UTF-8 bytes, no BOM, exactly one final LF, Git blob `19ad4373146bc909d66cfdddd2a70d6c2345334d`, SHA-256 `bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42`. It is derived only from exact accepted S1.1 and becomes the sole future copy authority only after fresh independent full review PASS and Coordinator acceptance.
+
+The expected outbound body is unchanged and still contains `temperature=0` and disabled thinking. The Product adapter remains byte-identical and continues to copy only explicitly supplied parameters; no Product default is introduced. All 39 cases and the S1.1 TypeScript semantic/runtime contract remain unchanged. Future S2 retains exactly 22 paths: its fixture copies accepted S1.2, its fresh test consumes the explicit fixture parameter, and the already-authorized checker path mechanically binds the exact accepted S1.2 parent.
 
 ## Consequences and rejected alternatives
 
@@ -49,4 +57,4 @@ No dependency, lock, Next config, global CSS, Schema/Migration, Product/API cont
 
 The deterministic adapter transport test retains exact numeric `127.0.0.1`, injected fetch and conspicuously synthetic credential semantics; it performs zero DNS/external egress and is not Provider evidence. Public/private storage, Prompt/AI protected boundaries, publishing/Index separation and all frozen CWT V1.1 invariants remain unchanged.
 
-Rollback discards or reverts C2/S2, then S1.1, then S1 in reverse authority order, returning to exact `fbe88cdd7639f32f48d92a0627833918b4924458`; historical accepted records and the immutable S1 review are not rewritten. Any additional path, byte-copy exception, dependency materialization authority, font mismatch, broader network capability, external/protected input or Phase E/F request returns `NEEDS_OWNER_DECISION`.
+Rollback discards or reverts C2/S2, then S1.2, then S1.1, then S1 in reverse authority order, returning to exact `fbe88cdd7639f32f48d92a0627833918b4924458`; historical accepted records and immutable review/custody evidence are not rewritten. Any additional path, byte-copy exception, dependency materialization authority, font mismatch, broader network capability, external/protected input or Phase E/F request returns `NEEDS_OWNER_DECISION`.
