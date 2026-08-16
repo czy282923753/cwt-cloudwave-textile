@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import { env } from "@/config/env";
+
 import { POST } from "./route";
+
+const TEST_SITE_ORIGIN = new URL(env.NEXT_PUBLIC_SITE_URL).origin;
 
 describe("public Conversion Event API privacy schema", () => {
   it("rejects a client-supplied internal entity UUID", async () => {
-    const request = new Request("http://localhost:3000/api/conversion-events/", {
+    const request = new Request(new URL("/api/conversion-events/", TEST_SITE_ORIGIN), {
       method: "POST",
       headers: {
-        origin: "http://localhost:3000",
+        origin: TEST_SITE_ORIGIN,
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -22,10 +26,10 @@ describe("public Conversion Event API privacy schema", () => {
   });
 
   it("rejects a client-forged Granted field instead of treating it as authority", async () => {
-    const request = new Request("http://localhost:3000/api/conversion-events/", {
+    const request = new Request(new URL("/api/conversion-events/", TEST_SITE_ORIGIN), {
       method: "POST",
       headers: {
-        origin: "http://localhost:3000",
+        origin: TEST_SITE_ORIGIN,
         "content-type": "application/json",
       },
       body: JSON.stringify({

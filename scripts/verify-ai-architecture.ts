@@ -15,12 +15,15 @@ import {
 import { dirname, extname, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
-const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json";
-const expectedProfileFileHash = "3aed8b3461809c8bf353e2b2597f530c985ef1d80e8d751b682eefc3ca50376f";
-const expectedProfileIntegrityHash = "96b951d60b629d242059de51c02e2515662dfc426a74ba735a97e91d0129e2bf";
-const m03SeamIdentity = "1f0b56a870ecbab61c970e1c7000dff591674e0f8ad0a04341538c724a36c173";
+const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json";
+const fixturePath = "test-fixtures/ai/deepseek-synthetic-contract.v1.json";
+const expectedProfileFileHash = "59b075f27b563f1790a62cce3c299983eeecf68f5676763140f2a7d3865d3e0e";
+const expectedProfileIntegrityHash = "88a107e695962f4217f7f843f8b2b25fd37be9539c03a01dba66bed482f318f6";
+const expectedFixtureHash = "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42";
+const acceptedS12Parent = "ee13e743158e245f520a8d7ec68aa1854179fdc3";
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
+const fixtureBytes = readFileSync(resolve(repositoryRoot, fixturePath));
 
 function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
@@ -30,8 +33,14 @@ function fail(reason: string): never {
   throw new Error(`AI architecture gate failed closed: ${reason}`);
 }
 
-if (sha256(profileBytes) !== expectedProfileFileHash) fail("current V5.0 profile/fixture hash mismatch");
+if (sha256(profileBytes) !== expectedProfileFileHash) fail("current synthetic-only profile hash mismatch");
+if (fixtureBytes.byteLength !== 5_216 || sha256(fixtureBytes) !== expectedFixtureHash ||
+  fixtureBytes[0] === 0xef || fixtureBytes[fixtureBytes.byteLength - 1] !== 0x0a ||
+  fixtureBytes[fixtureBytes.byteLength - 2] === 0x0a) {
+  fail("canonical synthetic contract fixture identity mismatch");
+}
 const rawProfileBundle: unknown = JSON.parse(profileBytes.toString("utf8"));
+const rawSyntheticFixture: unknown = JSON.parse(fixtureBytes.toString("utf8"));
 
 type PlainJson = null | boolean | number | string | PlainJson[] | { [key: string]: PlainJson };
 
@@ -40,12 +49,12 @@ function copyPlainJson(value: unknown, path = "profile"): PlainJson {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (Array.isArray(value)) return value.map((member, index) => copyPlainJson(member, `${path}/${index}`));
   if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) {
-    fail(`non-plain V5.0 profile value at ${path}`);
+    fail(`non-plain synthetic-only profile value at ${path}`);
   }
   const output: { [key: string]: PlainJson } = {};
   for (const [key, member] of Object.entries(value)) {
     if (key === "__proto__" || key === "prototype" || key === "constructor") {
-      fail(`unsafe V5.0 profile key at ${path}/${key}`);
+      fail(`unsafe synthetic-only profile key at ${path}/${key}`);
     }
     output[key] = copyPlainJson(member, `${path}/${key}`);
   }
@@ -126,8 +135,8 @@ interface ArchitectureProfile {
 function parseProfile(value: unknown): ArchitectureProfile {
   if (typeof value !== "object" || value === null) fail("profile is not an object");
   const candidate = value as Partial<ArchitectureProfile>;
-  if (candidate.profileId !== "cwt.phase1b.stage4a.phased.deepseek-text-adapter.v5_0_candidate" ||
-    candidate.profileVersion !== "5.0.0-candidate" || candidate.classificationModel === undefined ||
+  if (candidate.profileId !== "cwt.phase1b.stage4a.phased.synthetic-only.v1_0" ||
+    candidate.profileVersion !== "1.0.0" || candidate.classificationModel === undefined ||
     candidate.filesystemEnumeration === undefined || candidate.resourceAndGeneratedPolicy === undefined) {
     fail("profile identity or required section mismatch");
   }
@@ -141,7 +150,7 @@ if (typeof profileBundle !== "object" || profileBundle === null || Array.isArray
   !Array.isArray(profileBundle.topologyCases) ||
   JSON.stringify(Object.keys(profileBundle).sort()) !==
     JSON.stringify(["faultCases", "positiveCases", "profile", "schemaVersion", "topologyCases"])) {
-  fail("V5.0 profile/fixture envelope is not exact");
+  fail("synthetic-only profile envelope is not exact");
 }
 const authority = parseProfile(profileBundle.profile);
 
@@ -152,9 +161,69 @@ function canonical(value: unknown): string {
     .map(([key, member]) => `${JSON.stringify(key)}:${canonical(member)}`).join(",")}}`;
 }
 
+function plainRecord(value: PlainJson | undefined, owner: string): { [key: string]: PlainJson } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${owner} is not an object`);
+  return value;
+}
+
+function plainArray(value: PlainJson | undefined, owner: string): readonly PlainJson[] {
+  if (!Array.isArray(value)) fail(`${owner} is not an array`);
+  return value;
+}
+
+const syntheticFixture = freezePlainJson(copyPlainJson(rawSyntheticFixture, "syntheticFixture"));
+const syntheticFixtureRecord = plainRecord(syntheticFixture, "syntheticFixture");
+if (JSON.stringify(Object.keys(syntheticFixtureRecord).sort()) !==
+  JSON.stringify(["cases", "classification", "request", "schema", "version"]) ||
+  syntheticFixtureRecord.schema !== "cwt.phase-d.deepseek-synthetic-contract" ||
+  syntheticFixtureRecord.version !== 1 ||
+  syntheticFixtureRecord.classification !== "SYNTHETIC_TEST_DATA_NOT_CWT_FACT") {
+  fail("canonical synthetic contract envelope mismatch");
+}
+const syntheticRequest = plainRecord(syntheticFixtureRecord.request, "syntheticFixture/request");
+const syntheticParameters = plainRecord(syntheticRequest.parameters, "syntheticFixture/request/parameters");
+const syntheticExpectedBody = plainRecord(syntheticRequest.expectedBody, "syntheticFixture/request/expectedBody");
+const syntheticThinking = plainRecord(syntheticExpectedBody.thinking, "syntheticFixture/request/expectedBody/thinking");
+if (canonical(syntheticParameters) !== '{"temperature":0}' || syntheticExpectedBody.temperature !== 0 ||
+  canonical(syntheticThinking) !== '{"type":"disabled"}' ||
+  syntheticRequest.expectedEstimatedInputTokens !== 543 || syntheticRequest.model !== "deepseek-v4-flash") {
+  fail("canonical synthetic request parameters/body mismatch");
+}
+const syntheticCases = plainRecord(syntheticFixtureRecord.cases, "syntheticFixture/cases");
+const syntheticCaseCounts = {
+  configuration: plainArray(syntheticCases.configurationFailures, "configurationFailures").length,
+  http: plainArray(syntheticCases.httpFailures, "httpFailures").length,
+  invalidResponse: plainArray(syntheticCases.invalidResponseMutations, "invalidResponseMutations").length,
+  body: plainArray(syntheticCases.bodyFailures, "bodyFailures").length,
+  partialBody: syntheticCases.partialBodyFailure === undefined ? 0 : 1,
+  timeout: syntheticCases.timeoutFailure === undefined ? 0 : 1,
+  finish: plainArray(syntheticCases.finishReasons, "finishReasons").length,
+  alreadyAborted: plainRecord(syntheticCases.transportBoundaries, "transportBoundaries").alreadyAborted === undefined ? 0 : 1,
+  insufficientResource: plainRecord(syntheticCases.transportBoundaries, "transportBoundaries").insufficientResources === undefined ? 0 : 1,
+  oneShot: plainRecord(syntheticCases.transportBoundaries, "transportBoundaries").oneShot === undefined ? 0 : 1,
+  redirect: plainRecord(syntheticCases.transportBoundaries, "transportBoundaries").redirect === undefined ? 0 : 1,
+  success: syntheticCases.success === undefined ? 0 : 1,
+};
+if (canonical(syntheticCaseCounts) !== canonical({
+  configuration: 5,
+  http: 12,
+  invalidResponse: 7,
+  body: 6,
+  partialBody: 1,
+  timeout: 1,
+  finish: 2,
+  alreadyAborted: 1,
+  insufficientResource: 1,
+  oneShot: 1,
+  redirect: 1,
+  success: 1,
+}) || Object.values(syntheticCaseCounts).reduce((total, count) => total + count, 0) !== 39) {
+  fail("canonical synthetic contract case inventory mismatch");
+}
+
 if (authority.profileIntegrity.algorithm !== "sha256-jcs-selected-pointers-v1" ||
   authority.profileIntegrity.sha256 !== expectedProfileIntegrityHash) {
-  fail("V5.0 profile integrity declaration mismatch");
+  fail("synthetic-only profile integrity declaration mismatch");
 }
 const integrityProjection: Record<string, unknown> = {};
 for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
@@ -164,7 +233,7 @@ for (const pointer of authority.profileIntegrity.coveredJsonPointers) {
   integrityProjection[pointer] = authority[key as keyof ArchitectureProfile];
 }
 if (sha256(canonical(integrityProjection)) !== expectedProfileIntegrityHash) {
-  fail("V5.0 selected-pointer profile integrity mismatch");
+  fail("synthetic-only selected-pointer profile integrity mismatch");
 }
 
 const syntheticTransactionOperations = [
@@ -188,6 +257,72 @@ const profileRecord = profileBundle.profile as Record<string, unknown>;
 if (JSON.stringify(profileRecord.phaseCSyntheticMutationProbeIds) !==
   JSON.stringify(syntheticMutationProbeIds)) {
   fail("V4.0 Synthetic mutation-probe declaration mismatch");
+}
+
+const acceptanceTestPaths = [
+  "src/integrations/ai/providers/deepseek-text-adapter.test.ts",
+  "src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts",
+  "src/integrations/ai/providers/deepseek-pricing.test.ts",
+  "src/ai/testing/synthetic-application/synthetic-application.test.ts",
+  "src/ai/testing/synthetic-prompts/synthetic-prompt.test.ts",
+] as const;
+const acceptancePackageCommand = `vitest run ${acceptanceTestPaths.join(" ")}`;
+const retiredPhaseDPaths = [
+  "scripts/validate-deepseek-text-adapter.test.ts",
+  "scripts/validate-deepseek-text-adapter.ts",
+  "src/ai/testing/controlled-provider-validation.test.ts",
+  "src/ai/testing/controlled-provider-validation.ts",
+  "src/integrations/ai/providers/deepseek-official-source-preflight.test.ts",
+  "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+  "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+  "test-fixtures/ai/deepseek-controlled-validation.v1.json",
+] as const;
+const exactImplementationPaths = [
+  "package.json",
+  "pnpm-workspace.yaml",
+  "scripts/validate-deepseek-text-adapter.test.ts",
+  "scripts/validate-deepseek-text-adapter.ts",
+  "scripts/verify-ai-architecture.ts",
+  "src/ai/testing/controlled-provider-validation.test.ts",
+  "src/ai/testing/controlled-provider-validation.ts",
+  "src/app/api/admin/upload-intents/[token]/route.test.ts",
+  "src/app/api/conversion-events/route.test.ts",
+  "src/app/api/upload-intents/[token]/route.test.ts",
+  "src/app/api/upload-intents/route.test.ts",
+  "src/integrations/ai/providers/deepseek-official-source-preflight.test.ts",
+  "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+  "src/integrations/ai/providers/deepseek-text-adapter.test.ts",
+  "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+  "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
+  "test-fixtures/ai/deepseek-controlled-validation.v1.json",
+  "test-fixtures/ai/deepseek-synthetic-contract.v1.json",
+  "src/app/layout.tsx",
+  "src/seo/nonproduction-indexing.test.ts",
+  "src/app/fonts/geist-latin.woff2",
+  "src/app/fonts/geist-mono-latin.woff2",
+] as const;
+const bespokePhaseDProbeIds = [
+  "phase-d-retired-real-validation-cli-reintroduced",
+  "phase-d-database-or-environment-authority-reachable",
+  "phase-d-default-fetch-or-credential-reader-executed",
+  "phase-d-future-runtime-imported",
+] as const;
+const phaseDBoundary = plainRecord(copyPlainJson(profileRecord.phaseDProviderBoundary, "phaseDProviderBoundary"),
+  "phaseDProviderBoundary");
+const boundaryRoots = plainRecord(phaseDBoundary.acceptanceRoots, "phaseDProviderBoundary/acceptanceRoots");
+const boundaryFixture = plainRecord(phaseDBoundary.canonicalFixture, "phaseDProviderBoundary/canonicalFixture");
+if (boundaryRoots.packageCommand !== acceptancePackageCommand ||
+  JSON.stringify(boundaryRoots.testFiles) !== JSON.stringify(acceptanceTestPaths) ||
+  boundaryFixture.path !== fixturePath || boundaryFixture.sha256 !== expectedFixtureHash ||
+  boundaryFixture.caseCount !== 39 ||
+  JSON.stringify(phaseDBoundary.retiredPaths) !== JSON.stringify(retiredPhaseDPaths) ||
+  JSON.stringify(phaseDBoundary.bespokeMutationProbeIds) !== JSON.stringify(bespokePhaseDProbeIds)) {
+  fail("synthetic-only profile acceptance boundary mismatch");
+}
+const implementationAllowlist = plainRecord(copyPlainJson(profileRecord.implementationAllowlist,
+  "implementationAllowlist"), "implementationAllowlist");
+if (JSON.stringify(implementationAllowlist.requiredReplaceOnly) !== JSON.stringify(exactImplementationPaths)) {
+  fail("synthetic-only exact 22-path implementation allowlist mismatch");
 }
 
 const syntheticPaths = Object.freeze({
@@ -603,7 +738,7 @@ function requireCompositionCounts(input: {
 }): void {
   if (input.phaseC !== 0) rejectMutation("fail_closed_restored_phase_c");
   if (input.phaseD !== 1) rejectMutation("fail_closed_composition_count");
-  if (input.adapter !== 3) rejectMutation("fail_closed_adapter_count");
+  if (input.adapter !== 2) rejectMutation("fail_closed_adapter_count");
 }
 
 const sealedExcludedRoots = [
@@ -736,17 +871,17 @@ const mutationProbes: MutationProbe[] = [
   {
     id: "v1.6-14-early-phase-d",
     expectedCode: "fail_closed_composition_count",
-    run: () => { requireCompositionCounts({ phaseC: 0, phaseD: 2, adapter: 3 }); },
+    run: () => { requireCompositionCounts({ phaseC: 0, phaseD: 2, adapter: 2 }); },
   },
   {
     id: "v1.6-15-early-adapter",
     expectedCode: "fail_closed_adapter_count",
-    run: () => { requireCompositionCounts({ phaseC: 0, phaseD: 1, adapter: 4 }); },
+    run: () => { requireCompositionCounts({ phaseC: 0, phaseD: 1, adapter: 3 }); },
   },
   {
     id: "v1.6-16-second-composition-root",
     expectedCode: "fail_closed_restored_phase_c",
-    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 1, adapter: 3 }); },
+    run: () => { requireCompositionCounts({ phaseC: 1, phaseD: 1, adapter: 2 }); },
   },
   {
     id: "v1.6-17-sealed-exclusion-integrity",
@@ -884,8 +1019,8 @@ if ((classMembers.get("phase-c-outer-composition-retired")?.length ?? 0) !== 0) 
 if ((classMembers.get("phase-d-outer-composition")?.length ?? 0) !== 1) {
   fail("Phase D outer composition count is not exactly one");
 }
-if ((classMembers.get("phase-d-provider-adapter-zone")?.length ?? 0) !== 3) {
-  fail("Phase D Provider adapter implementation count is not exactly three");
+if ((classMembers.get("phase-d-provider-adapter-zone")?.length ?? 0) !== 2) {
+  fail("future Phase F Provider adapter implementation count is not exactly two");
 }
 
 const nextContract = authority.resourceAndGeneratedPolicy.frameworkControlGeneratedContract;
@@ -1313,10 +1448,8 @@ function scanStaticLanguage(input: {
       const exactAuthorizedDatabaseCacheAccess = path === "src/db/client.ts" &&
         ts.isPropertyAccessExpression(parent) && parent.expression === node &&
         parent.questionDotToken === undefined && parent.name.text === "cwtDatabaseConnection";
-      const exactPhaseDFetchAccess = [
-        "src/integrations/ai/providers/deepseek-text-adapter.ts",
-        "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
-      ].includes(path) && ts.isPropertyAccessExpression(parent) && parent.expression === node &&
+      const exactPhaseDFetchAccess = path === "src/integrations/ai/providers/deepseek-text-adapter.ts" &&
+        ts.isPropertyAccessExpression(parent) && parent.expression === node &&
         parent.questionDotToken === undefined && parent.name.text === "fetch";
       if (!exactAuthorizedDatabaseCacheAccess && !exactPhaseDFetchAccess) {
         rejectNode(node, "ambient_global_capability_not_authorized");
@@ -1680,8 +1813,8 @@ function enforceCapabilityEdge(
     if (sourceClass === "protected-ai" && !protectedExternalAllowed(edge)) {
       rejectGraph("class_capability_violation", `${edge.from}->${specifier}`);
     }
-    const exactLoopbackAuthority = (edge.from === "src/ai/testing/controlled-provider-validation.ts" ||
-      edge.from === "src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts") &&
+    const exactLoopbackAuthority = edge.from ===
+      "src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts" &&
       (specifier === "node:http" || specifier === "node:events");
     if (!exactLoopbackAuthority && testOrControlClasses.has(sourceClass) && [
       "node:http", "node:https", "node:net", "node:tls", "openai",
@@ -1716,12 +1849,8 @@ function enforceCapabilityEdge(
     target.startsWith("src/integrations/ai/providers/"))) {
     rejectGraph("public_client_reachability", edgeDiagnostic(edge, "public_client_reaches_ai_server_boundary", target));
   }
-  const exactControlledRunnerEdge = edge.from === "src/ai/testing/controlled-provider-validation.ts" &&
-    target.startsWith("src/integrations/ai/providers/");
   const exactAdapterTestEdge = isTestSemantic(edge.from) && target.startsWith("src/integrations/ai/providers/");
-  const exactControlledScriptEdge = edge.from === "scripts/validate-deepseek-text-adapter.ts" &&
-    target === "src/ai/testing/controlled-provider-validation.ts";
-  if (!exactControlledRunnerEdge && !exactAdapterTestEdge && !exactControlledScriptEdge &&
+  if (!exactAdapterTestEdge &&
     testOrControlClasses.has(sourceClass) &&
     (target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/") ||
       (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
@@ -2025,11 +2154,9 @@ if (credentialReaders.length !== 1 || credentialReaders[0]?.path !==
 }
 const officialSourceOwners = executableSources.filter((entry) =>
   entry.source.includes("fetchImplementation(") &&
-  (entry.source.includes("https://api-docs.deepseek.com/quick_start/pricing/") ||
-    entry.source.includes("https://api-docs.deepseek.com/api/create-chat-completion/")));
-if (officialSourceOwners.length !== 1 || officialSourceOwners[0]?.path !==
-  "src/integrations/ai/providers/deepseek-official-source-preflight.ts") {
-  fail("official-source URL authority is not unique to the preflight module");
+  entry.source.includes("api-docs.deepseek.com"));
+if (officialSourceOwners.length !== 0) {
+  fail("retired official-source authority remains executable");
 }
 const providerEndpointOwners = executableSources.filter((entry) =>
   entry.source.includes("https://api.deepseek.com/chat/completions"));
@@ -2037,22 +2164,11 @@ if (providerEndpointOwners.length !== 1 || providerEndpointOwners[0]?.path !==
   "src/integrations/ai/providers/deepseek-text-adapter.ts") {
   fail("billable Provider endpoint authority is not unique to the adapter");
 }
-const controlledScript = readFileSync(resolve(repositoryRoot, "scripts/validate-deepseek-text-adapter.ts"), "utf8");
-if (controlledScript !==
-  'import { runControlledDeepSeekValidationV1 } from "@/ai/testing/controlled-provider-validation";\n\n' +
-  'async function main(): Promise<void> {\n' +
-  '  const result = await runControlledDeepSeekValidationV1();\n' +
-  '  process.stdout.write(`${JSON.stringify(result, null, 2)}\\n`);\n' +
-  '  if (result.status !== "PASS") process.exitCode = 1;\n' +
-  '}\n\nvoid main();\n') {
-  fail("controlled validation script is not the exact single-runner shell");
-}
-const controlledRunnerIncoming = graphEdges.filter((edge) =>
-  edge.resolvedTarget === "src/ai/testing/controlled-provider-validation.ts" &&
-  !isTestSemantic(edge.from));
-if (controlledRunnerIncoming.length !== 1 || controlledRunnerIncoming[0]?.from !==
-  "scripts/validate-deepseek-text-adapter.ts") {
-  fail("controlled validation runner has an unauthorized Production/tooling caller");
+for (const path of retiredPhaseDPaths) {
+  if (existsSync(resolve(repositoryRoot, path)) || actualFiles.includes(path) || graphEdges.some((edge) =>
+    edge.from === path || edge.resolvedTarget === path)) {
+    fail(`retired Phase D path remains present or reachable: ${path}`);
+  }
 }
 const adapterSource = readFileSync(resolve(repositoryRoot,
   "src/integrations/ai/providers/deepseek-text-adapter.ts"), "utf8");
@@ -2062,6 +2178,135 @@ if (!adapterSource.includes('redirect: "manual"') ||
   adapterSource.includes("agent:") || adapterSource.includes("proxy:")) {
   fail("DeepSeek adapter redirect/request/schema boundary drifted");
 }
+const adapterTestPath = acceptanceTestPaths[0];
+const adapterTestSource = readFileSync(resolve(repositoryRoot, adapterTestPath), "utf8");
+const adapterTestImports = (edgesBySource.get(adapterTestPath) ?? [])
+  .filter((edge) => edge.form === "import")
+  .sort((left, right) => left.position - right.position)
+  .map((edge) => edge.specifier ?? "");
+const expectedAdapterTestImports = [
+  "vitest",
+  "@/ai/canonical-json",
+  "@/ai/providers/text-provider",
+  "../../../../test-fixtures/ai/deepseek-synthetic-contract.v1.json",
+  "./deepseek-text-adapter",
+] as const;
+if (JSON.stringify(adapterTestImports) !== JSON.stringify(expectedAdapterTestImports) ||
+  adapterTestSource.includes("import(") || adapterTestSource.includes("require(") ||
+  /from\s+["'](?:node:|@\/config|@\/db|@\/server)/u.test(adapterTestSource)) {
+  fail("adapter synthetic contract test import ceiling mismatch");
+}
+const acceptanceClosure = executableClosure(acceptanceTestPaths, true);
+const futureRuntimePaths = [
+  "src/server/ai/phase-d-provider-composition.ts",
+  "scripts/process-ai-runs.ts",
+] as const;
+const forbiddenAcceptancePaths = ["src/config/env.ts", "src/db/client.ts", ...futureRuntimePaths] as const;
+
+class ExpectedPhaseDBoundaryRejection extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+function rejectPhaseDBoundary(code: string): never {
+  throw new ExpectedPhaseDBoundaryRejection(code);
+}
+
+function requirePhaseDSyntheticOnlyBoundary(input: {
+  readonly retiredPresent: readonly string[];
+  readonly acceptanceReachability: readonly string[];
+  readonly adapterTest: string;
+}): void {
+  if (input.retiredPresent.length > 0) rejectPhaseDBoundary("retired_real_validation_cli_reintroduced");
+  if (input.acceptanceReachability.some((path) => path === "src/config/env.ts" || path === "src/db/client.ts")) {
+    rejectPhaseDBoundary("database_or_environment_authority_reachable");
+  }
+  if (occurrenceCount(input.adapterTest, "createDeepSeekTextProviderV1({") !== 1 ||
+    occurrenceCount(input.adapterTest, "fetchImplementation: seams.fetchImplementation") !== 1 ||
+    occurrenceCount(input.adapterTest, "credentialReader: seams.credentialReader") !== 1 ||
+    input.adapterTest.includes("createDeepSeekTextProviderV1()") ||
+    input.adapterTest.includes("globalThis.fetch") || input.adapterTest.includes("process.env")) {
+    rejectPhaseDBoundary("default_fetch_or_credential_reader_executed");
+  }
+  if (input.acceptanceReachability.some((path) => futureRuntimePaths.includes(
+    path as (typeof futureRuntimePaths)[number],
+  ))) rejectPhaseDBoundary("future_runtime_imported");
+}
+
+try {
+  requirePhaseDSyntheticOnlyBoundary({
+    retiredPresent: retiredPhaseDPaths.filter((path) => existsSync(resolve(repositoryRoot, path))),
+    acceptanceReachability: acceptanceClosure,
+    adapterTest: adapterTestSource,
+  });
+} catch (error) {
+  if (error instanceof ExpectedPhaseDBoundaryRejection) fail(error.code);
+  throw error;
+}
+if (forbiddenAcceptancePaths.some((path) => acceptanceClosure.includes(path))) {
+  fail("Phase D acceptance root reaches database/environment/future runtime authority");
+}
+const loopbackTestPath = acceptanceTestPaths[1];
+const loopbackTestSource = readFileSync(resolve(repositoryRoot, loopbackTestPath), "utf8");
+if (!loopbackTestSource.includes('server.listen(0, "127.0.0.1")') ||
+  !loopbackTestSource.includes("`http://127.0.0.1:${address.port}`") ||
+  loopbackTestSource.includes("localhost") || loopbackTestSource.includes("process.env") ||
+  !loopbackTestSource.includes("fetchImplementation,") ||
+  !loopbackTestSource.includes("credentialReader: () => credential")) {
+  fail("numeric loopback transport test or explicit seam boundary mismatch");
+}
+const phaseDBespokeMutationInputs = [
+  {
+    id: bespokePhaseDProbeIds[0],
+    expected: "retired_real_validation_cli_reintroduced",
+    input: {
+      retiredPresent: [retiredPhaseDPaths[1]],
+      acceptanceReachability: acceptanceClosure,
+      adapterTest: adapterTestSource,
+    },
+  },
+  {
+    id: bespokePhaseDProbeIds[1],
+    expected: "database_or_environment_authority_reachable",
+    input: {
+      retiredPresent: [],
+      acceptanceReachability: [...acceptanceClosure, "src/db/client.ts"],
+      adapterTest: adapterTestSource,
+    },
+  },
+  {
+    id: bespokePhaseDProbeIds[2],
+    expected: "default_fetch_or_credential_reader_executed",
+    input: {
+      retiredPresent: [],
+      acceptanceReachability: acceptanceClosure,
+      adapterTest: adapterTestSource.replace("fetchImplementation: seams.fetchImplementation", ""),
+    },
+  },
+  {
+    id: bespokePhaseDProbeIds[3],
+    expected: "future_runtime_imported",
+    input: {
+      retiredPresent: [],
+      acceptanceReachability: [...acceptanceClosure, futureRuntimePaths[0]],
+      adapterTest: adapterTestSource,
+    },
+  },
+] as const;
+const phaseDBespokeMutationResults = phaseDBespokeMutationInputs.map((probe) => {
+  try {
+    requirePhaseDSyntheticOnlyBoundary(probe.input);
+  } catch (error) {
+    if (error instanceof ExpectedPhaseDBoundaryRejection && error.code === probe.expected) {
+      return { id: probe.id, result: "fail-closed" as const, reason: error.code };
+    }
+    throw error;
+  }
+  fail(`Phase D bespoke mutation did not fail closed: ${probe.id}`);
+});
+if (JSON.stringify(phaseDBespokeMutationResults.map((result) => result.id)) !==
+  JSON.stringify(bespokePhaseDProbeIds)) fail("Phase D bespoke mutation set is not exactly four");
 const providerRegistry = readFileSync(resolve(repositoryRoot, "src/ai/providers/registry.ts"), "utf8");
 if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Production Provider registry is not exact-empty");
 const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
@@ -2228,9 +2473,9 @@ function enforceTopology(paths: readonly string[]): void {
     !isTestSemantic(path));
   const undeclared = paths.find((path) => path.startsWith("src/server/ai/") &&
     path !== rootPath && isTestSemantic(path) === false);
-  if (phaseD.length !== 1 || phaseC !== undefined || adapter.length !== 3) {
+  if (phaseD.length !== 1 || phaseC !== undefined || adapter.length !== 2) {
     rejectGraph("reserved_zone_present", JSON.stringify({
-      path: phaseC ?? (phaseD.length !== 1 ? rootPath : adapter[3] ?? "provider-adapter-count"),
+      path: phaseC ?? (phaseD.length !== 1 ? rootPath : adapter[2] ?? "provider-adapter-count"),
       nodeKind: "FilesystemPath",
       reason: "phase_d_topology_count_drift",
     }));
@@ -2365,12 +2610,102 @@ for (const path of actualFiles.filter((candidate) => candidate.startsWith("test-
   }
 }
 
-const sourceStateCounts = {
-  tracked: nodes.filter((node) => node.sourceState === "tracked").length,
-  untrackedNotIgnored: nodes.filter((node) => node.sourceState === "untracked-not-ignored").length,
-  untrackedIgnored: nodes.filter((node) => node.sourceState === "untracked-ignored").length,
-};
 const exactHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const parentLine = execFileSync("git", ["rev-list", "--parents", "-n", "1", exactHead], {
+  cwd: repositoryRoot,
+  encoding: "utf8",
+}).trim().split(/\s+/u);
+if (parentLine.length !== 2 || parentLine[1] !== acceptedS12Parent) {
+  fail("aggregate/Gate lineage requires the sole parent ee13e743158e245f520a8d7ec68aa1854179fdc3");
+}
+const expectedActions = new Map<string, string>(exactImplementationPaths.map((path) => [path, "M"] as const));
+expectedActions.set("src/integrations/ai/providers/deepseek-text-adapter.ts", "M");
+for (const path of retiredPhaseDPaths) expectedActions.set(path, "D");
+for (const path of [
+  "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
+  fixturePath,
+  "src/app/fonts/geist-latin.woff2",
+  "src/app/fonts/geist-mono-latin.woff2",
+]) expectedActions.set(path, "A");
+const expectedNameStatus = [...expectedActions].sort(([left], [right]) => left.localeCompare(right, "en"));
+const observedNameStatus = execFileSync("git", [
+  "diff", "--name-status", "--no-renames", parentLine[1]!, exactHead,
+], { cwd: repositoryRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean)
+  .map((line) => {
+    const [status, path] = line.split("\t");
+    if (status === undefined || path === undefined) fail("S2 diff name-status is malformed");
+    return [path, status] as const;
+  }).sort(([left], [right]) => left.localeCompare(right, "en"));
+if (JSON.stringify(observedNameStatus) !== JSON.stringify(expectedNameStatus) || observedNameStatus.length !== 23) {
+  fail(`S2 diff is not the exact 23-path allowlist: ${JSON.stringify(observedNameStatus)}`);
+}
+function gitBlobSha1(bytes: Uint8Array): string {
+  const header = new TextEncoder().encode(`blob ${bytes.byteLength}\0`);
+  return createHash("sha1").update(header).update(bytes).digest("hex");
+}
+const expectedFileSha256 = new Map<string, string>([
+  ["package.json", "415b7d4bda2d3ad9edbb3e461912dac2a14a7f3bd685a36289f926c3040d7a4e"],
+  ["pnpm-workspace.yaml", "735fc96d5067d9260e40aadfd04f8f4eb6ecb5f17354003d34272f845940cf10"],
+  ["pnpm-lock.yaml", "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb"],
+  [fixturePath, expectedFixtureHash],
+  ["src/app/layout.tsx", "7d4de1649916159fd4be48127edc674cee4bf821abeb53aec0763cef6f3c2204"],
+  ["src/seo/nonproduction-indexing.test.ts", "68b18aa982ce2ddfbb7a7e387dc87da4085a3a3ebbb4269dce7954071c677889"],
+  ["src/app/fonts/geist-latin.woff2", "1b5ebfb3a01a97343ac96873e6d59a8cb285c66012b6a1ac509cb2765e995ba8"],
+  ["src/app/fonts/geist-mono-latin.woff2", "b7ac144b394cbd81052d6397ec0c33397977b1d7e9bc095e744e652a378c6fb3"],
+  ["src/integrations/ai/providers/deepseek-text-adapter.ts", "2742227baab3073b3b594ab322f1943762c5d206af606c52e2039223400344da"],
+  ["src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts",
+    "9be5a39c8146af52ddffc5b748f87d16974018d6b82d9d949ebb5411399c96b7"],
+  ["src/server/ai/phase-d-provider-composition.ts", "6cd66c6ca636ca38ce62f206584da14950915cf8c156810a032bfefe377a0a31"],
+  ["scripts/process-ai-runs.ts", "43a719732ddd26ce3a89117cb1cbf932546170a54851e3691bbaacb8d43a94b5"],
+]);
+for (const [path, expectedHash] of expectedFileSha256) {
+  if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
+    fail(`preserved or exact-target file identity mismatch: ${path}`);
+  }
+}
+const expectedRouteBlobs = new Map<string, string>([
+  ["src/app/api/admin/upload-intents/[token]/route.test.ts", "06835ff5f00ea6298aeefd985f2e0cce2e22cb79"],
+  ["src/app/api/conversion-events/route.test.ts", "6d1bc69a45ee316b996f68afae826e56bc0620c6"],
+  ["src/app/api/upload-intents/[token]/route.test.ts", "fb72e65385435c9f6066892be9eb2d4a2051c153"],
+  ["src/app/api/upload-intents/route.test.ts", "c855c7b34fddee4367d0b070aa6ee19b6e202906"],
+]);
+for (const [path, expectedBlob] of expectedRouteBlobs) {
+  if (gitBlobSha1(readFileSync(resolve(repositoryRoot, path))) !== expectedBlob) {
+    fail(`numeric-origin route-test transform identity mismatch: ${path}`);
+  }
+}
+for (const path of ["src/app/fonts/geist-latin.woff2", "src/app/fonts/geist-mono-latin.woff2"]) {
+  const stat = lstatSync(resolve(repositoryRoot, path));
+  const stage = execFileSync("git", ["ls-files", "--stage", "--", path], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o111) !== 0 ||
+    !stage.startsWith("100644 ")) fail(`font target physicality or Git mode mismatch: ${path}`);
+}
+const packageDocument: unknown = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8"));
+if (typeof packageDocument !== "object" || packageDocument === null || Array.isArray(packageDocument)) {
+  fail("package.json is not an object");
+}
+const packageRecord = packageDocument as Record<string, unknown>;
+const packageScripts = packageRecord.scripts;
+const dependencies = packageRecord.dependencies;
+const devDependencies = packageRecord.devDependencies;
+if (typeof packageScripts !== "object" || packageScripts === null || Array.isArray(packageScripts) ||
+  (packageScripts as Record<string, unknown>)["check:ai-phase-d-synthetic"] !== acceptancePackageCommand ||
+  "ai:validate:deepseek" in packageScripts ||
+  typeof dependencies !== "object" || dependencies === null || Array.isArray(dependencies) ||
+  typeof devDependencies !== "object" || devDependencies === null || Array.isArray(devDependencies) ||
+  Object.keys(dependencies).length + Object.keys(devDependencies).length !== 37) {
+  fail("synthetic package command or direct dependency identity mismatch");
+}
+const installedNextPackage: unknown = JSON.parse(readFileSync(resolve(repositoryRoot,
+  "node_modules/next/package.json"), "utf8"));
+if (typeof installedNextPackage !== "object" || installedNextPackage === null || Array.isArray(installedNextPackage) ||
+  (installedNextPackage as Record<string, unknown>).name !== "next" ||
+  (installedNextPackage as Record<string, unknown>).version !== "16.2.12") {
+  fail("installed Next package identity mismatch");
+}
 const inventorySha256 = sha256(canonical(nodes.map((node) => ({
   path: node.path,
   sourceState: node.sourceState,
@@ -2410,29 +2745,6 @@ const staticLanguageSha256 = sha256(canonical({
   importMetaPlacementCount,
 }));
 
-function graphCycles(): readonly (readonly string[])[] {
-  const cycles: string[][] = [];
-  const active: string[] = [];
-  const visited = new Set<string>();
-  const visit = (path: string): void => {
-    const activeIndex = active.indexOf(path);
-    if (activeIndex >= 0) {
-      cycles.push([...active.slice(activeIndex), path]);
-      return;
-    }
-    if (visited.has(path)) return;
-    visited.add(path);
-    active.push(path);
-    for (const edge of edgesBySource.get(path) ?? []) {
-      if (edge.resolutionKind === "local" && edge.resolvedTarget !== undefined &&
-        executableExtensions.has(extname(edge.resolvedTarget))) visit(edge.resolvedTarget);
-    }
-    active.pop();
-  };
-  for (const node of executableNodes) visit(node.path);
-  return cycles.sort((left, right) => canonical(left).localeCompare(canonical(right), "en"));
-}
-
 function argumentValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   if (index < 0) return undefined;
@@ -2440,48 +2752,6 @@ function argumentValue(name: string): string | undefined {
   if (value === undefined || value.length === 0) fail(`${name} requires one exact path`);
   return value;
 }
-
-function pathIsBelowExcludedPhysicalRoot(path: string): boolean {
-  return enumeration.excludedPhysicalRoots.some((root) => path === root.slice(0, -1) || path.startsWith(root));
-}
-
-function executablePathsAtCommit(commit: string): readonly string[] {
-  if (!/^[0-9a-f]{40}$/u.test(commit)) fail("proof-bound commit must be one exact lowercase Git object id");
-  const commitCheck = spawnSync("git", ["cat-file", "-e", `${commit}^{commit}`], {
-    cwd: repositoryRoot,
-    stdio: "ignore",
-  });
-  if (commitCheck.status !== 0) fail("proof-bound commit does not resolve to a commit");
-  return execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", commit], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).split("\0").filter((path) => path.length > 0 &&
-    executableExtensions.has(extname(path)) && !pathIsBelowExcludedPhysicalRoot(path)).sort();
-}
-
-function requireExecutableTreeSeal(boundCommit: string): void {
-  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", boundCommit, exactHead], {
-    cwd: repositoryRoot,
-    stdio: "ignore",
-  });
-  if (ancestor.status !== 0) fail("proof-bound executable-tree commit is not an ancestor of HEAD");
-  const sealedPaths = [...executablePathsAtCommit(boundCommit)];
-  if (nextNode !== undefined && !sealedPaths.includes(nextNode.path)) sealedPaths.push(nextNode.path);
-  sealedPaths.sort();
-  const currentPaths = executableNodes.map((node) => node.path).sort();
-  if (JSON.stringify(sealedPaths) !== JSON.stringify(currentPaths)) {
-    fail(`post-proof executable candidate drift: ${JSON.stringify({ sealedPaths, currentPaths })}`);
-  }
-  const committedSealedPaths = sealedPaths.filter((path) => path !== nextContract.presentPath);
-  const contentDiff = spawnSync("git", ["diff", "--quiet", boundCommit, "--", ...committedSealedPaths], {
-    cwd: repositoryRoot,
-    stdio: "ignore",
-  });
-  if (contentDiff.status !== 0) fail("proof-bound executable candidate content changed after the seal commit");
-}
-
-const proofBoundCommit = argumentValue("--proof-bound-commit");
-if (proofBoundCommit !== undefined) requireExecutableTreeSeal(proofBoundCommit);
 
 function bundleFiles(rootInput: string): readonly { readonly path: string; readonly sha256: string }[] {
   const root = realpathSync(rootInput);
@@ -2559,286 +2829,7 @@ if (serverBundleInput !== undefined && publicBundleInput !== undefined) {
   };
 }
 
-const inputHashes = {
-  currentProfile: expectedProfileFileHash,
-  tsconfig: sha256(tsconfigBytes),
-  inventory: inventorySha256,
-  content: contentSha256,
-  classification: classificationSha256,
-  executableTree: executableTreeSha256,
-  staticLanguage: staticLanguageSha256,
-  graph: graphSha256,
-};
 const checkerSha256 = sha256(readFileSync(resolve(repositoryRoot, "scripts/verify-ai-architecture.ts")));
-
-function sealProof(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
-  const base = {
-    schemaVersion: 50,
-    profileId: authority.profileId,
-    profileVersion: authority.profileVersion,
-    profileFileSha256: expectedProfileFileHash,
-    profileIntegritySha256: expectedProfileIntegrityHash,
-    checkerSha256,
-    candidateCommit: exactHead,
-    inputHashes,
-    ...payload,
-  };
-  return Object.freeze({ ...base, proofHash: sha256(canonical(base)) });
-}
-
-const classMembersProof = Object.fromEntries(classDefinitions.map((definition) => [
-  definition.id,
-  classMembers.get(definition.id) ?? [],
-]));
-const actualTreeProof = sealProof({
-  runtimeIdentities: {
-    node: process.version.slice(1),
-    v8: process.versions.v8,
-    icu: process.versions.icu,
-    unicode: process.versions.unicode,
-    cldr: process.versions.cldr,
-    typescript: ts.version,
-  },
-  currentProfileCompileInputs: [{ path: profilePath, sha256: expectedProfileFileHash }],
-  historicalProfileRuntimeReads: [],
-  syntheticAuthority: {
-    paths: Object.fromEntries(Object.entries(syntheticPaths).map(([key, path]) => [key, {
-      path,
-      sha256: path === syntheticPaths.harness && syntheticSources.harness.length === 0
-        ? null : sha256(readFileSync(resolve(repositoryRoot, path))),
-    }])),
-    definitionFactories: ["createSyntheticDefinitionV1"],
-    transactionScopeFactories: ["withSyntheticCaseTransactionScope"],
-    transactionOperations: syntheticTransactionOperations,
-    observationDurableOperations: [],
-    preservedFixtureAndConfigHashes: preservedSyntheticFixtureHashes,
-    compilerOutcomes: {
-      positive: "pass",
-      negative: ["TS2339", "TS2339", "TS2741", "TS2345"],
-    },
-  },
-  excludedPhysicalRoots: excludedStatus,
-  candidates: nodes,
-  executables: executableNodes.map((node) => node.path),
-  executableTreeMembers,
-  executableTreeHash: executableTreeSha256,
-  historicalEvidenceExecutables: executableNodes
-    .filter((node) => node.classId === historicalEvidenceClass)
-    .map((node) => node.path),
-  classMembers: classMembersProof,
-  zeroClass,
-  ambiguous,
-  sourceStates: sourceStateCounts,
-  ordinaryGlobalUrlValues,
-  ordinaryGlobalUrlValueCount: ordinaryGlobalUrlValues.length,
-  staticResourceCandidates,
-  allowedStaticFormCounts,
-  deniedOriginCount: 0,
-  inventoryHash: inventorySha256,
-  contentHash: contentSha256,
-  classificationHash: classificationSha256,
-  staticLanguageHash: staticLanguageSha256,
-});
-const staticGraphProof = sealProof({
-  nodes: nodes.map((node) => ({ path: node.path, classId: node.classId, contentSha256: node.contentSha256 })),
-  edges: graphEdges,
-  currentExecutableGraphExclusions: executableNodes
-    .filter((node) => node.classId === historicalEvidenceClass)
-    .map((node) => ({ path: node.path, classId: node.classId, stageStatus: node.stageStatus })),
-  ordinaryUrlZeroEdgeLocations: ordinaryGlobalUrlValues,
-  resourceEdges: graphEdges.filter((edge) => edge.edgeKind === "resource"),
-  unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved"),
-  ambiguous: [],
-  cycles: graphCycles(),
-  compilerOptionsHash: sha256(canonical({
-    moduleResolution: parsedConfig.options.moduleResolution,
-    strict: parsedConfig.options.strict,
-    exactOptionalPropertyTypes: parsedConfig.options.exactOptionalPropertyTypes,
-    paths: parsedConfig.options.paths,
-  })),
-  graphHash: graphSha256,
-});
-const originProof = sealProof({
-  originRuleSetHash: sha256(canonical(authority.deniedProductionCapabilityOrigins)),
-  deniedOriginCount: 0,
-  importMetaPlacementCount,
-  protectedOrigins: {
-    environment: protectedClosure.includes("src/config/env.ts"),
-    databaseConnection: protectedClosure.includes("src/db/client.ts"),
-    adapter: protectedClosure.some((path) => path.startsWith("src/integrations/ai/providers/")),
-    testing: protectedClosure.some((path) => path.startsWith("src/ai/testing/")),
-    providerRegistry: "exact-empty",
-  },
-  retiredAbsence: {
-    phaseBComposition: !actualFiles.includes("src/server/ai/phase-b-composition.ts"),
-    phaseCComposition: !actualFiles.includes("src/server/ai/phase-c-composition.ts"),
-  },
-  productionClosure: { protectedClosure, coreClosure, serverClosure },
-  publicClientClosure: { roots: publicClientRoots, closure: publicClientClosure },
-  nonReachabilityHash: sha256(canonical({ protectedClosure, coreClosure, serverClosure, publicClientClosure })),
-});
-const compositionProof = sealProof({
-  compositionPath: rootPath,
-  exactImports: rootEdges,
-  trustedEnvironmentDto: { freezeCalls: rootFacts.freezeCalls, fields: ["appEnvironment", "processFeatureAiEnabled"] },
-  databaseBranches: ["pglite", "postgres"],
-  factoryCalls: {
-    availability: rootFacts.availabilityFactoryCalls,
-    durableService: rootFacts.durableFactoryCalls,
-    worker: rootFacts.workerFactoryCalls,
-    deepSeekProvider: rootFacts.deepSeekProviderFactoryCalls,
-    deepSeekPricing: rootFacts.deepSeekPricingFactoryCalls,
-    providerRegistry: rootFacts.providerRegistryFactoryCalls,
-  },
-  providerAndSecretAuthority: {
-    providerEndpointOwners: providerEndpointOwners.map((entry) => entry.path),
-    officialSourceOwners: officialSourceOwners.map((entry) => entry.path),
-    credentialReaders: credentialReaders.map((entry) => entry.path),
-    executeCallOwners: executeCallOwners.map((entry) => entry.path),
-    controlledRunnerIncoming,
-  },
-  incomingProductionEdges: graphEdges.filter((edge) => edge.resolvedTarget === rootPath),
-  typescriptProbeCaptures: { positive: positiveTypeConfigs, negative: negativeTypeConfigs },
-  m03SeamIdentity,
-  compositionHash: sha256(canonical({ rootEdges, rootFacts, sourceSha256: sha256(rootSource) })),
-});
-const bundleProof = sealProof({
-  toolchainIdentities: bundleBoundary.toolchainIdentities,
-  sourceProofHashes: {
-    actualTree: actualTreeProof.proofHash,
-    staticGraph: staticGraphProof.proofHash,
-    origin: originProof.proofHash,
-    composition: compositionProof.proofHash,
-  },
-  buildInputs: bundleBoundary.buildInputs,
-  serverMarkerPresence: bundleBoundary.serverMarkerPresence,
-  publicClientAbsence: bundleBoundary.publicClientAbsence,
-  positiveLeakFailure: bundleBoundary.positiveLeakFailure,
-  sourceBundleAgreement: bundleBoundary.sourceBundleAgreement,
-  bundleHash: bundleBoundary.bundleHash,
-});
-const architectureMutationProof = sealProof({
-  inheritedMutationProbes: mutationResults,
-  phaseCSyntheticMutationProbes: syntheticMutationResults,
-  graphFaultProbes: graphFaultResults,
-  graphPositiveProbes: graphPositiveResults,
-  topologyProbes: graphFaultResults.filter((result) =>
-    graphTopologyCases.some((topology) => topology.id === result.id)),
-  phaseDNegativeControls: {
-    retiredGenerateTextOwners: generateCallOwners.map((entry) => entry.path),
-    preparedExecuteOwners: executeCallOwners.map((entry) => entry.path),
-    credentialReaders: credentialReaders.map((entry) => entry.path),
-    officialSourceOwners: officialSourceOwners.map((entry) => entry.path),
-    providerEndpointOwners: providerEndpointOwners.map((entry) => entry.path),
-  },
-});
-
-const proofArtifacts = {
-  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_D_V5_0.json": actualTreeProof,
-  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_D_V5_0.json": staticGraphProof,
-  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_D_V5_0.json": originProof,
-  "AI_PHASE_D_COMPOSITION_PROVIDER_SECRET_PROOF_V5_0.json": compositionProof,
-  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_D_V5_0.json": bundleProof,
-  "AI_ARCHITECTURE_MUTATION_PROBE_RESULTS_PHASE_D_V5_0.json": architectureMutationProof,
-};
-const exactProofArtifactNames = [
-  "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_D_V5_0.json",
-  "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_D_V5_0.json",
-  "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_D_V5_0.json",
-  "AI_PHASE_D_COMPOSITION_PROVIDER_SECRET_PROOF_V5_0.json",
-  "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_D_V5_0.json",
-  "AI_ARCHITECTURE_MUTATION_PROBE_RESULTS_PHASE_D_V5_0.json",
-] as const;
-if (JSON.stringify(Object.keys(proofArtifacts)) !== JSON.stringify(exactProofArtifactNames)) {
-  fail("V5.0 proof artifact set is not exactly six before manifest binding");
-}
-
-const inheritedMutationProbeIds = mutationResults.map((result) => result.id).sort();
-const phaseCSyntheticMutationIds = syntheticMutationResults.map((result) => result.id).sort();
-const proofManifestName = "AI_ARCHITECTURE_PHASE_D_V5_MANIFEST.json";
-const proofManifest = Object.freeze({
-  schemaVersion: 50,
-  profileId: authority.profileId,
-  profileVersion: authority.profileVersion,
-  profileFileSha256: expectedProfileFileHash,
-  profileIntegritySha256: expectedProfileIntegrityHash,
-  checkerSha256,
-  candidateCommit: exactHead,
-  inheritedMutationProbeIds,
-  inheritedMutationProbeSetSha256: sha256(canonical(inheritedMutationProbeIds)),
-  phaseCSyntheticMutationProbeIds: phaseCSyntheticMutationIds,
-  phaseCSyntheticMutationProbeSetSha256: sha256(canonical(phaseCSyntheticMutationIds)),
-  inheritedProfileCaseSets: {
-    faultIds: graphFaultCases.map((value) => value.id).sort(),
-    positiveIds: graphPositiveCases.map((value) => value.id).sort(),
-    topologyIds: graphTopologyCases.map((value) => value.id).sort(),
-  },
-  inheritedProfileCaseSetSha256: sha256(canonical({
-    faultIds: graphFaultCases.map((value) => value.id).sort(),
-    positiveIds: graphPositiveCases.map((value) => value.id).sort(),
-    topologyIds: graphTopologyCases.map((value) => value.id).sort(),
-  })),
-  proofs: Object.fromEntries(Object.entries(proofArtifacts).map(([name, artifact]) => [name, {
-    sha256: sha256(`${canonical(artifact)}\n`),
-    proofHash: artifact.proofHash,
-  }])),
-});
-const exactEvidenceArtifactNames = [...exactProofArtifactNames, proofManifestName].sort();
-
-function verifyBoundProofArtifacts(directoryInput: string, boundCommit: string | undefined): void {
-  if (boundCommit === undefined) fail("proof verification requires --proof-bound-commit");
-  const directory = resolve(repositoryRoot, directoryInput);
-  if (directory === repositoryRoot || !directory.startsWith(`${repositoryRoot}${sep}`) ||
-    !existsSync(directory) || !lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink()) {
-    fail("proof verification directory must be one physical repository-contained directory");
-  }
-  const entries = readdirSync(directory).sort();
-  if (JSON.stringify(entries) !== JSON.stringify(exactEvidenceArtifactNames)) {
-    fail("bound proof directory does not contain exactly the seven canonical V5.0 artifacts");
-  }
-  for (const name of exactProofArtifactNames) {
-    const path = resolve(directory, name);
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink()) fail(`bound proof is not one physical file: ${name}`);
-    const bytes = readFileSync(path, "utf8");
-    const parsed: unknown = JSON.parse(bytes);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      fail(`bound proof is not an object: ${name}`);
-    }
-    const proof = parsed as Record<string, unknown>;
-    const proofHash = proof.proofHash;
-    const input = proof.inputHashes;
-    if (proof.candidateCommit !== boundCommit || proof.schemaVersion !== 50 ||
-      proof.profileIntegritySha256 !== expectedProfileIntegrityHash ||
-      proof.profileFileSha256 !== expectedProfileFileHash || proof.checkerSha256 !== checkerSha256 ||
-      proof.profileVersion !== authority.profileVersion || typeof proofHash !== "string" ||
-      typeof input !== "object" || input === null || Array.isArray(input) ||
-      (input as Record<string, unknown>).executableTree !== executableTreeSha256) {
-      fail(`stale proof commit or executable-tree binding: ${name}`);
-    }
-    const { proofHash: omitted, ...base } = proof;
-    if (omitted !== sha256(canonical(base)) || bytes !== `${canonical(proof)}\n`) {
-      fail(`bound proof hash or canonical bytes mismatch: ${name}`);
-    }
-  }
-  const manifestPath = resolve(directory, proofManifestName);
-  const manifestBytes = readFileSync(manifestPath, "utf8");
-  const manifest: unknown = JSON.parse(manifestBytes);
-  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest) ||
-    manifestBytes !== `${canonical(manifest)}\n` ||
-    (manifest as Record<string, unknown>).candidateCommit !== boundCommit ||
-    (manifest as Record<string, unknown>).checkerSha256 !== checkerSha256 ||
-    (manifest as Record<string, unknown>).profileFileSha256 !== expectedProfileFileHash ||
-    (manifest as Record<string, unknown>).profileIntegritySha256 !== expectedProfileIntegrityHash ||
-    "proofHash" in manifest) {
-    fail("V5.0 proof manifest binding mismatch");
-  }
-}
-
-const verifyEvidenceDirectoryInput = argumentValue("--verify-evidence-dir");
-if (verifyEvidenceDirectoryInput !== undefined) {
-  verifyBoundProofArtifacts(verifyEvidenceDirectoryInput, proofBoundCommit);
-}
 
 class ExpectedFinalTreeClosureRejection extends Error {
   constructor(readonly code: string) {
@@ -2870,9 +2861,9 @@ function requireSameExecutablePaths(sealed: readonly string[], current: readonly
   }
 }
 
-function requireProofSealBinding(candidateCommit: string, executableHash: string): void {
+function requireAggregateBinding(candidateCommit: string, executableHash: string): void {
   if (candidateCommit !== exactHead || executableHash !== executableTreeSha256) {
-    rejectFinalTreeClosure("stale_five_proof_binding");
+    rejectFinalTreeClosure("stale_aggregate_binding");
   }
 }
 
@@ -3016,9 +3007,9 @@ const finalTreeClosureMutationCases = [
     }]),
   },
   {
-    id: "stale-five-proof-commit-tree-binding",
-    expected: "stale_five_proof_binding",
-    run: () => requireProofSealBinding("0000000000000000000000000000000000000000", executableTreeSha256),
+    id: "stale-aggregate-commit-tree-binding",
+    expected: "stale_aggregate_binding",
+    run: () => requireAggregateBinding("0000000000000000000000000000000000000000", executableTreeSha256),
   },
   {
     id: "historical-import-compatibility-target",
@@ -3052,7 +3043,7 @@ const exactFinalTreeClosureMutationIds = [
   "production-case-variant-current-json-evidence-target",
   "silent-historical-probe-selector-exclusion",
   "historical-evidence-production-promotion",
-  "stale-five-proof-commit-tree-binding",
+  "stale-aggregate-commit-tree-binding",
   "historical-import-compatibility-target",
 ] as const;
 if (JSON.stringify(finalTreeClosureMutationResults.map((result) => result.id)) !==
@@ -3060,98 +3051,205 @@ if (JSON.stringify(finalTreeClosureMutationResults.map((result) => result.id)) !
   fail("final-tree closure mutation identity differs from bidirectional evidence-isolation authority");
 }
 
-const evidenceDirectoryInput = argumentValue("--write-evidence-dir");
-if (evidenceDirectoryInput !== undefined) {
-  if (proofBoundCommit !== undefined || verifyEvidenceDirectoryInput !== undefined) {
-    fail("proof emission and proof-bound verification are mutually exclusive");
+
+const resultName = "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_RESULT_V1_0.json";
+const manifestName = "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_MANIFEST_V1_0.json";
+const aggregateResult = Object.freeze({
+  schemaVersion: 1,
+  classification: "SYNTHETIC_ONLY_PHASE_D_NOT_PROVIDER_EVIDENCE",
+  profileId: authority.profileId,
+  profileVersion: authority.profileVersion,
+  profileFileSha256: expectedProfileFileHash,
+  profileIntegritySha256: expectedProfileIntegrityHash,
+  checkerSha256,
+  candidateCommit: exactHead,
+  acceptanceRoots: {
+    packageCommand: acceptancePackageCommand,
+    testFiles: acceptanceTestPaths,
+    closure: acceptanceClosure,
+    closureSha256: sha256(canonical(acceptanceClosure)),
+  },
+  retiredPathAbsence: Object.fromEntries(retiredPhaseDPaths.map((path) => [path, !existsSync(resolve(repositoryRoot, path))])),
+  loopbackConstraints: {
+    testPath: loopbackTestPath,
+    bindHost: "127.0.0.1",
+    destinationHost: "127.0.0.1",
+    port: "ephemeral",
+    injectedFetch: true,
+    explicitSyntheticCredentialReader: true,
+    dnsAllowed: false,
+    hostnameAllowed: false,
+    nonLoopbackAllowed: false,
+    externalEgressAllowed: false,
+    sourceSha256: sha256(loopbackTestSource),
+  },
+  explicitSyntheticSeams: {
+    fixturePath,
+    fixtureSha256: expectedFixtureHash,
+    fixtureCaseCount: 39,
+    requestParameters: syntheticParameters,
+    expectedBody: syntheticExpectedBody,
+    adapterTestPath,
+    adapterTestSha256: sha256(adapterTestSource),
+    importAllowlist: expectedAdapterTestImports,
+    defaultFetchExecuted: false,
+    defaultCredentialReaderExecuted: false,
+  },
+  futureRuntimeIsolation: {
+    classification: "FUTURE_PHASE_F_RUNTIME_ONLY",
+    paths: futureRuntimePaths,
+    defaultEnabled: false,
+    reachableFromAcceptanceRoots: futureRuntimePaths.some((path) => acceptanceClosure.includes(path)),
+    productIdentities: Object.fromEntries(futureRuntimePaths.map((path) => [
+      path,
+      sha256(readFileSync(resolve(repositoryRoot, path))),
+    ])),
+  },
+  externalDatabaseEnvironmentNonReachability: {
+    realSecret: "NOT_RUN_DEFERRED_TO_PHASE_F",
+    realDatabase: "NOT_RUN_DEFERRED_TO_PHASE_F",
+    providerApi: "NOT_RUN_DEFERRED_TO_PHASE_F",
+    officialSource: "NOT_RUN_DEFERRED_TO_PHASE_F",
+    dnsExternalEgress: "NOT_RUN_DEFERRED_TO_PHASE_F",
+    acceptanceReachesEnvironment: acceptanceClosure.includes("src/config/env.ts"),
+    acceptanceReachesDatabaseConnection: acceptanceClosure.includes("src/db/client.ts"),
+    officialSourceOwners: officialSourceOwners.map((entry) => entry.path),
+    protectedClosureSha256: sha256(canonical(protectedClosure)),
+    publicClientClosureSha256: sha256(canonical(publicClientClosure)),
+  },
+  inheritedControlPreservation: {
+    actualTree: {
+      zeroClassCount: zeroClass.length,
+      ambiguousCount: ambiguous.length,
+      inventorySha256,
+      contentSha256,
+      classificationSha256,
+      executableTreeSha256,
+    },
+    promptAndGeneratedResources: {
+      syntheticAuthoritySha256: sha256(canonical({
+        paths: syntheticPaths,
+        fixtureHashes: preservedSyntheticFixtureHashes,
+        mutationResults: syntheticMutationResults,
+      })),
+      generatedRootState: nextNode === undefined ? "absent" : "official-next-generated-file-present",
+    },
+    typescriptSymbolCapabilityOrigin: {
+      deniedOriginCount: 0,
+      staticLanguageSha256,
+      graphSha256,
+      graphFaultSetSha256: sha256(canonical(graphFaultResults)),
+      graphPositiveSetSha256: sha256(canonical(graphPositiveResults)),
+    },
+    databaseAndReadAuthority: {
+      positiveTypeConfigCount: positiveTypeConfigs.length,
+      negativeTypeConfigCount: negativeTypeConfigs.length,
+      commonReadAuthorityPaths,
+    },
+    protectedServerPublicBundle: {
+      protectedClosureSha256: sha256(canonical(protectedClosure)),
+      serverClosureSha256: sha256(canonical(serverClosure)),
+      publicClientClosureSha256: sha256(canonical(publicClientClosure)),
+      buildInputs: bundleBoundary.buildInputs,
+      publicClientAbsence: bundleBoundary.publicClientAbsence,
+      sourceBundleAgreement: bundleBoundary.sourceBundleAgreement,
+      bundleHash: bundleBoundary.bundleHash,
+    },
+    selfChallenges: {
+      inheritedMutationCount: mutationResults.length,
+      inheritedMutationSetSha256: sha256(canonical(mutationResults)),
+      phaseCSyntheticMutationCount: syntheticMutationResults.length,
+      phaseCSyntheticMutationSetSha256: sha256(canonical(syntheticMutationResults)),
+      finalTreeClosureMutationCount: finalTreeClosureMutationResults.length,
+      finalTreeClosureMutationSetSha256: sha256(canonical(finalTreeClosureMutationResults)),
+    },
+  },
+  packageLockDelta: {
+    exactPathCount: observedNameStatus.length,
+    nameStatus: observedNameStatus,
+    packageSha256: sha256(readFileSync(resolve(repositoryRoot, "package.json"))),
+    workspaceSha256: sha256(readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"))),
+    lockSha256: sha256(readFileSync(resolve(repositoryRoot, "pnpm-lock.yaml"))),
+    lockChanged: false,
+    directPackageCount: Object.keys(dependencies).length + Object.keys(devDependencies).length,
+    installedNextVersion: (installedNextPackage as Record<string, unknown>).version,
+    productAdapterSha256: sha256(readFileSync(resolve(repositoryRoot,
+      "src/integrations/ai/providers/deepseek-text-adapter.ts"))),
+  },
+  bespokeMutationProbes: phaseDBespokeMutationResults,
+});
+const aggregateResultBytes = canonical(aggregateResult) + "\n";
+const aggregateManifest = Object.freeze({
+  schemaVersion: 1,
+  classification: "SYNTHETIC_ONLY_PHASE_D_NOT_PROVIDER_EVIDENCE",
+  candidateCommit: exactHead,
+  acceptedParent: acceptedS12Parent,
+  checkerSha256,
+  profileFileSha256: expectedProfileFileHash,
+  profileIntegritySha256: expectedProfileIntegrityHash,
+  fixtureSha256: expectedFixtureHash,
+  executableTreeSha256,
+  result: {
+    name: resultName,
+    sha256: sha256(aggregateResultBytes),
+  },
+});
+const aggregateManifestBytes = canonical(aggregateManifest) + "\n";
+
+if (process.argv.includes("--write-evidence-dir") || process.argv.includes("--verify-evidence-dir") ||
+  process.argv.includes("--proof-bound-commit")) {
+  fail("retired proof interface is not available");
+}
+const aggregateDirectoryInput = argumentValue("--aggregate-dir");
+if (aggregateDirectoryInput !== undefined) {
+  if (serverBundleInput === undefined || publicBundleInput === undefined || !bundleBoundary.sourceBundleAgreement) {
+    fail("aggregate requires the verified held Build server/public bundle inputs");
   }
-  if (!bundleBoundary.sourceBundleAgreement || execFileSync("git", ["status", "--porcelain=v1"], { encoding: "utf8" }) !== "") {
-    fail("proof emission requires clean exact code HEAD and verified bundle inputs");
+  if (execFileSync("git", ["status", "--porcelain=v1"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }) !== "") fail("aggregate requires a clean exact S2 worktree");
+  const aggregateDirectory = resolve(repositoryRoot, aggregateDirectoryInput);
+  if (aggregateDirectory === repositoryRoot || !aggregateDirectory.startsWith(repositoryRoot + sep) ||
+    existsSync(aggregateDirectory)) {
+    fail("aggregate output must be one absent repository-contained directory");
   }
-  const evidenceDirectory = resolve(repositoryRoot, evidenceDirectoryInput);
-  if (evidenceDirectory === repositoryRoot || !evidenceDirectory.startsWith(`${repositoryRoot}${sep}`) ||
-    existsSync(evidenceDirectory)) fail("proof output must be one absent repository-contained directory");
-  const parent = dirname(evidenceDirectory);
+  const parent = dirname(aggregateDirectory);
   mkdirSync(parent, { recursive: true });
-  const temporary = mkdtempSync(resolve(parent, ".phase-d-v50-proof-"));
+  const temporary = mkdtempSync(resolve(parent, ".phase-d-synthetic-only-aggregate-"));
   try {
-    for (const [name, artifact] of Object.entries(proofArtifacts)) {
-      const path = resolve(temporary, name);
-      if (dirname(path) !== temporary) fail("proof output path escaped temporary directory");
-      writeFileSync(path, `${canonical(artifact)}\n`, { encoding: "utf8", flag: "wx" });
-    }
-    writeFileSync(resolve(temporary, proofManifestName), `${canonical(proofManifest)}\n`, {
+    writeFileSync(resolve(temporary, resultName), aggregateResultBytes, {
       encoding: "utf8",
       flag: "wx",
+      mode: 0o644,
     });
-    renameSync(temporary, evidenceDirectory);
+    writeFileSync(resolve(temporary, manifestName), aggregateManifestBytes, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o644,
+    });
+    if (JSON.stringify(readdirSync(temporary).sort()) !== JSON.stringify([manifestName, resultName].sort())) {
+      fail("aggregate temporary output set is not exactly two files");
+    }
+    renameSync(temporary, aggregateDirectory);
   } catch (error) {
     if (existsSync(temporary)) rmSync(temporary, { recursive: true });
     throw error;
   }
 }
-const proofArtifactHashes = Object.fromEntries([
-  ...Object.entries(proofArtifacts).map(([name, artifact]) => [
-    name,
-    sha256(`${canonical(artifact)}\n`),
-  ]),
-  [proofManifestName, sha256(`${canonical(proofManifest)}\n`)],
-]);
-const report = {
+
+process.stdout.write(JSON.stringify({
   ok: true,
   profileId: authority.profileId,
-  profileIntegritySha256: expectedProfileIntegrityHash,
-  profileFileSha256: expectedProfileFileHash,
   head: exactHead,
-  lifecycleState: nextNode === undefined ? "source-clean-file-absent" : "official-next-generated-file-present",
   candidateCount: nodes.length,
-  executableCount: nodes.filter((node) => executableExtensions.has(extname(node.path))).length,
-  classes: Object.fromEntries(classDefinitions.map((definition) => [
-    definition.id,
-    classMembers.get(definition.id) ?? [],
-  ])),
-  zeroClass,
-  ambiguous,
-  sourceStateCounts,
-  typeBoundaryProbes: {
-    positive: positiveTypeConfigs.length,
-    negative: negativeTypeConfigs.length,
-  },
-  moduleGraph: {
-    edgeCount: graphEdges.length,
-    graphSha256,
-    protectedClosureCount: protectedClosure.length,
-    coreClosureCount: coreClosure.length,
-    publicClientRootCount: publicClientRoots.length,
-    publicClientClosureCount: publicClientClosure.length,
-    serverClosureCount: serverClosure.length,
-    faultProbes: graphFaultResults,
-    positiveProbes: graphPositiveResults,
-    ordinaryGlobalUrlValueCount: ordinaryGlobalUrlValues.length,
-    staticResourceCandidateCount: staticResourceCandidates.length,
-  },
+  executableCount: executableNodes.length,
+  acceptanceRootCount: acceptanceTestPaths.length,
+  acceptanceClosureCount: acceptanceClosure.length,
+  retiredPathCount: retiredPhaseDPaths.length,
+  inheritedMutationCount: mutationResults.length + syntheticMutationResults.length +
+    finalTreeClosureMutationResults.length,
+  phaseDBespokeMutationCount: phaseDBespokeMutationResults.length,
   bundleProofReady: bundleBoundary.sourceBundleAgreement,
-  proofArtifactHashes,
-  mutationProbes: {
-    total: mutationResults.length,
-    v16Original: mutationResults.filter((result) => result.id.startsWith("v1.6-")).length,
-    attempt2: mutationResults.filter((result) => result.id.startsWith("attempt2-")).length,
-    results: mutationResults,
-    phaseCSynthetic: syntheticMutationResults,
-  },
-  excludedPhysicalRoots: excludedStatus,
-  nextEnv: nextNode === undefined ? { present: false } : {
-    present: true,
-    classId: nextNode.classId,
-    sourceState: nextNode.sourceState,
-    sha256: nextNode.contentSha256,
-  },
-  inventorySha256,
-  contentSha256,
-  classificationSha256,
-  executableTreeSha256,
-  proofBoundCommit: proofBoundCommit ?? null,
-  verifiedProofDirectory: verifyEvidenceDirectoryInput ?? null,
-  finalTreeClosureMutations: finalTreeClosureMutationResults,
-};
-process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  aggregateEmitted: aggregateDirectoryInput !== undefined,
+}, null, 2) + "\n");

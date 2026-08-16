@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/font/google", () => ({
-  Geist: () => ({ variable: "test-geist" }),
-  Geist_Mono: () => ({ variable: "test-geist-mono" }),
+vi.mock("next/font/local", () => ({
+  default: (options: { variable: string }) => ({ variable: options.variable }),
 }));
 
 import nextConfig from "../../next.config";

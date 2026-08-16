@@ -33,6 +33,8 @@ import { PRODUCT_IMPORT_LIMITS } from "@/imports/contract";
 
 import { PUT } from "./route";
 
+const TEST_SITE_ORIGIN = new URL(env.NEXT_PUBLIC_SITE_URL).origin;
+
 const actor = {
   id: "10000000-0000-4000-8000-000000000001",
   role: "admin",
@@ -45,13 +47,13 @@ function binaryRequest(
   options: { contentLength?: string; contentType?: string } = {},
 ): Request {
   const headers = new Headers({
-    origin: "http://localhost:3000",
+    origin: TEST_SITE_ORIGIN,
     "content-type": options.contentType ?? "image/jpeg",
   });
   if (options.contentLength !== undefined) {
     headers.set("content-length", options.contentLength);
   }
-  return new Request(`http://localhost:3000/api/admin/upload-intents/${token}/`, {
+  return new Request(new URL(`/api/admin/upload-intents/${token}/`, TEST_SITE_ORIGIN), {
     method: "PUT",
     headers,
     body,

@@ -31,14 +31,14 @@
     },
     "actualTreeProof": {
       "designCandidateMode": {
-        "adapterZoneExpected": "present_bounded_phase_d",
+        "adapterZoneExpected": "present_future_phase_f_runtime_only",
         "phaseCCompositionExpected": "absent_replaced",
-        "phaseDCompositionExpected": "exactly_one",
+        "phaseDCompositionExpected": "exactly_one_future_phase_f_runtime_only",
         "protectedAiImplementationExpected": "present",
         "rootClassDefinitionsRemainProspective": false
       },
       "futureImplementationGateMode": {
-        "adapterZoneNodeCount": 3,
+        "adapterZoneNodeCount": 2,
         "allOtherV2_2ContainmentRulesRequired": true,
         "phaseCCompositionCount": 0,
         "phaseDCompositionCount": 1,
@@ -117,8 +117,8 @@
       ]
     },
     "adapterZone": {
-      "dependencyDirection": "future adapter may depend type-only on provider-neutral interface; protected AI/business may never import adapter; only activated Phase D composition may import one approved adapter value",
-      "oneInjectionSeam": "reserved src/server/ai/phase-d-provider-composition.ts only, after a new approved Phase D profile; no service locator, global mutation, fallback chain or second construction seam",
+      "dependencyDirection": "future Phase F adapter runtime may depend type-only on provider-neutral interface; protected AI/business may never import adapter; Phase D acceptance roots may import only the adapter test surface with explicit synthetic seams",
+      "oneInjectionSeam": "future Phase F src/server/ai/phase-d-provider-composition.ts only; no service locator, global mutation, fallback chain or second construction seam",
       "path": "src/integrations/ai/providers/",
       "phaseBExpectedPresence": {
         "behaviorIfPresent": "fail_closed_future_stage_unauthorized",
@@ -198,7 +198,7 @@
         "proof": "fresh public client-reference manifests and reachable chunks contain no protected marker/path/resource/Provider package"
       },
       "server": {
-        "proof": "isolated server build retains the Phase D server boundary and controlled Provider composition while public/client output remains non-reachable; Production Provider, Prompt and pricing registries remain exact-empty",
+        "proof": "isolated server build retains the future Phase F server boundary while every Phase D acceptance root remains synthetic-only and public/client output remains non-reachable; Production Provider, Prompt and pricing registries remain exact-empty",
         "requiredReachability": [
           "src/ai/",
           "src/server/ai/phase-d-provider-composition.ts",
@@ -274,7 +274,7 @@
             ],
             "testSemantic": false
           },
-          "stageStatus": "phase_d_required"
+          "stageStatus": "FUTURE_PHASE_F_RUNTIME_ONLY"
         },
         {
           "bundleZones": [
@@ -292,7 +292,7 @@
             "files": [],
             "testSemantic": false
           },
-          "stageStatus": "phase_d_bounded_provider"
+          "stageStatus": "FUTURE_PHASE_F_RUNTIME_ONLY"
         },
         {
           "bundleZones": [
@@ -311,6 +311,7 @@
           "match": {
             "directories": [
               "src/ai/testing/",
+              "test-fixtures/ai/",
               "test-fixtures/ai-architecture/",
               "test-fixtures/ai-server-bundle/",
               "test-fixtures/ai-types/"
@@ -487,6 +488,7 @@
             "directories": [],
             "excludeDirectories": [
               "src/ai/testing/",
+              "test-fixtures/ai/",
               "test-fixtures/ai-architecture/",
               "test-fixtures/ai-server-bundle/",
               "test-fixtures/ai-types/"
@@ -614,26 +616,24 @@
       "complexityApprovalRequiredForRecommended": false,
       "dependencyRequiredForRecommended": false,
       "freshIndependentCorrectedDesignPassRequired": true,
-      "implementationAuthorized": false,
+      "implementationAuthorized": true,
       "newM03ProfileVersionRequired": true,
       "ownerAcceptanceRecorded": true,
       "schemaOrMigrationRequired": false,
-      "selected": "one direct PostgreSQL ai_runs Worker in the modular monolith with one Phase C composition root",
-      "currentPhase": "phase_c"
+      "selected": "one synthetic-only Phase D acceptance surface while existing Provider runtime remains future Phase F only",
+      "currentPhase": "phase_d_synthetic_only"
     },
     "deletions": [
-      "collectAcquisitions loader value-flow collector as currently shaped",
-      "loaderNames",
-      "loaderInvokerNames",
-      "containerLoaderMembers",
-      "moduleObjectNames",
-      "functionNodes",
-      "loaderForm",
-      "memberLoaderForm",
-      "bindLoaderPattern",
-      "the 32-iteration propagation loop and flow-budget state",
-      "createRequireLoaders and alias-specific compatibility branches",
-      "graph fixtures whose purpose is to prove a require/dynamic form is supported rather than forbidden"
+      "scripts/validate-deepseek-text-adapter.test.ts",
+      "scripts/validate-deepseek-text-adapter.ts",
+      "src/ai/testing/controlled-provider-validation.test.ts",
+      "src/ai/testing/controlled-provider-validation.ts",
+      "src/integrations/ai/providers/deepseek-official-source-preflight.test.ts",
+      "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+      "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+      "test-fixtures/ai/deepseek-controlled-validation.v1.json",
+      "controlled-real and live-source Phase D acceptance authority",
+      "compatibility collectors, second scanners and alternate emitters"
     ],
     "deniedProductionCapabilityOrigins": {
       "ambientAndComputed": [
@@ -728,7 +728,7 @@
         "protected-origin and reserved-zone non-reachability",
         "public and client non-reachability",
         "installed-build server/public agreement",
-        "five-artifact proof-bundle emission"
+        "two-artifact synthetic-only aggregate emission"
       ]
     },
     "externalEngineAlternative": {
@@ -788,6 +788,7 @@
       "protectedResourceRoots": [
         "src/ai/prompts/resources/",
         "src/ai/prompts/generated/",
+        "test-fixtures/ai/",
         "test-fixtures/ai-architecture/",
         "test-fixtures/ai-server-bundle/",
         "test-fixtures/ai-types/",
@@ -870,11 +871,11 @@
     },
     "graphAndContainment": {
       "bundleProof": "installed Next/compiler build manifests and chunks independently confirm server-only placement and public/client non-reachability; source graph and bundle graph must agree",
-      "compositionIncoming": "only scripts/process-ai-runs.ts may import src/server/ai/phase-d-provider-composition.ts at runtime; Phase C is absent and business/public/protected nodes cannot import outward",
-      "compositionRoot": "exactly one src/server/ai/phase-d-provider-composition.ts with the accepted discriminated database and staging-only capability seam",
-      "protectedCapabilityOrigin": "protected AI receives Provider-neutral capabilities; only the Phase D root reaches adapter construction and only the adapter private prepare method reads the credential",
+      "compositionIncoming": "only future Phase F scripts/process-ai-runs.ts may import src/server/ai/phase-d-provider-composition.ts at runtime; every Phase D acceptance root remains isolated",
+      "compositionRoot": "exactly one FUTURE_PHASE_F_RUNTIME_ONLY src/server/ai/phase-d-provider-composition.ts with the accepted discriminated database and staging-only capability seam",
+      "protectedCapabilityOrigin": "protected AI receives Provider-neutral capabilities; only the future Phase F root reaches adapter construction and only the adapter private prepare method reads the credential",
       "publicClient": "public/client closure reaches no src/ai, src/server/ai, Provider adapter, server-only or forbidden package",
-      "reservedAbsence": "Phase B and Phase C composition roots remain absent; Phase E/F/G modules remain absent",
+      "reservedAbsence": "Phase B and Phase C composition roots remain absent; future Phase F runtime remains default-off and unreachable from Phase D acceptance roots",
       "staticGraph": "all allowed local, package, type-only, re-export and static-resource edges over the classified actual tree"
     },
     "historicalMaterializationSource": {
@@ -903,17 +904,35 @@
       ],
       "expansionPolicy": "NEEDS_OWNER_DECISION before any extra path or mechanism",
       "forbidden": [
-        "src/app/**",
         "src/public-site/**",
-        "src/seo/**",
         "src/analytics/**",
         "src/auth/**",
-        "all other Product/runtime paths",
-        "Schema/Migration/ADR/package/lock/config/Prompt bodies"
+        "all Product/runtime paths outside the exact 22-path allowlist",
+        "Schema/Migration/ADR/dependency/lock/Next config/global CSS/Prompt body changes"
       ],
       "requiredReplaceOnly": [
+        "package.json",
+        "pnpm-workspace.yaml",
+        "scripts/validate-deepseek-text-adapter.test.ts",
+        "scripts/validate-deepseek-text-adapter.ts",
         "scripts/verify-ai-architecture.ts",
-        "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json"
+        "src/ai/testing/controlled-provider-validation.test.ts",
+        "src/ai/testing/controlled-provider-validation.ts",
+        "src/app/api/admin/upload-intents/[token]/route.test.ts",
+        "src/app/api/conversion-events/route.test.ts",
+        "src/app/api/upload-intents/[token]/route.test.ts",
+        "src/app/api/upload-intents/route.test.ts",
+        "src/integrations/ai/providers/deepseek-official-source-preflight.test.ts",
+        "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+        "src/integrations/ai/providers/deepseek-text-adapter.test.ts",
+        "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+        "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
+        "test-fixtures/ai/deepseek-controlled-validation.v1.json",
+        "test-fixtures/ai/deepseek-synthetic-contract.v1.json",
+        "src/app/layout.tsx",
+        "src/seo/nonproduction-indexing.test.ts",
+        "src/app/fonts/geist-latin.woff2",
+        "src/app/fonts/geist-mono-latin.woff2"
       ],
       "requiredRetirement": [
         "V3.1/V3.0/V2.2 current profile inputs",
@@ -957,7 +976,7 @@
         "node:buffer"
       ],
       "broadConnectionAuthority": "src/db/client.ts is imported only by the exact Phase D outer root; direct kind/db member reads follow the exact switch template and never enter protected edges",
-      "broadEnvironmentAuthority": "src/config/env.ts may be imported only by exact Phase C outer composition member reads; it is never reachable from protected graph",
+      "broadEnvironmentAuthority": "src/config/env.ts may be imported only by the exact future Phase F outer composition member reads; it is never reachable from Phase D acceptance or protected graph",
       "compilerAuthority": {
         "alias": "@/* -> ./src/*",
         "exactOptionalPropertyTypes": true,
@@ -968,7 +987,7 @@
         "typescriptVersion": "5.9.3"
       },
       "constantFolding": false,
-      "currentProfileCompilation": "V5.0 only; no read, merge or fallback to V3.1/V3.0/V2.2",
+      "currentProfileCompilation": "synthetic-only V1.0 only; no read, merge or fallback profile",
       "dynamicImportOrCommonJs": "denied origin, never edge form",
       "resolution": [
         "TypeScript 5.9.3 module resolution",
@@ -1181,8 +1200,8 @@
         "rootClass": "phase-d-outer-composition",
         "rootId": "phase-d-provider-composition-v1",
         "serverOnly": true,
-        "stage": "phase_d",
-        "status": "required_in_phase_d_candidate",
+        "stage": "phase_f_future",
+        "status": "FUTURE_PHASE_F_RUNTIME_ONLY",
         "typeSafetyCounts": {
           "castsAssertionsAnyUnknownRoundTrips": 0,
           "connectionFactoriesOpened": 0,
@@ -1198,7 +1217,7 @@
           "switchDiscriminantReads": 2,
           "trustedDtoConstructions": 1
         },
-        "phaseDPresence": {
+        "futurePhaseFRuntimePresence": {
           "minimumFiles": 1,
           "maximumFiles": 1,
           "missingBehavior": "fail_closed_missing_required_composition",
@@ -1251,47 +1270,71 @@
       "safe nested class/decorator/static-block/IIFE and plain-data reflection forms"
     ],
     "phaseDProviderBoundary": {
-      "acceptedDesign": "docs/PHASE_1B_STAGE4A_PHASE_D_DEEPSEEK_TEXT_ADAPTER_EXACT_DESIGN_V1_2.md",
-      "billableAuthority": {
-        "adapterFetchPath": "src/integrations/ai/providers/deepseek-text-adapter.ts",
-        "executeCallOwner": "src/ai/core/orchestrator.ts",
-        "maximumControlledProviderPosts": 1,
-        "requiredOrder": [
-          "committed ai_runs claim",
-          "prepareTextDispatch",
-          "committed dispatch fence",
-          "PreparedTextDispatchV1.execute",
-          "terminal settlement",
-          "terminal row projection"
+      "acceptedDesign": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_2_CANONICAL_TEMPERATURE_PARAMETER_AUTHORITY_AMENDMENT_V1_0.md",
+      "acceptanceRoots": {
+        "packageCommand": "vitest run src/integrations/ai/providers/deepseek-text-adapter.test.ts src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts src/integrations/ai/providers/deepseek-pricing.test.ts src/ai/testing/synthetic-application/synthetic-application.test.ts src/ai/testing/synthetic-prompts/synthetic-prompt.test.ts",
+        "testFiles": [
+          "src/integrations/ai/providers/deepseek-text-adapter.test.ts",
+          "src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts",
+          "src/integrations/ai/providers/deepseek-pricing.test.ts",
+          "src/ai/testing/synthetic-application/synthetic-application.test.ts",
+          "src/ai/testing/synthetic-prompts/synthetic-prompt.test.ts"
         ]
       },
-      "controlledValidation": {
-        "fixturePath": "test-fixtures/ai/deepseek-controlled-validation.v1.json",
-        "fixtureSha256": "6ee8e7504844d0a63aca49590c0d790e22cf911bea58b2d377bf23cf30bbe24a",
-        "maximumAttempts": 1,
-        "maximumInputTokens": 2048,
-        "maximumOutputTokens": 64,
-        "maximumRunCostMicrousd": 400,
-        "runnerPath": "src/ai/testing/controlled-provider-validation.ts",
-        "scriptPath": "scripts/validate-deepseek-text-adapter.ts"
+      "canonicalFixture": {
+        "path": "test-fixtures/ai/deepseek-synthetic-contract.v1.json",
+        "sha256": "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42",
+        "caseCount": 39,
+        "requestParameters": {
+          "temperature": 0
+        }
       },
-      "credentialAuthority": {
-        "environmentName": "DEEPSEEK_API_KEY",
-        "soleOwner": "src/integrations/ai/providers/deepseek-text-adapter.ts#prepareTextDispatch",
-        "forbiddenOperations": [
-          "trim",
-          "hash",
-          "fingerprint",
-          "log",
-          "persist",
-          "serialize",
-          "inspect outside sole reader"
-        ]
+      "explicitSyntheticSeams": {
+        "credential": "synthetic-test-value-phase-d-01",
+        "credentialReaderRequired": true,
+        "fetchImplementationRequired": true,
+        "defaultCredentialReaderReachable": false,
+        "defaultFetchReachable": false
       },
-      "externalNetworkAllowlist": [
-        "GET api-docs.deepseek.com /quick_start/pricing/",
-        "GET api-docs.deepseek.com /api/create-chat-completion/",
-        "POST api.deepseek.com /chat/completions"
+      "loopbackTransport": {
+        "testPath": "src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts",
+        "bindHost": "127.0.0.1",
+        "destinationHost": "127.0.0.1",
+        "port": "ephemeral",
+        "dnsAllowed": false,
+        "externalEgressAllowed": false
+      },
+      "futureRuntime": {
+        "classification": "FUTURE_PHASE_F_RUNTIME_ONLY",
+        "paths": [
+          "src/server/ai/phase-d-provider-composition.ts",
+          "scripts/process-ai-runs.ts"
+        ],
+        "defaultEnabled": false,
+        "reachableFromAcceptanceRoots": false
+      },
+      "retiredPaths": [
+        "scripts/validate-deepseek-text-adapter.test.ts",
+        "scripts/validate-deepseek-text-adapter.ts",
+        "src/ai/testing/controlled-provider-validation.test.ts",
+        "src/ai/testing/controlled-provider-validation.ts",
+        "src/integrations/ai/providers/deepseek-official-source-preflight.test.ts",
+        "src/integrations/ai/providers/deepseek-official-source-preflight.ts",
+        "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+        "test-fixtures/ai/deepseek-controlled-validation.v1.json"
+      ],
+      "externalAuthority": {
+        "realSecret": "NOT_RUN_DEFERRED_TO_PHASE_F",
+        "realDatabase": "NOT_RUN_DEFERRED_TO_PHASE_F",
+        "providerApi": "NOT_RUN_DEFERRED_TO_PHASE_F",
+        "officialSource": "NOT_RUN_DEFERRED_TO_PHASE_F",
+        "dnsOrEgress": "NOT_RUN_DEFERRED_TO_PHASE_F"
+      },
+      "bespokeMutationProbeIds": [
+        "phase-d-retired-real-validation-cli-reintroduced",
+        "phase-d-database-or-environment-authority-reachable",
+        "phase-d-default-fetch-or-credential-reader-executed",
+        "phase-d-future-runtime-imported"
       ],
       "productionState": {
         "pricingRegistry": "exact-empty",
@@ -1308,10 +1351,11 @@
         "caller headers, proxy, agent or dispatcher",
         "raw prompt, input, context, body, header, exception or reasoning evidence",
         "business/public/client reachability",
-        "Phase E, F or G reachability"
+        "real credential, database, Provider/API, official-source, DNS or external egress",
+        "Phase E or Phase F acceptance"
       ]
     },
-    "profileId": "cwt.phase1b.stage4a.phased.deepseek-text-adapter.v5_0_candidate",
+    "profileId": "cwt.phase1b.stage4a.phased.synthetic-only.v1_0",
     "profileIntegrity": {
       "algorithm": "sha256-jcs-selected-pointers-v1",
       "coveredJsonPointers": [
@@ -1345,9 +1389,9 @@
         "/phaseCSyntheticAuthority",
         "/phaseCSyntheticMutationProbeIds"
       ],
-        "sha256": "96b951d60b629d242059de51c02e2515662dfc426a74ba735a97e91d0129e2bf"
+        "sha256": "88a107e695962f4217f7f843f8b2b25fd37be9539c03a01dba66bed482f318f6"
     },
-    "profileVersion": "5.0.0-candidate",
+    "profileVersion": "1.0.0",
     "proofArtifactContracts": {
       "schemaVersion": 50,
       "canonicalJson": true,
@@ -1358,83 +1402,30 @@
         "profileFileSha256",
         "profileIntegritySha256",
         "checkerSha256",
-        "candidateCommit",
-        "inputHashes",
-        "proofHash"
+        "candidateCommit"
       ],
-      "atomicEmission": "build and cross-validate five canonical proofs plus their manifest in one absent same-filesystem temporary directory, then rename the directory once; failure leaves no partial current proof",
+      "atomicEmission": "build and cross-validate exactly one synthetic-only result plus its manifest in one absent same-filesystem temporary directory, then rename the directory once; failure leaves no partial current output",
       "timestampsOrAbsoluteTemporaryPathsAllowed": false,
-      "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_D_V5_0.json": [
-        "runtimeIdentities",
-        "currentProfileCompileInputs",
-        "historicalProfileRuntimeReads",
-        "excludedPhysicalRoots",
-        "candidates",
-        "executables",
-        "classMembers",
-        "zeroClass",
-        "ambiguous",
-        "sourceStates",
-        "ordinaryGlobalUrlValues",
-        "ordinaryGlobalUrlValueCount",
-        "staticResourceCandidates",
-        "allowedStaticFormCounts",
-        "deniedOriginCount",
-        "inventoryHash",
-        "contentHash",
-        "classificationHash",
-        "staticLanguageHash"
+      "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_RESULT_V1_0.json": [
+        "acceptanceRoots",
+        "retiredPathAbsence",
+        "loopbackConstraints",
+        "explicitSyntheticSeams",
+        "futureRuntimeIsolation",
+        "externalDatabaseEnvironmentNonReachability",
+        "inheritedControlPreservation",
+        "packageLockDelta",
+        "bespokeMutationProbes"
       ],
-      "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_D_V5_0.json": [
-        "originRuleSetHash",
-        "deniedOriginCount",
-        "importMetaPlacementCount",
-        "protectedOrigins",
-        "reservedAbsence",
-        "productionClosure",
-        "publicClientClosure",
-        "nonReachabilityHash"
-      ],
-      "AI_PHASE_D_COMPOSITION_PROVIDER_SECRET_PROOF_V5_0.json": [
-        "compositionPath",
-        "exactImports",
-        "trustedEnvironmentDto",
-        "databaseBranches",
-        "factoryCalls",
-        "incomingProductionEdges",
-        "typescriptProbeCaptures",
-        "m03SeamIdentity",
-        "compositionHash"
-      ],
-      "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_D_V5_0.json": [
-        "toolchainIdentities",
-        "sourceProofHashes",
-        "buildInputs",
-        "serverMarkerPresence",
-        "publicClientAbsence",
-        "positiveLeakFailure",
-        "sourceBundleAgreement",
-        "bundleHash"
-      ],
-      "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_D_V5_0.json": [
-        "nodes",
-        "edges",
-        "ordinaryUrlZeroEdgeLocations",
-        "resourceEdges",
-        "unresolved",
-        "ambiguous",
-        "cycles",
-        "compilerOptionsHash",
-        "graphHash"
-      ],
-      "AI_ARCHITECTURE_PHASE_D_V5_MANIFEST.json": [
-        "proofs",
+      "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_MANIFEST_V1_0.json": [
+        "result",
         "checkerSha256",
         "profileFileSha256",
         "profileIntegritySha256",
-        "inheritedMutationProbeSetSha256",
-        "phaseCSyntheticMutationProbeSetSha256",
-        "candidateCommit"
+        "fixtureSha256",
+        "executableTreeSha256",
+        "candidateCommit",
+        "acceptedParent"
       ]
     },
     "protectedAiPolicy": {
@@ -1521,12 +1512,8 @@
       "safe ordinary URL and nested positive controls"
     ],
     "requiredProofArtifacts": [
-      "AI_ACTUAL_TREE_AND_STATIC_LANGUAGE_PROOF_PHASE_D_V5_0.json",
-      "AI_STATIC_MODULE_AND_RESOURCE_GRAPH_PROOF_PHASE_D_V5_0.json",
-      "AI_CAPABILITY_ORIGIN_AND_NON_REACHABILITY_PROOF_PHASE_D_V5_0.json",
-      "AI_PHASE_D_COMPOSITION_PROVIDER_SECRET_PROOF_V5_0.json",
-      "AI_SERVER_PUBLIC_BUNDLE_BOUNDARY_PHASE_D_V5_0.json",
-      "AI_ARCHITECTURE_PHASE_D_V5_MANIFEST.json"
+      "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_RESULT_V1_0.json",
+      "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_MANIFEST_V1_0.json"
     ],
     "resourceAndGeneratedPolicy": {
       "closedGeneratedRule": "every candidate below a generatedRoot or ending with a generatedExecutableSuffix must be one exact productionGeneratedFiles value and a protected-ai node; the only framework-control generated exception is exact next-env.d.ts, whose bytes/source-state/class/type-reference contract is inline here and whose sole class is root-control-file; any other generated-marked path fails closed",
@@ -1652,20 +1639,21 @@
         "unresolvedOrAmbiguous": "fail_closed_bind_failed"
       }
     },
-    "rollback": "abandon V1.12 Candidate and recreate from immutable V111-M01 checkpoint 66bfd0bb8dd5a0f398bd2a70ee5672acc127a100; future implementation rollback remains 0793948ad115c19f852a9590387ed9ba06738a39",
+    "rollback": "discard the unaccepted S2/C2 descendants and return to the accepted S1.2 authority without rewriting immutable history",
     "selectedArchitecturePreserved": "M03-D1-DISCRIMINATED-SEAM",
     "singleAuthority": {
       "checkerCompileInputs": [
-        "one standalone V5.0 current profile only",
+        "one standalone synthetic-only V1.0 current profile only",
+        "one canonical DeepSeek synthetic contract fixture only",
         "actual repository filesystem bytes",
         "installed TypeScript 5.9.3 plus tsconfig.json",
         "installed Next/compiler build outputs only for the distinct bundle proof"
       ],
       "checkerCount": 1,
-      "compilation": "validate raw and selected-pointer integrity, deep-copy and recursively freeze V5.0 before actual-tree enumeration",
-      "currentDesignProfilePath": "docs/PHASE_1B_STAGE4A_PHASE_D_DEEPSEEK_TEXT_ADAPTER_EXACT_DESIGN_V1_2.md",
+      "compilation": "validate raw and selected-pointer integrity, deep-copy and recursively freeze synthetic-only V1.0 before actual-tree enumeration",
+      "currentDesignProfilePath": "docs/PHASE_1B_STAGE4A_PHASE_D_FONT_HERMETIC_S1_2_CANONICAL_TEMPERATURE_PARAMETER_AUTHORITY_AMENDMENT_V1_0.md",
       "currentProfileCount": 1,
-      "currentProfilePath": "test-fixtures/ai-architecture/graph-faults.phase-d.v5_0.json",
+      "currentProfilePath": "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
       "entryPoint": "scripts/verify-ai-architecture.ts",
       "forbiddenCompileInputs": [
         "V3.1",
@@ -1679,7 +1667,7 @@
       "historicalEqualityAuditIsRuntimeInput": false,
       "secondScannerOrCompatibilityCollectorAllowed": false
     },
-    "status": "phase_d_implementation_candidate_not_accepted",
+    "status": "phase_d_synthetic_only_implementation_candidate_not_accepted",
     "testAndRootControlPolicy": {
       "classIds": [
         "synthetic-ai-test-code",

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ReadonlyJsonObject } from "@/ai/canonical-json";
+import { canonicalizeJson, type ReadonlyJsonObject } from "@/ai/canonical-json";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type {
   NormalizedCompletionV1,
@@ -398,7 +398,8 @@ export function createDeepSeekTextProviderV1(
         max_tokens: input.request.maxOutputTokens,
       };
       for (const [key, value] of Object.entries(configuration.value.parameters)) bodyObject[key] = value;
-      const requestBytes = JSON.stringify(bodyObject);
+      const canonical = canonicalizeJson(bodyObject);
+      if (!canonical.ok) return canonical;
       let credential = (testSeams.credentialReader ??
         (() => process.env.DEEPSEEK_API_KEY))();
       if (credential === undefined || credential.length < 20 || credential.length > 512 ||
@@ -441,7 +442,7 @@ export function createDeepSeekTextProviderV1(
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${credential}`,
               },
-              body: requestBytes,
+              body: canonical.value,
               signal: combined,
             });
             credential = undefined;
