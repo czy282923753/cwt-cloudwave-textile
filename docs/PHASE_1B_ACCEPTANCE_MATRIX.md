@@ -1,6 +1,6 @@
 # CWT Phase 1B acceptance matrix
 
-Status: **Stage 4A Phase A accepted / PASS; Phase B entry prepared but not started; all other Stage and external-action gates remain separate**
+Status: **Stage 4A Phase A–C accepted; Phase D accepted with Owner-accepted residual risk / frozen; Phase E pre-entry needs Owner decision; all other Stage and external-action gates remain separate**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Matrix date: **2026-08-05**
 
@@ -10,7 +10,7 @@ This matrix translates the approved Phase 1B frozen decisions into testable rele
 
 Current authorization is recorded in the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md). DeepSeek `PD-04` through `PD-07` are non-blocking reference evaluations under that decision; their unresolved evidence is not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized.
 
-The exact Integration HEAD `717cbac284350ec23f786ee239a354085ee0d827` passed the [Independent Phase A Completion Review](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md) and is accepted by the Project Coordinator in the [Phase A Acceptance and Phase B Entry record](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md). Phase A is **ACCEPTED / PASS**. Phase B is eligible to begin only through a separate task; the entry baseline does not start or implement it. The complete Stage 4A checkpoint still requires later Owner acceptance.
+The exact accepted Stage 4A checkpoints are Phase A `717cbac284350ec23f786ee239a354085ee0d827`, Phase B `cc5715f4a9eb07293bf932cfbd822bfa6bf14a45`, Phase C `9006b638ed51f981f7477829086244627c488d6b`, and Phase D freeze `de51dff2b519f1ecacfb73e067c9d68361939c29`. Phase D remains **ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK** and is not reopened. The [Phase E Pre-Entry Exact Design / Owner Decision V1.0](./PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md) is **NEEDS_OWNER_DECISION** because exact Production Prompt v1 prose and named Product/Content/SEO reviewer authority are absent. Rows for Phase E remain planned and no Phase E implementation or Phase F external validation has started. The complete Stage 4A checkpoint still requires later Owner acceptance.
 
 Execution-state labels in this matrix are separate from the Discovery gap-status labels:
 

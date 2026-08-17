@@ -1,10 +1,12 @@
 # CWT Phase 1B implementation plan
 
-Status: **Stage 4A Phase A accepted / PASS; Phase B entry prepared but not started; other Stages and external actions remain separately gated**
+Status: **Stage 4A Phase A–C accepted; Phase D accepted with Owner-accepted residual risk / frozen; Phase E pre-entry needs Owner decision; other Stages and external actions remain separately gated**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Plan date: **2026-08-05**
 
 Stage 0 approval: [Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md), [Product Import Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [Email Template Contract](./EMAIL_TEMPLATE_CONTRACT.md), and accepted ADR-0013 through ADR-0017. Post-Stage-3 AI architecture is supplemented by accepted ADR-0018, the owner-confirmed [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), and the Stage 4A Pre-Development Implementation Plan. The later [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) authorizes bounded P1-02A development while preserving every architecture and external-action boundary.
+
+> **Current Stage 4A addendum — 2026-08-17:** accepted checkpoints are Phase A `717cbac284350ec23f786ee239a354085ee0d827`, Phase B `cc5715f4a9eb07293bf932cfbd822bfa6bf14a45`, Phase C `9006b638ed51f981f7477829086244627c488d6b`, and Phase D freeze `de51dff2b519f1ecacfb73e067c9d68361939c29`. Phase D remains `ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK`; it is not reopened. The [Phase E Pre-Entry Exact Design / Owner Decision V1.0](./PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md) is `NEEDS_OWNER_DECISION` for exact Production Prompt v1 prose and named Product/Content/SEO reviewers. Phase E implementation and Phase F external validation have not started.
 
 ## 1. Recommendation
 
@@ -432,6 +434,8 @@ Stop conditions: a Provider response can modify truth fields, Production SEO or 
 Provider disposition: DeepSeek is selected but disabled-first, `DF-01`–`DF-06` are frozen, the Synthetic/evaluation contract is complete, the Stage 4A Staging budget is Owner-approved, and the enterprise evidence questionnaire has been submitted. The Owner has accepted the incomplete supplier-information risk and made `PD-04` through `PD-07` non-blocking references. Development is authorized, but Provider/API calls, credentials, spend, Staging deployment, and Production remain separately unauthorized. Any later protected Staging run requires an explicit external-action authorization and does not authorize Production.
 
 Phase A current state: **ACCEPTED / PASS** for exact Integration HEAD `717cbac284350ec23f786ee239a354085ee0d827`. The exact `0020` Candidate is preserved through the non-fast-forward integration merge; the independent Completion Review reports zero Blocker/High/Medium/Low findings; Low `L-01` is closed by the Erratum; and non-blocking External Validation `EV-01` remains deferred. See the [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md), [Independent Completion Review](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md), and [Phase A Acceptance and Phase B Entry record](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md). Phase B is eligible to begin only through a separate Provider-neutral Foundation design/Complex Task Analysis task; it is not started or implemented by the entry baseline. The complete Stage 4A checkpoint still requires later Owner acceptance.
+
+Current superseding Stage 4A phase state: Phase B and Phase C are accepted at the exact checkpoints recorded above; Phase D is accepted/frozen with Owner-accepted residual risk. Phase E remains pre-entry and is not implementation-authorized until the missing Production Prompt/reviewer authority is supplied, incorporated into an exact Candidate, and passed by a different fresh independent full Design/security review. The preceding Phase A paragraph is retained as its evidence-time history, not current phase status.
 
 Complexity: Very High.
 
