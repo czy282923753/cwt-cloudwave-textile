@@ -1,0 +1,176 @@
+{
+  "affectedCredential": "ROTATION_REQUIRED_BEFORE_ANY_REUSE",
+  "aggregate": {
+    "aggregateDisposition": "OWNER_ACCEPTED_RESIDUAL_NOT_PROVED",
+    "aggregatePairPresent": false,
+    "compensatingEvidence": {
+      "boundedScan": {
+        "diagnostic": {
+          "modeType": "0o120000",
+          "nodeType": "symlink",
+          "relativePath": "node_modules/@aws-sdk/client-s3-64df096a7e71b28d"
+        },
+        "proofCeiling": "FIRST_ENCOUNTERED_NON_REGULAR_NODE_OUTSIDE_NEXT_STATIC_ONLY_NO_TARGET_PRODUCER_CONTENT_PURPOSE_CONTAINMENT_AGGREGATE_OR_COMPLETE_TREE_PROOF"
+      },
+      "gate9Coverage": "BUILD_MANIFEST_ROOT_CHUNKS_PLUS_MANIFEST_REFERENCED_BROWSER_CHUNKS_NOT_ENTIRE_BUILD_ROOT",
+      "gate9Exclusions": [
+        "RAW_SYNTHETIC_PROMPT_MARKER",
+        "EVERY_ORPHAN_PHYSICAL_CHUNK",
+        "COMPILED_SERVER_POSITIVE_MARKER_PRESENCE",
+        "AGGREGATE_HASHES",
+        "SOURCE_BUNDLE_AGREEMENT",
+        "CANONICAL_AGGREGATE_PAIR"
+      ],
+      "gateOrdinals": [
+        3,
+        8,
+        9,
+        10
+      ]
+    },
+    "formalAggregateOutputs": null,
+    "residualObligations": [
+      "COMPILED_SERVER_OUTPUT_CONTAINS_ALL_THREE_AGGREGATE_SERVER_MARKERS",
+      "COMPILED_SERVER_OUTPUT_CONTAINS_RAW_SYNTHETIC_PROMPT_MARKER",
+      "EVERY_PHYSICAL_NEXT_STATIC_CHUNKS_JS_INCLUDING_ORPHANS_LACKS_ALL_THREE_AGGREGATE_SERVER_MARKERS_AND_RAW_SYNTHETIC_PROMPT_MARKER",
+      "AGGREGATE_SERVER_TREE_HASH_PUBLIC_TREE_HASH_BUNDLE_HASH_AND_SOURCE_BUNDLE_AGREEMENT",
+      "CANONICAL_AGGREGATE_PAIR"
+    ]
+  },
+  "classification": "EXACT_S2_5_ROUTE_C_C2_EVIDENCE_RECORDING",
+  "externalValidation": "NOT_RUN_DEFERRED_TO_PHASE_F",
+  "formalEvidence": {
+    "classification": "FAILED",
+    "firstFailure": {
+      "code": "AGGREGATE_FAILED",
+      "stage": "AGGREGATE"
+    },
+    "result": {
+      "bytes": 4801,
+      "filename": "PHASE_D_SIMPLIFIED_FORMAL_VALIDATION_RESULT_V1_0.json",
+      "sha256": "24c035d43a23884b87c8cb99a1252959a82da21b734ad9d40ca086a32deb9459"
+    },
+    "runManifest": {
+      "bytes": 737,
+      "filename": "PHASE_D_SIMPLIFIED_FORMAL_VALIDATION_RUN_MANIFEST_V1_0.json",
+      "sha256": "337155e009c54ee4427e5070b8ff92e8068b8f2ec20ea08a03a9d5d7eb828b30"
+    },
+    "runnerSha256": "c647187555834efa78fb81ef0e23d5538948818267de7745d158f7a8def4d7e8",
+    "staticManifestSha256": "5c33c416c73db652f8f751ade9d90077edccee4db87cfb79801a5b10fb23fb4c"
+  },
+  "gates": [
+    {
+      "invocationCount": 1,
+      "name": "check:ai-phase-d-synthetic",
+      "ordinal": 1,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "check:ai-prompts",
+      "ordinal": 2,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "check:ai-architecture",
+      "ordinal": 3,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "typecheck",
+      "ordinal": 4,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "lint",
+      "ordinal": 5,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "test:ai-foundation",
+      "ordinal": 6,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "test:run",
+      "ordinal": 7,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "build",
+      "ordinal": 8,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "check:bundle",
+      "ordinal": 9,
+      "status": "PASS"
+    },
+    {
+      "invocationCount": 1,
+      "name": "exact-s2-integrity",
+      "ordinal": 10,
+      "status": "PASS"
+    }
+  ],
+  "governance": {
+    "acceptedCandidate": {
+      "commit": "ee402e19e1d78af0745474b33dc71ae195a082dc",
+      "parent": "2604b460e4025190c302bfeebd62a74be710baa8",
+      "paths": {
+        "activeAuthority": "docs/PHASE_1B_STAGE4A_PHASE_D_SIMPLIFIED_FORMAL_VALIDATION_RUNNER_AUTHORITY_AMENDMENT_V1_0.md",
+        "adr": "docs/adr/ADR-0020-phase-d-synthetic-only-bounded-convergence.md",
+        "ownerDecision": "docs/PHASE_1B_STAGE4A_PHASE_D_POST_GATE_AGGREGATE_RESIDUAL_RISK_OWNER_DECISION_V1_0.md",
+        "terminalAuthority": "I1.2.9.5"
+      }
+    },
+    "acceptedReview": {
+      "commit": "a2992e531b29d8b746c54f0fc5bd9c42e92409e7",
+      "fullReviewNecessity": "NOT_REQUIRED",
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_ROUTE_C_RESIDUAL_RISK_GOVERNANCE_REVIEW_V1_0.md",
+      "severity": {
+        "blocker": 0,
+        "high": 0,
+        "low": 1,
+        "medium": 0
+      },
+      "status": "PASS"
+    },
+    "technicalEscalation": {
+      "commit": "9a89cb13c98344ac3e44a4ecd694966972a99dd1",
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_D_POST_GATE_AGGREGATE_INPUT_SCOPE_TECHNICAL_ESCALATION_V1_0.md"
+    }
+  },
+  "phaseBoundary": {
+    "aggregatePassClaim": false,
+    "externalProviderEvidenceClaim": false,
+    "formalPassClaim": false,
+    "phaseDAcceptanceClaim": false,
+    "phaseEAuthority": false,
+    "phaseFAuthority": false,
+    "recordType": "DOCS_EVIDENCE_ONLY_C2_CANDIDATE"
+  },
+  "productCandidate": {
+    "commit": "d7655385e37330927c53e60fbb108b56950c9794",
+    "diffMode": "--no-renames",
+    "parent": "ee13e743158e245f520a8d7ec68aa1854179fdc3",
+    "pathCount": 23,
+    "sortedPathSha256": "10bd74a890f4c01ddfd5a03934e1c7f394bd5a8cf1365608aa298ac22b4345f5",
+    "tree": "db18f7fdb545d91ad37280af6cc6822b78d6cfd6"
+  },
+  "rollback": {
+    "beforeAcceptance": "DISCARD_OR_REVERT_ONLY_THIS_TWO_PATH_C2_COMMIT_TO_EXACT_S2_5",
+    "executionAllowancesRestored": false,
+    "retainedFormalEvidenceAltered": false
+  },
+  "schema": "cwt.phase-1b.stage4a.phase-d.s2-5.route-c.c2-evidence-manifest.v1",
+  "status": "CANDIDATE_PENDING_FRESH_INDEPENDENT_R2_REVIEW",
+  "version": 1
+}
