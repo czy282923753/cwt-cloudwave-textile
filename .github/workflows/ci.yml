@@ -77,7 +77,7 @@ jobs:
           fi
           brew_status=0
           brew install postgresql@18 || brew_status=$?
-          postgres_bin="$(brew --prefix postgresql@18)/bin"
+          postgres_bin="/opt/homebrew/opt/postgresql@18/bin"
           postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
           test -x "$postgres_bin/postgres"
           postgres_version="$("$postgres_bin/postgres" --version)"
