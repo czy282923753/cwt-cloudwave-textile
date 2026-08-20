@@ -22,7 +22,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "generate:ai-prompts": "tsx scripts/generate-ai-prompt-bundle.ts --scope production && tsx scripts/generate-ai-prompt-bundle.ts --scope synthetic-test",
-    "check:ai-prompts": "node --import=tsx scripts/verify-ai-prompt-bundle.ts --include-synthetic-test",
+    "check:ai-prompts": "node --import=tsx scripts/verify-ai-prompt-bundle.ts --include-synthetic-test && node --import=tsx --test scripts/verify-ai-prompt-bundle.test.ts scripts/verify-ai-prompt-history.test.ts",
     "check:ai-architecture": "node --import=tsx scripts/verify-ai-architecture.ts",
     "test:ai-foundation": "vitest run src/ai",
     "check:bundle": "node scripts/check-public-bundle.mjs",
