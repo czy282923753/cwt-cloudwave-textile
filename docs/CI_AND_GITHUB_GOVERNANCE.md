@@ -20,13 +20,20 @@ Only `F`, the original annotated tag, `C`, and the resulting PR/merge lineage ar
 
 | Job | Required evidence for an applicable PR | Contract |
 | --- | --- | --- |
-| `Quality + PostgreSQL` | PASS | Exact Node/pnpm, AI prompt/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled; image-processing suites execute the pinned Sharp native binding |
-| `AI architecture proof` | PASS | Candidate Product-tree equivalence followed by the unchanged proof-bound checker at `d7655385e37330927c53e60fbb108b56950c9794` on the accepted macOS ARM64 filesystem semantics |
+| `Quality + PostgreSQL + AI proof` | PASS | Exact Node/pnpm and Darwin ARM64 runtime, AI prompt/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled, plus candidate Product-tree equivalence followed by the unchanged proof-bound checker at `d7655385e37330927c53e60fbb108b56950c9794`; image-processing suites execute the pinned Sharp native binding |
 | `Build + public bundle` | PASS | Clean migrated PGlite database, real Next Build without seed data, native SWC/Lightning CSS execution, public-bundle boundary check |
 | `Browser` | PASS | Clean Playwright database/storage lifecycle, real Next server startup, and Chromium acceptance with retries disabled |
 | `Dependency security` | PASS or explicitly not applicable | Exact install and High/Critical hard gate only when `package.json` or `pnpm-lock.yaml` changes; scheduled full-severity visibility is separate |
 
-The Product workload jobs use the standard `ubuntu-24.04-arm` GitHub-hosted runner because the accepted runtime guard requires ARM64. The proof-bound architecture job alone uses the standard `macos-15` ARM64 runner for the checker platform contract described below. Both are available to a GitHub Free Private Repository from its included Actions allowance; no larger runner or paid GitHub feature is required. If the included allowance is exhausted and no runner starts, the result is INDETERMINATE rather than PASS. Official setup actions use their current Node 24 runtimes and every action plus the PostgreSQL 18.4 service image is pinned by immutable SHA/digest. Caching is limited to the pnpm store. Workflow permissions are read-only.
+The accepted Phase D Quality, test, PostgreSQL, and AI proof workload uses the standard `macos-15` ARM64 GitHub-hosted runner because its runtime contract requires both Darwin and ARM64. Build, bundle, Browser, and dependency security use the standard `ubuntu-24.04-arm` runner. Both standard runner classes are available to a GitHub Free Private Repository from its included Actions allowance; no larger runner or paid GitHub feature is required. If the included allowance is exhausted and no runner starts, the result is INDETERMINATE rather than PASS. Official setup actions use their current Node 24 runtimes and every action is pinned by immutable commit SHA. Caching is limited to the pnpm store. Workflow permissions are read-only.
+
+### Darwin-bound Phase D runtime and PostgreSQL lifecycle
+
+The frozen Phase D runtime identity includes `platform=darwin` and `arch=arm64`. This is enforced both by the selected protected-data classifier initialization and by the built-in Node fetch integration test. A real Linux ARM64 run therefore fails the accepted runtime boundary before the full suite can execute; changing or emulating that identity would reopen Phase D.
+
+The workflow instead runs the complete Quality and Vitest contract on `macos-15` ARM64 and starts one disposable loopback-only PostgreSQL instance in that job. It installs Homebrew's official `postgresql@18` bottle, hard-checks the actual server identity as PostgreSQL 18.4, initializes a new runner-temporary cluster, applies the fresh Migration through `0020`, runs `pnpm test:run` with all seven existing PostgreSQL suites enabled, and then stops the server even after a failed gate. The cluster uses only synthetic CI credentials and is never shared or persisted. A package-network failure or a version other than 18.4 is INDETERMINATE/failure, never PASS.
+
+This is the smallest runner delta forced by the accepted Product runtime. It does not modify a Product checker or test, fake `process.platform`, add a database proof harness, or weaken PostgreSQL coverage. The Linux Build and Browser jobs remain direct evidence for the production build toolchain and browser lifecycle.
 
 ### Proof-bound checker platform identity
 

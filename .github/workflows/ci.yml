@@ -37,80 +37,12 @@ env:
 
 jobs:
   quality-postgres:
-    name: Quality + PostgreSQL
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
-        env:
-          POSTGRES_USER: cwt_ci
-          POSTGRES_PASSWORD: cwt_ci
-          POSTGRES_DB: cwt_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cwt_ci -d cwt_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      CWT_PHASE_C_POSTGRES_URL: postgres://cwt_ci:cwt_ci@127.0.0.1:5432/cwt_ci
-    steps:
-      - name: Check out the exact revision
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.9.0
-          run_install: false
-
-      - name: Install Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: 24.14.0
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Verify runtime identity
-        run: pnpm env:check
-
-      - name: Install exact dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify AI prompt authority
-        run: pnpm check:ai-prompts
-
-      - name: Verify Phase D synthetic boundary
-        run: pnpm check:ai-phase-d-synthetic
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Apply fresh PostgreSQL migrations through 0020
-        env:
-          APP_ENV: test
-          DATABASE_DRIVER: postgres
-          DATABASE_URL: postgres://cwt_ci:cwt_ci@127.0.0.1:5432/cwt_ci
-        run: |
-          test -f drizzle/0020_phase1b_ai_foundation.sql
-          pnpm db:migrate
-
-      - name: Run the full test suite with PostgreSQL suites enabled
-        run: pnpm test:run
-
-  ai-architecture-proof:
-    name: AI architecture proof
+    name: Quality + PostgreSQL + AI proof
     if: github.event_name != 'schedule'
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 45
+    env:
+      CWT_PHASE_C_POSTGRES_URL: postgres://cwt_ci@127.0.0.1:55432/cwt_ci
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -137,6 +69,54 @@ jobs:
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Start clean disposable PostgreSQL 18.4
+        run: |
+          set -eu
+          brew install postgresql@18
+          postgres_bin="$(brew --prefix postgresql@18)/bin"
+          postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
+          "$postgres_bin/postgres" --version | grep -Fx "postgres (PostgreSQL) 18.4"
+          test ! -e "$postgres_data"
+          echo "CWT_POSTGRES_BIN=$postgres_bin" >> "$GITHUB_ENV"
+          echo "CWT_POSTGRES_DATA=$postgres_data" >> "$GITHUB_ENV"
+          "$postgres_bin/initdb" \
+            -D "$postgres_data" \
+            --username=cwt_ci \
+            --encoding=UTF8 \
+            --locale=C \
+            --auth-local=trust \
+            --auth-host=trust
+          "$postgres_bin/pg_ctl" \
+            -D "$postgres_data" \
+            -l "$RUNNER_TEMP/cwt-postgres-18.4.log" \
+            -o "-h 127.0.0.1 -p 55432" \
+            start
+          "$postgres_bin/createdb" -h 127.0.0.1 -p 55432 -U cwt_ci cwt_ci
+
+      - name: Verify AI prompt authority
+        run: pnpm check:ai-prompts
+
+      - name: Verify Phase D synthetic boundary
+        run: pnpm check:ai-phase-d-synthetic
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Apply fresh PostgreSQL migrations through 0020
+        env:
+          APP_ENV: test
+          DATABASE_DRIVER: postgres
+          DATABASE_URL: postgres://cwt_ci@127.0.0.1:55432/cwt_ci
+        run: |
+          test -f drizzle/0020_phase1b_ai_foundation.sql
+          pnpm db:migrate
+
+      - name: Run the full test suite with PostgreSQL suites enabled
+        run: pnpm test:run
+
       - name: Verify accepted proof-bound AI architecture
         env:
           CWT_INSTALLED_NODE_MODULES: ${{ github.workspace }}/node_modules
@@ -153,6 +133,23 @@ jobs:
           trap restore_candidate EXIT
           git checkout --detach "$PHASE_D_ARCHITECTURE_PROOF_COMMIT" >/dev/null
           pnpm check:ai-architecture
+
+      - name: Report PostgreSQL log after failure
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/cwt-postgres-18.4.log" ]; then
+            tail -n 200 "$RUNNER_TEMP/cwt-postgres-18.4.log"
+          fi
+
+      - name: Stop disposable PostgreSQL
+        if: always()
+        run: |
+          if [ -n "${CWT_POSTGRES_BIN:-}" ] && \
+             [ -n "${CWT_POSTGRES_DATA:-}" ] && \
+             [ -d "$CWT_POSTGRES_DATA" ] && \
+             "$CWT_POSTGRES_BIN/pg_ctl" -D "$CWT_POSTGRES_DATA" status >/dev/null 2>&1; then
+            "$CWT_POSTGRES_BIN/pg_ctl" -D "$CWT_POSTGRES_DATA" stop -m fast
+          fi
 
   build-bundle:
     name: Build + public bundle
