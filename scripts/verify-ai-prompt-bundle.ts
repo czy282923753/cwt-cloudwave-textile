@@ -1,6 +1,8 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
+import { promptResourceFileV1Schema } from "../src/ai/prompts/contracts";
+
 import { generatePromptBundleText } from "./generate-ai-prompt-bundle";
 
 const outputs = {
@@ -42,16 +44,28 @@ async function verify(scope: keyof typeof outputs): Promise<void> {
   const referenced: string[] = [];
   for (const entry of manifestInput.entries) {
     if (typeof entry !== "object" || entry === null || !("relativePath" in entry) ||
-      typeof entry.relativePath !== "string") throw new Error(`${scope} Prompt manifest entry is invalid.`);
+      !("promptId" in entry) || !("promptVersion" in entry) ||
+      typeof entry.relativePath !== "string" || typeof entry.promptId !== "string" ||
+      typeof entry.promptVersion !== "number") {
+      throw new Error(`${scope} Prompt manifest entry is invalid.`);
+    }
     referenced.push(entry.relativePath);
+    let resourceInput: unknown;
+    try {
+      resourceInput = JSON.parse(await readFile(resolve(resourceRoots[scope], entry.relativePath), "utf8"));
+    } catch {
+      throw new Error(`${scope} Prompt resource is not valid JSON.`);
+    }
+    const resource = promptResourceFileV1Schema.safeParse(resourceInput);
+    if (!resource.success || resource.data.promptId !== entry.promptId ||
+      resource.data.promptVersion !== entry.promptVersion) {
+      throw new Error(`${scope} Prompt resource contract does not match its manifest tuple.`);
+    }
   }
   const observed = (await jsonFiles(resourceRoots[scope]))
     .filter((path) => scope !== "production" || path !== "manifest.v1.json");
   if (JSON.stringify(observed) !== JSON.stringify([...referenced].sort())) {
     throw new Error(`${scope} Prompt resource set contains stale or unreferenced bytes.`);
-  }
-  if (scope === "production" && referenced.length !== 0) {
-    throw new Error("Phase B Production Prompt manifest must remain empty.");
   }
 }
 
