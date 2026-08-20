@@ -72,6 +72,9 @@ jobs:
       - name: Start clean disposable PostgreSQL 18.4
         run: |
           set -eu
+          if brew tap | grep -Fxq "aws/tap"; then
+            brew untap aws/tap
+          fi
           brew install postgresql@18
           postgres_bin="$(brew --prefix postgresql@18)/bin"
           postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
