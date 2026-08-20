@@ -75,10 +75,15 @@ jobs:
           if brew tap | grep -Fxq "aws/tap"; then
             brew untap aws/tap
           fi
-          brew install postgresql@18
+          brew_status=0
+          brew install postgresql@18 || brew_status=$?
           postgres_bin="$(brew --prefix postgresql@18)/bin"
           postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
+          brew list --versions postgresql@18 | grep -Fx "postgresql@18 18.4"
           "$postgres_bin/postgres" --version | grep -Fx "postgres (PostgreSQL) 18.4"
+          if [ "$brew_status" -ne 0 ]; then
+            echo "Homebrew returned $brew_status after installation; exact PostgreSQL 18.4 postconditions passed."
+          fi
           test ! -e "$postgres_data"
           echo "CWT_POSTGRES_BIN=$postgres_bin" >> "$GITHUB_ENV"
           echo "CWT_POSTGRES_DATA=$postgres_data" >> "$GITHUB_ENV"
