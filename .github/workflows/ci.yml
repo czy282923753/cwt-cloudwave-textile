@@ -79,9 +79,10 @@ jobs:
           brew install postgresql@18 || brew_status=$?
           postgres_bin="$(brew --prefix postgresql@18)/bin"
           postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
-          brew list --versions postgresql@18
           test -x "$postgres_bin/postgres"
-          "$postgres_bin/postgres" --version | grep -Fx "postgres (PostgreSQL) 18.4"
+          postgres_version="$("$postgres_bin/postgres" --version)"
+          test "$postgres_version" = "postgres (PostgreSQL) 18.4"
+          echo "$postgres_version"
           if [ "$brew_status" -ne 0 ]; then
             echo "Homebrew returned $brew_status after installation; exact PostgreSQL 18.4 postconditions passed."
           fi
