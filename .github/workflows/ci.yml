@@ -83,9 +83,6 @@ jobs:
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Diagnose native dependencies
-        run: pnpm env:diagnose
-
       - name: Verify AI prompt authority
         run: pnpm check:ai-prompts
 
@@ -157,9 +154,6 @@ jobs:
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Diagnose native dependencies
-        run: pnpm env:diagnose
-
       - name: Migrate a clean disposable Build database
         run: pnpm db:migrate
 
@@ -198,9 +192,6 @@ jobs:
 
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Diagnose native dependencies
-        run: pnpm env:diagnose
 
       - name: Install isolated Chromium runtime
         run: pnpm exec playwright install --with-deps chromium

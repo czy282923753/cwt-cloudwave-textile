@@ -20,12 +20,18 @@ Only `F`, the original annotated tag, `C`, and the resulting PR/merge lineage ar
 
 | Job | Required evidence for an applicable PR | Contract |
 | --- | --- | --- |
-| `Quality + PostgreSQL` | PASS | Exact Node/pnpm, native diagnostics, AI prompt/architecture/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled |
-| `Build + public bundle` | PASS | Clean migrated PGlite database, Build without seed data, public-bundle boundary check |
-| `Browser` | PASS | Clean Playwright database/storage lifecycle and Chromium acceptance with retries disabled |
+| `Quality + PostgreSQL` | PASS | Exact Node/pnpm, AI prompt/architecture/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled; image-processing suites execute the pinned Sharp native binding |
+| `Build + public bundle` | PASS | Clean migrated PGlite database, real Next Build without seed data, native SWC/Lightning CSS execution, public-bundle boundary check |
+| `Browser` | PASS | Clean Playwright database/storage lifecycle, real Next server startup, and Chromium acceptance with retries disabled |
 | `Dependency security` | PASS or explicitly not applicable | Exact install and High/Critical hard gate only when `package.json` or `pnpm-lock.yaml` changes; scheduled full-severity visibility is separate |
 
 All jobs use the standard `ubuntu-24.04-arm` GitHub-hosted runner because the accepted runtime guard requires ARM64. Third-party actions and the PostgreSQL 18.4 service image are pinned by immutable SHA/digest. Caching is limited to the pnpm store. Workflow permissions are read-only.
+
+### Linux ARM64 native-binding evidence
+
+The accepted `pnpm env:diagnose` helper constructs the generic package name `@next/swc-${platform}-${arch}`. Next.js 16.2.12 uses libc-qualified Linux packages instead (`@next/swc-linux-arm64-gnu` or `@next/swc-linux-arm64-musl`), so that helper produces a Linux-only false negative even when the locked native package is present. The infrastructure workflow does not modify the frozen helper and does not add an alias, symlink, fallback download, or replacement proof script.
+
+CI instead keeps `pnpm env:check` as the exact Node/ARM64 guard and uses the real workload as native-binding evidence: the full test suite executes pinned Sharp image processing, `pnpm build` executes the installed Next SWC and Lightning CSS bindings, and browser acceptance starts the built application before running Chromium. A missing or unloadable native binding fails its applicable job. This is direct execution evidence, not a bypass of a failed native dependency.
 
 The accepted Phase D architecture checker is intentionally proof-bound to code commit `d7655385e37330927c53e60fbb108b56950c9794`; it refuses descendant documentation/governance commits by design. CI first proves that the candidate has no change outside `docs/**` and `.github/**` relative to that proof-bound Product tree, then runs the unchanged checker at the proof-bound commit with the explicit locked-install `node_modules` input. This preserves the checker contract without modifying Phase D or inventing a second architecture authority.
 
