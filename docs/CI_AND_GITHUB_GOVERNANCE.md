@@ -20,12 +20,19 @@ Only `F`, the original annotated tag, `C`, and the resulting PR/merge lineage ar
 
 | Job | Required evidence for an applicable PR | Contract |
 | --- | --- | --- |
-| `Quality + PostgreSQL` | PASS | Exact Node/pnpm, AI prompt/architecture/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled; image-processing suites execute the pinned Sharp native binding |
+| `Quality + PostgreSQL` | PASS | Exact Node/pnpm, AI prompt/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled; image-processing suites execute the pinned Sharp native binding |
+| `AI architecture proof` | PASS | Candidate Product-tree equivalence followed by the unchanged proof-bound checker at `d7655385e37330927c53e60fbb108b56950c9794` on the accepted macOS ARM64 filesystem semantics |
 | `Build + public bundle` | PASS | Clean migrated PGlite database, real Next Build without seed data, native SWC/Lightning CSS execution, public-bundle boundary check |
 | `Browser` | PASS | Clean Playwright database/storage lifecycle, real Next server startup, and Chromium acceptance with retries disabled |
 | `Dependency security` | PASS or explicitly not applicable | Exact install and High/Critical hard gate only when `package.json` or `pnpm-lock.yaml` changes; scheduled full-severity visibility is separate |
 
-All jobs use the standard `ubuntu-24.04-arm` GitHub-hosted runner because the accepted runtime guard requires ARM64. Third-party actions and the PostgreSQL 18.4 service image are pinned by immutable SHA/digest. Caching is limited to the pnpm store. Workflow permissions are read-only.
+The Product workload jobs use the standard `ubuntu-24.04-arm` GitHub-hosted runner because the accepted runtime guard requires ARM64. The proof-bound architecture job alone uses the standard `macos-15` ARM64 runner for the checker platform contract described below. Both are available to a GitHub Free Private Repository from its included Actions allowance; no larger runner or paid GitHub feature is required. If the included allowance is exhausted and no runner starts, the result is INDETERMINATE rather than PASS. Official setup actions use their current Node 24 runtimes and every action plus the PostgreSQL 18.4 service image is pinned by immutable SHA/digest. Caching is limited to the pnpm store. Workflow permissions are read-only.
+
+### Proof-bound checker platform identity
+
+The frozen Phase D architecture checker includes a case-variant negative probe whose expected failure identity depends on the case-insensitive, same-inode filesystem semantics of its accepted macOS ARM64 execution environment. On Linux, the unchanged probe fails earlier as `unresolved_static_edge` because the case-variant path does not exist; that is a checker-platform mismatch, not a Product architecture regression.
+
+The workflow therefore runs that checker unchanged in one standard `macos-15` ARM64 job, after proving that the candidate has no change outside `docs/**` and `.github/**` relative to the proof-bound Product tree. It does not patch the checker, manufacture aliases, mount a custom filesystem, or add a second proof authority. PostgreSQL, Build, bundle, and Browser verification remain on Linux ARM64.
 
 ### Linux ARM64 native-binding evidence
 
