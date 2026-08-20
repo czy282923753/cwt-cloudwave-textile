@@ -3,27 +3,283 @@ name: CWT quality gates
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cwt-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+  APP_ENV: test
+  NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
+  NON_PRODUCTION_NOINDEX: "true"
+  DATABASE_DRIVER: pglite
+  PGLITE_DATA_DIR: /tmp/cwt-ci/pglite
+  STORAGE_DRIVER: local
+  PUBLIC_STORAGE_ROOT: /tmp/cwt-ci/storage/public
+  PRIVATE_STORAGE_ROOT: /tmp/cwt-ci/storage/private
+  IMPORT_STORAGE_ROOT: /tmp/cwt-ci/storage/import
+  FILE_SCAN_DRIVER: development
+  EMAIL_DRIVER: log
+  ANALYTICS_DRIVER: disabled
+  MONITORING_DRIVER: log
+  FEATURE_AI: "false"
+  FEATURE_SEO_ASSISTANT: "false"
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  quality-postgres:
+    name: Quality + PostgreSQL
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18.4@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
+        env:
+          POSTGRES_USER: cwt_ci
+          POSTGRES_PASSWORD: cwt_ci
+          POSTGRES_DB: cwt_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cwt_ci -d cwt_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CWT_PHASE_C_POSTGRES_URL: postgres://cwt_ci:cwt_ci@127.0.0.1:5432/cwt_ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - name: Check out the exact revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.9.0
-      - uses: actions/setup-node@v4
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.14.0
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test:run
-      - run: pnpm build
-      - run: pnpm check:bundle
-      - run: pnpm audit --prod
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runtime identity
+        run: pnpm env:check
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Diagnose native dependencies
+        run: pnpm env:diagnose
+
+      - name: Verify AI prompt authority
+        run: pnpm check:ai-prompts
+
+      - name: Verify accepted proof-bound AI architecture
+        env:
+          CWT_INSTALLED_NODE_MODULES: ${{ github.workspace }}/node_modules
+          PHASE_D_ARCHITECTURE_PROOF_COMMIT: d7655385e37330927c53e60fbb108b56950c9794
+        run: |
+          set -eu
+          candidate_sha=$(git rev-parse HEAD)
+          git diff --quiet "$PHASE_D_ARCHITECTURE_PROOF_COMMIT" "$candidate_sha" -- . \
+            ':(exclude)docs/**' \
+            ':(exclude).github/**'
+          restore_candidate() {
+            git checkout --detach "$candidate_sha" >/dev/null
+          }
+          trap restore_candidate EXIT
+          git checkout --detach "$PHASE_D_ARCHITECTURE_PROOF_COMMIT" >/dev/null
+          pnpm check:ai-architecture
+
+      - name: Verify Phase D synthetic boundary
+        run: pnpm check:ai-phase-d-synthetic
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Apply fresh PostgreSQL migrations through 0020
+        env:
+          APP_ENV: test
+          DATABASE_DRIVER: postgres
+          DATABASE_URL: postgres://cwt_ci:cwt_ci@127.0.0.1:5432/cwt_ci
+        run: |
+          test -f drizzle/0020_phase1b_ai_foundation.sql
+          pnpm db:migrate
+
+      - name: Run the full test suite with PostgreSQL suites enabled
+        run: pnpm test:run
+
+  build-bundle:
+    name: Build + public bundle
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runtime identity
+        run: pnpm env:check
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Diagnose native dependencies
+        run: pnpm env:diagnose
+
+      - name: Migrate a clean disposable Build database
+        run: pnpm db:migrate
+
+      - name: Build without seed data
+        run: pnpm build
+
+      - name: Verify the public bundle boundary
+        run: pnpm check:bundle
+
+  browser:
+    name: Browser
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runtime identity
+        run: pnpm env:check
+
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Diagnose native dependencies
+        run: pnpm env:diagnose
+
+      - name: Install isolated Chromium runtime
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser acceptance without retries
+        run: pnpm exec playwright test --retries=0
+
+  dependency-security:
+    name: Dependency security
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - name: Check out dependency history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Resolve audit scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            echo "full_audit=true" >> "$GITHUB_OUTPUT"
+            echo "dependency_change=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "full_audit=false" >> "$GITHUB_OUTPUT"
+            echo "dependency_change=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            echo "full_audit=false" >> "$GITHUB_OUTPUT"
+            echo "dependency_change=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- package.json pnpm-lock.yaml; then
+            echo "full_audit=false" >> "$GITHUB_OUTPUT"
+            echo "dependency_change=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "full_audit=false" >> "$GITHUB_OUTPUT"
+            echo "dependency_change=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report non-applicable PR gate
+        if: steps.scope.outputs.dependency_change != 'true' && steps.scope.outputs.full_audit != 'true'
+        run: echo "No package.json or pnpm-lock.yaml change; the dependency-changing PR gate is not applicable."
+
+      - name: Install pnpm
+        if: steps.scope.outputs.dependency_change == 'true' || steps.scope.outputs.full_audit == 'true'
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        if: steps.scope.outputs.dependency_change == 'true' || steps.scope.outputs.full_audit == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify runtime identity
+        if: steps.scope.outputs.dependency_change == 'true' || steps.scope.outputs.full_audit == 'true'
+        run: pnpm env:check
+
+      - name: Install exact dependencies
+        if: steps.scope.outputs.dependency_change == 'true' || steps.scope.outputs.full_audit == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: High and Critical dependency gate
+        if: steps.scope.outputs.dependency_change == 'true'
+        run: |
+          echo "A registry or network failure is INDETERMINATE, never PASS; rerun after service recovery."
+          pnpm audit --prod --audit-level=high
+
+      - name: Scheduled full dependency audit
+        if: steps.scope.outputs.full_audit == 'true'
+        run: |
+          echo "This scheduled run reports all severities and is not a PR merge gate."
+          echo "A registry or network failure is INDETERMINATE, never PASS."
+          pnpm audit --prod

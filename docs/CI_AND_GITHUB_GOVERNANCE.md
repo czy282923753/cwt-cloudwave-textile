@@ -1,0 +1,81 @@
+# CI and GitHub governance
+
+## Authority and scope
+
+This document governs the GitHub Free and Private Repository foundation used before Phase E. It does not change the frozen Product architecture, Phase D acceptance, or deployment design.
+
+The immutable Product authority is:
+
+- annotated tag `refs/tags/phase-1b-stage4a-phase-d-approved-2026-08-17`;
+- tag object `f9967d6b73d7c2add66c2f33a4ce969d8d68c4de`;
+- peeled Phase D commit `F=de51dff2b519f1ecacfb73e067c9d68361939c29`.
+
+The accepted pre-Phase-E coordination commit is `P=f2f9037778070268f55d13cb7df6c309d9ec8579`, a descendant of `F`. The infrastructure candidate `C` descends from `P`. The approved integration commit `I` must be a two-parent merge commit with `I^1=F` and `I^2=C`; final remote `main=I`, while the annotated tag remains unchanged.
+
+Only `F`, the original annotated tag, `C`, and the resulting PR/merge lineage are imported. Local `main`, dirty or untracked Owner work, scratch/checkpoint branches, archival refs, and unrelated tags remain local and untouched.
+
+## Single CI workflow
+
+`.github/workflows/ci.yml` is the only CI workflow authority. Pull requests and pushes to `main` run the accepted Phase D checks. A weekly schedule runs the full dependency audit only.
+
+| Job | Required evidence for an applicable PR | Contract |
+| --- | --- | --- |
+| `Quality + PostgreSQL` | PASS | Exact Node/pnpm, native diagnostics, AI prompt/architecture/synthetic checkers, lint, typecheck, fresh PostgreSQL 18.4 Migration through `0020`, full Vitest with all seven existing PostgreSQL suites enabled |
+| `Build + public bundle` | PASS | Clean migrated PGlite database, Build without seed data, public-bundle boundary check |
+| `Browser` | PASS | Clean Playwright database/storage lifecycle and Chromium acceptance with retries disabled |
+| `Dependency security` | PASS or explicitly not applicable | Exact install and High/Critical hard gate only when `package.json` or `pnpm-lock.yaml` changes; scheduled full-severity visibility is separate |
+
+All jobs use the standard `ubuntu-24.04-arm` GitHub-hosted runner because the accepted runtime guard requires ARM64. Third-party actions and the PostgreSQL 18.4 service image are pinned by immutable SHA/digest. Caching is limited to the pnpm store. Workflow permissions are read-only.
+
+The accepted Phase D architecture checker is intentionally proof-bound to code commit `d7655385e37330927c53e60fbb108b56950c9794`; it refuses descendant documentation/governance commits by design. CI first proves that the candidate has no change outside `docs/**` and `.github/**` relative to that proof-bound Product tree, then runs the unchanged checker at the proof-bound commit with the explicit locked-install `node_modules` input. This preserves the checker contract without modifying Phase D or inventing a second architecture authority.
+
+## Isolation boundary
+
+CI uses only conspicuously local/test values and disposable runner storage. It must never receive or contact:
+
+- Production or Staging databases, buckets, credentials, or data;
+- real AI Provider/API credentials or calls;
+- SMTP delivery credentials or real recipients;
+- formal customer, Product, Inquiry, or private Production assets;
+- Cloudflare or deployment credentials.
+
+Production deployment, Stage 6/7, Cloudflare, backup/restore, monitoring, and real Provider validation are outside this foundation.
+
+## Dependency security semantics
+
+For a dependency-changing PR, the authoritative hard gate is:
+
+1. deterministic `package.json` / `pnpm-lock.yaml` state;
+2. `pnpm install --frozen-lockfile`;
+3. `pnpm audit --prod --audit-level=high`.
+
+High and Critical advisories block the governance gate. A registry or network failure is `INDETERMINATE`, never PASS, and requires a later rerun or an explicitly documented Owner decision. The weekly `pnpm audit --prod` supplies full Critical/High/Medium/Low visibility but is not a normal PR merge gate. It is not a second dependency authority.
+
+Any vulnerability exception must preserve the advisory evidence and record: advisory ID, affected package/scope and versions, risk reason, compensating controls, approver, creation and expiry dates, review cadence, remediation owner, and next action. Expired exceptions return to blocking status.
+
+## GitHub Free manual merge gate
+
+The Private Repository uses GitHub Free. The project does not claim platform enforcement for required checks, required review, branch/tag immutability, or force-push/delete prevention where the plan does not provide it. The Owner has accepted this residual risk and no custom enforcement substitute is added.
+
+Normal integration is PR-first. Before merging, the Owner and Coordinator verify the exact latest candidate SHA and confirm:
+
+- every applicable CI job actually ran and passed;
+- no applicable result is pending, cancelled, indeterminate, unexpectedly skipped, or stale;
+- fresh independent Codex Review covers that SHA and has no open BLOCKER/HIGH finding;
+- the PR scope and external-isolation boundary are intact;
+- merge method is **Create a merge commit**.
+
+Squash, rebase, force-push, and branch/tag deletion are excluded from the normal workflow. Owner emergency merge authority remains available as an explicit residual-risk decision. Any use must be recorded in the PR or Coordinator evidence with the reason, exact SHA, missing evidence, decision time, recovery action, and later verification; it must never be described as ordinary PASS.
+
+After merge, the Coordinator verifies `main` CI on `I`, the two-parent lineage, `F` and `P` ancestry, and the unchanged annotated tag. Recovery does not rewrite accepted history: disable Actions if required, preserve evidence, and use a new reviewed revert PR/commit. Never reset or force-push `main` or mutate the Phase D tag.
+
+## Phase E contract
+
+Phase E remains HOLD until all of the following are true:
+
+1. the Private Repository and single CI workflow are implemented;
+2. candidate and post-merge CI evidence is PASS for the exact revisions;
+3. fresh independent Infrastructure Implementation Review is PASS with no blocking finding;
+4. the Project Coordinator accepts the infrastructure gate and recommends lifting HOLD.
+
+Later Stage 4A work must receive a Final CI Delta Review before its own integration. That review updates only the CI command/Migration/test/Build delta required by later accepted work; it does not reopen frozen Phase D.
