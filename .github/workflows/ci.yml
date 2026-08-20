@@ -81,8 +81,11 @@ jobs:
           postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
           test -x "$postgres_bin/postgres"
           postgres_version="$("$postgres_bin/postgres" --version)"
-          test "$postgres_version" = "postgres (PostgreSQL) 18.4"
           echo "$postgres_version"
+          case "$postgres_version" in
+            "postgres (PostgreSQL) 18.4"|"postgres (PostgreSQL) 18.4 (Homebrew)") ;;
+            *) exit 1 ;;
+          esac
           if [ "$brew_status" -ne 0 ]; then
             echo "Homebrew returned $brew_status after installation; exact PostgreSQL 18.4 postconditions passed."
           fi
