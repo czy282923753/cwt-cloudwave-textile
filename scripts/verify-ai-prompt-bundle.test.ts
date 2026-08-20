@@ -43,22 +43,10 @@ async function createFixture(): Promise<string> {
 }
 
 async function writeProductionResource(root: string, overrides: Record<string, unknown> = {}) {
-  const resource = {
-    resourceFormatVersion: 1,
-    promptId: "verifier-regression-fixture",
-    promptVersion: 1,
-    applicationClass: "verifier_regression_fixture",
-    capability: "text",
-    useCase: "verifier_regression_fixture",
-    locale: "en",
-    inputSchemaVersion: 1,
-    outputSchemaVersion: 1,
-    policyVersion: "verifier-regression-fixture-v1",
-    variables: [],
-    body: "VERIFIER REGRESSION FIXTURE ONLY — NOT A CWT FACT.",
-    ...overrides,
-  };
-  const bytes = Buffer.from(`${JSON.stringify(resource)}\n`, "utf8");
+  return writeProductionResourceBytes(root, productionResourceBytes(overrides));
+}
+
+async function writeProductionResourceBytes(root: string, bytes: Buffer) {
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const relativePath = `verifier-regression-fixture/v1.${sha256}.json`;
   await mkdir(dirname(join(root, "src/ai/prompts/resources/production", relativePath)), { recursive: true });
@@ -73,6 +61,24 @@ async function writeProductionResource(root: string, overrides: Record<string, u
     }],
   });
   return { relativePath, sha256 };
+}
+
+function productionResourceBytes(overrides: Record<string, unknown> = {}): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    resourceFormatVersion: 1,
+    promptId: "verifier-regression-fixture",
+    promptVersion: 1,
+    applicationClass: "verifier_regression_fixture",
+    capability: "text",
+    useCase: "verifier_regression_fixture",
+    locale: "en",
+    inputSchemaVersion: 1,
+    outputSchemaVersion: 1,
+    policyVersion: "verifier-regression-fixture-v1",
+    variables: [],
+    body: "VERIFIER REGRESSION FIXTURE ONLY — NOT A CWT FACT.",
+    ...overrides,
+  })}\n`, "utf8");
 }
 
 function generateProduction(root: string): void {
@@ -151,6 +157,56 @@ describe("phase-neutral AI Prompt bundle verification", () => {
     const result = run(verifierPath, root);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /resource contract does not match its manifest tuple/);
+  });
+
+  it("rejects regenerated CRLF resource bytes", async () => {
+    const root = await createFixture();
+    const bytes = productionResourceBytes();
+    await writeProductionResourceBytes(root, Buffer.concat([
+      bytes.subarray(0, -1),
+      Buffer.from("\r\n"),
+    ]));
+    generateProduction(root);
+    const result = run(verifierPath, root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Prompt resource raw text is invalid\./);
+  });
+
+  it("rejects regenerated double-final-LF resource bytes", async () => {
+    const root = await createFixture();
+    await writeProductionResourceBytes(root, Buffer.concat([
+      productionResourceBytes(),
+      Buffer.from("\n"),
+    ]));
+    generateProduction(root);
+    const result = run(verifierPath, root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Prompt resource raw text is invalid\./);
+  });
+
+  it("rejects regenerated invalid UTF-8 resource bytes", async () => {
+    const root = await createFixture();
+    const bytes = productionResourceBytes();
+    const invalidIndex = bytes.indexOf(Buffer.from("REGRESSION"));
+    assert.notEqual(invalidIndex, -1);
+    bytes[invalidIndex] = 0xff;
+    await writeProductionResourceBytes(root, bytes);
+    generateProduction(root);
+    const result = run(verifierPath, root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Prompt resource raw text is invalid\./);
+  });
+
+  it("rejects regenerated UTF-8 BOM resource bytes", async () => {
+    const root = await createFixture();
+    await writeProductionResourceBytes(root, Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      productionResourceBytes(),
+    ]));
+    generateProduction(root);
+    const result = run(verifierPath, root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Prompt resource raw text is invalid\./);
   });
 
   it("preserves the Production synthetic-content boundary", async () => {

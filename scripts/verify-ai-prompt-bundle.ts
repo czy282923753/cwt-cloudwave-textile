@@ -50,9 +50,21 @@ async function verify(scope: keyof typeof outputs): Promise<void> {
       throw new Error(`${scope} Prompt manifest entry is invalid.`);
     }
     referenced.push(entry.relativePath);
+    const raw = await readFile(resolve(resourceRoots[scope], entry.relativePath));
+    const hasUtf8Bom = raw[0] === 0xef && raw[1] === 0xbb && raw[2] === 0xbf;
+    let text: string;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(raw);
+    } catch {
+      throw new Error(`${scope} Prompt resource raw text is invalid.`);
+    }
+    if (hasUtf8Bom || text.startsWith("\uFEFF") || text.includes("\r") ||
+      !text.endsWith("\n") || text.endsWith("\n\n")) {
+      throw new Error(`${scope} Prompt resource raw text is invalid.`);
+    }
     let resourceInput: unknown;
     try {
-      resourceInput = JSON.parse(await readFile(resolve(resourceRoots[scope], entry.relativePath), "utf8"));
+      resourceInput = JSON.parse(text);
     } catch {
       throw new Error(`${scope} Prompt resource is not valid JSON.`);
     }
