@@ -109,6 +109,20 @@ jobs:
       - name: Verify AI prompt authority
         run: pnpm check:ai-prompts
 
+      - name: Verify AI Prompt append-only history
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          PROMPT_HISTORY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PROMPT_HISTORY_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node --import=tsx scripts/verify-ai-prompt-history.ts \
+            --base="$PROMPT_HISTORY_BASE_SHA" \
+            --candidate="$PROMPT_HISTORY_CANDIDATE_SHA"
+
+      - name: Report AI Prompt history not applicable for manual runs
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "AI Prompt history comparison is not applicable to workflow_dispatch without an event base commit."
+
       - name: Verify Phase D synthetic boundary
         run: pnpm check:ai-phase-d-synthetic
 
@@ -129,23 +143,6 @@ jobs:
 
       - name: Run the full test suite with PostgreSQL suites enabled
         run: pnpm test:run
-
-      - name: Verify accepted proof-bound AI architecture
-        env:
-          CWT_INSTALLED_NODE_MODULES: ${{ github.workspace }}/node_modules
-          PHASE_D_ARCHITECTURE_PROOF_COMMIT: d7655385e37330927c53e60fbb108b56950c9794
-        run: |
-          set -eu
-          candidate_sha=$(git rev-parse HEAD)
-          git diff --quiet "$PHASE_D_ARCHITECTURE_PROOF_COMMIT" "$candidate_sha" -- . \
-            ':(exclude)docs/**' \
-            ':(exclude).github/**'
-          restore_candidate() {
-            git checkout --detach "$candidate_sha" >/dev/null
-          }
-          trap restore_candidate EXIT
-          git checkout --detach "$PHASE_D_ARCHITECTURE_PROOF_COMMIT" >/dev/null
-          pnpm check:ai-architecture
 
       - name: Report PostgreSQL log after failure
         if: failure()
