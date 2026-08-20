@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "evidenceClass": "phase_e_pre_entry_owner_decision",
+  "status": "NEEDS_OWNER_DECISION",
+  "observedAt": "2026-08-17T00:00:00+08:00",
+  "candidate": {
+    "branch": "codex/phase-1b-stage4a-phase-e-pre-entry-owner-decision-v1",
+    "requiredParent": "de51dff2b519f1ecacfb73e067c9d68361939c29",
+    "commitIdentityBinding": "recorded_externally_after_commit_to_avoid_self_reference"
+  },
+  "acceptedHandoff": {
+    "phaseA": "717cbac284350ec23f786ee239a354085ee0d827",
+    "phaseBDesignCandidate": "156cbafc061d36ce2395529a3150b0c974f3c603",
+    "phaseBDesignAcceptance": "9aa9735f422975780585e62eaec1a4759f9894c9",
+    "phaseBImplementationCandidate": "4a053c0fa9449588e88f2b8519e74e08b1b59956",
+    "phaseBCheckpoint": "cc5715f4a9eb07293bf932cfbd822bfa6bf14a45",
+    "phaseCDesignCandidate": "21662c2c110f17cd095249fe91c2c019f6f508ab",
+    "phaseCCheckpoint": "9006b638ed51f981f7477829086244627c488d6b",
+    "phaseDProductRollback": "d7655385e37330927c53e60fbb108b56950c9794",
+    "phaseDC2": "573f0b75013e8fb55ce10ecf5bd54ecc3934beef",
+    "phaseDR2": "1f611b5f2433d80d3e0a6bc03a05f4af670623f5",
+    "phaseDFreeze": "de51dff2b519f1ecacfb73e067c9d68361939c29",
+    "phaseDFreezeTree": "87375a4c5afed67e614fd4496dc20dfb1755a894",
+    "phaseDRollbackTag": "phase-1b-stage4a-phase-d-approved-2026-08-17",
+    "phaseDStatus": "ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK"
+  },
+  "decisiveObservations": [
+    {
+      "id": "PE-OD-01",
+      "path": "src/ai/prompts/resources/production/manifest.v1.json",
+      "sha256": "0aa71d065f1783f7bc57a5525e2206a52627fd1fdb9601944aff3edbf374c0e6",
+      "byteLength": 35,
+      "fact": "exact_empty_production_prompt_manifest"
+    },
+    {
+      "id": "PE-OD-01",
+      "path": "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
+      "sha256": "1e0bbc59446308762ae867f91c42180ac65fb4f6ca8236383124288513e44f5f",
+      "byteLength": 218,
+      "fact": "zero_production_prompt_tuples"
+    },
+    {
+      "id": "PE-OD-02",
+      "fact": "no_accepted_named_product_content_seo_reviewer_authority_found",
+      "excludedFalseAuthorities": [
+        "generic_application_role",
+        "test_fixture_display_name",
+        "technical_author",
+        "ai_agent"
+      ]
+    },
+    {
+      "id": "PE-M04",
+      "fact": "editorial_revision_ai_fence_uses_version_number_while_product_content_edit_authority_uses_snapshot_draftVersion"
+    },
+    {
+      "id": "PE-M03",
+      "fact": "fabric_ai_reader_uses_legacy_body_while_current_content_editor_writes_structured_blocks"
+    }
+  ],
+  "decisionRequired": [
+    "exact_production_prompt_v1_authoring_authority",
+    "named_product_reviewer",
+    "named_content_reviewer",
+    "named_seo_reviewer"
+  ],
+  "materialDecisionNotRequired": {
+    "schemaOrMigration": false,
+    "newDependencyOrLockfile": false,
+    "publicApi": false,
+    "seoUrlRedirect": false,
+    "storageOrPrivateDataBoundary": false,
+    "newAdr": false,
+    "newComplexityApproval": false
+  },
+  "candidateDocumentHashes": [
+    {
+      "path": "docs/PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md",
+      "sha256": "7abc8292ce9bfc5fdc2a4940537b7df236641d975d2c54b7fed84d688fea7187"
+    },
+    {
+      "path": "docs/PHASE_1B_STAGE4_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN.md",
+      "sha256": "33857c7b84b97f49ecd5d4151d462d77e7d694a5ca036adee74cb4bb9b70cb39"
+    },
+    {
+      "path": "docs/PHASE_1B_IMPLEMENTATION_PLAN.md",
+      "sha256": "7feb127c24f4e9e13776411ffa6b8780fa2e0040b479a8910b9ccec100b6d749"
+    },
+    {
+      "path": "docs/PHASE_1B_ACCEPTANCE_MATRIX.md",
+      "sha256": "108275cdb0a0a42a173c216008f79fca451e7ad2d155984aa60856a0198f3e7d"
+    }
+  ],
+  "preservedAuthority": {
+    "phaseDAcceptancePath": "docs/PHASE_1B_STAGE4A_PHASE_D_ACCEPTANCE_AND_FREEZE_V1_0.md",
+    "phaseDAcceptanceSha256": "c0ea7749ed8fca3cbbad55aa1c133b317d8a922eff1d5fbd6fec3295c184da13",
+    "phaseDArtifactsModified": false,
+    "historicalEvidenceModified": false,
+    "productOrSourceModified": false,
+    "packageOrLockModified": false,
+    "schemaOrMigrationModified": false
+  },
+  "actionsNotRun": [
+    "provider_or_network",
+    "credential_or_secret_read",
+    "database",
+    "phase_d_formal_or_aggregate",
+    "build_or_product_test",
+    "staging_or_production",
+    "deploy_publish_index_or_formal_import"
+  ],
+  "verification": [
+    "exact_git_identity_and_ancestry_read_only_checks",
+    "source_and_contract_static_read_only_inspection",
+    "prompt_manifest_bundle_byte_and_sha256_inspection",
+    "focused_authority_text_search",
+    "json_parse",
+    "git_diff_check",
+    "direct_child_and_clean_state_after_commit"
+  ],
+  "nextGate": "OWNER_DECISION_THEN_FRESH_INDEPENDENT_FULL_DESIGN_SECURITY_REVIEW"
+}

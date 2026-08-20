@@ -1,6 +1,6 @@
 # CWT Phase 1B Stage 4A Pre-Development Implementation Plan
 
-Status: **ARCHITECTURE APPROVED / DEVELOPMENT AUTHORIZED — PHASE A ACCEPTED / PASS; PHASE B ENTRY PREPARED / NOT STARTED**<br>
+Status: **PHASE A–C ACCEPTED; PHASE D ACCEPTED WITH OWNER-ACCEPTED RESIDUAL RISK / FROZEN; PHASE E PRE-ENTRY NEEDS OWNER DECISION**<br>
 Plan version: `1.5`<br>
 Prepared: `2026-08-10` (Asia/Shanghai)  
 Planning baseline: `31c0e405acfdd0d05200d0fb2531e897a541a2c4`  
@@ -9,6 +9,8 @@ Architecture authority: [ADR-0017](./adr/ADR-0017-ai-run-work-and-provenance-aut
 Review evidence: [PD-04–PD-11 Review Report](./PHASE_1B_STAGE4A_PD04_PD11_REVIEW_REPORT.md), [DeepSeek Enterprise Evidence Questionnaire](./PHASE_1B_STAGE4A_DEEPSEEK_ENTERPRISE_EVIDENCE_QUESTIONNAIRE.md), [DeepSeek Submission Record](./PHASE_1B_STAGE4A_DEEPSEEK_EVIDENCE_REQUEST_SUBMISSION_RECORD.md), and [PD-11 Synthetic Evaluation Contract](./PHASE_1B_STAGE4A_PD11_SYNTHETIC_EVALUATION_CONTRACT.md)
 
 Phase A integration and acceptance evidence: [Completion / Integration Report V1.0](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md), [Acceptance-Oracle Erratum V1.0](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_ORACLE_ERRATUM_V1_0.md), [Independent Migration Design Review V1.0](./PHASE_1B_STAGE4A_PHASE_A_0020_INDEPENDENT_MIGRATION_REVIEW_V1_0.md), [Independent Migration Candidate Review V1.0](./PHASE_1B_STAGE4A_PHASE_A_0020_INDEPENDENT_CANDIDATE_REVIEW_V1_0.md), [Independent Phase A Completion Review V1.0](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md), and [Phase A Acceptance / Phase B Entry V1.0](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md)
+
+> **Current checkpoint addendum — 2026-08-17:** Phase B implementation is accepted at `cc5715f4a9eb07293bf932cfbd822bfa6bf14a45`; Phase C is accepted at `9006b638ed51f981f7477829086244627c488d6b`; and Phase D is frozen at `de51dff2b519f1ecacfb73e067c9d68361939c29` with status `ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK`. The [Phase E Pre-Entry Exact Design / Owner Decision V1.0](./PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md) records `NEEDS_OWNER_DECISION` because exact Production Prompt v1 prose and named Product/Content/SEO reviewer authority are absent. Phase E implementation has not started. Phase F, real Provider/Secret/database/network, Staging/Production, Deploy, Publish, Index and formal Product data remain outside this entry work.
 
 > The design-freeze PASS permitted `PD-04` through `PD-11` evidence collection and independent review only. The completed public-evidence review found unresolved Provider-assurance gates, so `PD-12` is not eligible. Nothing here authorizes Schema changes, Migration generation/execution, product code, Provider credentials, account mutation, real API calls, Stage 4 development, Staging deployment, Production enablement, Deploy, formal data import, Publish, or Index.
 
