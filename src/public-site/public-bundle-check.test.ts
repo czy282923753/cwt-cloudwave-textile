@@ -24,8 +24,21 @@ const validServerEvidence = [
   serverBoundaryMarker,
   promptBundleMarker,
   ...promptTuples.map(([promptId, promptVersion, sha256]) =>
-    `{promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"}`),
+    `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`),
 ].join("\n");
+const validRemainingTupleEvidence = promptTuples.slice(1)
+  .map(([promptId, promptVersion, sha256]) =>
+    `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`)
+  .join("\n");
+
+function evidenceWithFirstTuple(firstTupleEvidence: string): string {
+  return [
+    serverBoundaryMarker,
+    promptBundleMarker,
+    firstTupleEvidence,
+    validRemainingTupleEvidence,
+  ].join("\n");
+}
 const promptBundleSource = readFileSync(
   "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
   "utf8",
@@ -82,7 +95,7 @@ async function createBuildFixture({
   manifestRelativePath = "page_client-reference-manifest.js",
   rootChunks = [],
   chunkFiles = { "static/chunks/app/public.js": "public fixture" },
-  serverFiles = { "server/app/admin-ai.js": validServerEvidence },
+  serverFiles = { "server/chunks/ssr/admin-ai.js": validServerEvidence },
 }: {
   manifest?: string;
   manifestRelativePath?: string;
@@ -135,14 +148,145 @@ describe("public bundle checker", () => {
     expect(result.stdout).toMatch(
       /1 public page manifests; 0 root chunks; 1 manifest chunks; 1 distinct chunk files/i,
     );
-    expect(result.stdout).toMatch(/server JavaScript files with required AI evidence/i);
+    expect(result.stdout).toMatch(/eligible server runtime JavaScript files/i);
+    expect(result.stdout).toContain("server/chunks/ssr/admin-ai.js");
+  });
+
+  it.each([
+    "server/server-reference-manifest.js",
+    "server/app/admin/page_client-reference-manifest.js",
+    "server/build-manifest.js",
+    "server/app-build-manifest.js",
+    "server/middleware-manifest.js",
+    "server/font-manifest.js",
+    "server/loadable-manifest.js",
+    "server/pages-manifest.js",
+    "server/chunks/ssr/admin-ai.js.map",
+    "server/chunks/trace/admin-ai.js",
+    "server/chunks/cache/admin-ai.js",
+    "server/chunks/ssr/admin-ai.trace.js",
+    "server/chunks/ssr/cache-admin-ai.js",
+    "server/chunks/ssr/admin-ai.trace",
+    "server/chunks/ssr/admin-ai.txt",
+  ])("rejects full AI evidence found only in excluded server output %s", async (path) => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: { [path]: validServerEvidence },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/no eligible executable server runtime JavaScript/i);
+  });
+
+  it("rejects markers found only in an excluded manifest", async () => {
+    const tupleEvidence = promptTuples.map(([promptId, promptVersion, sha256]) =>
+      `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`)
+      .join("\n");
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js": tupleEvidence,
+        "server/server-reference-manifest.js": `${serverBoundaryMarker}\n${promptBundleMarker}`,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/required server ai marker is missing/i);
+  });
+
+  it("rejects tuple evidence found only in an excluded client-reference manifest", async () => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js": `${serverBoundaryMarker}\n${promptBundleMarker}`,
+        "server/app/admin/page_client-reference-manifest.js": validServerEvidence,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it("rejects same-file tuple values held only in unrelated declarations", async () => {
+    const declarations = promptTuples.flatMap(([promptId, promptVersion, sha256], index) => [
+      `const promptId${index}="${promptId}";`,
+      `const promptVersion${index}=${promptVersion};`,
+      `const sha256${index}="${sha256}";`,
+    ]).join("\n");
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js":
+          `${serverBoundaryMarker}\n${promptBundleMarker}\n${declarations}`,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it("rejects tuple fields split across separate object literals", async () => {
+    const splitObjects = promptTuples.flatMap(([promptId, promptVersion, sha256]) => [
+      `({promptId:"${promptId}"})`,
+      `({promptVersion:${promptVersion}})`,
+      `({sha256:"${sha256}"})`,
+    ]).join("\n");
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js":
+          `${serverBoundaryMarker}\n${promptBundleMarker}\n${splitObjects}`,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it.each([
+    ["wrong promptId type", `({promptId:7,promptVersion:1,sha256:"${promptTuples[0][2]}"})`],
+    ["wrong version type", `({promptId:"${promptTuples[0][0]}",promptVersion:"1",sha256:"${promptTuples[0][2]}"})`],
+    ["wrong version", `({promptId:"${promptTuples[0][0]}",promptVersion:2,sha256:"${promptTuples[0][2]}"})`],
+    ["wrong hash", `({promptId:"${promptTuples[0][0]}",promptVersion:1,sha256:"${"f".repeat(64)}"})`],
+    ["computed field", `({["promptId"]:"${promptTuples[0][0]}",promptVersion:1,sha256:"${promptTuples[0][2]}"})`],
+    ["nonliteral field", `const selectedId="${promptTuples[0][0]}";({promptId:selectedId,promptVersion:1,sha256:"${promptTuples[0][2]}"})`],
+    ["spread-only binding", `const parts={id:"${promptTuples[0][0]}",version:1,hash:"${promptTuples[0][2]}"};({...parts})`],
+  ])("rejects %s instead of an exact direct tuple binding", async (_case, invalidTuple) => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js": evidenceWithFirstTuple(invalidTuple),
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it("does not accept an exact-looking tuple from JavaScript with parse diagnostics", async () => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js": `${validServerEvidence}\nfunction broken(`,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it.each([
+    "server/app/admin/ai/page.js",
+    "server/app/api/internal-ai/route.js",
+  ])("accepts exact tuple bindings in eligible app runtime %s", async (path) => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: { [path]: validServerEvidence },
+    }));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(path);
   });
 
   it.each([serverBoundaryMarker, promptBundleMarker])(
     "fails closed when required server marker %s is missing",
     async (marker) => {
       const result = runChecker(await createBuildFixture({
-        serverFiles: { "server/app/admin-ai.js": validServerEvidence.replace(marker, "") },
+        serverFiles: {
+          "server/chunks/ssr/admin-ai.js": validServerEvidence.replace(marker, ""),
+        },
       }));
 
       expect(result.status).not.toBe(0);
@@ -154,7 +298,10 @@ describe("public bundle checker", () => {
     const expectedHash = promptTuples[0][2];
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/app/admin-ai.js": validServerEvidence.replace(expectedHash, "f".repeat(64)),
+        "server/chunks/ssr/admin-ai.js": validServerEvidence.replace(
+          expectedHash,
+          "f".repeat(64),
+        ),
       },
     }));
 
@@ -166,11 +313,11 @@ describe("public bundle checker", () => {
     const promptId = promptTuples[0][0];
     const sha256 = promptTuples[0][2];
     const intactOtherTuples = promptTuples.slice(1).map(([id, version, hash]) =>
-      `{promptId:"${id}",promptVersion:${version},sha256:"${hash}"}`).join("\n");
+      `({promptId:"${id}",promptVersion:${version},sha256:"${hash}"})`).join("\n");
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/app/admin-ai-id.js": `${serverBoundaryMarker}\n${promptBundleMarker}\n` +
-          `{promptId:"${promptId}",promptVersion:1}\n${intactOtherTuples}`,
+        "server/chunks/ssr/admin-ai-id.js": `${serverBoundaryMarker}\n${promptBundleMarker}\n` +
+          `({promptId:"${promptId}",promptVersion:1})\n${intactOtherTuples}`,
         "server/chunks/admin-ai-hash.js": `const splitHash="${sha256}";`,
       },
     }));
@@ -205,12 +352,16 @@ describe("public bundle checker", () => {
   it("rejects non-file server JavaScript evidence", async () => {
     const buildRoot = await createBuildFixture({ serverFiles: {} });
     await mkdir(join(buildRoot, "server/evidence"), { recursive: true });
-    await symlink(join(buildRoot, "server/evidence"), join(buildRoot, "server/admin-ai.js"));
+    await mkdir(join(buildRoot, "server/chunks/ssr"), { recursive: true });
+    await symlink(
+      join(buildRoot, "server/evidence"),
+      join(buildRoot, "server/chunks/ssr/admin-ai.js"),
+    );
 
     const result = runChecker(buildRoot);
 
     expect(result.status).not.toBe(0);
-    expect(combinedOutput(result)).toMatch(/server JavaScript output is not a regular file/i);
+    expect(combinedOutput(result)).toMatch(/server runtime JavaScript output is not a regular file/i);
   });
 
   it.skipIf(process.platform === "win32")(
@@ -221,12 +372,13 @@ describe("public bundle checker", () => {
       disposableBuilds.push(outsideRoot);
       const outsidePath = join(outsideRoot, "admin-ai.js");
       await writeFile(outsidePath, validServerEvidence);
-      await symlink(outsidePath, join(buildRoot, "server/admin-ai.js"));
+      await mkdir(join(buildRoot, "server/chunks/ssr"), { recursive: true });
+      await symlink(outsidePath, join(buildRoot, "server/chunks/ssr/admin-ai.js"));
 
       const result = runChecker(buildRoot);
 
       expect(result.status).not.toBe(0);
-      expect(combinedOutput(result)).toMatch(/server JavaScript output escapes the real build root/i);
+      expect(combinedOutput(result)).toMatch(/server runtime JavaScript output escapes the real build root/i);
     },
   );
 

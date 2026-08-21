@@ -1,5 +1,6 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import ts from "typescript";
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
 const serverRoot = join(buildRoot, "server");
@@ -87,6 +88,71 @@ async function filesUnder(directory) {
     else files.push(path);
   }
   return files;
+}
+
+function eligibleServerRuntimeIdentity(path) {
+  const absolutePath = resolve(path);
+  if (!isContainedPath(absoluteBuildRoot, absolutePath)) return undefined;
+  const serverRelativePath = relative(resolve(serverRoot), absolutePath);
+  if (serverRelativePath === "" || serverRelativePath === ".." ||
+    serverRelativePath.startsWith(`..${sep}`) || isAbsolute(serverRelativePath)) return undefined;
+  const identity = serverRelativePath.split(sep).join("/");
+  const lowerIdentity = identity.toLowerCase();
+  if (!identity.endsWith(".js") || lowerIdentity.includes("manifest") ||
+    lowerIdentity.includes("trace") || lowerIdentity.includes("cache")) {
+    return undefined;
+  }
+  if (identity.startsWith("chunks/") && identity.length > "chunks/.js".length) {
+    return `server/${identity}`;
+  }
+  if (/^app\/(?:.*\/)?(?:page|route)\.js$/.test(identity)) return `server/${identity}`;
+  return undefined;
+}
+
+function directPropertyName(property) {
+  if (!ts.isPropertyAssignment(property) || ts.isComputedPropertyName(property.name)) {
+    return undefined;
+  }
+  if (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) {
+    return property.name.text;
+  }
+  return undefined;
+}
+
+function hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]) {
+  if (!file.content.includes(promptId) || !file.content.includes(sha256)) return false;
+  const parsed = ts.createSourceFile(
+    file.identity,
+    file.content,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.JS,
+  );
+  if (parsed.parseDiagnostics?.length > 0) return false;
+  let matched = false;
+  function visit(node) {
+    if (matched) return;
+    if (ts.isObjectLiteralExpression(node)) {
+      const directFields = new Map();
+      for (const property of node.properties) {
+        const name = directPropertyName(property);
+        if (name === undefined) continue;
+        const values = directFields.get(name) ?? [];
+        values.push(property.initializer);
+        directFields.set(name, values);
+      }
+      const ids = directFields.get("promptId") ?? [];
+      const versions = directFields.get("promptVersion") ?? [];
+      const hashes = directFields.get("sha256") ?? [];
+      matched = ids.length === 1 && versions.length === 1 && hashes.length === 1 &&
+        ts.isStringLiteral(ids[0]) && ids[0].text === promptId &&
+        ts.isNumericLiteral(versions[0]) && Number(versions[0].text) === promptVersion &&
+        ts.isStringLiteral(hashes[0]) && hashes[0].text === sha256;
+    }
+    if (!matched) ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  return matched;
 }
 
 function hasSafeRouteKeyShape(routeKey) {
@@ -359,52 +425,52 @@ const realBuildRoot = await realpath(absoluteBuildRoot);
 const promptAuthority = await readProductionPromptAuthority();
 const forbidden = [...baseForbidden, ...promptAuthority.map((entry) => entry.rawBase64)];
 
-const serverJavaScriptPaths = (await filesUnder(serverRoot))
-  .filter((path) => path.endsWith(".js"));
-if (serverJavaScriptPaths.length === 0) {
-  throw new Error("No executable server JavaScript output was found.");
+const eligibleServerRuntimePaths = (await filesUnder(serverRoot))
+  .map((path) => ({ path, identity: eligibleServerRuntimeIdentity(path) }))
+  .filter((entry) => entry.identity !== undefined);
+if (eligibleServerRuntimePaths.length === 0) {
+  throw new Error("No eligible executable server runtime JavaScript output was found.");
 }
-const serverJavaScript = [];
-for (const lexicalPath of serverJavaScriptPaths) {
+const serverRuntimeJavaScript = [];
+for (const { path: lexicalPath, identity } of eligibleServerRuntimePaths) {
   const absoluteLexicalPath = resolve(lexicalPath);
   if (!isContainedPath(absoluteBuildRoot, absoluteLexicalPath)) {
-    throw new Error("Server JavaScript output escapes the lexical build root.");
+    throw new Error("Server runtime JavaScript output escapes the lexical build root.");
   }
   let physicalPath;
   try {
     physicalPath = await realpath(absoluteLexicalPath);
   } catch {
-    throw new Error("Server JavaScript output is missing or inaccessible.");
+    throw new Error("Server runtime JavaScript output is missing or inaccessible.");
   }
   if (!isContainedPath(realBuildRoot, physicalPath)) {
-    throw new Error("Server JavaScript output escapes the real build root.");
+    throw new Error("Server runtime JavaScript output escapes the real build root.");
   }
   const details = await stat(physicalPath);
   if (!details.isFile()) {
-    throw new Error("Server JavaScript output is not a regular file.");
+    throw new Error("Server runtime JavaScript output is not a regular file.");
   }
-  serverJavaScript.push({
-    identity: relative(absoluteBuildRoot, absoluteLexicalPath).split(sep).join("/"),
+  serverRuntimeJavaScript.push({
+    identity,
     content: await readFile(physicalPath, "utf8"),
   });
 }
 
+const serverEvidenceIdentities = new Set();
 for (const marker of serverMarkers) {
-  if (!serverJavaScript.some((file) => file.content.includes(marker))) {
+  const evidence = serverRuntimeJavaScript.find((file) => file.content.includes(marker));
+  if (evidence === undefined) {
     throw new Error(`Required server AI marker is missing: ${marker}`);
   }
+  serverEvidenceIdentities.add(evidence.identity);
 }
 for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
-  const coBound = serverJavaScript.some((file) => {
-    const idIndex = file.content.indexOf(promptId);
-    const hashIndex = file.content.indexOf(sha256);
-    if (idIndex < 0 || hashIndex < 0 || hashIndex <= idIndex) return false;
-    const binding = file.content.slice(idIndex, hashIndex);
-    return new RegExp(`promptVersion[\"']?\\s*:\\s*${promptVersion}(?![0-9])`).test(binding);
-  });
-  if (!coBound) {
+  const evidence = serverRuntimeJavaScript.find((file) =>
+    hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]));
+  if (evidence === undefined) {
     throw new Error(`Required co-bound server Prompt tuple is missing: ${promptId}@${promptVersion}`);
   }
+  serverEvidenceIdentities.add(evidence.identity);
 }
 
 const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
@@ -488,5 +554,5 @@ if (leaks.length > 0) {
 }
 
 process.stdout.write(
-  `Public bundle boundary verified: ${serverJavaScript.length} server JavaScript files with required AI evidence; ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
+  `Public bundle boundary verified: ${serverRuntimeJavaScript.length} eligible server runtime JavaScript files; AI evidence in ${[...serverEvidenceIdentities].sort().join(", ")}; ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
 );
