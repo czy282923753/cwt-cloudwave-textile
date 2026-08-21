@@ -11,6 +11,30 @@ export const productionAiUseCases = [
 
 export type ProductionAiUseCase = (typeof productionAiUseCases)[number];
 
+export type DraftAssistanceTaskV1 =
+  | {
+      readonly kind: "seo_content_draft";
+      readonly tone: "concise_professional_b2b";
+      readonly pageIntent: string;
+      readonly primaryPhrase?: string;
+      readonly selectedInternalLinkIds: readonly string[];
+    }
+  | {
+      readonly kind: "fabric_knowledge_draft";
+      readonly tone: "neutral_editorial";
+      readonly topic: string;
+    }
+  | {
+      readonly kind: "product_description_draft";
+      readonly tone: "concise_professional_b2b";
+      readonly selectedMediaPlacementIds: readonly string[];
+    }
+  | {
+      readonly kind: "sourcing_guide_draft";
+      readonly tone: "concise_professional_b2b";
+      readonly guideIntent: string;
+    };
+
 export interface AiActor {
   readonly userId: string;
   readonly role: UserRole;
@@ -108,6 +132,7 @@ export interface DraftTargetColumnProjectionV1 {
 
 interface DraftAssistanceInputV1 {
   readonly useCase: ProductionAiUseCase;
+  readonly task: DraftAssistanceTaskV1;
   readonly actor: AiActor;
   readonly target: DraftTarget;
   readonly contextSelections: readonly ExplicitContextSelector[];

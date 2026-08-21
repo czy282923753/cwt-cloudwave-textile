@@ -41,6 +41,16 @@ describe("strict claimed reconstruction and one-call execution", () => {
   async function fixture() {
     const contextPolicy = createDraftContextPolicy<PgliteQueryResultHKT>({
       async readSelectedSource() { return aiFailure("integration_not_ready"); },
+      async readSelectedInternalLinks(input) {
+        return input.selectedLinkIds.length === 0
+          ? { ok: true, value: [] } as const
+          : aiFailure("integration_not_ready");
+      },
+      async readSelectedMediaPlacements(input) {
+        return input.selectedPlacementIds.length === 0
+          ? { ok: true, value: [] } as const
+          : aiFailure("integration_not_ready");
+      },
     });
     const dependencies: DraftRegistryDependenciesV1<PgliteQueryResultHKT> = {
       availabilityAuthorization: createDraftAvailabilityAuthorization({
@@ -71,6 +81,11 @@ describe("strict claimed reconstruction and one-call execution", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "product_description_draft",
+          task: {
+            kind: "product_description_draft",
+            tone: "concise_professional_b2b",
+            selectedMediaPlacementIds: [],
+          },
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",

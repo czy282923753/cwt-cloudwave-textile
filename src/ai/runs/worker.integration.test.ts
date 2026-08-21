@@ -160,6 +160,11 @@ async function seed() {
 function command(fixture: Awaited<ReturnType<typeof seed>>, idempotencyKey: string): DraftAssistanceCommandV1 {
   return {
     useCase: "product_description_draft",
+    task: {
+      kind: "product_description_draft",
+      tone: "concise_professional_b2b",
+      selectedMediaPlacementIds: [],
+    },
     actor: { userId: fixture.actorId, role: "product_editor" },
     target: { type: "product_draft", productId: fixture.productId, locale: "en", expectedVersion: 1 },
     idempotencyKey,

@@ -233,6 +233,11 @@ function command(fixture: Awaited<ReturnType<typeof seedFixture>>, input: {
 }): DraftAssistanceCommandV1 {
   return {
     useCase: "product_description_draft",
+    task: {
+      kind: "product_description_draft",
+      tone: "concise_professional_b2b",
+      selectedMediaPlacementIds: [],
+    },
     actor: { userId: fixture.actorId, role: "product_editor" },
     target: {
       type: "product_draft",
@@ -261,6 +266,11 @@ function contentCommand(
 ): DraftAssistanceCommandV1 {
   return {
     useCase: "fabric_knowledge_draft",
+    task: {
+      kind: "fabric_knowledge_draft",
+      tone: "neutral_editorial",
+      topic: "Synthetic content lifecycle topic",
+    },
     actor,
     target,
     idempotencyKey: randomUUID(),
@@ -435,7 +445,15 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
         locale: "en",
         versionNumber: 1,
         status: "draft",
-        snapshot: { synthetic: true },
+        snapshot: {
+          kind: "editorial_blocks",
+          name: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+          shortDescription: null,
+          document: { version: 1, blocks: [] },
+          expectedEditorDocumentVersion: 1,
+          draftVersion: 1,
+          pendingChanges: [],
+        },
         createdByUserId: productEditor.userId,
       },
       {
@@ -444,7 +462,14 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
         locale: "en",
         versionNumber: 1,
         status: "draft",
-        snapshot: { synthetic: true },
+        snapshot: {
+          kind: "content_blocks_v1",
+          title: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+          excerpt: null,
+          document: { version: 1, blocks: [] },
+          expectedEditorDocumentVersion: 1,
+          draftVersion: 1,
+        },
         createdByUserId: contentEditor.userId,
       },
     ]).returning({ id: editorialRevisions.id });
@@ -480,7 +505,20 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       readonly target: Inspection["target"];
       readonly useCase: Inspection["useCase"];
     }) => availability.inspectDraftAssistanceAvailability({
-      ...input,
+      actor: input.actor,
+      target: input.target,
+      useCase: input.useCase,
+      task: input.useCase === "fabric_knowledge_draft"
+        ? {
+            kind: "fabric_knowledge_draft",
+            tone: "neutral_editorial",
+            topic: "Synthetic availability topic",
+          }
+        : {
+            kind: "product_description_draft",
+            tone: "concise_professional_b2b",
+            selectedMediaPlacementIds: [],
+          },
       contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
       explicitInput: "Synthetic availability brief; not a CWT business fact.",
     });
@@ -504,7 +542,8 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     }>;
     for (const entry of scopes) {
       for (const actor of entry.actors) {
-        expect(await inspect({ ...entry, actor })).toEqual(available);
+        expect(await inspect({ useCase: entry.useCase, target: entry.target, actor }))
+          .toEqual(available);
       }
     }
 
@@ -682,7 +721,15 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       locale: "en",
       versionNumber: 1,
       status: "draft",
-      snapshot: { synthetic: true },
+      snapshot: {
+        kind: "editorial_blocks",
+        name: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+        shortDescription: null,
+        document: { version: 1, blocks: [] },
+        expectedEditorDocumentVersion: 1,
+        draftVersion: 1,
+        pendingChanges: [],
+      },
       createdByUserId: productEditor.userId,
     }).returning({ id: editorialRevisions.id });
     const [contentRevision] = await db().insert(editorialRevisions).values({
@@ -691,7 +738,14 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       locale: "en",
       versionNumber: 1,
       status: "draft",
-      snapshot: { synthetic: true },
+      snapshot: {
+        kind: "content_blocks_v1",
+        title: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+        excerpt: null,
+        document: { version: 1, blocks: [] },
+        expectedEditorDocumentVersion: 1,
+        draftVersion: 1,
+      },
       createdByUserId: contentEditor.userId,
     }).returning({ id: editorialRevisions.id });
     if (productRevision === undefined || contentRevision === undefined) {

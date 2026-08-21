@@ -88,8 +88,8 @@ const reconstructibleContextSchema = z.object({
   internalLinkCandidates: z.array(z.object({
     candidateRef: z.string().regex(/^link_[0-9]{2}$/),
     label: z.string().min(1).max(300),
-  }).strict()).max(32),
-  mediaPlacementRefs: z.array(z.string().regex(/^media_[0-9]{2}$/)).max(32),
+  }).strict()).max(12),
+  mediaPlacementRefs: z.array(z.string().regex(/^media_[0-9]{2}$/)).max(12),
 }).strict();
 
 export interface ReconstructibleDraftContextV1 extends ReadonlyJsonObject {
@@ -187,11 +187,29 @@ export interface DraftContextReadRepository<
     readonly scope: DraftConsistentReadScope<TQueryResult>;
     readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
     readonly command: DraftAssistanceCommandV1;
+    readonly association: { readonly association: DraftDurableAssociationWithoutHashV1 };
     readonly selector: Exclude<
       DraftAssistanceCommandV1["contextSelections"][number],
       { readonly sourceClass: "explicit_human_input" }
     >;
   }): Promise<AiServiceResult<DraftContextSourceDtoV1>>;
+  readSelectedInternalLinks(input: {
+    readonly scope: DraftConsistentReadScope<TQueryResult>;
+    readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
+    readonly command: DraftAssistanceCommandV1;
+    readonly association: { readonly association: DraftDurableAssociationWithoutHashV1 };
+    readonly selectedLinkIds: readonly string[];
+  }): Promise<AiServiceResult<readonly {
+    readonly candidateRef: string;
+    readonly label: string;
+  }[]>>;
+  readSelectedMediaPlacements(input: {
+    readonly scope: DraftConsistentReadScope<TQueryResult>;
+    readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
+    readonly command: DraftAssistanceCommandV1;
+    readonly association: { readonly association: DraftDurableAssociationWithoutHashV1 };
+    readonly selectedPlacementIds: readonly string[];
+  }): Promise<AiServiceResult<readonly string[]>>;
 }
 
 const companyFieldOrder = [
@@ -555,16 +573,21 @@ function taskContractIsValid(
   if (task.guideIntent !== undefined && utf8Length(task.guideIntent) > 500) return false;
   switch (context.useCase) {
     case "seo_content_draft":
-      return task.topic === undefined && task.guideIntent === undefined;
+      return task.tone === "concise_professional_b2b" &&
+        typeof task.pageIntent === "string" && task.pageIntent.trim().length > 0 &&
+        task.topic === undefined && task.guideIntent === undefined;
     case "fabric_knowledge_draft":
-      return task.pageIntent === undefined && task.primaryPhrase === undefined &&
-        task.guideIntent === undefined;
+      return task.tone === "neutral_editorial" &&
+        typeof task.topic === "string" && task.topic.trim().length > 0 &&
+        task.pageIntent === undefined && task.primaryPhrase === undefined && task.guideIntent === undefined;
     case "product_description_draft":
-      return task.pageIntent === undefined && task.primaryPhrase === undefined &&
+      return task.tone === "concise_professional_b2b" &&
+        task.pageIntent === undefined && task.primaryPhrase === undefined &&
         task.topic === undefined && task.guideIntent === undefined;
     case "sourcing_guide_draft":
-      return task.pageIntent === undefined && task.primaryPhrase === undefined &&
-        task.topic === undefined;
+      return task.tone === "concise_professional_b2b" &&
+        typeof task.guideIntent === "string" && task.guideIntent.trim().length > 0 &&
+        task.pageIntent === undefined && task.primaryPhrase === undefined && task.topic === undefined;
   }
 }
 
@@ -706,6 +729,11 @@ function encodeValidatedContext(
     .flatMap((source) => source.fields.map((field) => field.value));
   const explicitHash = canonicalJsonHash(explicit);
   if (!explicitHash.ok) return aiFailure("canonicalization_failed");
+  const selectionSourcesHash = canonicalJsonHash(inputSources
+    .filter((source) => source.sourceClass === "internal_link_relation" ||
+      source.sourceClass === "product_media_placement")
+    .map((source) => ({ alias: source.alias, sourceIdentity: source.sourceIdentity })));
+  if (!selectionSourcesHash.ok) return aiFailure("canonicalization_failed");
   return aiSuccess({
     version: 1,
     inputSources,
@@ -720,6 +748,7 @@ function encodeValidatedContext(
       explicit_input_hash: explicitHash.value.hash,
       association_hash: context.association.snapshotHash,
       source_refs: context.sources.map((source) => source.alias),
+      selection_sources_hash: selectionSourcesHash.value.hash,
     },
   });
 }
@@ -802,6 +831,7 @@ export function createDraftContextPolicy<
           scope: input.scope,
           actor: input.actor,
           command: input.command,
+          association: input.association,
           selector: selection,
         });
         if (!read.ok) return read;
@@ -827,6 +857,75 @@ export function createDraftContextPolicy<
       if (input.command.explicitInput !== undefined && explicitCount === 0) {
         return aiFailure("context_source_forbidden");
       }
+      let internalLinkCandidates: readonly {
+        readonly candidateRef: string;
+        readonly label: string;
+      }[] = [];
+      let mediaPlacementRefs: readonly string[] = [];
+      if (input.command.task.kind === "seo_content_draft") {
+        const links = await repository.readSelectedInternalLinks({
+          scope: input.scope,
+          actor: input.actor,
+          command: input.command,
+          association: input.association,
+          selectedLinkIds: input.command.task.selectedInternalLinkIds,
+        });
+        if (!links.ok) return links;
+        internalLinkCandidates = links.value;
+        for (const [index, selectedId] of input.command.task.selectedInternalLinkIds.entries()) {
+          const identity = canonicalJsonHash({ selectedInternalLinkId: selectedId });
+          if (!identity.ok) return aiFailure("canonicalization_failed");
+          inputSources.push({
+            alias: `link_${String(index + 1).padStart(2, "0")}`,
+            sourceClass: "internal_link_relation",
+            sourceIdentity: { selectionSha256: identity.value.hash },
+            selectedFields: [],
+            fieldProvenance: [],
+          });
+        }
+      } else if (input.command.task.kind === "product_description_draft") {
+        const media = await repository.readSelectedMediaPlacements({
+          scope: input.scope,
+          actor: input.actor,
+          command: input.command,
+          association: input.association,
+          selectedPlacementIds: input.command.task.selectedMediaPlacementIds,
+        });
+        if (!media.ok) return media;
+        mediaPlacementRefs = media.value;
+        for (const [index, selectedId] of input.command.task.selectedMediaPlacementIds.entries()) {
+          const identity = canonicalJsonHash({ selectedMediaPlacementId: selectedId });
+          if (!identity.ok) return aiFailure("canonicalization_failed");
+          inputSources.push({
+            alias: `media_${String(index + 1).padStart(2, "0")}`,
+            sourceClass: "product_media_placement",
+            sourceIdentity: { selectionSha256: identity.value.hash },
+            selectedFields: [],
+            fieldProvenance: [],
+          });
+        }
+      }
+      const task = (() => {
+        switch (input.command.task.kind) {
+          case "seo_content_draft": return {
+            tone: input.command.task.tone,
+            pageIntent: input.command.task.pageIntent,
+            ...(input.command.task.primaryPhrase === undefined
+              ? {} : { primaryPhrase: input.command.task.primaryPhrase }),
+          };
+          case "fabric_knowledge_draft": return {
+            tone: input.command.task.tone,
+            topic: input.command.task.topic,
+          };
+          case "product_description_draft": return {
+            tone: input.command.task.tone,
+          };
+          case "sourcing_guide_draft": return {
+            tone: input.command.task.tone,
+            guideIntent: input.command.task.guideIntent,
+          };
+        }
+      })();
       const context = {
         version: 1,
         applicationClass: "draft_assistance",
@@ -840,13 +939,10 @@ export function createDraftContextPolicy<
           expectedVersion: input.association.association.expectedTargetVersion,
           snapshotHash: input.association.snapshotHash,
         },
-        task: {
-          tone: input.command.useCase === "fabric_knowledge_draft"
-            ? "neutral_editorial" : "concise_professional_b2b",
-        },
+        task,
         sources,
-        internalLinkCandidates: [],
-        mediaPlacementRefs: [],
+        internalLinkCandidates,
+        mediaPlacementRefs,
       } satisfies ReconstructibleDraftContextV1;
       const validated = strictContext(context);
       if (!validated.ok) return validated;

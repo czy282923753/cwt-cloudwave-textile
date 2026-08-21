@@ -11,6 +11,7 @@ import type {
 } from "@/ai/applications/draft-assistance/context";
 import type {
   DraftAssistanceCommandV1,
+  DraftAssistanceTaskV1,
   DraftDurableAssociationWithoutHashV1,
   ProductionAiUseCase,
 } from "@/ai/applications/draft-assistance/contracts";
@@ -58,6 +59,37 @@ import {
 const uuid = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 );
+const utf8Length = (value: string): number => Buffer.byteLength(value, "utf8");
+const boundedRequiredString = (maximumUtf8Bytes: number) => z.string().refine(
+  (value) => value.trim().length > 0 && utf8Length(value) <= maximumUtf8Bytes,
+);
+const selectedUuidIds = z.array(uuid).max(12).refine(
+  (values) => new Set(values).size === values.length,
+);
+const taskSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("seo_content_draft"),
+    tone: z.literal("concise_professional_b2b"),
+    pageIntent: boundedRequiredString(500),
+    primaryPhrase: boundedRequiredString(200).optional(),
+    selectedInternalLinkIds: selectedUuidIds,
+  }).strict(),
+  z.object({
+    kind: z.literal("fabric_knowledge_draft"),
+    tone: z.literal("neutral_editorial"),
+    topic: boundedRequiredString(300),
+  }).strict(),
+  z.object({
+    kind: z.literal("product_description_draft"),
+    tone: z.literal("concise_professional_b2b"),
+    selectedMediaPlacementIds: selectedUuidIds,
+  }).strict(),
+  z.object({
+    kind: z.literal("sourcing_guide_draft"),
+    tone: z.literal("concise_professional_b2b"),
+    guideIntent: boundedRequiredString(500),
+  }).strict(),
+]);
 const selectorSchema = z.discriminatedUnion("sourceClass", [
   z.object({
     sourceClass: z.literal("public_company_fact"), sourceId: uuid,
@@ -82,6 +114,7 @@ const selectorSchema = z.discriminatedUnion("sourceClass", [
 ]);
 const commandSchema = z.object({
   useCase: z.enum(productionAiUseCases),
+  task: taskSchema,
   actor: z.object({
     userId: uuid,
     role: z.enum(["admin", "product_editor", "content_editor", "reviewer_publisher", "sales", "analyst"]),
@@ -94,7 +127,15 @@ const commandSchema = z.object({
   idempotencyKey: uuid,
   contextSelections: z.array(selectorSchema).max(32),
   explicitInput: z.string().max(16_384).optional(),
-}).strict();
+}).strict().superRefine((command, context) => {
+  if (command.task.kind !== command.useCase) {
+    context.addIssue({
+      code: "custom",
+      message: "Task kind must match the requested use case.",
+      path: ["task", "kind"],
+    });
+  }
+});
 
 export interface DraftRegistryDependenciesV1<
   TQueryResult extends PgQueryResultHKT,
@@ -424,10 +465,21 @@ function createProductionDefinitionsV1<
           const parsed = commandSchema.safeParse(payload);
           if (!parsed.success) return aiFailure("target_scope_mismatch");
           if (parsed.data.useCase !== useCase) return aiFailure("use_case_unknown");
+          const task: DraftAssistanceTaskV1 = parsed.data.task.kind === "seo_content_draft"
+            ? {
+                kind: "seo_content_draft",
+                tone: "concise_professional_b2b",
+                pageIntent: parsed.data.task.pageIntent,
+                selectedInternalLinkIds: parsed.data.task.selectedInternalLinkIds,
+                ...(parsed.data.task.primaryPhrase === undefined
+                  ? {} : { primaryPhrase: parsed.data.task.primaryPhrase }),
+              }
+            : parsed.data.task;
           const command: DraftAssistanceCommandV1 =
             parsed.data.explicitInput === undefined
               ? {
                   useCase: parsed.data.useCase,
+                  task,
                   actor: parsed.data.actor,
                   target: parsed.data.target,
                   idempotencyKey: parsed.data.idempotencyKey,
@@ -435,6 +487,7 @@ function createProductionDefinitionsV1<
                 }
               : {
                   useCase: parsed.data.useCase,
+                  task,
                   actor: parsed.data.actor,
                   target: parsed.data.target,
                   idempotencyKey: parsed.data.idempotencyKey,
