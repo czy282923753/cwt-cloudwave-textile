@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { prepareDraftAssociationV1 } from "@/ai/applications/draft-assistance/association";
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
+import { canonicalJsonHash } from "@/ai/canonical-json";
 import {
   type DraftTransactionScopeOperationsV1,
   withReadOnlyDraftAvailabilityScope,
@@ -577,6 +578,34 @@ describe.skipIf(postgresUrl === undefined)("ProductAiDraftReaderV1 on PostgreSQL
     expect(serialized).not.toContain("SYNTHETIC-FORBIDDEN-PRODUCT-CODE");
     expect(serialized).not.toContain("SYNTHETIC-PRIVATE-OBJECT-KEY");
     expect(serialized).not.toContain(mediaId);
+  });
+
+  it("resolves review media only through the current target-owned selection hash", async () => {
+    const command = productCommand(undefined, [mediaId]);
+    const association = prepareDraftAssociationV1(command.target);
+    const selection = canonicalJsonHash({ selectedMediaPlacementId: mediaId });
+    if (!association.ok || !selection.ok) throw new Error("Product review fixture failed.");
+    const result = await withReadOnlyDraftAvailabilityScope(db(), async (scope) => {
+      const target = await reader.readTargetSnapshot({ scope, actor, command, association: association.value });
+      if (!target.ok) return target;
+      return reader.readReviewBefore({
+        scope, actor, target: target.value, mediaSelectionHashes: [selection.value.hash],
+      });
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: { before: { kind: "product", mediaText: [{ placementRef: "media_01" }] } },
+    });
+    expect(JSON.stringify((result as { value?: { before?: unknown } }).value?.before))
+      .not.toContain(mediaId);
+
+    const mismatch = await withReadOnlyDraftAvailabilityScope(db(), async (scope) => {
+      const target = await reader.readTargetSnapshot({ scope, actor, command, association: association.value });
+      return target.ok ? reader.readReviewBefore({
+        scope, actor, target: target.value, mediaSelectionHashes: ["f".repeat(64)],
+      }) : target;
+    });
+    expect(mismatch).toMatchObject({ ok: false, error: { code: "context_record_unauthorized" } });
   });
 
   it("fails closed for authorization loss, unrelated media and a target version race", async () => {

@@ -2,7 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
-import type { ReadonlyJsonValue } from "@/ai/canonical-json";
+import { canonicalJsonHash, type ReadonlyJsonValue } from "@/ai/canonical-json";
 import type { ProductContextField } from "@/ai/context/contracts";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type { CoreAiActorV1 } from "@/ai/core/contracts";
@@ -10,6 +10,8 @@ import type {
   AuthorizedDraftAssociationV1,
   DraftAssistanceCommandV1,
   DraftDurableAssociationWithoutHashV1,
+  ProductBeforeV1,
+  ReviewCurrentNodeV1,
 } from "@/ai/applications/draft-assistance/contracts";
 import type { DraftContextSourceDtoV1 } from "@/ai/applications/draft-assistance/context";
 import {
@@ -27,11 +29,13 @@ import {
   productLocalizations,
   productTaxonomyTerms,
   products,
+  routes,
+  seoMetadata,
   taxonomyTermLocalizations,
   taxonomyTerms,
   users,
 } from "@/db/schema";
-import { blockDocumentSchema } from "@/editorial/blocks";
+import { blockDocumentSchema, parseBlockDocument, type BlockDocument } from "@/editorial/blocks";
 
 const productRevisionSnapshotSchema = z.object({
   kind: z.literal("editorial_blocks"),
@@ -92,6 +96,15 @@ export interface ProductAiDraftReaderV1<TQueryResult extends PgQueryResultHKT> {
     Promise<AiServiceResult<DraftContextSourceDtoV1>>;
   readSelectedMediaPlacements(input: ProductAiMediaReadV1<TQueryResult>):
     Promise<AiServiceResult<readonly MediaPlacementAliasV1[]>>;
+  readReviewBefore(input: {
+    readonly scope: DraftConsistentReadScope<TQueryResult>;
+    readonly actor: CoreAiActorV1;
+    readonly target: ProductAiTargetSnapshotV1;
+    readonly mediaSelectionHashes: readonly string[];
+  }): Promise<AiServiceResult<{
+    readonly before: ProductBeforeV1;
+    readonly selectedMediaPlacementIds: readonly string[];
+  }>>;
 }
 
 export interface ProductAiReaderBarrierHooksV1 {
@@ -100,6 +113,41 @@ export interface ProductAiReaderBarrierHooksV1 {
 
 function actorCanOwnProductTarget(role: CoreAiActorV1["roleKey"]): boolean {
   return role === "admin" || role === "product_editor";
+}
+
+function actorCanReadProductTarget<TQueryResult extends PgQueryResultHKT>(
+  scope: DraftConsistentReadScope<TQueryResult>,
+  role: CoreAiActorV1["roleKey"],
+): boolean {
+  return actorCanOwnProductTarget(role) ||
+    scope.mode === "read_only" && role === "reviewer_publisher";
+}
+
+function safeDocument(document: BlockDocument): readonly ReviewCurrentNodeV1[] {
+  return document.blocks.map((block) => {
+    let text: readonly string[] = [];
+    switch (block.type) {
+      case "heading":
+      case "paragraph": text = [block.text]; break;
+      case "callout": text = [...(block.title ? [block.title] : []), block.text]; break;
+      case "quote": text = [block.text, ...(block.attribution ? [block.attribution] : [])]; break;
+      case "feature_list":
+      case "bullet_list": text = block.items; break;
+      case "faq": text = block.items.flatMap((item) => [item.question, item.answer]); break;
+      case "specification_table": text = block.rows.flatMap((row) => [row.label, row.value]); break;
+      case "comparison_table": text = [
+        ...block.columns,
+        ...block.rows.flatMap((row) => [row.label, ...row.cells]),
+      ]; break;
+      case "cta": text = [block.label, ...(block.supportingText ? [block.supportingText] : [])]; break;
+      case "image": text = ["Image placement"]; break;
+      case "gallery": text = [`Gallery (${block.mediaKeys.length})`]; break;
+      case "related_products": text = [`Related products (${block.productIds.length})`]; break;
+      case "related_articles": text = [`Related articles (${block.contentIds.length})`]; break;
+      case "divider": text = []; break;
+    }
+    return { id: block.id, kind: block.type, locked: block.locked === true, text };
+  });
 }
 
 async function actorIsCurrent<TQueryResult extends PgQueryResultHKT>(
@@ -190,7 +238,7 @@ export function createProductAiDraftReaderV1<
   return {
     async readTargetSnapshot(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnProductTarget(input.actor.roleKey)) {
+        !actorCanReadProductTarget(input.scope, input.actor.roleKey)) {
         return aiFailure("authorization_denied");
       }
       if (input.command.task.kind !== input.command.useCase) {
@@ -278,7 +326,7 @@ export function createProductAiDraftReaderV1<
 
     async readSelectedStructuredContext(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnProductTarget(input.actor.roleKey) ||
+        !actorCanReadProductTarget(input.scope, input.actor.roleKey) ||
         input.target.owner !== "product" ||
         input.target.entityId !== input.selector.sourceId) {
         return aiFailure("context_record_unauthorized");
@@ -448,7 +496,7 @@ export function createProductAiDraftReaderV1<
 
     async readSelectedMediaPlacements(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnProductTarget(input.actor.roleKey) ||
+        !actorCanReadProductTarget(input.scope, input.actor.roleKey) ||
         input.command.useCase !== "product_description_draft" ||
         input.target.owner !== "product" ||
         input.selectedPlacementIds.length > 12 ||
@@ -472,6 +520,119 @@ export function createProductAiDraftReaderV1<
         return aiSuccess(input.selectedPlacementIds.map((_, index) => ({
           placementRef: `media_${String(index + 1).padStart(2, "0")}` as const,
         })));
+      });
+    },
+
+    async readReviewBefore(input) {
+      if (!actorCanReadProductTarget(input.scope, input.actor.roleKey) ||
+        input.mediaSelectionHashes.length > 12 ||
+        new Set(input.mediaSelectionHashes).size !== input.mediaSelectionHashes.length ||
+        input.mediaSelectionHashes.some((hash) => !/^[0-9a-f]{64}$/.test(hash))) {
+        return aiFailure("context_record_unauthorized");
+      }
+      return withDraftReadExecutor(input.scope, async (database) => {
+        const direct = input.target.revisionSnapshot === null;
+        const localizationRows = direct ? await database.select({
+          status: products.status,
+          name: productLocalizations.name,
+          summary: productLocalizations.shortDescription,
+          document: productLocalizations.structuredBlocks,
+          version: productLocalizations.editorDocumentVersion,
+        }).from(products).innerJoin(productLocalizations, and(
+          eq(productLocalizations.productId, products.id),
+          eq(productLocalizations.locale, "en"),
+        )).where(eq(products.id, input.target.entityId)).limit(2) : [];
+        const localization = localizationRows[0];
+        if (direct && (localizationRows.length !== 1 || localization?.status !== "draft" ||
+          localization.version !== input.target.editVersion)) {
+          return aiFailure("target_version_conflict");
+        }
+        const revisionRows = direct ? [] : await database.select({
+          entityId: editorialRevisions.entityId,
+          entityType: editorialRevisions.entityType,
+          locale: editorialRevisions.locale,
+          status: editorialRevisions.status,
+          snapshot: editorialRevisions.snapshot,
+        }).from(editorialRevisions).where(eq(
+          editorialRevisions.id,
+          input.target.revisionId!,
+        )).limit(2);
+        const revisionRow = revisionRows[0];
+        const revision = direct ? null : productRevisionSnapshotSchema.safeParse(revisionRow?.snapshot);
+        if (!direct && (revisionRows.length !== 1 || revisionRow?.entityType !== "product" ||
+          revisionRow.entityId !== input.target.entityId || revisionRow.locale !== "en" ||
+          revisionRow.status !== "draft" || !revision?.success ||
+          revision.data.draftVersion !== input.target.editVersion)) {
+          return aiFailure("target_version_conflict");
+        }
+        const revisionData = revision?.success ? revision.data : null;
+        if (!direct && revisionData === null) return aiFailure("target_version_conflict");
+        let document: BlockDocument;
+        try {
+          document = direct
+            ? parseBlockDocument(localization?.document, "product")
+            : revisionData!.document;
+        } catch {
+          return aiFailure("context_provenance_mismatch");
+        }
+        const routeRows = await database.select({
+          title: seoMetadata.title,
+          metaDescription: seoMetadata.metaDescription,
+        }).from(routes).innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id)).where(and(
+          eq(routes.entityType, "product"),
+          eq(routes.entityId, input.target.entityId),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        )).limit(2);
+        if (routeRows.length > 1) return aiFailure("context_provenance_mismatch");
+        let seo = {
+          title: routeRows[0]?.title ?? null,
+          metaDescription: routeRows[0]?.metaDescription ?? null,
+        };
+        for (const change of revisionData?.pendingChanges ?? []) {
+          if (typeof change !== "object" || change === null || Array.isArray(change)) continue;
+          const value = change as Record<string, unknown>;
+          if (value.kind === "seo" &&
+            (typeof value.title === "string" || value.title === null) &&
+            (typeof value.metaDescription === "string" || value.metaDescription === null)) {
+            seo = { title: value.title, metaDescription: value.metaDescription };
+          }
+        }
+        const placements = await database.select({
+          id: productAssets.assetId,
+          altText: productAssets.altText,
+          caption: productAssets.caption,
+        }).from(productAssets).where(and(
+          eq(productAssets.productId, input.target.entityId),
+          eq(productAssets.isVisible, true),
+        ));
+        const byHash = new Map<string, typeof placements[number]>();
+        for (const placement of placements) {
+          const identity = canonicalJsonHash({ selectedMediaPlacementId: placement.id });
+          if (!identity.ok || byHash.has(identity.value.hash)) {
+            return aiFailure("context_provenance_mismatch");
+          }
+          byHash.set(identity.value.hash, placement);
+        }
+        const selected = input.mediaSelectionHashes.map((hash) => byHash.get(hash));
+        if (selected.some((placement) => placement === undefined)) {
+          return aiFailure("context_record_unauthorized");
+        }
+        return aiSuccess({
+          before: {
+            kind: "product",
+            name: direct ? localization!.name : revisionData!.name,
+            summary: direct ? localization!.summary : revisionData!.shortDescription,
+            document: safeDocument(document),
+            seo,
+            mediaText: selected.map((placement, index) => ({
+              placementRef: `media_${String(index + 1).padStart(2, "0")}` as const,
+              altText: placement!.altText,
+              caption: placement!.caption,
+            })),
+          },
+          selectedMediaPlacementIds: selected.map((placement) => placement!.id),
+        });
       });
     },
   };

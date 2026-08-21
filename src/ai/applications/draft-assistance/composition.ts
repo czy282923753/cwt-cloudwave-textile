@@ -56,6 +56,7 @@ import {
   createDraftAssistanceDurableFacadeV1,
 } from "./facade";
 import type { DraftConsistentReadScope } from "./read-scopes";
+import { createDraftReviewProjectionBuilderV1 } from "./review-projection";
 
 interface DomainReadersV1<TQueryResult extends PgQueryResultHKT> {
   readonly product: ProductAiDraftReaderV1<TQueryResult>;
@@ -342,6 +343,7 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
     pricingRegistry: dependencies.pricingRegistry,
     registry,
     orchestrator,
+    reviewProjection: createDraftReviewProjectionBuilderV1(readers),
     ...(dependencies.governedMutationOptions === undefined
       ? {}
       : { governedMutationOptions: dependencies.governedMutationOptions }),

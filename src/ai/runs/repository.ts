@@ -36,7 +36,7 @@ import {
 } from "./attempt-evidence";
 import type {
   ClaimedLeaseHandleV1,
-  AiRunAuthorizedReadV1,
+  AiRunAuthorizedEvidenceV1,
   DispatchAuthorizationOutcomeV1,
   HeartbeatOutcomeV1,
   HumanLifecycleMutationOutcomeV1,
@@ -199,7 +199,7 @@ export interface AiRunRepositoryV1 {
   readAuthorizedWithinTransaction(transaction: PhaseCPgDatabase, input: {
     readonly runId: string;
     readonly actor: AuthoritativeAiActorV1;
-  }): Promise<AiRunAuthorizedReadV1 | null>;
+  }): Promise<AiRunAuthorizedEvidenceV1 | null>;
   readPricingForWorker(runId: string): Promise<{
     readonly provider: string;
     readonly model: string;
@@ -1467,11 +1467,19 @@ export function createAiRunRepositoryV1(
       if (row === undefined || !await humanCanPerformRunOperationV1(
         transaction, row, input.actor, "inspect",
       )) return null;
-      const targetId = row.targetProductId ?? row.targetContentId ?? row.targetRevisionId;
-      if (targetId === null) throw new Error("Stored AI run target was invalid.");
       const summary = humanMutationProjection(row);
       const candidate = row.candidateJson === null || jsonRecord(row.candidateJson) === undefined
         ? null : jsonRecord(row.candidateJson) ?? null;
+      const context = jsonRecord(row.inputContextJson);
+      const sources = Array.isArray(row.inputSourcesJson) && row.inputSourcesJson.every((value) =>
+        jsonRecord(value) !== undefined,
+      ) ? row.inputSourcesJson.map((value) => jsonRecord(value)!) : null;
+      const history = attemptHistory(row.attemptHistoryJson);
+      const attemptObjects = history?.every((value) => jsonRecord(value) !== undefined)
+        ? history.map((value) => jsonRecord(value)!) : null;
+      if (context === undefined || sources === null || attemptObjects === null) {
+        throw new Error("Stored AI run review evidence was invalid.");
+      }
       const cancelAvailable = (row.status === "pending" || row.status === "processing") &&
         await humanCanPerformRunOperationV1(transaction, row, input.actor, "cancel");
       const manualRetryAvailable =
@@ -1490,7 +1498,18 @@ export function createAiRunRepositoryV1(
         stateVersion: row.stateVersion,
         queuedAt: row.queuedAt.toISOString(),
         targetType: row.targetType,
-        targetId,
+        targetProductId: row.targetProductId,
+        targetContentId: row.targetContentId,
+        targetRevisionId: row.targetRevisionId,
+        targetLocale: row.targetLocale,
+        expectedTargetVersion: row.expectedTargetVersion,
+        targetSnapshotHash: row.targetSnapshotHash,
+        outputSchemaVersion: row.outputSchemaVersion,
+        policyVersion: row.policyVersion,
+        inputContext: context,
+        inputSources: sources as unknown as readonly import("@/ai/core/contracts").SafeInputSourceReferenceV1[],
+        inputHash: row.inputHash,
+        attemptHistory: attemptObjects,
         candidateHash: row.candidateHash,
         candidate,
         failureCode: row.failureCode,

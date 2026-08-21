@@ -3,12 +3,15 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
+import { canonicalJsonHash } from "@/ai/canonical-json";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type { CoreAiActorV1 } from "@/ai/core/contracts";
 import type {
   AuthorizedDraftAssociationV1,
+  ContentBeforeV1,
   DraftAssistanceCommandV1,
   DraftDurableAssociationWithoutHashV1,
+  ReviewCurrentNodeV1,
 } from "@/ai/applications/draft-assistance/contracts";
 import type { DraftContextSourceDtoV1 } from "@/ai/applications/draft-assistance/context";
 import {
@@ -25,9 +28,15 @@ import {
   editorialRevisions,
   internalLinkRelations,
   routes,
+  seoMetadata,
   users,
 } from "@/db/schema";
-import { blockDocumentPlainText, blockDocumentSchema, parseBlockDocument } from "@/editorial/blocks";
+import {
+  blockDocumentPlainText,
+  blockDocumentSchema,
+  parseBlockDocument,
+  type BlockDocument,
+} from "@/editorial/blocks";
 
 const contentMediaPlacementSchema = z.object({
   assetId: z.string().uuid(),
@@ -124,16 +133,65 @@ export interface ContentAiDraftReaderV1<TQueryResult extends PgQueryResultHKT> {
     Promise<AiServiceResult<DraftContextSourceDtoV1>>;
   readSelectedInternalLinks(input: InternalLinkAiReadV1<TQueryResult>):
     Promise<AiServiceResult<readonly InternalLinkAliasV1[]>>;
+  readReviewBefore(input: {
+    readonly scope: DraftConsistentReadScope<TQueryResult>;
+    readonly actor: CoreAiActorV1;
+    readonly target: ContentAiTargetSnapshotV1;
+    readonly linkSelectionHashes: readonly string[];
+  }): Promise<AiServiceResult<{
+    readonly before: ContentBeforeV1;
+    readonly selectedInternalLinkIds: readonly string[];
+  }>>;
 }
 
 function actorCanOwnContentTarget(role: CoreAiActorV1["roleKey"]): boolean {
   return role === "admin" || role === "content_editor";
 }
 
-function actorCanOwnTarget(actor: CoreAiActorV1, target: AiDraftTargetSnapshotV1): boolean {
+function actorCanReadContentTarget<TQueryResult extends PgQueryResultHKT>(
+  scope: DraftConsistentReadScope<TQueryResult>,
+  role: CoreAiActorV1["roleKey"],
+): boolean {
+  return actorCanOwnContentTarget(role) ||
+    scope.mode === "read_only" && role === "reviewer_publisher";
+}
+
+function safeDocument(document: BlockDocument): readonly ReviewCurrentNodeV1[] {
+  return document.blocks.map((block) => {
+    let text: readonly string[] = [];
+    switch (block.type) {
+      case "heading":
+      case "paragraph": text = [block.text]; break;
+      case "callout": text = [...(block.title ? [block.title] : []), block.text]; break;
+      case "quote": text = [block.text, ...(block.attribution ? [block.attribution] : [])]; break;
+      case "feature_list":
+      case "bullet_list": text = block.items; break;
+      case "faq": text = block.items.flatMap((item) => [item.question, item.answer]); break;
+      case "specification_table": text = block.rows.flatMap((row) => [row.label, row.value]); break;
+      case "comparison_table": text = [
+        ...block.columns,
+        ...block.rows.flatMap((row) => [row.label, ...row.cells]),
+      ]; break;
+      case "cta": text = [block.label, ...(block.supportingText ? [block.supportingText] : [])]; break;
+      case "image": text = ["Image placement"]; break;
+      case "gallery": text = [`Gallery (${block.mediaKeys.length})`]; break;
+      case "related_products": text = [`Related products (${block.productIds.length})`]; break;
+      case "related_articles": text = [`Related articles (${block.contentIds.length})`]; break;
+      case "divider": text = []; break;
+    }
+    return { id: block.id, kind: block.type, locked: block.locked === true, text };
+  });
+}
+
+function actorCanReadTarget<TQueryResult extends PgQueryResultHKT>(
+  scope: DraftConsistentReadScope<TQueryResult>,
+  actor: CoreAiActorV1,
+  target: AiDraftTargetSnapshotV1,
+): boolean {
   return actor.roleKey === "admin" ||
     target.owner === "product" && actor.roleKey === "product_editor" ||
-    target.owner === "content" && actor.roleKey === "content_editor";
+    target.owner === "content" && actor.roleKey === "content_editor" ||
+    scope.mode === "read_only" && actor.roleKey === "reviewer_publisher";
 }
 
 async function actorIsCurrent<TQueryResult extends PgQueryResultHKT>(
@@ -247,7 +305,7 @@ export function createContentAiDraftReaderV1<
   return {
     async readTargetSnapshot(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnContentTarget(input.actor.roleKey)) {
+        !actorCanReadContentTarget(input.scope, input.actor.roleKey)) {
         return aiFailure("authorization_denied");
       }
       if (input.command.task.kind !== input.command.useCase) {
@@ -349,7 +407,7 @@ export function createContentAiDraftReaderV1<
 
     async readSelectedFabricContext(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnTarget(input.actor, input.target)) {
+        !actorCanReadTarget(input.scope, input.actor, input.target)) {
         return aiFailure("context_record_unauthorized");
       }
       if (input.target.owner === "content" &&
@@ -402,7 +460,7 @@ export function createContentAiDraftReaderV1<
 
     async readSelectedPublicCompanyFact(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnTarget(input.actor, input.target)) {
+        !actorCanReadTarget(input.scope, input.actor, input.target)) {
         return aiFailure("context_record_unauthorized");
       }
       return withDraftReadExecutor(input.scope, async (database) => {
@@ -447,7 +505,7 @@ export function createContentAiDraftReaderV1<
 
     async readSelectedInternalLinks(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
-        !actorCanOwnTarget(input.actor, input.target) ||
+        !actorCanReadTarget(input.scope, input.actor, input.target) ||
         input.command.useCase !== "seo_content_draft" ||
         input.selectedLinkIds.length > 12 ||
         new Set(input.selectedLinkIds).size !== input.selectedLinkIds.length) {
@@ -493,6 +551,112 @@ export function createContentAiDraftReaderV1<
           });
         }
         return aiSuccess(aliases);
+      });
+    },
+
+    async readReviewBefore(input) {
+      if (!actorCanReadContentTarget(input.scope, input.actor.roleKey) ||
+        input.linkSelectionHashes.length > 12 ||
+        new Set(input.linkSelectionHashes).size !== input.linkSelectionHashes.length ||
+        input.linkSelectionHashes.some((hash) => !/^[0-9a-f]{64}$/.test(hash))) {
+        return aiFailure("context_record_unauthorized");
+      }
+      return withDraftReadExecutor(input.scope, async (database) => {
+        const direct = input.target.revisionSnapshot === null;
+        const localizationRows = direct ? await database.select({
+          status: contents.status,
+          channel: contents.channel,
+          title: contentLocalizations.title,
+          summary: contentLocalizations.excerpt,
+          document: contentLocalizations.structuredBlocks,
+          version: contentLocalizations.editorDocumentVersion,
+        }).from(contents).innerJoin(contentLocalizations, and(
+          eq(contentLocalizations.contentId, contents.id),
+          eq(contentLocalizations.locale, "en"),
+        )).where(eq(contents.id, input.target.entityId)).limit(2) : [];
+        const localization = localizationRows[0];
+        if (direct && (localizationRows.length !== 1 || localization?.status !== "draft" ||
+          localization.channel !== input.target.channel ||
+          localization.version !== input.target.editVersion)) {
+          return aiFailure("target_version_conflict");
+        }
+        const revisionRows = direct ? [] : await database.select({
+          entityId: editorialRevisions.entityId,
+          entityType: editorialRevisions.entityType,
+          locale: editorialRevisions.locale,
+          status: editorialRevisions.status,
+          snapshot: editorialRevisions.snapshot,
+        }).from(editorialRevisions).where(eq(
+          editorialRevisions.id,
+          input.target.revisionId!,
+        )).limit(2);
+        const revisionRow = revisionRows[0];
+        const revision = direct ? null : contentRevisionSnapshotSchema.safeParse(revisionRow?.snapshot);
+        if (!direct && (revisionRows.length !== 1 || revisionRow?.entityType !== "content" ||
+          revisionRow.entityId !== input.target.entityId || revisionRow.locale !== "en" ||
+          revisionRow.status !== "draft" || !revision?.success ||
+          revision.data.draftVersion !== input.target.editVersion)) {
+          return aiFailure("target_version_conflict");
+        }
+        const revisionData = revision?.success ? revision.data : null;
+        if (!direct && revisionData === null) return aiFailure("target_version_conflict");
+        let document: BlockDocument;
+        try {
+          document = direct
+            ? parseBlockDocument(localization?.document, "content")
+            : revisionData!.document;
+        } catch {
+          return aiFailure("context_provenance_mismatch");
+        }
+        const routeRows = await database.select({
+          id: routes.id,
+          title: seoMetadata.title,
+          metaDescription: seoMetadata.metaDescription,
+        }).from(routes).leftJoin(seoMetadata, eq(seoMetadata.routeId, routes.id)).where(and(
+          eq(routes.entityType, "content"),
+          eq(routes.entityId, input.target.entityId),
+          eq(routes.locale, "en"),
+          eq(routes.isCurrent, true),
+        )).limit(2);
+        if (routeRows.length > 1) return aiFailure("context_provenance_mismatch");
+        const route = routeRows[0];
+        if (route === undefined && input.linkSelectionHashes.length > 0) {
+          return aiFailure("context_record_unauthorized");
+        }
+        const relationRows = route === undefined ? [] : await database.select({
+          id: internalLinkRelations.id,
+        }).from(internalLinkRelations).where(and(
+          eq(internalLinkRelations.sourceRouteId, route.id),
+          inArray(internalLinkRelations.status, ["suggested", "approved", "published"]),
+        ));
+        const byHash = new Map<string, string>();
+        for (const relation of relationRows) {
+          const identity = canonicalJsonHash({ selectedInternalLinkId: relation.id });
+          if (!identity.ok || byHash.has(identity.value.hash)) {
+            return aiFailure("context_provenance_mismatch");
+          }
+          byHash.set(identity.value.hash, relation.id);
+        }
+        const selected = input.linkSelectionHashes.map((hash) => byHash.get(hash));
+        if (selected.some((id) => id === undefined)) {
+          return aiFailure("context_record_unauthorized");
+        }
+        const revisionSeo = revisionData?.seo !== undefined
+          ? { title: revisionData.seo.title, metaDescription: revisionData.seo.metaDescription }
+          : null;
+        return aiSuccess({
+          before: {
+            kind: "content",
+            title: direct ? localization!.title : revisionData!.title,
+            summary: direct ? localization!.summary : revisionData!.excerpt,
+            document: safeDocument(document),
+            seo: revisionSeo ?? {
+              title: route?.title ?? null,
+              metaDescription: route?.metaDescription ?? null,
+            },
+          },
+          selectedInternalLinkIds: selected.map((id) => id!),
+        });
       });
     },
   };

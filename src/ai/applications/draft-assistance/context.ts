@@ -92,6 +92,63 @@ const reconstructibleContextSchema = z.object({
   mediaPlacementRefs: z.array(z.string().regex(/^media_[0-9]{2}$/)).max(12),
 }).strict();
 
+const storedFieldProvenanceSchema = z.object({
+  field: z.string().regex(/^[a-z][A-Za-z0-9_]{0,63}$/),
+  provenance: z.enum(["structural", "provided", "verified"]),
+}).strict();
+const storedInputSourceBase = {
+  alias: z.string().regex(/^(?:src|link|media)_[0-9]{2}$/),
+  selectedFields: z.array(z.string().regex(/^[a-z][A-Za-z0-9_]{0,63}$/)).max(32),
+  fieldProvenance: z.array(storedFieldProvenanceSchema).max(32),
+} as const;
+const storedInputSourceSchema = z.discriminatedUnion("sourceClass", [
+  z.object({
+    ...storedInputSourceBase,
+    sourceClass: z.literal("explicit_human_input"),
+    sourceIdentity: z.union([
+      z.object({ origin: z.enum(["typed_brief", "operator_selected_target_text"]) }).strict(),
+      z.object({
+        origin: z.enum(["typed_brief", "operator_selected_target_text"]),
+        controlled_validation_fixture_id: z.string().regex(/^SYN-AI-[A-Z0-9-]{1,120}$/),
+        controlled_validation_fixture_version: z.literal(1),
+        controlled_validation_fixture_hash: lowercaseHash,
+      }).strict(),
+    ]),
+  }).strict(),
+  z.object({
+    ...storedInputSourceBase,
+    sourceClass: z.literal("product_structured"),
+    sourceIdentity: z.object({ productId: z.string().uuid(), projectionSha256: lowercaseHash }).strict(),
+  }).strict(),
+  z.object({
+    ...storedInputSourceBase,
+    sourceClass: z.literal("fabric_knowledge"),
+    sourceIdentity: z.object({
+      contentId: z.string().uuid(),
+      recordVersion: z.number().int().min(1).max(2_147_483_647),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...storedInputSourceBase,
+    sourceClass: z.literal("public_company_fact"),
+    sourceIdentity: z.object({
+      companyFactId: z.string().uuid(),
+      recordUpdatedAt: z.string().datetime({ offset: true }),
+    }).strict(),
+  }).strict(),
+  z.object({
+    ...storedInputSourceBase,
+    sourceClass: z.literal("internal_link_relation"),
+    sourceIdentity: z.object({ selectionSha256: lowercaseHash }).strict(),
+  }).strict(),
+  z.object({
+    ...storedInputSourceBase,
+    sourceClass: z.literal("product_media_placement"),
+    sourceIdentity: z.object({ selectionSha256: lowercaseHash }).strict(),
+  }).strict(),
+]);
+export type StoredDraftInputSourceV1 = z.infer<typeof storedInputSourceSchema>;
+
 export interface ReconstructibleDraftContextV1 extends ReadonlyJsonObject {
   readonly version: 1;
   readonly applicationClass: "draft_assistance";
@@ -675,6 +732,30 @@ function strictContext(input: unknown): AiServiceResult<ReconstructibleDraftCont
   } catch {
     return aiFailure("internal_failure");
   }
+}
+
+export function decodeReconstructibleDraftContextV1(
+  input: unknown,
+): AiServiceResult<ReconstructibleDraftContextV1> {
+  const parsed = reconstructibleContextSchema.safeParse(input);
+  return parsed.success
+    ? strictContext(parsed.data)
+    : aiFailure("context_provenance_mismatch");
+}
+
+export function decodeStoredDraftInputSourcesV1(
+  input: unknown,
+): AiServiceResult<readonly StoredDraftInputSourceV1[]> {
+  const parsed = z.array(storedInputSourceSchema).max(56).safeParse(input);
+  if (!parsed.success) return aiFailure("context_provenance_mismatch");
+  const aliases = parsed.data.map((source) => source.alias);
+  if (new Set(aliases).size !== aliases.length || parsed.data.some((source) =>
+    source.selectedFields.length !== source.fieldProvenance.length ||
+    source.selectedFields.some((field, index) =>
+      source.fieldProvenance[index]?.field !== field,
+    ),
+  )) return aiFailure("context_provenance_mismatch");
+  return aiSuccess(parsed.data);
 }
 
 export interface AllowedEvidenceFieldV1 {

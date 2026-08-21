@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 
 import type { DraftAssistanceAvailabilityQueryV1 } from "@/ai/applications/draft-assistance/contracts";
 import {
@@ -13,6 +13,12 @@ import {
   type AiDraftAvailabilityViewV1,
   type AiDraftRunViewV1,
 } from "@/admin/ai-actions";
+import {
+  createAiCandidateDiffV1,
+  createCandidateReviewStateV1,
+  reduceCandidateReviewStateV1,
+  type CandidateReviewStateV1,
+} from "@/editorial/ai-candidate-diff";
 
 type ActorlessAvailabilityRequestV1 = Omit<DraftAssistanceAvailabilityQueryV1, "actor">;
 
@@ -45,6 +51,18 @@ const initialState: PanelStateV1 = {
   feedback: "AI assistance is idle. It never starts without an explicit request.",
   error: false,
 };
+
+function reviewStateForRun(
+  current: CandidateReviewStateV1 | null,
+  requestIdentity: string,
+  run: AiDraftRunViewV1,
+): CandidateReviewStateV1 | null {
+  const projection = run.reviewProjection;
+  if (projection === null) return null;
+  return current === null
+    ? createCandidateReviewStateV1(requestIdentity, projection)
+    : reduceCandidateReviewStateV1(current, { type: "replace", requestIdentity, projection });
+}
 
 export function aiDraftAssistancePanelReducerV1(
   state: PanelStateV1,
@@ -110,6 +128,7 @@ export function AiDraftAssistancePanel({
   const boundedPollingBudget = Number.isInteger(pollingBudget)
     ? Math.min(30, Math.max(1, pollingBudget)) : 12;
   const [state, dispatch] = useReducer(aiDraftAssistancePanelReducerV1, initialState);
+  const [reviewState, setReviewState] = useState<CandidateReviewStateV1 | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
   const inFlightRef = useRef(false);
   const operationEpochRef = useRef(0);
@@ -144,6 +163,9 @@ export function AiDraftAssistancePanel({
           if (epoch !== operationEpochRef.current) return;
           if (result.ok) {
             dispatch({ type: "run", value: result.value });
+            setReviewState((current) => reviewStateForRun(
+              current, requestIdentity, result.value,
+            ));
             if (pollCountRef.current >= boundedPollingBudget &&
               (result.value.status === "pending" || result.value.status === "processing")) {
               dispatch({ type: "poll_exhausted" });
@@ -156,7 +178,14 @@ export function AiDraftAssistancePanel({
       );
     }, boundedPollIntervalMs);
     return () => window.clearTimeout(timer);
-  }, [boundedPollIntervalMs, boundedPollingBudget, state.busy, state.pollingExhausted, state.run]);
+  }, [
+    boundedPollIntervalMs,
+    boundedPollingBudget,
+    requestIdentity,
+    state.busy,
+    state.pollingExhausted,
+    state.run,
+  ]);
 
   async function exclusive(
     feedback: string,
@@ -178,8 +207,10 @@ export function AiDraftAssistancePanel({
 
   function acceptRun(epoch: number, result: Awaited<ReturnType<typeof readAiDraftAssistanceRunAction>>): void {
     if (epoch !== operationEpochRef.current) return;
-    if (result.ok) dispatch({ type: "run", value: result.value });
-    else dispatch({ type: "failure", message: result.message });
+    if (result.ok) {
+      dispatch({ type: "run", value: result.value });
+      setReviewState((current) => reviewStateForRun(current, requestIdentity, result.value));
+    } else dispatch({ type: "failure", message: result.message });
   }
 
   const inspectAvailability = () => exclusive("Checking AI availability…", async (epoch) => {
@@ -253,6 +284,72 @@ export function AiDraftAssistancePanel({
       </div>
 
       <p aria-live="polite" role={state.error ? "alert" : "status"}>{state.feedback}</p>
+
+      {state.run?.reviewProjection !== null && state.run?.reviewProjection !== undefined &&
+      reviewState !== null ? (() => {
+        const view = createAiCandidateDiffV1(state.run.reviewProjection);
+        return (
+          <div aria-label="Protected AI candidate review" className="space-y-4">
+            <p className="text-sm text-slate-300">
+              This preview is local and non-authoritative. Locked existing Blocks remain unchanged.
+            </p>
+            {view.lockedBefore.length > 0 ? (
+              <div aria-label="Locked existing Blocks" className="space-y-2">
+                <h3 className="font-medium">Locked existing Blocks</h3>
+                {view.lockedBefore.map((node) => (
+                  <div aria-disabled="true" className="rounded border border-slate-700 p-2" key={node.id}>
+                    <strong>{node.kind.replaceAll("_", " ")}</strong>
+                    {node.text.map((text, index) => <p key={`${node.id}:${index}`}>{text}</p>)}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div aria-label="AI proposal nodes" className="space-y-3">
+              {view.proposalNodes.map((node) => {
+                const decision = reviewState.decisions[node.id] ?? "pending";
+                return (
+                  <article className="rounded border border-slate-700 p-3" key={node.id}>
+                    <h3 className="font-medium">{node.label}</h3>
+                    {node.beforeText !== null ? <p>Before: {node.beforeText}</p> : null}
+                    <p>Proposal: {reviewState.edits[node.id] ?? node.proposedText}</p>
+                    {node.previewOnly ? <p>Planning preview only</p> : null}
+                    <p>Local decision: {decision}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button disabled={state.busy} onClick={() => setReviewState((current) =>
+                        current === null ? current : reduceCandidateReviewStateV1(current, {
+                          type: "decide", nodeId: node.id, decision: "accepted",
+                        }))} type="button">Accept locally</button>
+                      <button disabled={state.busy} onClick={() => setReviewState((current) =>
+                        current === null ? current : reduceCandidateReviewStateV1(current, {
+                          type: "decide", nodeId: node.id, decision: "rejected",
+                        }))} type="button">Reject locally</button>
+                    </div>
+                    {node.editable ? (
+                      <label>
+                        Local preview edit
+                        <textarea
+                          onChange={(event) => {
+                            const text = event.currentTarget.value;
+                            setReviewState((current) => current === null
+                              ? current : reduceCandidateReviewStateV1(current, {
+                                  type: "edit", nodeId: node.id, text,
+                                }));
+                          }}
+                          value={reviewState.edits[node.id] ?? node.proposedText}
+                        />
+                      </label>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+            <button disabled={reviewState.undoStack.length === 0 || state.busy}
+              onClick={() => setReviewState((current) => current === null ? current
+                : reduceCandidateReviewStateV1(current, { type: "undo" }))}
+              type="button">Undo local review</button>
+          </div>
+        );
+      })() : null}
 
       <div className="flex flex-wrap gap-2">
         {state.run === null ? (

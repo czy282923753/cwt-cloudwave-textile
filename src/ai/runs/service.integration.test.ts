@@ -17,6 +17,10 @@ import { createAiModelConfigServiceV1 } from "@/ai/config/model-config-service";
 import { resolvedConfigHashV1 } from "@/ai/internal/preparation";
 import { localTestPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { normalizeAttemptEvidenceV3 } from "@/ai/runs/attempt-evidence";
+import { protectDraftCandidateV1 } from "@/ai/output/common";
+import { productDescriptionDraftV1Schema } from "@/ai/output/product-description-draft";
+import { fabricKnowledgeDraftV1Schema } from "@/ai/output/fabric-knowledge-draft";
+import { decodeReconstructibleDraftContextV1 } from "@/ai/applications/draft-assistance/context";
 import { createAiRunRepositoryV1 } from "@/ai/runs/repository";
 import { aiFailure } from "@/ai/errors";
 import { writeAuditLog } from "@/audit/service";
@@ -371,6 +375,122 @@ async function settleDraftReady(runId: string, candidateHash = hash("c")) {
   });
   if (settled.kind !== "settled") throw new Error("Synthetic candidate settlement failed.");
   return settled;
+}
+
+async function settleProtectedProductCandidate(runId: string) {
+  const [row] = await db().select({ context: aiRuns.inputContextJson }).from(aiRuns)
+    .where(eq(aiRuns.id, runId));
+  if (row === undefined) throw new Error("Synthetic protected candidate run disappeared.");
+  const decodedContext = decodeReconstructibleDraftContextV1(row.context);
+  if (!decodedContext.ok) throw new Error(`Stored context failed: ${decodedContext.error.code}`);
+  const sourceRef = "src_01:text";
+  const protectedResult = protectDraftCandidateV1({
+    rawObject: {
+      schemaVersion: 1,
+      useCase: "product_description_draft",
+      locale: "en",
+      displayNameProposal: { text: "Synthetic product title", sourceRefs: [sourceRef] },
+      summaryProposal: { text: "Synthetic product summary", sourceRefs: [sourceRef] },
+      descriptionBlocks: [{ type: "paragraph", text: {
+        text: "Synthetic product paragraph", sourceRefs: [sourceRef],
+      } }],
+      featureProposals: [],
+      faqProposals: [],
+      mediaTextProposals: [],
+    },
+    context: decodedContext.value,
+    schema: productDescriptionDraftV1Schema,
+    useCase: "product_description_draft",
+    schemaId: "cwt.product-description-draft.v1",
+    policyVersion: "draft-product-description-v1",
+  });
+  if (!protectedResult.ok) throw new Error(`Protected candidate failed: ${protectedResult.error.code}`);
+  const active = await claimAndMark(runId);
+  const normalized = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+    version: 3,
+    dispatchState: "dispatched",
+    protectedResult: protectedResult.value,
+    error: null,
+    responseStatus: "success",
+    retryClass: "not_retryable",
+    returnedModel: "synthetic-text-alpha-v1",
+    completion: { kind: "complete" },
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    providerHttpStatus: 200,
+    providerErrorCode: null,
+    providerRequestId: "synthetic-protected-request",
+    providerSystemFingerprint: null,
+    durationMs: 2,
+  });
+  if (!normalized.ok) throw new Error("Protected candidate evidence failed.");
+  const settled = await active.repository.settle({
+    runId,
+    executionEnvironment: "test",
+    leaseOwner: active.leaseOwner,
+    leaseToken: active.leaseToken,
+    leaseExpiresAt: active.marker.leaseExpiresAt,
+    stateVersion: active.marker.stateVersion,
+    evidence: normalized.value,
+  });
+  if (settled.kind !== "settled") throw new Error("Protected candidate settlement failed.");
+  return { settled, protectedResult: protectedResult.value };
+}
+
+async function settleProtectedContentCandidate(runId: string) {
+  const [row] = await db().select({ context: aiRuns.inputContextJson }).from(aiRuns)
+    .where(eq(aiRuns.id, runId));
+  if (row === undefined) throw new Error("Synthetic protected Content run disappeared.");
+  const decodedContext = decodeReconstructibleDraftContextV1(row.context);
+  if (!decodedContext.ok) throw new Error(`Stored context failed: ${decodedContext.error.code}`);
+  const sourceRef = "src_01:text";
+  const protectedResult = protectDraftCandidateV1({
+    rawObject: {
+      schemaVersion: 1,
+      useCase: "fabric_knowledge_draft",
+      locale: "en",
+      titleProposal: { text: "Synthetic fabric title", sourceRefs: [sourceRef] },
+      summaryProposal: { text: "Synthetic fabric summary", sourceRefs: [sourceRef] },
+      outline: [{ text: "Synthetic fabric outline", sourceRefs: [sourceRef] }],
+      blocks: [{ type: "paragraph", text: {
+        text: "Synthetic fabric paragraph", sourceRefs: [sourceRef],
+      } }],
+    },
+    context: decodedContext.value,
+    schema: fabricKnowledgeDraftV1Schema,
+    useCase: "fabric_knowledge_draft",
+    schemaId: "cwt.fabric-knowledge-draft.v1",
+    policyVersion: "draft-fabric-knowledge-v1",
+  });
+  if (!protectedResult.ok) throw new Error(`Protected Content failed: ${protectedResult.error.code}`);
+  const active = await claimAndMark(runId);
+  const normalized = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+    version: 3,
+    dispatchState: "dispatched",
+    protectedResult: protectedResult.value,
+    error: null,
+    responseStatus: "success",
+    retryClass: "not_retryable",
+    returnedModel: "synthetic-text-alpha-v1",
+    completion: { kind: "complete" },
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    providerHttpStatus: 200,
+    providerErrorCode: null,
+    providerRequestId: "synthetic-protected-content-request",
+    providerSystemFingerprint: null,
+    durationMs: 2,
+  });
+  if (!normalized.ok) throw new Error("Protected Content evidence failed.");
+  const settled = await active.repository.settle({
+    runId,
+    executionEnvironment: "test",
+    leaseOwner: active.leaseOwner,
+    leaseToken: active.leaseToken,
+    leaseExpiresAt: active.marker.leaseExpiresAt,
+    stateVersion: active.marker.stateVersion,
+    evidence: normalized.value,
+  });
+  if (settled.kind !== "settled") throw new Error("Protected Content settlement failed.");
+  return { settled, protectedResult: protectedResult.value };
 }
 
 describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service", () => {
@@ -1301,6 +1421,93 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     })).ok).toBe(true);
     expect(await db().select().from(auditLogs)
       .where(eq(auditLogs.action, "ai.run.manual_retry_scheduled"))).toHaveLength(2);
+  });
+
+  it("returns one server-authorized protected projection immediately on draft_ready", async () => {
+    const fixture = await seedFixture();
+    const reviewer = await seedUser("reviewer_publisher");
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Protected projection enqueue failed.");
+    const { protectedResult } = await settleProtectedProductCandidate(created.value.runId);
+
+    for (const readActor of [
+      { userId: fixture.actorId, role: "product_editor" as const },
+      reviewer,
+    ]) {
+      const read = await service().readRun({ runId: created.value.runId, actor: readActor });
+      expect(read.ok, JSON.stringify(read)).toBe(true);
+      if (!read.ok) continue;
+      expect(read.value.reviewProjection).toMatchObject({
+        version: 1,
+        run: { id: created.value.runId, candidateHash: protectedResult.hash },
+        target: { kind: "product", locale: "en", draftVersion: 1 },
+        before: { kind: "product", name: "Synthetic Run Service Product" },
+      });
+      expect(read.value.reviewProjection?.proposal.nodes).toHaveLength(3);
+      expect(JSON.stringify(read.value.reviewProjection)).not.toMatch(
+        new RegExp(`${fixture.productId}|targetProductId|candidateJson|sourceRefs|productCode`, "i"),
+      );
+    }
+    const contentEditor = await seedUser("content_editor");
+    expect(await service().readRun({
+      runId: created.value.runId,
+      actor: contentEditor,
+    })).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+  });
+
+  it("returns the protected Content projection only to authorized Content roles", async () => {
+    const contentEditor = await seedUser("content_editor");
+    const reviewer = await seedUser("reviewer_publisher");
+    const productEditor = await seedUser("product_editor");
+    const fixture = await seedContentFixture(contentEditor);
+    const created = await service().requestDraftAssistance(contentCommand(fixture, contentEditor));
+    if (!created.ok) throw new Error("Protected Content projection enqueue failed.");
+    const { protectedResult } = await settleProtectedContentCandidate(created.value.runId);
+
+    for (const readActor of [contentEditor, reviewer]) {
+      const read = await service().readRun({ runId: created.value.runId, actor: readActor });
+      expect(read.ok, JSON.stringify(read)).toBe(true);
+      if (!read.ok) continue;
+      expect(read.value.reviewProjection).toMatchObject({
+        version: 1,
+        run: { id: created.value.runId, candidateHash: protectedResult.hash },
+        target: { kind: "content", locale: "en", draftVersion: 1, channel: "fabric_knowledge" },
+        before: { kind: "content", title: "Synthetic Run Service Content" },
+      });
+      expect(read.value.reviewProjection?.proposal.nodes).toHaveLength(4);
+      expect(JSON.stringify(read.value.reviewProjection)).not.toMatch(
+        new RegExp(`${fixture.contentId}|targetContentId|candidateJson|sourceRefs`, "i"),
+      );
+    }
+    expect(await service().readRun({ runId: created.value.runId, actor: productEditor }))
+      .toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+  });
+
+  it("fails closed for stored Candidate substitution and target version drift", async () => {
+    const fixture = await seedFixture();
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Protected projection enqueue failed.");
+    const { protectedResult } = await settleProtectedProductCandidate(created.value.runId);
+    await db().update(aiRuns).set({
+      candidateJson: { ...protectedResult.value, unknown: "substitution" },
+    }).where(eq(aiRuns.id, created.value.runId));
+    expect((await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: fixture.actorId, role: "product_editor" },
+    })).ok).toBe(false);
+
+    await db().update(aiRuns).set({ candidateJson: protectedResult.value })
+      .where(eq(aiRuns.id, created.value.runId));
+    await db().update(productLocalizations).set({ editorDocumentVersion: 2 })
+      .where(eq(productLocalizations.productId, fixture.productId));
+    expect((await service().readRun({
+      runId: created.value.runId,
+      actor: { userId: fixture.actorId, role: "product_editor" },
+    })).ok).toBe(false);
   });
 
   it("allows persisted Reviewer Product/Content disposition and Admin all-scope disposition", async () => {

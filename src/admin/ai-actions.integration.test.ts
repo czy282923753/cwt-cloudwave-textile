@@ -25,6 +25,38 @@ const productId = "20000000-0000-4000-8000-000000000002";
 const runId = "30000000-0000-4000-8000-000000000003";
 const idempotencyKey = "40000000-0000-4000-8000-000000000004";
 const candidateHash = "a".repeat(64);
+const projectionKey = "b".repeat(64);
+
+function reviewProjection(stateVersion = 7) {
+  return {
+    version: 1,
+    run: { id: runId, useCase: "product_description_draft", stateVersion, candidateHash },
+    target: { kind: "product", locale: "en", draftVersion: 3 },
+    projectionKey,
+    before: {
+      kind: "product",
+      name: "Synthetic Textile",
+      summary: null,
+      document: [],
+      seo: { title: null, metaDescription: null },
+      mediaText: [],
+    },
+    proposal: {
+      nodes: [{
+        id: `ai_${"c".repeat(60)}`,
+        path: "payload.descriptionBlocks[0]",
+        ordinal: 1,
+        kind: "block",
+        label: "Description block 1",
+        proposedText: "Synthetic candidate",
+        beforeText: null,
+        details: [],
+        editable: true,
+        previewOnly: true,
+      }],
+    },
+  } as const;
+}
 
 function request(overrides: Record<string, unknown> = {}) {
   return {
@@ -54,7 +86,7 @@ function authorizedRun(overrides: Record<string, unknown> = {}) {
     targetType: "product_draft",
     targetId: productId,
     candidateHash: null,
-    candidate: null,
+    reviewProjection: null,
     failureCode: null,
     humanDisposition: "not_evaluated",
     qualityRating: null,
@@ -98,7 +130,7 @@ function service() {
         humanDisposition: "rejected",
         stateVersion: 8,
         candidateHash,
-        candidate: { version: 1, protected: "must-not-survive-rejection" },
+        reviewProjection: null,
         cancelAvailable: false,
       }),
     }),
@@ -184,7 +216,7 @@ describe("Phase E AI Server Actions", () => {
         status: "draft_ready",
         stateVersion: 7,
         candidateHash,
-        candidate: { version: 1, sections: [{ kind: "paragraph", text: "Synthetic candidate" }] },
+        reviewProjection: reviewProjection(),
         failureCode: "provider_auth_failed",
         rejectAvailable: true,
         cancelAvailable: false,
@@ -198,6 +230,11 @@ describe("Phase E AI Server Actions", () => {
         runId,
         status: "draft_ready",
         candidateHash,
+        reviewProjection: expect.objectContaining({
+          version: 1,
+          projectionKey,
+          run: { id: runId, useCase: "product_description_draft", stateVersion: 7, candidateHash },
+        }),
         rejectAvailable: true,
       },
     });
@@ -205,6 +242,29 @@ describe("Phase E AI Server Actions", () => {
     expect(JSON.stringify(result)).not.toContain("targetType");
     expect(JSON.stringify(result)).not.toContain("failureCode");
     expect(JSON.stringify(result)).not.toContain("provider_auth_failed");
+    expect(JSON.stringify(result)).not.toContain('"candidate"');
+  });
+
+  it("fails closed when a ready run lacks a matching server-authorized projection", async () => {
+    const current = service();
+    current.readRun.mockResolvedValueOnce({
+      ok: true,
+      value: authorizedRun({
+        status: "draft_ready",
+        stateVersion: 7,
+        candidateHash,
+        reviewProjection: null,
+        rejectAvailable: true,
+        cancelAvailable: false,
+      }),
+    });
+    mocks.createService.mockReturnValue(current);
+    await expect(readAiDraftAssistanceRunAction({ runId })).resolves.toEqual({
+      ok: false,
+      code: "unavailable",
+      message: "AI assistance is unavailable. Ordinary manual editing is unchanged.",
+      manualEditorAvailable: true,
+    });
   });
 
   it("passes exact state and candidate fences to lifecycle services", async () => {

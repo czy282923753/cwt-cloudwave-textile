@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { prepareDraftAssociationV1 } from "@/ai/applications/draft-assistance/association";
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
+import { canonicalJsonHash } from "@/ai/canonical-json";
 import { withReadOnlyDraftAvailabilityScope } from "@/ai/applications/draft-assistance/read-scopes";
 import type { CoreAiActorV1 } from "@/ai/core/contracts";
 import type { DatabaseConnection, PostgresAppDatabase } from "@/db/client";
@@ -427,6 +428,29 @@ describe.skipIf(postgresUrl === undefined)("ContentAiDraftReaderV1 on PostgreSQL
     expect(serialized).not.toContain(linkOne);
     expect(serialized).not.toContain(linkTwo);
     expect(serialized).not.toContain("/synthetic-private-");
+
+    const linkSelection = canonicalJsonHash({ selectedInternalLinkId: linkOne });
+    if (!linkSelection.ok) throw new Error("Content review link fixture failed.");
+    const before = await withReadOnlyDraftAvailabilityScope(db(), async (scope) => {
+      const target = await reader.readTargetSnapshot({ scope, actor, command, association: association.value });
+      return target.ok ? reader.readReviewBefore({
+        scope, actor, target: target.value, linkSelectionHashes: [linkSelection.value.hash],
+      }) : target;
+    });
+    expect(before).toMatchObject({
+      ok: true,
+      value: { before: { kind: "content" }, selectedInternalLinkIds: [linkOne] },
+    });
+    expect(JSON.stringify((before as { value?: { before?: unknown } }).value?.before))
+      .not.toMatch(/20000000|synthetic-private/i);
+
+    const mismatch = await withReadOnlyDraftAvailabilityScope(db(), async (scope) => {
+      const target = await reader.readTargetSnapshot({ scope, actor, command, association: association.value });
+      return target.ok ? reader.readReviewBefore({
+        scope, actor, target: target.value, linkSelectionHashes: ["f".repeat(64)],
+      }) : target;
+    });
+    expect(mismatch).toMatchObject({ ok: false, error: { code: "context_record_unauthorized" } });
 
     await db().update(routes).set({ isCurrent: false }).where(eq(routes.id, sourceRouteId));
     const staleRoute = await withReadOnlyDraftAvailabilityScope(db(), async (scope) => {

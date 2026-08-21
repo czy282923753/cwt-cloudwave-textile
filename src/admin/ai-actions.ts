@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import type { ReadonlyJsonObject } from "@/ai/canonical-json";
+import type { AiDraftReviewProjectionV1 } from "@/ai/applications/draft-assistance/contracts";
 import type { SafeAiError } from "@/ai/errors";
 import {
   decodeDraftAssistanceActionCommandV1,
@@ -58,7 +58,7 @@ export interface AiDraftRunViewV1 {
   readonly stateVersion: number;
   readonly queuedAt: string;
   readonly candidateHash: string | null;
-  readonly candidate: ReadonlyJsonObject | null;
+  readonly reviewProjection: AiDraftReviewProjectionV1 | null;
   readonly disposition: "not_evaluated" | "accepted" | "accepted_with_edits" | "rejected";
   readonly cancelAvailable: boolean;
   readonly manualRetryAvailable: boolean;
@@ -124,6 +124,17 @@ function safeRun(row: AiRunAuthorizedReadV1): AiDraftRunViewV1 {
     }
   })();
   const ready = row.status === "draft_ready" && row.humanDisposition === "not_evaluated";
+  if (ready) {
+    const projection = row.reviewProjection;
+    if (row.candidateHash === null || projection === null ||
+      projection.run.id !== row.runId || projection.run.useCase !== row.useCase ||
+      projection.run.stateVersion !== row.stateVersion ||
+      projection.run.candidateHash !== row.candidateHash) {
+      throw new Error("Authorized AI review projection is inconsistent.");
+    }
+  } else if (row.reviewProjection !== null) {
+    throw new Error("Authorized AI review projection is not available in this lifecycle state.");
+  }
   return {
     runId: row.runId,
     useCase: row.useCase,
@@ -131,7 +142,7 @@ function safeRun(row: AiRunAuthorizedReadV1): AiDraftRunViewV1 {
     stateVersion: row.stateVersion,
     queuedAt: row.queuedAt,
     candidateHash: ready ? row.candidateHash : null,
-    candidate: ready ? row.candidate : null,
+    reviewProjection: ready ? row.reviewProjection : null,
     disposition,
     cancelAvailable: row.cancelAvailable,
     manualRetryAvailable: row.manualRetryAvailable,

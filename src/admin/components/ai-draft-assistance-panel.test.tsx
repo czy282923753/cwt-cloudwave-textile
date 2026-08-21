@@ -26,6 +26,7 @@ import { AiDraftAssistancePanel } from "./ai-draft-assistance-panel";
 
 const runId = "30000000-0000-4000-8000-000000000003";
 const candidateHash = "a".repeat(64);
+const projectionKey = "b".repeat(64);
 const unexpectedRejectionMessage =
   "AI assistance status is uncertain because the server response was interrupted. Ordinary manual editing is unchanged. Retry the explicit request; if a run is visible, use Refresh status first.";
 
@@ -48,6 +49,37 @@ const request = {
   }],
 };
 
+function reviewProjection(stateVersion = 4) {
+  return {
+    version: 1,
+    run: { id: runId, useCase: "product_description_draft", stateVersion, candidateHash },
+    target: { kind: "product", locale: "en", draftVersion: 3 },
+    projectionKey,
+    before: {
+      kind: "product",
+      name: "Synthetic Textile",
+      summary: "Existing summary",
+      document: [{ id: "locked_existing", kind: "paragraph", locked: true, text: ["Locked text"] }],
+      seo: { title: null, metaDescription: null },
+      mediaText: [],
+    },
+    proposal: {
+      nodes: [{
+        id: `ai_${"c".repeat(60)}`,
+        path: "payload.descriptionBlocks[0]",
+        ordinal: 1,
+        kind: "block",
+        label: "Description block 1",
+        proposedText: "Synthetic candidate",
+        beforeText: null,
+        details: [],
+        editable: true,
+        previewOnly: true,
+      }],
+    },
+  } as const;
+}
+
 function run(
   status: "pending" | "processing" | "draft_ready" | "failed" | "cancelled",
   overrides: Record<string, unknown> = {},
@@ -59,7 +91,7 @@ function run(
     stateVersion: 4,
     queuedAt: "2026-01-01T00:00:00.000Z",
     candidateHash: status === "draft_ready" ? candidateHash : null,
-    candidate: status === "draft_ready" ? { version: 1, sections: [] } : null,
+    reviewProjection: status === "draft_ready" ? reviewProjection() : null,
     disposition: "not_evaluated",
     cancelAvailable: status === "pending" || status === "processing",
     manualRetryAvailable: false,
@@ -113,7 +145,7 @@ describe("AI draft assistance five-state panel", () => {
       stateVersion: 5,
       disposition: "rejected",
       candidateHash: null,
-      candidate: null,
+      reviewProjection: null,
       rejectAvailable: false,
       message: "AI draft candidate rejected.",
     })));
@@ -368,6 +400,28 @@ describe("AI draft assistance five-state panel", () => {
     render(<AiDraftAssistancePanel request={request} requestIdentity={`product:1:${status}`} />);
     fireEvent.click(screen.getByRole("button", { name: "Generate AI draft" }));
     expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
+  it("renders the protected projection and keeps decisions, edits, and Undo local", async () => {
+    actions.enqueue.mockResolvedValueOnce(ok(run("draft_ready")));
+    render(<AiDraftAssistancePanel request={request} requestIdentity="product:protected-review" />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate AI draft" }));
+
+    expect(await screen.findByText("Locked text")).toBeInTheDocument();
+    expect(screen.getByText("Local decision: pending")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Accept locally" }));
+    expect(screen.getByText("Local decision: accepted")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Local preview edit" }), {
+      target: { value: "Locally edited preview" },
+    });
+    expect(screen.getByText("Proposal: Locally edited preview")).toBeInTheDocument();
+    expect(actions.enqueue).toHaveBeenCalledTimes(1);
+    expect(actions.read).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo local review" }));
+    expect(screen.getByText("Proposal: Synthetic candidate")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /apply|save/i })).toBeNull();
   });
 
   it("uses authoritative controls and exact lifecycle fences", async () => {

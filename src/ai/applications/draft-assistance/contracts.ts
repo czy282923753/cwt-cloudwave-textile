@@ -164,6 +164,121 @@ export interface AiRunSummaryV1 {
   readonly queuedAt: string;
 }
 
+export type ReviewCurrentNodeKindV1 =
+  | "heading"
+  | "paragraph"
+  | "image"
+  | "gallery"
+  | "specification_table"
+  | "comparison_table"
+  | "feature_list"
+  | "bullet_list"
+  | "callout"
+  | "quote"
+  | "faq"
+  | "related_products"
+  | "related_articles"
+  | "cta"
+  | "divider";
+
+export interface ReviewCurrentNodeV1 {
+  readonly id: string;
+  readonly kind: ReviewCurrentNodeKindV1;
+  readonly locked: boolean;
+  /** Safe textual rendering only; relationship and media identifiers are intentionally absent. */
+  readonly text: readonly string[];
+}
+
+export interface ReviewSeoBeforeV1 {
+  readonly title: string | null;
+  readonly metaDescription: string | null;
+}
+
+export interface ReviewMediaTextBeforeV1 {
+  readonly placementRef: `media_${string}`;
+  readonly altText: string | null;
+  readonly caption: string | null;
+}
+
+export interface ProductBeforeV1 {
+  readonly kind: "product";
+  readonly name: string;
+  readonly summary: string | null;
+  readonly document: readonly ReviewCurrentNodeV1[];
+  readonly seo: ReviewSeoBeforeV1;
+  readonly mediaText: readonly ReviewMediaTextBeforeV1[];
+}
+
+export interface ContentBeforeV1 {
+  readonly kind: "content";
+  readonly title: string;
+  readonly summary: string | null;
+  readonly document: readonly ReviewCurrentNodeV1[];
+  readonly seo: ReviewSeoBeforeV1;
+}
+
+export type ReviewProposalNodeKindV1 =
+  | "title"
+  | "summary"
+  | "outline"
+  | "block"
+  | "feature"
+  | "faq"
+  | "internal_link"
+  | "media_text";
+
+export interface ReviewProposalNodeV1 {
+  readonly id: string;
+  readonly path: string;
+  readonly ordinal: number;
+  readonly kind: ReviewProposalNodeKindV1;
+  readonly label: string;
+  readonly proposedText: string;
+  readonly beforeText: string | null;
+  readonly details: readonly string[];
+  readonly editable: boolean;
+  readonly previewOnly: boolean;
+}
+
+export interface ReviewSeoProposalV1 {
+  readonly title?: ReviewProposalNodeV1;
+  readonly metaDescription?: ReviewProposalNodeV1;
+}
+
+interface ReviewProjectionBaseV1 {
+  readonly version: 1;
+  readonly run: {
+    readonly id: string;
+    readonly useCase: ProductionAiUseCase;
+    readonly stateVersion: number;
+    readonly candidateHash: string;
+  };
+  readonly projectionKey: string;
+  readonly proposal: {
+    readonly nodes: readonly ReviewProposalNodeV1[];
+    readonly seo?: ReviewSeoProposalV1 | undefined;
+  };
+}
+
+export type AiDraftReviewProjectionV1 =
+  | (ReviewProjectionBaseV1 & {
+      readonly target: {
+        readonly kind: "product";
+        readonly locale: "en";
+        readonly draftVersion: number;
+      };
+      readonly before: ProductBeforeV1;
+    })
+  | (ReviewProjectionBaseV1 & {
+      readonly target: {
+        readonly kind: "content";
+        readonly locale: "en";
+        readonly draftVersion: number;
+        readonly channel: "fabric_knowledge" | "china_sourcing_guide" | "china_textile_guide";
+      };
+      readonly before: ContentBeforeV1;
+    });
+
 export interface DraftAssistanceService {
   inspectDraftAssistanceAvailability(
     query: DraftAssistanceAvailabilityQueryV1,

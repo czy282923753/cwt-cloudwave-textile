@@ -14,13 +14,16 @@ import {
   type ReadOnlyDraftAvailabilityScope,
   type TransactionBoundDraftEnqueueScope,
   withTransactionBoundDraftEnqueueScope,
+  withReadOnlyDraftAvailabilityScope,
 } from "@/ai/applications/draft-assistance/read-scopes";
+import type { DraftReviewProjectionBuilderV1 } from "@/ai/applications/draft-assistance/review-projection";
 import type { GenericAiOrchestratorV1 } from "@/ai/core/contracts";
 import { aiFailure, type AiServiceResult } from "@/ai/errors";
 import type { ProtectedDraftCandidateV1 } from "@/ai/output/common";
 import { aiModelConfigMutationReadRepositoryV1 } from "@/ai/config/model-config-repository";
 import type {
   AiRunAuthorizedReadV1,
+  AiRunAuthorizedEvidenceV1,
   RunDispositionInputV1,
 } from "@/ai/runs/contracts";
 import {
@@ -110,6 +113,7 @@ export function createAiRunServiceV1(
     readonly pricingRegistry: PricingPolicyRegistryV1;
     readonly registry: ProductionRegistryV1;
     readonly orchestrator: GenericAiOrchestratorV1;
+    readonly reviewProjection: DraftReviewProjectionBuilderV1<PostgresJsQueryResultHKT>;
     readonly governedMutationOptions?: GovernedMutationOptions;
   },
 ): AiRunServiceV1 {
@@ -119,15 +123,50 @@ export function createAiRunServiceV1(
     readonly actor: { readonly userId: string; readonly role: string };
   }): Promise<AiServiceResult<AiRunAuthorizedReadV1>> => {
     if (!validActorClaim(input.actor)) return aiFailure("authorization_denied");
-    return database.transaction(async (transaction) => {
-      const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
-      if (actor === null) return aiFailure("authorization_denied");
-      const row = await repository.readAuthorizedWithinTransaction(transaction, {
-        runId: input.runId,
-        actor,
-      });
-      return row === null ? aiFailure("authorization_denied") : { ok: true, value: row };
+    let evidence: AiRunAuthorizedEvidenceV1 | null = null;
+    const result = await withReadOnlyDraftAvailabilityScope(database, {
+      async resolveActor(transaction) {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, input.actor);
+        if (actor === null) return null;
+        evidence = await repository.readAuthorizedWithinTransaction(transaction, {
+          runId: input.runId,
+          actor,
+        });
+        return evidence === null ? null : actor;
+      },
+      actorCanAccessEntityType: () => true,
+    }, async (scope, actor) => {
+      const row = evidence;
+      if (row === null) return aiFailure("authorization_denied");
+      const projection = row.status === "draft_ready" && row.humanDisposition === "not_evaluated"
+        ? await dependencies.reviewProjection.build({
+            scope,
+            actor: { principalId: actor.userId, roleKey: actor.role },
+            evidence: row,
+          })
+        : { ok: true, value: null } as const;
+      if (!projection.ok) return projection;
+      return { ok: true as const, value: {
+        runId: row.runId,
+        applicationClass: "draft_assistance",
+        useCase: row.useCase,
+        status: row.status,
+        retryState: row.retryState,
+        attemptCount: row.attemptCount,
+        stateVersion: row.stateVersion,
+        queuedAt: row.queuedAt,
+        candidateHash: row.candidateHash,
+        failureCode: row.failureCode,
+        humanDisposition: row.humanDisposition,
+        qualityRating: row.qualityRating,
+        qualityLabels: row.qualityLabels,
+        cancelAvailable: row.cancelAvailable,
+        manualRetryAvailable: row.manualRetryAvailable,
+        rejectAvailable: row.rejectAvailable,
+        reviewProjection: projection.value,
+      } satisfies AiRunAuthorizedReadV1 };
     });
+    return result ?? aiFailure("authorization_denied");
   };
   return {
     async requestDraftAssistance(command) {

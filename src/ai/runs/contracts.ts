@@ -34,10 +34,7 @@ export interface AiRunSummaryReadV1 {
 }
 
 export interface AiRunAuthorizedReadV1 extends AiRunSummaryReadV1 {
-  readonly targetType: string;
-  readonly targetId: string;
   readonly candidateHash: string | null;
-  readonly candidate: ReadonlyJsonObject | null;
   readonly failureCode: string | null;
   readonly humanDisposition: string;
   readonly qualityRating: number | null;
@@ -46,6 +43,29 @@ export interface AiRunAuthorizedReadV1 extends AiRunSummaryReadV1 {
   readonly cancelAvailable: boolean;
   readonly manualRetryAvailable: boolean;
   readonly rejectAvailable: boolean;
+  readonly reviewProjection: import("@/ai/applications/draft-assistance/contracts")
+    .AiDraftReviewProjectionV1 | null;
+}
+
+/** Server-only evidence used to construct the authorized browser projection. */
+export interface AiRunAuthorizedEvidenceV1 extends Omit<
+  AiRunAuthorizedReadV1,
+  "reviewProjection"
+> {
+  readonly targetType: string;
+  readonly targetProductId: string | null;
+  readonly targetContentId: string | null;
+  readonly targetRevisionId: string | null;
+  readonly targetLocale: string | null;
+  readonly expectedTargetVersion: number;
+  readonly targetSnapshotHash: string;
+  readonly outputSchemaVersion: number;
+  readonly policyVersion: string;
+  readonly inputContext: ReadonlyJsonObject;
+  readonly inputSources: readonly import("@/ai/core/contracts").SafeInputSourceReferenceV1[];
+  readonly inputHash: string;
+  readonly attemptHistory: readonly ReadonlyJsonObject[];
+  readonly candidate: ReadonlyJsonObject | null;
 }
 
 export type LifecycleLockOutcomeV1 =
