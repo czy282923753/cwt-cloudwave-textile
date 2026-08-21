@@ -150,6 +150,21 @@ function deferred<T>() {
 }
 
 describe("AI draft assistance five-state panel", () => {
+  it("associates each panel instance with a unique SSR-safe heading id", () => {
+    render(<>
+      <AiDraftAssistancePanel request={request} requestIdentity="product:heading:first" />
+      <AiDraftAssistancePanel request={request} requestIdentity="product:heading:second" />
+    </>);
+
+    const panels = screen.getAllByRole("region", { name: "AI draft assistance" });
+    const headingIds = panels.map((panel) =>
+      within(panel).getByRole("heading", { name: "AI draft assistance" }).id,
+    );
+    expect(headingIds).toHaveLength(2);
+    expect(new Set(headingIds).size).toBe(2);
+    expect(panels.map((panel) => panel.getAttribute("aria-labelledby"))).toEqual(headingIds);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();

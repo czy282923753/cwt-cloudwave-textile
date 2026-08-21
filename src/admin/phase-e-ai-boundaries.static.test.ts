@@ -16,13 +16,32 @@ function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-describe("Phase E E4 static AI boundaries", () => {
-  it("has exactly one new runtime importer of the byte-unchanged server AI composition", () => {
+describe("Phase E E5 static AI boundaries", () => {
+  it("has exactly one admin runtime importer and one marker-authority invariant in the server AI composition", () => {
     const runtimeImporters = filesBelow(sourceRoot)
       .filter((path) => /\.(?:ts|tsx)$/.test(path) && !/\.(?:test|spec)\./.test(path))
       .filter((path) => readFileSync(path, "utf8").includes("phase-d-provider-composition"))
       .map((path) => path.slice(sourceRoot.length + 1));
     expect(runtimeImporters).toEqual(["admin/ai-actions.ts"]);
+
+    const composition = source("src/server/ai/phase-d-provider-composition.ts");
+    expect(composition).toContain(
+      'import { CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A } from "@/ai/server-bundle-marker";',
+    );
+    expect(composition).toContain(
+      'import { CWT_PRODUCTION_PROMPT_BUNDLE_MARKER } from "@/ai/prompts/generated/production-prompt-bundle.generated";',
+    );
+    expect(composition).not.toMatch(/["']CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A["']/);
+    expect(composition).not.toMatch(/["']CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3["']/);
+    expect([...composition.matchAll(/function assertServerAiBoundaryMarkersV1\(\): void/g)])
+      .toHaveLength(1);
+    expect([...composition.matchAll(/^assertServerAiBoundaryMarkersV1\(\);$/gm)]).toHaveLength(1);
+    const invariant = composition.slice(
+      composition.indexOf("const serverAiBoundaryMarkersV1"),
+      composition.indexOf("const trustedEnvironment"),
+    );
+    expect(invariant).toContain("new Set(serverAiBoundaryMarkersV1).size !== 2");
+    expect(invariant).not.toMatch(/(?:fetch\(|database|providerRegistry|createAiRunWorker|env\.)/i);
   });
 
   it("permits exactly the approved browser-safe editorial helper seam", () => {
@@ -50,7 +69,7 @@ describe("Phase E E4 static AI boundaries", () => {
     expect(props).not.toMatch(/(?:safeBefore|candidate|targetSnapshot|onApply|onChangeTarget)/i);
   });
 
-  it("keeps the one existing lifecycle/Apply Action authority thin and E5 absent", () => {
+  it("keeps the one existing lifecycle/Apply Action authority thin and integrates E5 only on the two detail pages", () => {
     const actions = source("src/admin/ai-actions.ts");
     expect(actions).toContain('"use server"');
     expect(actions).toContain("phase-d-provider-composition");
@@ -68,12 +87,56 @@ describe("Phase E E4 static AI boundaries", () => {
       ]);
     expect(actions).not.toMatch(/\bcandidate:\s*(?:ready\s*\?|row\.)/);
 
-    const applicationSources = filesBelow(resolve(sourceRoot, "app"))
+    const panelImporters = filesBelow(resolve(sourceRoot, "app"))
       .filter((path) => /\.(?:ts|tsx)$/.test(path))
-      .map((path) => readFileSync(path, "utf8").toLowerCase())
+      .filter((path) => readFileSync(path, "utf8").includes(
+        'from "@/admin/components/ai-draft-assistance-panel"',
+      ))
+      .map((path) => path.slice(sourceRoot.length + 1));
+    expect(panelImporters).toEqual([
+      "app/admin/contents/[id]/page.tsx",
+      "app/admin/products/[id]/page.tsx",
+    ]);
+
+    const productPage = source("src/app/admin/products/[id]/page.tsx");
+    const contentPage = source("src/app/admin/contents/[id]/page.tsx");
+    const pageSources = `${productPage}\n${contentPage}`;
+    expect(pageSources).not.toMatch(/@\/admin\/ai-actions|(?:enqueue|apply)AiDraftAssistance/);
+    expect(pageSources).not.toMatch(/explicitInput|\bactor\s*:|\brole\s*:/);
+    expect(pageSources).not.toMatch(/@\/(?:db|server\/ai|integrations\/ai|ai\/prompts|catalog\/product-service|content\/content-service)/);
+
+    expect(productPage).toContain('useCase: "product_description_draft" as const');
+    expect(productPage).toContain('useCase: "seo_content_draft" as const');
+    expect(productPage).toContain('tone: "concise_professional_b2b" as const');
+    expect(productPage).toContain("selectedMediaPlacementIds: []");
+    expect(productPage).toContain("selectedInternalLinkIds: []");
+    expect(productPage).toContain("pageIntent: editorTitle");
+    expect(productPage).not.toContain("primaryPhrase:");
+
+    expect(contentPage).toContain('useCase: "seo_content_draft" as const');
+    expect(contentPage).toContain('content.channel !== "fabric_knowledge"');
+    expect(contentPage).toContain('useCase: "fabric_knowledge_draft" as const');
+    expect(contentPage).toContain('tone: "neutral_editorial" as const');
+    expect(contentPage).toContain("topic: editorTitle");
+    expect(contentPage).toContain('content.channel !== "china_sourcing_guide"');
+    expect(contentPage).toContain('useCase: "sourcing_guide_draft" as const');
+    expect(contentPage).toContain("guideIntent: editorTitle");
+    expect(contentPage).not.toContain('content.channel === "china_textile_guide"');
+
+    for (const page of [productPage, contentPage]) {
+      expect(page).toContain("contextSelections: []");
+      expect(page).toContain("requestIdentity={JSON.stringify(");
+      expect(page).toContain("Number.isInteger(draftSnapshot.draftVersion)");
+      expect(page).toContain("aiRevisionDraftVersion !== null");
+      expect(page).toContain("Ordinary manual editing remains available.");
+    }
+
+    const publicApplicationSources = filesBelow(resolve(sourceRoot, "app"))
+      .filter((path) => /\.(?:ts|tsx)$/.test(path) && !path.includes("/app/admin/"))
+      .map((path) => readFileSync(path, "utf8"))
       .join("\n");
-    expect(applicationSources).not.toContain("ai-draft-assistance-panel");
-    expect(applicationSources).not.toContain("enqueueaidraftassistanceaction");
+    expect(publicApplicationSources).not.toContain("ai-draft-assistance-panel");
+    expect(publicApplicationSources).not.toContain("AiDraftAssistancePanel");
   });
 
   it("keeps the approved helper browser-only and free of business capability", () => {

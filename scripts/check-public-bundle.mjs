@@ -2,8 +2,10 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
+const serverRoot = join(buildRoot, "server");
 const serverAppRoot = join(buildRoot, "server/app");
 const absoluteBuildRoot = resolve(buildRoot);
+const promptBundleSourcePath = "src/ai/prompts/generated/production-prompt-bundle.generated.ts";
 const currentChunkPrefix = "/_next/static/chunks/";
 const legacyChunkPrefix = "static/chunks/";
 const clientReferenceManifestFramings = [
@@ -20,16 +22,61 @@ const clientReferenceManifestFramings = [
     delimiter: "]=",
   },
 ];
-const forbidden = [
+const serverMarkers = [
+  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
+  "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
+];
+const approvedPromptTuples = [
+  ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
+  ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
+  ["seo-content-draft", 1, "91f8868efad16310a5ed26c85a6001024572949c59725efe2b6c0df935499195"],
+  ["sourcing-guide-draft", 1, "e4aaf2e39483bde7569edb529f1c1d213b0a11d68ac4a9b99075992620238adf"],
+];
+const baseForbidden = [
   "@refinedev",
   "/src/admin/",
   "RefineAdminProvider",
-  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
-  "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
+  ...serverMarkers,
+  ...approvedPromptTuples.flatMap((tuple) => [tuple[0], tuple[2]]),
   "CWT_SYNTHETIC_TEST_DATA_NOT_A_CWT_FACT_V1",
   "synthetic_test_application",
   "synthetic_case_association",
+  "src/ai/testing",
+  "deepseek-text-adapter",
+  "api.deepseek.com",
+  "deepseek-v4-flash",
+  "DeepSeek-V4-Flash-0731",
+  "phase-d-provider-composition",
+  "production-prompt-bundle.generated",
+  "productionPromptBundleV1",
+  '"targetProductId"',
+  '"targetContentId"',
+  '"targetRevisionId"',
+  '"targetSnapshotHash"',
+  '"runId"',
+  '"candidateHash"',
 ];
+
+async function readProductionPromptAuthority() {
+  const source = await readFile(promptBundleSourcePath, "utf8");
+  const entries = [...source.matchAll(
+    /promptId: "([a-z-]+)",\s+promptVersion: ([0-9]+),\s+sha256: "([0-9a-f]{64})",[\s\S]*?rawBase64: "([A-Za-z0-9+/=]+)"/g,
+  )].map((match) => ({
+    promptId: match[1],
+    promptVersion: Number(match[2]),
+    sha256: match[3],
+    rawBase64: match[4],
+  }));
+  if (entries.length !== approvedPromptTuples.length ||
+    entries.some((entry, index) => {
+      const tuple = approvedPromptTuples[index];
+      return entry.promptId !== tuple[0] || entry.promptVersion !== tuple[1] ||
+        entry.sha256 !== tuple[2] || entry.rawBase64.length === 0;
+    })) {
+    throw new Error("Generated Production Prompt authority does not match the approved tuple contract.");
+  }
+  return entries;
+}
 
 async function filesUnder(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -309,6 +356,56 @@ async function assertFreshBuild() {
 
 await assertFreshBuild();
 const realBuildRoot = await realpath(absoluteBuildRoot);
+const promptAuthority = await readProductionPromptAuthority();
+const forbidden = [...baseForbidden, ...promptAuthority.map((entry) => entry.rawBase64)];
+
+const serverJavaScriptPaths = (await filesUnder(serverRoot))
+  .filter((path) => path.endsWith(".js"));
+if (serverJavaScriptPaths.length === 0) {
+  throw new Error("No executable server JavaScript output was found.");
+}
+const serverJavaScript = [];
+for (const lexicalPath of serverJavaScriptPaths) {
+  const absoluteLexicalPath = resolve(lexicalPath);
+  if (!isContainedPath(absoluteBuildRoot, absoluteLexicalPath)) {
+    throw new Error("Server JavaScript output escapes the lexical build root.");
+  }
+  let physicalPath;
+  try {
+    physicalPath = await realpath(absoluteLexicalPath);
+  } catch {
+    throw new Error("Server JavaScript output is missing or inaccessible.");
+  }
+  if (!isContainedPath(realBuildRoot, physicalPath)) {
+    throw new Error("Server JavaScript output escapes the real build root.");
+  }
+  const details = await stat(physicalPath);
+  if (!details.isFile()) {
+    throw new Error("Server JavaScript output is not a regular file.");
+  }
+  serverJavaScript.push({
+    identity: relative(absoluteBuildRoot, absoluteLexicalPath).split(sep).join("/"),
+    content: await readFile(physicalPath, "utf8"),
+  });
+}
+
+for (const marker of serverMarkers) {
+  if (!serverJavaScript.some((file) => file.content.includes(marker))) {
+    throw new Error(`Required server AI marker is missing: ${marker}`);
+  }
+}
+for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
+  const coBound = serverJavaScript.some((file) => {
+    const idIndex = file.content.indexOf(promptId);
+    const hashIndex = file.content.indexOf(sha256);
+    if (idIndex < 0 || hashIndex < 0 || hashIndex <= idIndex) return false;
+    const binding = file.content.slice(idIndex, hashIndex);
+    return new RegExp(`promptVersion[\"']?\\s*:\\s*${promptVersion}(?![0-9])`).test(binding);
+  });
+  if (!coBound) {
+    throw new Error(`Required co-bound server Prompt tuple is missing: ${promptId}@${promptVersion}`);
+  }
+}
 
 const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
   const name = relative(serverAppRoot, path).replaceAll("\\", "/");
@@ -391,5 +488,5 @@ if (leaks.length > 0) {
 }
 
 process.stdout.write(
-  `Public bundle boundary verified: ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
+  `Public bundle boundary verified: ${serverJavaScript.length} server JavaScript files with required AI evidence; ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
 );

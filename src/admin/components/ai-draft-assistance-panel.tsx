@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useId, useReducer, useRef, useState } from "react";
 
 import type { DraftAssistanceAvailabilityQueryV1 } from "@/ai/applications/draft-assistance/contracts";
 import {
@@ -126,6 +126,7 @@ export function AiDraftAssistancePanel({
   pollIntervalMs = 2_000,
   pollingBudget = 12,
 }: AiDraftAssistancePanelPropsV1) {
+  const headingId = useId();
   const boundedPollIntervalMs = Number.isFinite(pollIntervalMs)
     ? Math.min(60_000, Math.max(10, Math.trunc(pollIntervalMs))) : 2_000;
   const boundedPollingBudget = Number.isInteger(pollingBudget)
@@ -292,9 +293,9 @@ export function AiDraftAssistancePanel({
       state.run.status === "cancelled");
 
   return (
-    <section aria-labelledby="ai-draft-assistance-heading" className="space-y-4 rounded-xl border border-slate-700 p-4">
+    <section aria-labelledby={headingId} className="space-y-4 rounded-xl border border-slate-700 p-4">
       <div>
-        <h2 className="text-lg font-semibold" id="ai-draft-assistance-heading">AI draft assistance</h2>
+        <h2 className="text-lg font-semibold" id={headingId}>AI draft assistance</h2>
         <p className="mt-1 text-sm text-slate-300">
           AI creates a protected candidate only. Apply is explicit and updates only the authorized Draft;
           it never autosaves or publishes content.

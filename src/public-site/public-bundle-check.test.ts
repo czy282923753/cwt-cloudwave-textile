@@ -1,4 +1,5 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,6 +12,27 @@ const legacyManifestPreamble =
 const currentChunkPath = "/_next/static/chunks/app/public.js";
 const legacyChunkPath = "static/chunks/app/public.js";
 const disposableBuilds: string[] = [];
+const serverBoundaryMarker = "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A";
+const promptBundleMarker = "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3";
+const promptTuples = [
+  ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
+  ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
+  ["seo-content-draft", 1, "91f8868efad16310a5ed26c85a6001024572949c59725efe2b6c0df935499195"],
+  ["sourcing-guide-draft", 1, "e4aaf2e39483bde7569edb529f1c1d213b0a11d68ac4a9b99075992620238adf"],
+] as const;
+const validServerEvidence = [
+  serverBoundaryMarker,
+  promptBundleMarker,
+  ...promptTuples.map(([promptId, promptVersion, sha256]) =>
+    `{promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"}`),
+].join("\n");
+const promptBundleSource = readFileSync(
+  "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
+  "utf8",
+);
+const productionRawBase64 = [...promptBundleSource.matchAll(
+  /rawBase64: "([A-Za-z0-9+/=]+)"/g,
+)].map((match) => match[1]);
 
 type ManifestPayload = Record<string, unknown>;
 
@@ -60,11 +82,13 @@ async function createBuildFixture({
   manifestRelativePath = "page_client-reference-manifest.js",
   rootChunks = [],
   chunkFiles = { "static/chunks/app/public.js": "public fixture" },
+  serverFiles = { "server/app/admin-ai.js": validServerEvidence },
 }: {
   manifest?: string;
   manifestRelativePath?: string;
   rootChunks?: unknown[];
   chunkFiles?: Record<string, string>;
+  serverFiles?: Record<string, string>;
 } = {}) {
   const buildRoot = await mkdtemp(join(tmpdir(), "cwt-public-bundle-"));
   disposableBuilds.push(buildRoot);
@@ -75,6 +99,9 @@ async function createBuildFixture({
     JSON.stringify({ polyfillFiles: [], rootMainFiles: rootChunks }),
   );
   await writeBuildFile(buildRoot, `server/app/${manifestRelativePath}`, manifest);
+  for (const [relativePath, content] of Object.entries(serverFiles)) {
+    await writeBuildFile(buildRoot, relativePath, content);
+  }
   for (const [relativePath, content] of Object.entries(chunkFiles)) {
     await writeBuildFile(buildRoot, relativePath, content);
   }
@@ -108,7 +135,100 @@ describe("public bundle checker", () => {
     expect(result.stdout).toMatch(
       /1 public page manifests; 0 root chunks; 1 manifest chunks; 1 distinct chunk files/i,
     );
+    expect(result.stdout).toMatch(/server JavaScript files with required AI evidence/i);
   });
+
+  it.each([serverBoundaryMarker, promptBundleMarker])(
+    "fails closed when required server marker %s is missing",
+    async (marker) => {
+      const result = runChecker(await createBuildFixture({
+        serverFiles: { "server/app/admin-ai.js": validServerEvidence.replace(marker, "") },
+      }));
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/required server ai marker is missing/i);
+    },
+  );
+
+  it("fails closed when a server Prompt tuple carries the wrong hash", async () => {
+    const expectedHash = promptTuples[0][2];
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/app/admin-ai.js": validServerEvidence.replace(expectedHash, "f".repeat(64)),
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it("fails closed when a server Prompt tuple is split between files", async () => {
+    const promptId = promptTuples[0][0];
+    const sha256 = promptTuples[0][2];
+    const intactOtherTuples = promptTuples.slice(1).map(([id, version, hash]) =>
+      `{promptId:"${id}",promptVersion:${version},sha256:"${hash}"}`).join("\n");
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/app/admin-ai-id.js": `${serverBoundaryMarker}\n${promptBundleMarker}\n` +
+          `{promptId:"${promptId}",promptVersion:1}\n${intactOtherTuples}`,
+        "server/chunks/admin-ai-hash.js": `const splitHash="${sha256}";`,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it.each([
+    ["Prompt tuple id", promptTuples[0][0]],
+    ["Prompt tuple hash", promptTuples[1][2]],
+    ["Production raw Prompt bytes", productionRawBase64[0]],
+    ["Provider endpoint", "api.deepseek.com"],
+    ["Provider model", "deepseek-v4-flash"],
+    ["AI testing module", "src/ai/testing"],
+    ["private target key", '"targetRevisionId"'],
+    ["private run key", '"runId"'],
+  ])("rejects a public client %s leak", async (_label, leak) => {
+    expect(leak).toBeTruthy();
+    const result = runChecker(await createBuildFixture({
+      chunkFiles: {
+        "static/chunks/app/public.js": _label.startsWith("private")
+          ? `const leaked={${leak}:"private"};`
+          : `const leaked=${JSON.stringify(leak)};`,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/admin-only dependencies leaked/i);
+  });
+
+  it("rejects non-file server JavaScript evidence", async () => {
+    const buildRoot = await createBuildFixture({ serverFiles: {} });
+    await mkdir(join(buildRoot, "server/evidence"), { recursive: true });
+    await symlink(join(buildRoot, "server/evidence"), join(buildRoot, "server/admin-ai.js"));
+
+    const result = runChecker(buildRoot);
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/server JavaScript output is not a regular file/i);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects server JavaScript evidence that escapes through a symlink",
+    async () => {
+      const buildRoot = await createBuildFixture({ serverFiles: {} });
+      const outsideRoot = await mkdtemp(join(tmpdir(), "cwt-server-evidence-outside-"));
+      disposableBuilds.push(outsideRoot);
+      const outsidePath = join(outsideRoot, "admin-ai.js");
+      await writeFile(outsidePath, validServerEvidence);
+      await symlink(outsidePath, join(buildRoot, "server/admin-ai.js"));
+
+      const result = runChecker(buildRoot);
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/server JavaScript output escapes the real build root/i);
+    },
+  );
 
   it("retains exact legacy framing and chunk pairs for rollback compatibility", async () => {
     const result = runChecker(

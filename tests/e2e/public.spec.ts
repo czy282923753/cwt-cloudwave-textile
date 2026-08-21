@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
 
 const fixtureProductPath = "/products/test-fixture-fabric-01/";
 const adminFinalizedResponsiveProductPath =
@@ -587,6 +587,121 @@ test("@all Stage 2 fixed-page settings and shared Block Editor remain keyboard-o
       ["critical", "serious"].includes(violation.impact ?? ""),
     ),
   ).toEqual([]);
+});
+
+test("@desktop E5 mounts exact eligible AI panels without implicit requests and keeps manual editing authoritative", async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginAsLocalAdmin(page);
+
+  async function createSyntheticProductDraft(): Promise<string> {
+    await page.goto("/admin/products/new/");
+    const form = page.locator("main form");
+    await form.getByLabel("Product Name").fill("TEST E5 Product AI Panel Draft");
+    await form.locator('select[name="primaryTaxonomyTermId"]').selectOption({ index: 1 });
+    await form.getByRole("checkbox").first().check();
+    const [response] = await Promise.all([
+      page.waitForResponse((candidate) =>
+        candidate.request().method() === "POST" &&
+        candidate.headers()["content-type"]?.includes("text/x-component") === true),
+      form.getByRole("button", { name: "Create Draft" }).click(),
+    ]);
+    expect(response.ok()).toBe(true);
+    await expect(page).toHaveURL(/\/admin\/products\/[0-9a-f-]+\/?$/i);
+    return new URL(page.url()).pathname;
+  }
+
+  async function createSyntheticContentDraft(channel: string, title: string): Promise<string> {
+    await page.goto("/admin/contents/");
+    const form = page.getByRole("heading", { name: "New Content Draft" }).locator("..");
+    await form.locator('select[name="channel"]').selectOption(channel);
+    await form.locator('select[name="type"]').selectOption("guide");
+    await form.getByPlaceholder("Title").fill(title);
+    await form.getByPlaceholder("Optional excerpt").fill("Synthetic E5 noindex browser fixture.");
+    await form.getByPlaceholder("Initial Paragraph Block")
+      .fill("Synthetic E5 narrative used only for disposable browser verification.");
+    await submitServerAction(page, form.getByRole("button", { name: "Create Draft" }));
+    const href = await page.getByRole("link", { name: title, exact: true }).getAttribute("href");
+    if (!href) throw new Error(`Expected a new synthetic ${channel} Content link.`);
+    return href;
+  }
+
+  const productHref = await createSyntheticProductDraft();
+  const fabricHref = await createSyntheticContentDraft(
+    "fabric_knowledge",
+    "TEST E5 Fabric AI Panel Draft",
+  );
+  const sourcingHref = await createSyntheticContentDraft(
+    "china_sourcing_guide",
+    "TEST E5 Sourcing AI Panel Draft",
+  );
+  await page.goto("/admin/contents/");
+  const publishedContentHref = await page.getByRole("link", {
+    name: /TEST E2E Block Media Content/,
+  }).getAttribute("href");
+  if (!publishedContentHref) {
+    throw new Error("Expected the existing published Content fixture.");
+  }
+
+  async function assertEligiblePanels(
+    href: string,
+    entityType: "product" | "content",
+    labels: readonly string[],
+    excludedLabels: readonly string[] = [],
+  ): Promise<void> {
+    const implicitActionRequests: string[] = [];
+    const listener = (request: Request) => {
+      if (request.method() === "POST") implicitActionRequests.push(request.url());
+    };
+    page.on("request", listener);
+    await page.goto(href);
+    await page.waitForLoadState("networkidle");
+    page.off("request", listener);
+    expect(implicitActionRequests).toEqual([]);
+
+    await expect(page.locator(`[data-block-editor="${entityType}"]`)
+      .getByRole("heading", { name: "Structured Block Editor" })).toBeVisible();
+    const headingIds: string[] = [];
+    for (const label of labels) {
+      const wrapper = page.getByRole("region", { name: label });
+      await expect(wrapper).toBeVisible();
+      const panel = wrapper.getByRole("region", { name: "AI draft assistance" });
+      const heading = panel.getByRole("heading", { name: "AI draft assistance" });
+      const headingId = await heading.getAttribute("id");
+      const labelledBy = await panel.getAttribute("aria-labelledby");
+      expect(headingId).toBeTruthy();
+      expect(labelledBy).toBe(headingId);
+      headingIds.push(headingId!);
+      await panel.getByRole("button", { name: "Check availability" }).click();
+      await expect(panel.getByRole("status")).toContainText(
+        "AI assistance is unavailable. Ordinary manual editing is unchanged.",
+      );
+      await expect(panel.getByRole("button", { name: "Generate AI draft" })).toBeDisabled();
+    }
+    expect(new Set(headingIds).size).toBe(headingIds.length);
+    for (const label of excludedLabels) {
+      await expect(page.getByRole("region", { name: label })).toHaveCount(0);
+    }
+  }
+
+  await assertEligiblePanels(productHref, "product", [
+    "Product description AI assistance",
+    "Product SEO AI assistance",
+  ]);
+  await assertEligiblePanels(fabricHref, "content", [
+    "Content SEO AI assistance",
+    "Fabric knowledge AI assistance",
+  ], ["Sourcing guide AI assistance"]);
+  await assertEligiblePanels(sourcingHref, "content", [
+    "Content SEO AI assistance",
+    "Sourcing guide AI assistance",
+  ], ["Fabric knowledge AI assistance"]);
+
+  await page.goto(publishedContentHref);
+  await expect(page.getByRole("region", { name: "AI draft assistance unavailable" }))
+    .toContainText("Ordinary manual editing remains available.");
+  await expect(page.getByRole("region", { name: /(?:Content SEO|Fabric knowledge|Sourcing guide) AI assistance/ }))
+    .toHaveCount(0);
+  await expect(page.locator('[data-block-editor="content"]')).toBeVisible();
 });
 
 test("@desktop Locked Blocks remain sorting anchors in Product and Content editors", async ({ page }) => {
