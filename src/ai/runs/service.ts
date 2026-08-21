@@ -99,6 +99,10 @@ function lifecycleFailure(kind:
   return aiFailure(kind === "not_found_or_unauthorized" ? "authorization_denied" : "state_conflict");
 }
 
+function isPostgresSerializationFailure(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "40001";
+}
+
 export function createAiRunServiceV1(
   database: PhaseCPgDatabase,
   dependencies: {
@@ -128,7 +132,8 @@ export function createAiRunServiceV1(
   return {
     async requestDraftAssistance(command) {
       if (!validActorClaim(command.actor)) return aiFailure("authorization_denied");
-      return runGovernedMutation(database, async ({ transaction, audit }) => {
+      try {
+        return await runGovernedMutation(database, async ({ transaction, audit }) => {
         const actor = await resolveAuthoritativeAiActorV1(transaction, command.actor);
         if (actor === null) return aiFailure("authorization_denied");
         const authoritativeCommand: DraftAssistanceCommandV1 = {
@@ -183,7 +188,17 @@ export function createAiRunServiceV1(
             return invocation.ok ? dependencies.orchestrator.request(invocation.value) : invocation;
           },
         );
-      }, dependencies.governedMutationOptions);
+      }, {
+        ...dependencies.governedMutationOptions,
+        transactionConfig: {
+          ...dependencies.governedMutationOptions?.transactionConfig,
+          isolationLevel: "repeatable read",
+        },
+        });
+      } catch (error) {
+        if (isPostgresSerializationFailure(error)) return aiFailure("state_conflict");
+        throw error;
+      }
     },
 
     async readRun(input) {

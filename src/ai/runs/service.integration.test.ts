@@ -19,6 +19,8 @@ import { localTestPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { normalizeAttemptEvidenceV3 } from "@/ai/runs/attempt-evidence";
 import { createAiRunRepositoryV1 } from "@/ai/runs/repository";
 import { aiFailure } from "@/ai/errors";
+import { writeAuditLog } from "@/audit/service";
+import type { GovernedMutationOptions } from "@/audit/governed-mutation";
 import { createFakeTextProviderV1 } from "@/ai/testing/fake-text-provider";
 import type { DatabaseConnection, PostgresAppDatabase } from "@/db/client";
 import { migrateDatabase } from "@/db/migrate";
@@ -32,6 +34,7 @@ import {
   editorialRevisions,
   featureFlags,
   productLocalizations,
+  productFieldReviews,
   productTaxonomyTerms,
   products,
   taxonomyTerms,
@@ -290,6 +293,17 @@ function service(auditWriter?: () => Promise<string>) {
   });
 }
 
+function serviceWithGovernedOptions(governedMutationOptions: GovernedMutationOptions) {
+  return createPhaseCDurableDraftAssistanceServiceV1({
+    database: db(),
+    trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+    providerRegistry,
+    promptLoader,
+    pricingRegistry: localTestPricingPolicyRegistryV1,
+    governedMutationOptions,
+  });
+}
+
 async function claimAndMark(runId: string) {
   const repository = createAiRunRepositoryV1(db());
   const claim = await repository.claimOrRecover({
@@ -412,6 +426,25 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     });
   });
 
+  it("forces the governed enqueue transaction to REPEATABLE READ without losing injected Audit", async () => {
+    const fixture = await seedFixture();
+    let observedIsolation: string | undefined;
+    const created = await serviceWithGovernedOptions({
+      transactionConfig: { isolationLevel: "read committed" },
+      auditWriter: async (transaction, input) => {
+        const rows = await transaction.select({
+          transactionIsolation: sql<string>`current_setting('transaction_isolation')`,
+        }).from(users).limit(1);
+        observedIsolation = rows[0]?.transactionIsolation;
+        return writeAuditLog(transaction, input);
+      },
+    }).requestDraftAssistance(command(fixture, { idempotencyKey: randomUUID() }));
+    expect(created.ok).toBe(true);
+    expect(observedIsolation).toBe("repeatable read");
+    expect(await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.enqueued")))
+      .toHaveLength(1);
+  });
+
   it("returns a safe idempotency conflict for a different fingerprint", async () => {
     const fixture = await seedFixture();
     const idempotencyKey = randomUUID();
@@ -426,6 +459,54 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     expect((await db().select().from(aiRuns))).toHaveLength(1);
     expect((await db().select().from(auditLogs).where(eq(auditLogs.action, "ai.run.enqueued"))))
       .toHaveLength(1);
+  });
+
+  it("binds changed Product facts/provenance to a new source projection fingerprint", async () => {
+    const fixture = await seedFixture();
+    await db().update(products).set({ composition: "SYNTHETIC old coherent fiber" })
+      .where(eq(products.id, fixture.productId));
+    await db().insert(productFieldReviews).values({
+      productId: fixture.productId,
+      fieldName: "composition",
+      verificationStatus: "provided",
+    });
+    const base = command(fixture, { idempotencyKey: randomUUID() });
+    const structured: DraftAssistanceCommandV1 = {
+      useCase: base.useCase,
+      task: base.task,
+      actor: base.actor,
+      target: base.target,
+      idempotencyKey: base.idempotencyKey,
+      contextSelections: [{
+        sourceClass: "product_structured",
+        sourceId: fixture.productId,
+        fields: ["composition"],
+      }],
+    };
+    const first = await service().requestDraftAssistance(structured);
+    expect(first.ok).toBe(true);
+    const [firstRow] = await db().select({
+      inputSources: aiRuns.inputSourcesJson,
+    }).from(aiRuns).where(eq(aiRuns.id, first.ok ? first.value.runId : randomUUID()));
+    await db().transaction(async (transaction) => {
+      await transaction.update(products).set({ composition: "SYNTHETIC new coherent fiber" })
+        .where(eq(products.id, fixture.productId));
+      await transaction.update(productFieldReviews).set({ verificationStatus: "verified" })
+        .where(eq(productFieldReviews.productId, fixture.productId));
+    });
+    const conflict = await service().requestDraftAssistance(structured);
+    expect(conflict).toMatchObject({ ok: false, error: { code: "idempotency_conflict" } });
+    const next = await service().requestDraftAssistance({
+      ...structured,
+      idempotencyKey: randomUUID(),
+    });
+    expect(next.ok).toBe(true);
+    const [nextRow] = await db().select({
+      inputSources: aiRuns.inputSourcesJson,
+    }).from(aiRuns).where(eq(aiRuns.id, next.ok ? next.value.runId : randomUUID()));
+    expect(firstRow?.inputSources).not.toEqual(nextRow?.inputSources);
+    expect(JSON.stringify(firstRow?.inputSources)).toContain("projectionSha256");
+    expect(JSON.stringify(nextRow?.inputSources)).not.toContain("recordVersion");
   });
 
   it("authorizes PostgreSQL availability from one persisted actor before protected state", async () => {

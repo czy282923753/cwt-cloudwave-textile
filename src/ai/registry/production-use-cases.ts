@@ -400,6 +400,21 @@ function verifyClaimedAssociationIntegrity(
   }
 }
 
+function claimedOwnerMatchesContext(
+  useCase: ProductionAiUseCase,
+  owner: import("@/ai/core/contracts").ClaimedTargetOwnerAuthorityV1["owner"],
+  context: ReconstructibleDraftContextV1,
+): boolean {
+  if (context.association.targetType === "product_draft" && owner !== "product" ||
+    context.association.targetType === "content_draft" && owner !== "content") return false;
+  if (useCase === "product_description_draft") return owner === "product";
+  if (useCase === "fabric_knowledge_draft" || useCase === "sourcing_guide_draft") {
+    return owner === "content";
+  }
+  return owner === "product" ||
+    !context.sources.some((source) => source.sourceClass === "product_structured");
+}
+
 function claimedRuntime(
   useCase: ProductionAiUseCase,
   output: DraftOutputDefinitionV1,
@@ -414,10 +429,11 @@ function claimedRuntime(
     outputSchemaVersion: 1,
     policyVersion: output.policyVersion,
     decodeClaimedAssociation: (row) => persistenceCodec.decodeClaimedRow(row),
-    decodeClaimedContext(input) {
+    decodeClaimedContext(input, targetOwnerAuthority) {
       const decoded = contextPolicy.decodeDurableContext(input);
       if (!decoded.ok) return decoded;
-      if (decoded.value.context.useCase !== useCase) {
+      if (decoded.value.context.useCase !== useCase ||
+        !claimedOwnerMatchesContext(useCase, targetOwnerAuthority.owner, decoded.value.context)) {
         return aiFailure("context_provenance_mismatch");
       }
       return aiSuccess({

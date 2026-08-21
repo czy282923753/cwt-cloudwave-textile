@@ -8,6 +8,7 @@ import {
   encodeDraftTargetColumnsV1,
   prepareDraftAssociationV1,
 } from "@/ai/applications/draft-assistance/association";
+import { canonicalJsonHash } from "@/ai/canonical-json";
 import {
   createDraftAvailabilityAuthorization,
   createDraftRequestAuthorization,
@@ -127,6 +128,7 @@ describe("strict claimed reconstruction and one-call execution", () => {
     });
     if (!configHash.ok) throw new Error("Synthetic config protection failed.");
     const row = {
+      claimAuthority: { version: 1 as const, owner: "product" as const },
       runId: "66666666-6666-4666-8666-666666666666",
       applicationClass: "draft_assistance",
       capability: "text",
@@ -284,6 +286,116 @@ describe("strict claimed reconstruction and one-call execution", () => {
     const tampered = { ...row, [key]: value };
     const result = constructPreDispatchClaimedRunV2({ row: tampered, applicationRegistry: registry });
     expect(result).toMatchObject({ ok: false, error: { code } });
+  });
+
+  it("accepts a Product Revision SEO source and rejects the same recomputed bytes for Content ownership", async () => {
+    const { row, registry } = await fixture();
+    const revisionId = "88888888-8888-4888-8888-888888888888";
+    const productId = "11111111-1111-4111-8111-111111111111";
+    const association = prepareDraftAssociationV1({
+      type: "editorial_revision",
+      revisionId,
+      expectedVersion: 7,
+    });
+    if (!association.ok) throw new Error("SEO Revision association failed.");
+    const authorized = buildAuthorizedDraftAssociationV1(association.value);
+    if (!authorized.ok) throw new Error("SEO Revision authorization failed.");
+    const columns = encodeDraftTargetColumnsV1(authorized.value);
+    if (!columns.ok) throw new Error("SEO Revision columns failed.");
+    const inputContextJson = {
+      version: 1,
+      applicationClass: "draft_assistance",
+      capability: "text",
+      useCase: "seo_content_draft",
+      locale: "en",
+      association: {
+        kind: "draft_target.v1",
+        targetType: "editorial_revision",
+        targetAlias: "target_01",
+        expectedVersion: 7,
+        snapshotHash: columns.value.targetSnapshotHash,
+      },
+      task: {
+        tone: "concise_professional_b2b",
+        pageIntent: "Synthetic claimed Product Revision SEO intent",
+      },
+      sources: [{
+        alias: "src_01",
+        sourceClass: "product_structured",
+        selectedBy: "request_actor",
+        fields: [{
+          field: "name",
+          ref: "src_01:name",
+          provenance: "structural",
+          value: "SYNTHETIC PRODUCT REVISION",
+        }],
+      }],
+      internalLinkCandidates: [],
+      mediaPlacementRefs: [],
+    } as const;
+    const inputHash = canonicalJsonHash(inputContextJson);
+    if (!inputHash.ok) throw new Error("SEO Revision context hash failed.");
+    const configHash = resolvedConfigHashV1({
+      applicationClass: "draft_assistance",
+      capability: "text",
+      useCase: "seo_content_draft",
+      modelConfigId: row.modelConfigId,
+      modelConfigVersion: row.modelConfigVersion,
+      requestedProvider: row.requestedProvider,
+      requestedModel: row.requestedModel,
+      parametersSnapshot: row.parametersSnapshotJson,
+      maxInputTokens: row.maxInputTokens,
+      maxOutputTokens: row.maxOutputTokens,
+      maxAttempts: row.maxAttempts,
+      runCostLimitMicrousd: row.runCostLimitMicrousd,
+      promptId: "seo-content-draft",
+      promptVersion: 1,
+      promptHash,
+      providerEnvelope: { version: 1, hash: envelopeHash },
+      inputSchemaVersion: 1,
+      outputSchemaVersion: 1,
+      policyVersion: "draft-seo-content-v1",
+    });
+    if (!configHash.ok) throw new Error("SEO Revision config hash failed.");
+    const claimedRow = {
+      ...row,
+      ...columns.value,
+      useCase: "seo_content_draft",
+      inputContextJson,
+      inputSourcesJson: [{
+        alias: "src_01",
+        sourceClass: "product_structured",
+        sourceIdentity: { productId, projectionSha256: "c".repeat(64) },
+        selectedFields: ["name"],
+        fieldProvenance: [{ field: "name", provenance: "structural" }],
+      }],
+      inputHash: inputHash.value.hash,
+      promptId: "seo-content-draft",
+      policyVersion: "draft-seo-content-v1",
+      resolvedConfigHash: configHash.value.hash,
+    };
+    expect(constructPreDispatchClaimedRunV2({
+      row: { ...claimedRow, claimAuthority: { version: 1, owner: "product" } },
+      applicationRegistry: registry,
+    }).ok).toBe(true);
+    expect(constructPreDispatchClaimedRunV2({
+      row: { ...claimedRow, claimAuthority: { version: 1, owner: "content" } },
+      applicationRegistry: registry,
+    })).toMatchObject({ ok: false, error: { code: "context_provenance_mismatch" } });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["wrong owner", { version: 1, owner: "content" }],
+    ["forged shape", { version: 1, owner: "product", revisionEntityId: "forged" }],
+  ])("rejects %s claimed target-owner authority before Provider construction", async (_label, authority) => {
+    const { row, registry } = await fixture();
+    const input = { ...row, claimAuthority: authority };
+    const result = constructPreDispatchClaimedRunV2({ row: input, applicationRegistry: registry });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(["claimed_run_required", "context_provenance_mismatch"]).toContain(result.error.code);
+    }
   });
 
   it("makes zero Provider calls when the fenced marker is busy", async () => {

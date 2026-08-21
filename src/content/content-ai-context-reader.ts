@@ -55,7 +55,11 @@ const contentRevisionSnapshotSchema = z.object({
     focusKeyword: z.string().nullable(),
   }).strict().optional(),
 }).strict();
-type ContentRevisionSnapshotV1 = z.infer<typeof contentRevisionSnapshotSchema>;
+interface ContentRevisionContextProjectionV1 {
+  readonly title: string;
+  readonly excerpt: string | null;
+  readonly narrativeText: string;
+}
 
 export interface ContentAiTargetSnapshotV1 {
   readonly owner: "content";
@@ -63,7 +67,7 @@ export interface ContentAiTargetSnapshotV1 {
   readonly channel: "fabric_knowledge" | "china_sourcing_guide" | "china_textile_guide";
   readonly editVersion: number;
   readonly revisionId: string | null;
-  readonly revisionSnapshot: ContentRevisionSnapshotV1 | null;
+  readonly revisionSnapshot: ContentRevisionContextProjectionV1 | null;
   readonly authorizedAssociation: AuthorizedDraftAssociationV1;
 }
 
@@ -195,6 +199,16 @@ function boundedPlainText(value: string, maximumUtf8Bytes = 6 * 1_024): string {
   return result.trim();
 }
 
+function parseFabricNarrative(structuredBlocks: unknown): string | null {
+  try {
+    return boundedPlainText(blockDocumentPlainText(
+      parseBlockDocument(structuredBlocks, "content"),
+    ));
+  } catch {
+    return null;
+  }
+}
+
 function projectFabricContext(input: {
   readonly target: AiDraftTargetSnapshotV1;
   readonly selector: ContentAiContextReadV1<PgQueryResultHKT>["selector"];
@@ -202,17 +216,13 @@ function projectFabricContext(input: {
   readonly recordVersion: number;
   readonly title: string;
   readonly excerpt: string | null;
-  readonly structuredBlocks: unknown;
+  readonly narrativeText: string;
 }): AiServiceResult<DraftContextSourceDtoV1> {
-  let narrativeText: string;
-  try {
-    narrativeText = boundedPlainText(blockDocumentPlainText(
-      parseBlockDocument(input.structuredBlocks, "content"),
-    ));
-  } catch {
-    return aiFailure("context_field_ineligible");
-  }
-  const values = { title: input.title, excerpt: input.excerpt, narrativeText };
+  const values = {
+    title: input.title,
+    excerpt: input.excerpt,
+    narrativeText: input.narrativeText,
+  };
   const fields: DraftContextSourceDtoV1["fields"] = [];
   for (const field of input.selector.fields) {
     const value = values[field];
@@ -314,6 +324,8 @@ export function createContentAiDraftReaderV1<
         if (row.status !== "draft") return aiFailure("target_not_editable");
         const snapshot = contentRevisionSnapshotSchema.safeParse(row.snapshot);
         if (!snapshot.success) return aiFailure("context_provenance_mismatch");
+        const narrativeText = parseFabricNarrative(snapshot.data.document);
+        if (narrativeText === null) return aiFailure("context_provenance_mismatch");
         const draftVersion = snapshot.data.draftVersion;
         if (draftVersion !== input.association.expectedTargetVersion) {
           return aiFailure("target_version_conflict");
@@ -325,7 +337,11 @@ export function createContentAiDraftReaderV1<
           channel: row.channel,
           editVersion: draftVersion,
           revisionId: input.association.targetRevisionId,
-          revisionSnapshot: snapshot.data,
+          revisionSnapshot: Object.freeze({
+            title: snapshot.data.title,
+            excerpt: snapshot.data.excerpt,
+            narrativeText,
+          }),
           authorizedAssociation: authorized.value,
         }) : authorized;
       });
@@ -347,7 +363,7 @@ export function createContentAiDraftReaderV1<
           recordVersion: input.target.editVersion,
           title: input.target.revisionSnapshot.title,
           excerpt: input.target.revisionSnapshot.excerpt,
-          structuredBlocks: input.target.revisionSnapshot.document,
+          narrativeText: input.target.revisionSnapshot.narrativeText,
         });
       }
       return withDraftReadExecutor(input.scope, async (database) => {
@@ -370,6 +386,8 @@ export function createContentAiDraftReaderV1<
           row.status !== "published" && !sameEditableContent) {
           return aiFailure("context_record_unauthorized");
         }
+        const narrativeText = parseFabricNarrative(row.structuredBlocks);
+        if (narrativeText === null) return aiFailure("context_field_ineligible");
         return projectFabricContext({
           target: input.target,
           selector: input.selector,
@@ -377,7 +395,7 @@ export function createContentAiDraftReaderV1<
           recordVersion: row.version,
           title: row.title,
           excerpt: row.excerpt,
-          structuredBlocks: row.structuredBlocks,
+          narrativeText,
         });
       });
     },

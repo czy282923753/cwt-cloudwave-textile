@@ -473,8 +473,12 @@ function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
   };
 }
 
-function claimedRowProjection(row: typeof aiRuns.$inferSelect) {
+function claimedRowProjection(
+  row: typeof aiRuns.$inferSelect,
+  claimAuthority: import("@/ai/core/contracts").ClaimedTargetOwnerAuthorityV1,
+) {
   return {
+    claimAuthority,
     runId: row.id,
     applicationClass: row.applicationClass,
     capability: row.capability,
@@ -521,6 +525,34 @@ function claimedRowProjection(row: typeof aiRuns.$inferSelect) {
     activeAttemptDispatchedAt: row.activeAttemptDispatchedAt,
     providerDispatchedAt: row.providerDispatchedAt,
   };
+}
+
+async function resolveClaimedTargetOwnerAuthorityV1(
+  transaction: PhaseCPgDatabase,
+  row: typeof aiRuns.$inferSelect,
+): Promise<import("@/ai/core/contracts").ClaimedTargetOwnerAuthorityV1 | null> {
+  if (row.targetType === "product_draft") {
+    return row.targetProductId !== null && row.targetContentId === null &&
+      row.targetRevisionId === null && row.targetLocale === "en"
+      ? Object.freeze({ version: 1, owner: "product" }) : null;
+  }
+  if (row.targetType === "content_draft") {
+    return row.targetProductId === null && row.targetContentId !== null &&
+      row.targetRevisionId === null && row.targetLocale === "en"
+      ? Object.freeze({ version: 1, owner: "content" }) : null;
+  }
+  if (row.targetType !== "editorial_revision" || row.targetProductId !== null ||
+    row.targetContentId !== null || row.targetRevisionId === null || row.targetLocale !== null) {
+    return null;
+  }
+  const revisions = await transaction.select({
+    entityType: editorialRevisions.entityType,
+    locale: editorialRevisions.locale,
+  }).from(editorialRevisions).where(eq(editorialRevisions.id, row.targetRevisionId)).limit(2);
+  const revision = revisions.length === 1 ? revisions[0] : undefined;
+  return revision !== undefined && revision.locale === "en" &&
+    (revision.entityType === "product" || revision.entityType === "content")
+    ? Object.freeze({ version: 1, owner: revision.entityType }) : null;
 }
 
 function shanghaiPeriods(observedAt: Date): { readonly day: string; readonly month: string } {
@@ -774,6 +806,8 @@ export function createAiRunRepositoryV1(
         const candidates = await transaction.select().from(aiRuns).where(eq(aiRuns.id, dueId)).limit(1);
         const due = candidates[0];
         if (due === undefined) return { kind: "idle", reason: "empty" };
+        const claimAuthority = await resolveClaimedTargetOwnerAuthorityV1(transaction, due);
+        if (claimAuthority === null) return { kind: "idle", reason: "empty" };
         const periods = due.budgetChargeDay === null ? shanghaiPeriods(lock.observedAt) : null;
         const additionalReservation = input.executionEnvironment === "staging"
           ? Math.max(0, due.runCostLimitMicrousd - due.budgetAccountedCostMicrousd - due.budgetReservedCostMicrousd)
@@ -853,7 +887,7 @@ export function createAiRunRepositoryV1(
             attemptCount: row.attemptCount,
           };
         }
-        return { kind: "claimed", row: claimedRowProjection(row) };
+        return { kind: "claimed", row: claimedRowProjection(row, claimAuthority) };
       });
       emitPostCommit(postCommitEvent);
       return outcome;

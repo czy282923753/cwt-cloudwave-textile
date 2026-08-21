@@ -282,6 +282,11 @@ export interface OpaqueClaimedContextStageV1 {
   ): AiServiceResult<ProtectedApplicationResultEnvelopeV1>;
 }
 
+export interface ClaimedTargetOwnerAuthorityV1 {
+  readonly version: 1;
+  readonly owner: "product" | "content";
+}
+
 export interface OpaqueClaimedApplicationRuntimeV1 {
   readonly applicationClass: string;
   readonly capability: "text";
@@ -295,6 +300,7 @@ export interface OpaqueClaimedApplicationRuntimeV1 {
   ): AiServiceResult<ApplicationAssociationEnvelopeV1>;
   decodeClaimedContext(
     inputContext: unknown,
+    targetOwnerAuthority: ClaimedTargetOwnerAuthorityV1,
   ): AiServiceResult<OpaqueClaimedContextStageV1>;
 }
 

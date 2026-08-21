@@ -281,14 +281,27 @@ function targetBindingMatchesAssociation(
 
 function sourceIdentity(
   source: DraftContextSourceDtoV1,
-): ReadonlyJsonObject {
+  serialized: ReconstructibleSourceEntryV1,
+): AiServiceResult<ReadonlyJsonObject> {
   switch (source.sourceClass) {
-    case "product_structured":
-      return { productId: source.productId, recordVersion: source.recordVersion };
+    case "product_structured": {
+      const projection = canonicalJsonHash(serialized.fields.map((field) => ({
+        field: field.field,
+        provenance: field.provenance,
+        value: field.value,
+      })));
+      return projection.ok ? aiSuccess({
+        productId: source.productId,
+        projectionSha256: projection.value.hash,
+      }) : projection;
+    }
     case "fabric_knowledge":
-      return { contentId: source.contentId, recordVersion: source.recordVersion };
+      return aiSuccess({ contentId: source.contentId, recordVersion: source.recordVersion });
     case "public_company_fact":
-      return { companyFactId: source.companyFactId, recordUpdatedAt: source.recordUpdatedAt };
+      return aiSuccess({
+        companyFactId: source.companyFactId,
+        recordUpdatedAt: source.recordUpdatedAt,
+      });
   }
 }
 
@@ -852,10 +865,12 @@ export function createDraftContextPolicy<
         );
         if (!entry.ok) return entry;
         sources.push(entry.value);
+        const sourceFingerprint = sourceIdentity(read.value, entry.value);
+        if (!sourceFingerprint.ok) return sourceFingerprint;
         inputSources.push({
           alias,
           sourceClass: read.value.sourceClass,
-          sourceIdentity: sourceIdentity(read.value),
+          sourceIdentity: sourceFingerprint.value,
           selectedFields: entry.value.fields.map((field) => field.field),
           fieldProvenance: entry.value.fields.map((field) => ({
             field: field.field,

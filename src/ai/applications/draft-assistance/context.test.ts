@@ -823,7 +823,10 @@ describe("Draft reconstructible context", () => {
     expect(encoded.ok).toBe(true);
     expect(variables.ok).toBe(true);
     if (!encoded.ok || !variables.ok) return;
-    expect(encoded.value.inputSources[0]?.sourceIdentity).toEqual(sourceIdentity);
+    expect(encoded.value.inputSources[0]?.sourceIdentity).toEqual({
+      productId: sourceIdentity.productId,
+      projectionSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
     expect(JSON.stringify(encoded.value.inputContext)).not.toContain(sourceIdentity.productId);
     expect(JSON.stringify(variables.value)).not.toContain(sourceIdentity.productId);
   });

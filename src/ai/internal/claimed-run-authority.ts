@@ -3,6 +3,7 @@ import { z } from "zod";
 import { canonicalJsonHash, type ReadonlyJsonObject, type ReadonlyJsonValue } from "@/ai/canonical-json";
 import type {
   ApplicationAssociationEnvelopeV1,
+  ClaimedTargetOwnerAuthorityV1,
   ClaimedApplicationRuntimeRegistryV1,
   OpaqueClaimedContextStageV1,
 } from "@/ai/core/contracts";
@@ -18,6 +19,10 @@ const uuid = z.string().regex(
 );
 const hash = z.string().regex(/^[0-9a-f]{64}$/);
 const rowSchema = z.object({
+  claimAuthority: z.object({
+    version: z.literal(1),
+    owner: z.enum(["product", "content"]),
+  }).strict(),
   runId: uuid,
   applicationClass: z.string().min(1).max(64),
   capability: z.literal("text"),
@@ -253,7 +258,8 @@ export function constructPreDispatchClaimedRunV2(input: {
   if (!association.ok) {
     return aiFailure("association_provenance_mismatch");
   }
-  const claimedContext = runtime.value.decodeClaimedContext(inputContext);
+  const targetOwnerAuthority: ClaimedTargetOwnerAuthorityV1 = Object.freeze(row.claimAuthority);
+  const claimedContext = runtime.value.decodeClaimedContext(inputContext, targetOwnerAuthority);
   if (!claimedContext.ok) return claimedContext;
   const associationIntegrity = claimedContext.value.verifyAssociationIntegrity(association.value);
   if (!associationIntegrity.ok || association.value.snapshotHash !== row.targetSnapshotHash) {

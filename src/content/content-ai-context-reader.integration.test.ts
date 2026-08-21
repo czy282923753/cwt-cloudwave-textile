@@ -290,6 +290,20 @@ describe.skipIf(postgresUrl === undefined)("ContentAiDraftReaderV1 on PostgreSQL
       },
     });
     expect(JSON.stringify(result)).not.toContain("SYNTHETIC LIVE DRIFT");
+    const targetProjection = await withReadOnlyDraftAvailabilityScope(db(), (scope) =>
+      reader.readTargetSnapshot({ scope, actor, command, association: association.value }));
+    expect(targetProjection).toMatchObject({
+      ok: true,
+      value: { revisionSnapshot: {
+        title: "Synthetic Content Revision Snapshot",
+        excerpt: "Synthetic revision excerpt",
+        narrativeText: "SYNTHETIC REVISION SNAPSHOT NARRATIVE",
+      } },
+    });
+    if (targetProjection.ok) {
+      expect(Object.keys(targetProjection.value.revisionSnapshot ?? {}))
+        .toEqual(["title", "excerpt", "narrativeText"]);
+    }
   });
 
   it("projects Fabric narrative from structured Blocks and only four public Company Fact fields", async () => {

@@ -42,14 +42,16 @@ const productRevisionSnapshotSchema = z.object({
   draftVersion: z.number().int().positive(),
   pendingChanges: z.array(z.unknown()).optional(),
 }).strict();
-type ProductRevisionSnapshotV1 = z.infer<typeof productRevisionSnapshotSchema>;
+interface ProductRevisionContextProjectionV1 {
+  readonly name: string;
+}
 
 export interface ProductAiTargetSnapshotV1 {
   readonly owner: "product";
   readonly entityId: string;
   readonly editVersion: number;
   readonly revisionId: string | null;
-  readonly revisionSnapshot: ProductRevisionSnapshotV1 | null;
+  readonly revisionSnapshot: ProductRevisionContextProjectionV1 | null;
   readonly authorizedAssociation: AuthorizedDraftAssociationV1;
 }
 
@@ -90,6 +92,10 @@ export interface ProductAiDraftReaderV1<TQueryResult extends PgQueryResultHKT> {
     Promise<AiServiceResult<DraftContextSourceDtoV1>>;
   readSelectedMediaPlacements(input: ProductAiMediaReadV1<TQueryResult>):
     Promise<AiServiceResult<readonly MediaPlacementAliasV1[]>>;
+}
+
+export interface ProductAiReaderBarrierHooksV1 {
+  afterProductRecordRead?(): Promise<void>;
 }
 
 function actorCanOwnProductTarget(role: CoreAiActorV1["roleKey"]): boolean {
@@ -178,7 +184,9 @@ function targetBinding(target: ProductAiTargetSnapshotV1): DraftContextSourceDto
 
 export function createProductAiDraftReaderV1<
   TQueryResult extends PgQueryResultHKT,
->(): ProductAiDraftReaderV1<TQueryResult> {
+>(options: {
+  readonly barriers?: ProductAiReaderBarrierHooksV1;
+} = {}): ProductAiDraftReaderV1<TQueryResult> {
   return {
     async readTargetSnapshot(input) {
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
@@ -262,7 +270,7 @@ export function createProductAiDraftReaderV1<
           entityId: row.entityId,
           editVersion: draftVersion,
           revisionId: input.association.targetRevisionId,
-          revisionSnapshot: snapshot.data,
+          revisionSnapshot: Object.freeze({ name: snapshot.data.name }),
           authorizedAssociation: authorized.value,
         }) : authorized;
       });
@@ -321,6 +329,7 @@ export function createProductAiDraftReaderV1<
           }
         }
         if (row === undefined) return aiFailure("context_record_unauthorized");
+        await options.barriers?.afterProductRecordRead?.();
         const primary = await database.select({ name: taxonomyTermLocalizations.name })
           .from(productTaxonomyTerms)
           .innerJoin(taxonomyTerms, eq(taxonomyTerms.id, productTaxonomyTerms.taxonomyTermId))

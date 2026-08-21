@@ -7,7 +7,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { prepareDraftAssociationV1 } from "@/ai/applications/draft-assistance/association";
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
-import { withReadOnlyDraftAvailabilityScope } from "@/ai/applications/draft-assistance/read-scopes";
+import {
+  type DraftTransactionScopeOperationsV1,
+  withReadOnlyDraftAvailabilityScope,
+  withTransactionBoundDraftEnqueueScope,
+} from "@/ai/applications/draft-assistance/read-scopes";
+import { runGovernedMutation } from "@/audit/governed-mutation";
 import type { CoreAiActorV1 } from "@/ai/core/contracts";
 import type { ProductContextField } from "@/ai/context/contracts";
 import type { DatabaseConnection, PostgresAppDatabase } from "@/db/client";
@@ -36,6 +41,8 @@ const mediaId = "10000000-0000-4000-8000-000000000004";
 const otherMediaId = "10000000-0000-4000-8000-000000000005";
 const categoryId = "10000000-0000-4000-8000-000000000006";
 const missingDraftVersionRevisionId = "10000000-0000-4000-8000-000000000007";
+const additionalCategoryId = "10000000-0000-4000-8000-000000000008";
+const replacementCategoryId = "10000000-0000-4000-8000-000000000009";
 
 let client: Sql | undefined;
 let database: PostgresAppDatabase | undefined;
@@ -140,16 +147,16 @@ describe.skipIf(postgresUrl === undefined)("ProductAiDraftReaderV1 on PostgreSQL
       role: "product_editor",
       passwordHash: "synthetic-not-a-password",
     });
-    await db().insert(taxonomyTerms).values({
-      id: categoryId,
-      internalKey: "synthetic-product-reader-category",
-      dimension: "material_fiber",
-    });
-    await db().insert(taxonomyTermLocalizations).values({
-      taxonomyTermId: categoryId,
-      locale: "en",
-      name: "Synthetic Primary Category",
-    });
+    await db().insert(taxonomyTerms).values([
+      { id: categoryId, internalKey: "synthetic-product-reader-category", dimension: "material_fiber" },
+      { id: additionalCategoryId, internalKey: "synthetic-old-additional", dimension: "structure_construction" },
+      { id: replacementCategoryId, internalKey: "synthetic-new-additional", dimension: "structure_construction" },
+    ] as const);
+    await db().insert(taxonomyTermLocalizations).values([
+      { taxonomyTermId: categoryId, locale: "en", name: "Synthetic Primary Category" },
+      { taxonomyTermId: additionalCategoryId, locale: "en", name: "Synthetic Old Additional" },
+      { taxonomyTermId: replacementCategoryId, locale: "en", name: "Synthetic New Additional" },
+    ]);
     await db().transaction(async (transaction) => {
       await transaction.insert(products).values({
         id: productId,
@@ -177,6 +184,11 @@ describe.skipIf(postgresUrl === undefined)("ProductAiDraftReaderV1 on PostgreSQL
         productId,
         taxonomyTermId: categoryId,
         isPrimary: true,
+      });
+      await transaction.insert(productTaxonomyTerms).values({
+        productId,
+        taxonomyTermId: additionalCategoryId,
+        isPrimary: false,
       });
     });
     await db().insert(productFieldReviews).values([
@@ -330,6 +342,16 @@ describe.skipIf(postgresUrl === undefined)("ProductAiDraftReaderV1 on PostgreSQL
       },
     });
     expect(JSON.stringify(revisionContext)).not.toContain("SYNTHETIC DRIFTED LIVE NAME");
+    const command = productCommand(revisionTarget);
+    const association = prepareDraftAssociationV1(command.target);
+    if (!association.ok) throw new Error("Product projection association failed.");
+    const target = await withReadOnlyDraftAvailabilityScope(db(), (scope) =>
+      reader.readTargetSnapshot({ scope, actor, command, association: association.value }));
+    expect(target).toMatchObject({
+      ok: true,
+      value: { revisionSnapshot: { name: "Synthetic Product Revision" } },
+    });
+    if (target.ok) expect(Object.keys(target.value.revisionSnapshot ?? {})).toEqual(["name"]);
 
     const seoRevisionContext = await readProductFields(seoProductCommand(revisionTarget), ["name"]);
     expect(seoRevisionContext).toMatchObject({
@@ -404,6 +426,92 @@ describe.skipIf(postgresUrl === undefined)("ProductAiDraftReaderV1 on PostgreSQL
       .rejects.toThrow();
     await expect(db().update(products).set({ moqUnit: "invalid" }).where(eq(products.id, productId)))
       .rejects.toThrow();
+  });
+
+  it("reads Product facts, relations, and reviews from one REPEATABLE READ snapshot", async () => {
+    let reachedResolve!: () => void;
+    let continueResolve!: () => void;
+    const reached = new Promise<void>((resolve) => { reachedResolve = resolve; });
+    const proceed = new Promise<void>((resolve) => { continueResolve = resolve; });
+    const racingReader = createProductAiDraftReaderV1({
+      barriers: {
+        async afterProductRecordRead() {
+          reachedResolve();
+          await proceed;
+        },
+      },
+    });
+    const command = productCommand();
+    const association = prepareDraftAssociationV1(command.target);
+    if (!association.ok) throw new Error("Coherent-source association failed.");
+    const unused = async (): Promise<never> => {
+      throw new Error("Unused enqueue operation was invoked.");
+    };
+    const operations = {
+      findReplay: unused,
+      authorizeLockAndSnapshotTargetForNewRequest: unused,
+      lockSelectedConfigForNewRequest: unused,
+      insertPreparedWithRequiredAudit: unused,
+    } satisfies DraftTransactionScopeOperationsV1;
+    const request = runGovernedMutation(db(), ({ transaction }) =>
+      withTransactionBoundDraftEnqueueScope(transaction, operations, async (scope) => {
+        const target = await racingReader.readTargetSnapshot({
+          scope,
+          actor,
+          command,
+          association: association.value,
+        });
+        return target.ok ? racingReader.readSelectedStructuredContext({
+          scope,
+          actor,
+          command,
+          target: target.value,
+          selector: {
+            sourceClass: "product_structured",
+            sourceId: productId,
+            fields: ["composition", "additionalCategoryLabels"],
+          },
+        }) : target;
+      }), {
+      transactionConfig: { isolationLevel: "repeatable read" },
+    });
+    await reached;
+    await db().transaction(async (transaction) => {
+      await transaction.update(products).set({ composition: "SYNTHETIC changed fiber" })
+        .where(eq(products.id, productId));
+      await transaction.update(productFieldReviews).set({ verificationStatus: "verified" })
+        .where(and(
+          eq(productFieldReviews.productId, productId),
+          eq(productFieldReviews.fieldName, "composition"),
+        ));
+      await transaction.delete(productTaxonomyTerms).where(and(
+        eq(productTaxonomyTerms.productId, productId),
+        eq(productTaxonomyTerms.taxonomyTermId, additionalCategoryId),
+      ));
+      await transaction.insert(productTaxonomyTerms).values({
+        productId,
+        taxonomyTermId: replacementCategoryId,
+        isPrimary: false,
+      });
+    });
+    continueResolve();
+    expect(await request).toMatchObject({
+      ok: true,
+      value: { fields: [
+        { field: "composition", provenance: "provided", value: "SYNTHETIC 100% test fiber" },
+        { field: "additionalCategoryLabels", value: ["Synthetic Old Additional"] },
+      ] },
+    });
+    expect(await readProductFields(productCommand(), ["composition"])).toMatchObject({
+      ok: true,
+      value: { fields: [
+        { field: "composition", provenance: "verified", value: "SYNTHETIC changed fiber" },
+      ] },
+    });
+    expect(await readProductFields(productCommand(), ["additionalCategoryLabels"]))
+      .toMatchObject({ ok: true, value: { fields: [
+        { field: "additionalCategoryLabels", value: ["Synthetic New Additional"] },
+      ] } });
   });
 
   it("keeps structural and supplied-only Product fields at their accepted provenance", async () => {

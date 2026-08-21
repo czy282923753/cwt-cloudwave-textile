@@ -17,6 +17,7 @@ import { migrateDatabase } from "@/db/migrate";
 import {
   aiModelConfig,
   aiRuns,
+  editorialRevisions,
   featureFlags,
   productLocalizations,
   productTaxonomyTerms,
@@ -104,6 +105,24 @@ function preparedRun(fixture: Fixture, overrides: {
     inputSources: [],
     inputContext: { product: { name: "Synthetic Repository Product" } },
     inputHash: hash("6"),
+  };
+}
+
+function revisionPreparedRun(
+  fixture: Fixture,
+  revisionId: string,
+): PreparedCoreRunV1 {
+  return {
+    ...preparedRun(fixture),
+    association: {
+      kind: "draft_assistance.editorial_revision.v1",
+      persistenceVersion: 1,
+      value: {
+        targetType: "editorial_revision",
+        targetRevisionId: revisionId,
+        expectedTargetVersion: 1,
+      },
+    },
   };
 }
 
@@ -351,6 +370,10 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       workerId: "repository-worker-a",
     });
     expect(claim.kind).toBe("claimed");
+    expect(claim).toMatchObject({
+      kind: "claimed",
+      row: { claimAuthority: { version: 1, owner: "product" } },
+    });
     const [claimed] = await db().select().from(aiRuns).where(eq(aiRuns.id, inserted.row.id));
     if (claimed === undefined) throw new Error("Claimed run disappeared.");
     expect(claimed).toMatchObject({
@@ -388,6 +411,37 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
     expect(renewed.kind).toBe("renewed");
     if (renewed.kind === "renewed") expect(renewed.stateVersion).toBe(3);
   });
+
+  it.each(["product", "content"] as const)(
+    "derives %s Revision claim ownership from the authoritative Revision row",
+    async (entityType) => {
+      const fixture = await seedFixture();
+      const [revision] = await db().insert(editorialRevisions).values({
+        entityType,
+        entityId: entityType === "product" ? fixture.productId : randomUUID(),
+        locale: "en",
+        versionNumber: 1,
+        status: "draft",
+        snapshot: { conspicuouslySynthetic: true },
+        createdByUserId: fixture.actorId,
+      }).returning({ id: editorialRevisions.id });
+      if (revision === undefined) throw new Error("Revision owner fixture failed.");
+      const inserted = await insertPrepared(revisionPreparedRun(fixture, revision.id));
+      if (inserted.kind !== "inserted") throw new Error("Revision run insert failed.");
+      const claim = await createAiRunRepositoryV1(db()).claimOrRecover({
+        executionEnvironment: "test",
+        workerId: `revision-owner-${entityType}`,
+      });
+      expect(claim).toMatchObject({
+        kind: "claimed",
+        row: { claimAuthority: { version: 1, owner: entityType } },
+      });
+      if (claim.kind === "claimed") {
+        expect(JSON.stringify((claim.row as { inputContextJson?: unknown }).inputContextJson))
+          .not.toContain("claimAuthority");
+      }
+    },
+  );
 
   it("never reads or mutates a run when the lifecycle advisory lock is busy", async () => {
     const fixture = await seedFixture();
