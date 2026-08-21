@@ -14,6 +14,7 @@ import type { ProtectedApplicationResultEnvelopeV1 } from "@/ai/core/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
 import { createAiModelConfigServiceV1 } from "@/ai/config/model-config-service";
+import { resolvedConfigHashV1 } from "@/ai/internal/preparation";
 import { localTestPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import { normalizeAttemptEvidenceV3 } from "@/ai/runs/attempt-evidence";
 import { createAiRunRepositoryV1 } from "@/ai/runs/repository";
@@ -804,7 +805,9 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       .toHaveLength(5);
   });
 
-  it("serializes default switching with enqueue into an exact snapshot or clean conflict", async () => {
+  async function verifyDefaultSwitchSchedule(
+    schedule: "concurrent" | "switch-first" | "enqueue-first",
+  ): Promise<void> {
     const fixture = await seedFixture();
     const [admin] = await db().insert(users).values({
       email: `${randomUUID()}@run-service.example.test`,
@@ -842,31 +845,99 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       promptLoader,
       pricingRegistry: localTestPricingPolicyRegistryV1,
     });
-    const [requestOutcome, switchOutcome] = await Promise.all([
-      service().requestDraftAssistance(command(fixture, { idempotencyKey: randomUUID() })),
-      configService.activateDefault({
-        actor: { userId: admin.id, role: "admin" },
-        useCase: "product_description_draft",
-        selectedConfigId: second.id,
-        expectedRecordVersions: {
-          [fixture.configId]: 1,
-          [second.id]: 1,
-        },
-      }),
-    ]);
-    expect(switchOutcome.ok).toBe(true);
+    const request = () => service()
+      .requestDraftAssistance(command(fixture, { idempotencyKey: randomUUID() }));
+    const activate = () => configService.activateDefault({
+      actor: { userId: admin.id, role: "admin" },
+      useCase: "product_description_draft",
+      selectedConfigId: second.id,
+      expectedRecordVersions: {
+        [fixture.configId]: 1,
+        [second.id]: 1,
+      },
+    });
+    const outcomes = await (async () => {
+      if (schedule === "switch-first") {
+        const switchOutcome = await activate();
+        const requestOutcome = await request();
+        return { requestOutcome, switchOutcome };
+      }
+      if (schedule === "enqueue-first") {
+        const requestOutcome = await request();
+        const switchOutcome = await activate();
+        return { requestOutcome, switchOutcome };
+      }
+      const [requestOutcome, switchOutcome] = await Promise.all([request(), activate()]);
+      return { requestOutcome, switchOutcome };
+    })();
+    const { requestOutcome, switchOutcome } = outcomes;
+    expect(switchOutcome).toMatchObject({
+      ok: true,
+      value: { selectedConfigId: second.id, recordVersion: 2 },
+    });
+    const runs = await db().select().from(aiRuns);
+    const enqueueAudits = await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.enqueued"));
     if (requestOutcome.ok) {
-      const [run] = await db().select().from(aiRuns).where(eq(aiRuns.id, requestOutcome.value.runId));
-      expect([fixture.configId, second.id]).toContain(run?.modelConfigId);
-      expect(run?.modelConfigVersion).toBe(1);
+      expect(runs).toHaveLength(1);
+      expect(enqueueAudits).toHaveLength(1);
+      const [run] = runs;
+      expect(run?.id).toBe(requestOutcome.value.runId);
+      if (run === undefined) throw new Error("Concurrent enqueue did not persist its run.");
+      expect(enqueueAudits[0]).toMatchObject({
+        actorUserId: fixture.actorId,
+        entityType: "ai_run",
+        entityId: run.id,
+      });
+      const expectedTuple = run.modelConfigId === fixture.configId
+        ? { id: fixture.configId, version: 1 }
+        : run.modelConfigId === second.id
+          ? { id: second.id, version: 2 }
+          : undefined;
+      expect(expectedTuple).toBeDefined();
+      if (expectedTuple === undefined) throw new Error("Concurrent enqueue selected an unknown config.");
+      expect(run.modelConfigVersion).toBe(expectedTuple.version);
+      if (schedule === "switch-first") expect(expectedTuple.id).toBe(second.id);
+      if (schedule === "enqueue-first") expect(expectedTuple.id).toBe(fixture.configId);
+      const expectedHash = resolvedConfigHashV1({
+        applicationClass: "draft_assistance",
+        capability: "text",
+        useCase: "product_description_draft",
+        modelConfigId: expectedTuple.id,
+        modelConfigVersion: expectedTuple.version,
+        requestedProvider: "synthetic_alpha",
+        requestedModel: "synthetic-text-alpha-v1",
+        parametersSnapshot: { temperature: 0 },
+        maxInputTokens: 1_000,
+        maxOutputTokens: 200,
+        maxAttempts: 3,
+        runCostLimitMicrousd: 20_000,
+        promptId: "product-description-draft",
+        promptVersion: 1,
+        promptHash: hash("a"),
+        providerEnvelope: fakeProvider.describeEnvelope(),
+        inputSchemaVersion: 1,
+        outputSchemaVersion: 1,
+        policyVersion: "draft-product-description-v1",
+      });
+      expect(expectedHash.ok).toBe(true);
+      if (!expectedHash.ok) throw new Error("Synthetic resolved-config hash fixture failed.");
+      expect(run.resolvedConfigHash).toBe(expectedHash.value.hash);
       const [snapshot] = await db().select().from(aiModelConfig)
-        .where(eq(aiModelConfig.id, run!.modelConfigId));
+        .where(eq(aiModelConfig.id, run.modelConfigId));
       expect(snapshot).toBeDefined();
     } else {
+      expect(schedule).toBe("concurrent");
       expect(requestOutcome.error.code).toBe("state_conflict");
-      expect(await db().select().from(aiRuns)).toHaveLength(0);
+      expect(runs).toHaveLength(0);
+      expect(enqueueAudits).toHaveLength(0);
     }
-  });
+  }
+
+  it.each(["concurrent", "switch-first", "enqueue-first"] as const)(
+    "serializes default switching with enqueue into an exact snapshot or clean conflict: %s",
+    verifyDefaultSwitchSchedule,
+  );
 
   it("rolls target/run/Audit back atomically on required Audit failure", async () => {
     const fixture = await seedFixture();
