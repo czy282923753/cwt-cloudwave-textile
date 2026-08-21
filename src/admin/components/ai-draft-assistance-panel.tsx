@@ -31,7 +31,11 @@ type PanelEventV1 =
   | { readonly type: "availability"; readonly value: AiDraftAvailabilityViewV1 }
   | { readonly type: "run"; readonly value: AiDraftRunViewV1 }
   | { readonly type: "failure"; readonly message: string }
+  | { readonly type: "unexpected_rejection" }
   | { readonly type: "poll_exhausted" };
+
+const unexpectedActionRejectionMessage =
+  "AI assistance status is uncertain because the server response was interrupted. Ordinary manual editing is unchanged. Retry the explicit request; if a run is visible, use Refresh status first.";
 
 const initialState: PanelStateV1 = {
   run: null,
@@ -70,6 +74,13 @@ export function aiDraftAssistancePanelReducerV1(
       pollingExhausted: true,
       error: true,
       feedback: event.message,
+    };
+    case "unexpected_rejection": return {
+      ...state,
+      busy: false,
+      pollingExhausted: true,
+      error: true,
+      feedback: unexpectedActionRejectionMessage,
     };
     case "poll_exhausted": return {
       ...state,
@@ -112,6 +123,11 @@ export function AiDraftAssistancePanel({
     dispatch({ type: "reset" });
   }, [requestIdentity]);
 
+  useEffect(() => () => {
+    operationEpochRef.current += 1;
+    inFlightRef.current = false;
+  }, []);
+
   useEffect(() => {
     const run = state.run;
     if (run === null || state.busy || state.pollingExhausted ||
@@ -123,16 +139,21 @@ export function AiDraftAssistancePanel({
     const epoch = operationEpochRef.current;
     const timer = window.setTimeout(() => {
       pollCountRef.current += 1;
-      void readAiDraftAssistanceRunAction({ runId: run.runId }).then((result) => {
-        if (epoch !== operationEpochRef.current) return;
-        if (result.ok) {
-          dispatch({ type: "run", value: result.value });
-          if (pollCountRef.current >= boundedPollingBudget &&
-            (result.value.status === "pending" || result.value.status === "processing")) {
-            dispatch({ type: "poll_exhausted" });
-          }
-        } else dispatch({ type: "failure", message: result.message });
-      });
+      void readAiDraftAssistanceRunAction({ runId: run.runId }).then(
+        (result) => {
+          if (epoch !== operationEpochRef.current) return;
+          if (result.ok) {
+            dispatch({ type: "run", value: result.value });
+            if (pollCountRef.current >= boundedPollingBudget &&
+              (result.value.status === "pending" || result.value.status === "processing")) {
+              dispatch({ type: "poll_exhausted" });
+            }
+          } else dispatch({ type: "failure", message: result.message });
+        },
+        () => {
+          if (epoch === operationEpochRef.current) dispatch({ type: "unexpected_rejection" });
+        },
+      );
     }, boundedPollIntervalMs);
     return () => window.clearTimeout(timer);
   }, [boundedPollIntervalMs, boundedPollingBudget, state.busy, state.pollingExhausted, state.run]);
@@ -148,6 +169,8 @@ export function AiDraftAssistancePanel({
     dispatch({ type: "begin", feedback });
     try {
       await operation(epoch);
+    } catch {
+      if (operationEpochRef.current === epoch) dispatch({ type: "unexpected_rejection" });
     } finally {
       if (operationEpochRef.current === epoch) inFlightRef.current = false;
     }
