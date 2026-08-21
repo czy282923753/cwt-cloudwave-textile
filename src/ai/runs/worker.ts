@@ -300,6 +300,7 @@ export function createAiRunWorkerV1(dependencies: {
   const activeControllers = new Set<AbortController>();
   let acceptingClaims = false;
   let loops: readonly Promise<void>[] = [];
+  let generationCompletion = Promise.resolve();
   const slotLoop = async (slot: number) => {
     while (acceptingClaims && !processAbort.signal.aborted) {
       const claim = await repository.claimOrRecover({
@@ -340,6 +341,13 @@ export function createAiRunWorkerV1(dependencies: {
       if (acceptingClaims) return;
       acceptingClaims = true;
       loops = Array.from({ length: slotCount }, (_, slot) => slotLoop(slot));
+      generationCompletion = Promise.allSettled(loops).then((outcomes) => {
+        const rejected = outcomes.find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
+        return rejected === undefined ? undefined : Promise.reject(rejected.reason);
+      });
+      void generationCompletion.catch(() => undefined);
     },
     async stop() {
       acceptingClaims = false;
@@ -358,6 +366,9 @@ export function createAiRunWorkerV1(dependencies: {
         processAbort.abort("worker_stopped");
       }
       loops = [];
+    },
+    join() {
+      return generationCompletion;
     },
   };
 }

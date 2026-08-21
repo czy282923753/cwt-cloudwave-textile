@@ -166,6 +166,7 @@ export interface AiRunWorkerV1 {
   readonly workerId: string;
   start(): Promise<void>;
   stop(signal?: "SIGINT" | "SIGTERM"): Promise<void>;
+  join(): Promise<void>;
   readonly running: boolean;
 }
 
