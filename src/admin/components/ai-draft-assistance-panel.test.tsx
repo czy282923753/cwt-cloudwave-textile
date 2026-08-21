@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,23 +59,41 @@ function reviewProjection(stateVersion = 4) {
       kind: "product",
       name: "Synthetic Textile",
       summary: "Existing summary",
-      document: [{ id: "locked_existing", kind: "paragraph", locked: true, text: ["Locked text"] }],
+      document: [
+        { id: "open_first", kind: "paragraph", locked: false, text: ["Unlocked first"] },
+        { id: "locked_existing", kind: "paragraph", locked: true, text: ["Locked middle"] },
+        { id: "open_last", kind: "paragraph", locked: false, text: ["Unlocked last"] },
+      ],
       seo: { title: null, metaDescription: null },
       mediaText: [],
     },
     proposal: {
-      nodes: [{
-        id: `ai_${"c".repeat(60)}`,
-        path: "payload.descriptionBlocks[0]",
-        ordinal: 1,
-        kind: "block",
-        label: "Description block 1",
-        proposedText: "Synthetic candidate",
-        beforeText: null,
-        details: [],
-        editable: true,
-        previewOnly: true,
-      }],
+      nodes: [
+        {
+          id: `ai_${"c".repeat(60)}`,
+          path: "payload.descriptionBlocks[0]",
+          ordinal: 1,
+          kind: "block",
+          label: "Description block 1",
+          proposedText: "Synthetic candidate",
+          beforeText: null,
+          details: [],
+          editable: true,
+          previewOnly: false,
+        },
+        {
+          id: `ai_${"d".repeat(60)}`,
+          path: "payload.outline[0]",
+          ordinal: 2,
+          kind: "outline",
+          label: "Planning outline",
+          proposedText: "Synthetic planning note",
+          beforeText: null,
+          details: [],
+          editable: true,
+          previewOnly: true,
+        },
+      ],
     },
   } as const;
 }
@@ -407,8 +425,22 @@ describe("AI draft assistance five-state panel", () => {
     render(<AiDraftAssistancePanel request={request} requestIdentity="product:protected-review" />);
     fireEvent.click(screen.getByRole("button", { name: "Generate AI draft" }));
 
-    expect(await screen.findByText("Locked text")).toBeInTheDocument();
+    const before = await screen.findByLabelText("Current document before AI proposal");
+    const beforeText = before.textContent ?? "";
+    expect(beforeText.indexOf("Unlocked first")).toBeLessThan(beforeText.indexOf("Locked middle"));
+    expect(beforeText.indexOf("Locked middle")).toBeLessThan(beforeText.indexOf("Unlocked last"));
+    expect(within(before).getAllByText("Lock state: Unlocked")).toHaveLength(2);
+    expect(within(before).getByText("Lock state: Locked")).toBeInTheDocument();
+    expect(screen.getByLabelText("AI proposal after view")).toBeInTheDocument();
+
+    const planning = screen.getByRole("heading", { name: "Planning outline" }).closest("article");
+    expect(planning).not.toBeNull();
+    expect(within(planning!).getByText("Planning preview only")).toBeInTheDocument();
+    expect(within(planning!).queryByRole("button")).toBeNull();
+    expect(within(planning!).queryByRole("textbox")).toBeNull();
+
     expect(screen.getByText("Local decision: pending")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Local preview edit" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Accept locally" }));
     expect(screen.getByText("Local decision: accepted")).toBeInTheDocument();
 
@@ -419,8 +451,14 @@ describe("AI draft assistance five-state panel", () => {
     expect(actions.enqueue).toHaveBeenCalledTimes(1);
     expect(actions.read).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Undo local review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject locally" }));
+    expect(screen.getByText("Local decision: rejected")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Local preview edit" })).toBeNull();
     expect(screen.getByText("Proposal: Synthetic candidate")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo local review" }));
+    expect(screen.getByText("Local decision: accepted")).toBeInTheDocument();
+    expect(screen.getByText("Proposal: Locally edited preview")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /apply|save/i })).toBeNull();
   });
 

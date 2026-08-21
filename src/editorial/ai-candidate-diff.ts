@@ -16,7 +16,7 @@ export interface CandidateReviewStateV1 extends CandidateReviewSnapshotV1 {
   readonly runId: string;
   readonly candidateHash: string;
   readonly projectionKey: string;
-  readonly nodeIds: readonly string[];
+  readonly actionableNodeIds: readonly string[];
   readonly editableNodeIds: readonly string[];
   readonly undoStack: readonly CandidateReviewSnapshotV1[];
 }
@@ -37,8 +37,7 @@ export type CandidateReviewEventV1 =
 
 export interface AiCandidateDiffV1 {
   readonly projectionKey: string;
-  readonly lockedBefore: readonly ReviewCurrentNodeV1[];
-  readonly unlockedBefore: readonly ReviewCurrentNodeV1[];
+  readonly beforeDocument: readonly ReviewCurrentNodeV1[];
   readonly proposalNodes: readonly ReviewProposalNodeV1[];
 }
 
@@ -69,8 +68,7 @@ export function createAiCandidateDiffV1(
   }
   return {
     projectionKey: projection.projectionKey,
-    lockedBefore: projection.before.document.filter((node) => node.locked),
-    unlockedBefore: projection.before.document.filter((node) => !node.locked),
+    beforeDocument: projection.before.document,
     proposalNodes,
   };
 }
@@ -80,15 +78,16 @@ export function createCandidateReviewStateV1(
   projection: AiDraftReviewProjectionV1,
 ): CandidateReviewStateV1 {
   const nodes = createAiCandidateDiffV1(projection).proposalNodes;
+  const actionableNodes = nodes.filter((node) => !node.previewOnly);
   return {
     requestIdentity,
     runId: projection.run.id,
     candidateHash: projection.run.candidateHash,
     projectionKey: projection.projectionKey,
-    nodeIds: nodes.map((node) => node.id),
-    editableNodeIds: nodes.filter((node) => node.editable).map((node) => node.id),
+    actionableNodeIds: actionableNodes.map((node) => node.id),
+    editableNodeIds: actionableNodes.filter((node) => node.editable).map((node) => node.id),
     decisions: Object.freeze(Object.fromEntries(
-      nodes.map((node) => [node.id, "pending" as CandidateDecisionV1]),
+      actionableNodes.map((node) => [node.id, "pending" as CandidateDecisionV1]),
     )),
     edits: Object.freeze({}),
     undoStack: Object.freeze([]),
@@ -118,14 +117,18 @@ export function reduceCandidateReviewStateV1(
         state.projectionKey === event.projection.projectionKey) return state;
       return createCandidateReviewStateV1(event.requestIdentity, event.projection);
     case "decide":
-      if (!state.nodeIds.includes(event.nodeId) ||
-        state.decisions[event.nodeId] === event.decision) return state;
+      if (!state.actionableNodeIds.includes(event.nodeId)) return state;
+      if (state.decisions[event.nodeId] === event.decision &&
+        (event.decision === "accepted" || state.edits[event.nodeId] === undefined)) return state;
       return withHistory(state, {
         decisions: Object.freeze({ ...state.decisions, [event.nodeId]: event.decision }),
-        edits: state.edits,
+        edits: event.decision === "accepted" ? state.edits : Object.freeze(Object.fromEntries(
+          Object.entries(state.edits).filter(([nodeId]) => nodeId !== event.nodeId),
+        )),
       });
     case "edit":
       if (!state.editableNodeIds.includes(event.nodeId) ||
+        state.decisions[event.nodeId] !== "accepted" ||
         Array.from(event.text).length > MAX_EDIT_SCALARS || event.text.includes("\r") ||
         state.edits[event.nodeId] === event.text) return state;
       return withHistory(state, {

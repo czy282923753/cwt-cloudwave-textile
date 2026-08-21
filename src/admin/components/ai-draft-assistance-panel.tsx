@@ -293,38 +293,41 @@ export function AiDraftAssistancePanel({
             <p className="text-sm text-slate-300">
               This preview is local and non-authoritative. Locked existing Blocks remain unchanged.
             </p>
-            {view.lockedBefore.length > 0 ? (
-              <div aria-label="Locked existing Blocks" className="space-y-2">
-                <h3 className="font-medium">Locked existing Blocks</h3>
-                {view.lockedBefore.map((node) => (
-                  <div aria-disabled="true" className="rounded border border-slate-700 p-2" key={node.id}>
+            <div aria-label="Current document before AI proposal" className="space-y-2">
+              <h3 className="font-medium">Current document — before</h3>
+              {view.beforeDocument.length === 0 ? <p>No existing document Blocks.</p> :
+                view.beforeDocument.map((node) => (
+                  <div aria-disabled={node.locked} className="rounded border border-slate-700 p-2" key={node.id}>
                     <strong>{node.kind.replaceAll("_", " ")}</strong>
+                    <p>Lock state: {node.locked ? "Locked" : "Unlocked"}</p>
                     {node.text.map((text, index) => <p key={`${node.id}:${index}`}>{text}</p>)}
                   </div>
                 ))}
-              </div>
-            ) : null}
-            <div aria-label="AI proposal nodes" className="space-y-3">
+            </div>
+            <div aria-label="AI proposal after view" className="space-y-3">
+              <h3 className="font-medium">AI proposal — after preview</h3>
               {view.proposalNodes.map((node) => {
-                const decision = reviewState.decisions[node.id] ?? "pending";
+                const decision = reviewState.decisions[node.id];
                 return (
                   <article className="rounded border border-slate-700 p-3" key={node.id}>
                     <h3 className="font-medium">{node.label}</h3>
                     {node.beforeText !== null ? <p>Before: {node.beforeText}</p> : null}
                     <p>Proposal: {reviewState.edits[node.id] ?? node.proposedText}</p>
                     {node.previewOnly ? <p>Planning preview only</p> : null}
-                    <p>Local decision: {decision}</p>
-                    <div className="flex flex-wrap gap-2">
-                      <button disabled={state.busy} onClick={() => setReviewState((current) =>
-                        current === null ? current : reduceCandidateReviewStateV1(current, {
-                          type: "decide", nodeId: node.id, decision: "accepted",
-                        }))} type="button">Accept locally</button>
-                      <button disabled={state.busy} onClick={() => setReviewState((current) =>
-                        current === null ? current : reduceCandidateReviewStateV1(current, {
-                          type: "decide", nodeId: node.id, decision: "rejected",
-                        }))} type="button">Reject locally</button>
-                    </div>
-                    {node.editable ? (
+                    {!node.previewOnly && decision !== undefined ? <>
+                      <p>Local decision: {decision}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <button disabled={state.busy} onClick={() => setReviewState((current) =>
+                          current === null ? current : reduceCandidateReviewStateV1(current, {
+                            type: "decide", nodeId: node.id, decision: "accepted",
+                          }))} type="button">Accept locally</button>
+                        <button disabled={state.busy} onClick={() => setReviewState((current) =>
+                          current === null ? current : reduceCandidateReviewStateV1(current, {
+                            type: "decide", nodeId: node.id, decision: "rejected",
+                          }))} type="button">Reject locally</button>
+                      </div>
+                    </> : null}
+                    {!node.previewOnly && node.editable && decision === "accepted" ? (
                       <label>
                         Local preview edit
                         <textarea

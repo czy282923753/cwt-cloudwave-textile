@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json";
-import { protectDraftCandidateV1 } from "@/ai/output/common";
+import { draftOutputDefinitionV1 } from "@/ai/output/registry";
 import { attemptResponseFingerprintV2 } from "@/ai/runs/attempt-evidence";
 import type { AiRunAuthorizedEvidenceV1, AttemptHistoryEntryV2 } from "@/ai/runs/contracts";
 
@@ -111,30 +111,24 @@ function rawPayload(useCase: ProductionAiUseCase): ReadonlyJsonObject {
   }
 }
 
-const identity = {
-  seo_content_draft: ["cwt.seo-content-draft.v1", "draft-seo-content-v1"],
-  fabric_knowledge_draft: ["cwt.fabric-knowledge-draft.v1", "draft-fabric-knowledge-v1"],
-  product_description_draft: ["cwt.product-description-draft.v1", "draft-product-description-v1"],
-  sourcing_guide_draft: ["cwt.sourcing-guide-draft.v1", "draft-sourcing-guide-v1"],
-} as const;
-
 function protectedCandidate(useCase: ProductionAiUseCase) {
-  const [schemaId, policyVersion] = identity[useCase];
-  const result = protectDraftCandidateV1({
+  const output = draftOutputDefinitionV1(useCase);
+  if (output === undefined) throw new Error("output definition fixture failed");
+  const result = output.policy.parseAndProtect({
     rawObject: rawPayload(useCase),
     context: context(useCase),
-    schema: { safeParse: (value: unknown) => ({ success: true, data: value }) } as never,
-    useCase,
-    schemaId,
-    policyVersion,
   });
   if (!result.ok) throw new Error(`candidate fixture failed: ${result.error.code}`);
   return result.value;
 }
 
-function attempt(candidateHash: string): ReadonlyJsonObject {
+function attempt(
+  candidateHash: string | null,
+  attemptNumber = 1,
+  outcome: "retry_scheduled" | "failed" | "draft_ready" | "discarded_cancelled" = "draft_ready",
+): ReadonlyJsonObject {
   const base: Omit<AttemptHistoryEntryV2, "response_fingerprint"> = {
-    version: 2, attempt: 1, dispatch_state: "dispatched", outcome: "draft_ready",
+    version: 2, attempt: attemptNumber, dispatch_state: "dispatched", outcome,
     requested_provider: "synthetic", actual_provider: "synthetic",
     requested_model: "synthetic", returned_model: "synthetic",
     provider_envelope_version: 1, provider_envelope_hash: "9".repeat(64),
@@ -172,7 +166,8 @@ function evidence(useCase: ProductionAiUseCase): AiRunAuthorizedEvidenceV1 {
     targetContentId: target.targetType === "content_draft" ? target.targetContentId : null,
     targetRevisionId: null, targetLocale: "en", expectedTargetVersion: 3,
     targetSnapshotHash: inputContext.association.snapshotHash,
-    outputSchemaVersion: 1, policyVersion: identity[useCase][1],
+    outputSchemaVersion: 1,
+    policyVersion: draftOutputDefinitionV1(useCase)?.policyVersion ?? "missing-definition",
     inputContext, inputSources: [{
       alias: "src_01", sourceClass: "explicit_human_input",
       sourceIdentity: { origin: "typed_brief" }, selectedFields: ["text"],
@@ -259,6 +254,8 @@ describe("server-authorized E3 review projection", () => {
     expect(result.value.run.useCase).toBe(useCase);
     expect(result.value.proposal.nodes.length +
       (result.value.proposal.seo?.title ? 1 : 0)).toBeGreaterThan(0);
+    expect(result.value.proposal.nodes.filter((node) => node.previewOnly)
+      .every((node) => !node.editable)).toBe(true);
     expect(JSON.stringify(result.value)).not.toMatch(/30000000|40000000|targetProductId|candidateJson|sourceRefs/);
   });
 
@@ -272,6 +269,35 @@ describe("server-authorized E3 review projection", () => {
     expect((await build({ ...original, candidateHash: "f".repeat(64) })).ok).toBe(false);
     expect((await build({ ...original, attemptHistory: [{ ...original.attemptHistory[0]!,
       response_fingerprint: "0".repeat(64) }] })).ok).toBe(false);
+  });
+
+  it("binds the complete strict contiguous attempt history to attemptCount and every fingerprint", async () => {
+    const original = evidence("product_description_draft");
+    const validHistory = [
+      attempt(null, 1, "retry_scheduled"),
+      attempt(original.candidateHash, 2, "draft_ready"),
+    ];
+    const valid = { ...original, attemptCount: 2, attemptHistory: validHistory };
+    expect((await build(valid)).ok).toBe(true);
+
+    const prefix = validHistory[0]!;
+    const final = validHistory[1]!;
+    const invalidRows: AiRunAuthorizedEvidenceV1[] = [
+      { ...valid, attemptHistory: [final] },
+      { ...valid, attemptHistory: [...validHistory, attempt(original.candidateHash, 3)] },
+      { ...valid, attemptCount: 3 },
+      { ...valid, attemptHistory: [prefix, attempt(original.candidateHash, 3)] },
+      { ...valid, attemptHistory: [prefix, attempt(original.candidateHash, 1)] },
+      { ...valid, attemptHistory: [final, prefix] },
+      { ...valid, attemptHistory: [{ ...prefix, arbitrary: true }, final] },
+      { ...valid, attemptHistory: [{ ...prefix, outcome: "arbitrary" }, final] },
+      { ...valid, attemptHistory: [attempt(null, 1, "failed"), final] },
+      { ...valid, attemptHistory: [{ ...prefix, provider_http_status: 999 }, final] },
+      { ...valid, attemptHistory: [{ ...prefix, response_fingerprint: "0".repeat(64) }, final] },
+      { ...valid, attemptHistory: [prefix, { ...final, response_fingerprint: "0".repeat(64) }] },
+      { ...valid, attemptHistory: [prefix, attempt(original.candidateHash, 1, "draft_ready")] },
+    ] as AiRunAuthorizedEvidenceV1[];
+    for (const row of invalidRows) expect((await build(row)).ok).toBe(false);
   });
 
   it("fails closed for forged ref suffix, unknown keys, count, order and path mismatches", async () => {
@@ -315,10 +341,12 @@ describe("server-authorized E3 review projection", () => {
     const changed = evidence("product_description_draft");
     const raw = structuredClone(rawPayload("product_description_draft"));
     (raw.displayNameProposal as Record<string, unknown>).text = "Different synthetic narrative";
-    const [schemaId, policyVersion] = identity.product_description_draft;
-    const next = protectDraftCandidateV1({ rawObject: raw, context: context("product_description_draft"),
-      schema: { safeParse: (value: unknown) => ({ success: true, data: value }) } as never,
-      useCase: "product_description_draft", schemaId, policyVersion });
+    const output = draftOutputDefinitionV1("product_description_draft");
+    if (output === undefined) throw new Error("Product output definition fixture failed.");
+    const next = output.policy.parseAndProtect({
+      rawObject: raw,
+      context: context("product_description_draft"),
+    });
     expect(next.ok).toBe(true);
     if (!next.ok) return;
     const changedEvidence = { ...changed, candidate: next.value.value, candidateHash: next.value.hash,

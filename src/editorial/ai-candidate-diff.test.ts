@@ -51,16 +51,17 @@ function projection(overrides: Partial<AiDraftReviewProjectionV1> = {}): AiDraft
 describe("browser-safe AI candidate review state", () => {
   it("separates locked current nodes from proposal decisions", () => {
     const view = createAiCandidateDiffV1(projection());
-    expect(view.lockedBefore).toEqual([
-      { id: "locked", kind: "paragraph", locked: true, text: ["Stable locked copy."] },
-    ]);
-    expect(view.unlockedBefore.map((node) => node.id)).toEqual(["open"]);
+    expect(view.beforeDocument.map((node) => node.id)).toEqual(["locked", "open"]);
+    expect(view.beforeDocument.map((node) => node.locked)).toEqual([true, false]);
     expect(view.proposalNodes.map((node) => node.id)).toEqual([firstId, secondId]);
     expect(view.proposalNodes.some((node) => node.id === "locked")).toBe(false);
   });
 
   it("supports explicit per-node decisions, bounded edits and Undo", () => {
     let state = createCandidateReviewStateV1("product:1:3", projection());
+    expect(reduceCandidateReviewStateV1(state, {
+      type: "edit", nodeId: firstId, text: "denied before Accept",
+    })).toBe(state);
     state = reduceCandidateReviewStateV1(state, {
       type: "decide", nodeId: firstId, decision: "accepted",
     });
@@ -69,11 +70,36 @@ describe("browser-safe AI candidate review state", () => {
     });
     expect(state.decisions[firstId]).toBe("accepted");
     expect(state.edits[firstId]).toBe("TEST local edit");
-    state = reduceCandidateReviewStateV1(state, { type: "undo" });
+    state = reduceCandidateReviewStateV1(state, {
+      type: "decide", nodeId: firstId, decision: "rejected",
+    });
+    expect(state.decisions[firstId]).toBe("rejected");
     expect(state.edits[firstId]).toBeUndefined();
-    expect(state.decisions[firstId]).toBe("accepted");
     state = reduceCandidateReviewStateV1(state, { type: "undo" });
+    expect(state.decisions[firstId]).toBe("accepted");
+    expect(state.edits[firstId]).toBe("TEST local edit");
+    state = reduceCandidateReviewStateV1(state, {
+      type: "decide", nodeId: firstId, decision: "pending",
+    });
     expect(state.decisions[firstId]).toBe("pending");
+    expect(state.edits[firstId]).toBeUndefined();
+  });
+
+  it("keeps planning-only nodes visible but non-actionable without history mutation", () => {
+    const state = createCandidateReviewStateV1("product:1:3", projection({
+      proposal: { nodes: [
+        projection().proposal.nodes[0]!,
+        { ...projection().proposal.nodes[1]!, editable: true },
+      ] },
+    }));
+    expect(state.decisions[secondId]).toBeUndefined();
+    expect(reduceCandidateReviewStateV1(state, {
+      type: "decide", nodeId: secondId, decision: "accepted",
+    })).toBe(state);
+    expect(reduceCandidateReviewStateV1(state, {
+      type: "edit", nodeId: secondId, text: "planning edit denied",
+    })).toBe(state);
+    expect(state.undoStack).toEqual([]);
   });
 
   it("rejects edits on non-editable nodes and bounds history and text", () => {
@@ -83,6 +109,15 @@ describe("browser-safe AI candidate review state", () => {
     })).toBe(state);
     expect(reduceCandidateReviewStateV1(state, {
       type: "edit", nodeId: firstId, text: "x".repeat(20_001),
+    })).toBe(state);
+    state = reduceCandidateReviewStateV1(state, {
+      type: "decide", nodeId: firstId, decision: "accepted",
+    });
+    expect(reduceCandidateReviewStateV1(state, {
+      type: "edit", nodeId: firstId, text: "x".repeat(20_001),
+    })).toBe(state);
+    expect(reduceCandidateReviewStateV1(state, {
+      type: "edit", nodeId: firstId, text: "bad\rtext",
     })).toBe(state);
     for (let index = 0; index < 25; index += 1) {
       state = reduceCandidateReviewStateV1(state, {
@@ -95,7 +130,7 @@ describe("browser-safe AI candidate review state", () => {
   it("clears decisions, edits and history on every authority fence replacement", () => {
     let state = createCandidateReviewStateV1("product:1:3", projection());
     state = reduceCandidateReviewStateV1(state, {
-      type: "decide", nodeId: firstId, decision: "rejected",
+      type: "decide", nodeId: firstId, decision: "accepted",
     });
     state = reduceCandidateReviewStateV1(state, {
       type: "edit", nodeId: firstId, text: "TEST changed",

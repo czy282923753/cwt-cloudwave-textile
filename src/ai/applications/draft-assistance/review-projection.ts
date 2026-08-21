@@ -9,17 +9,16 @@ import {
   type ReadonlyJsonValue,
 } from "@/ai/canonical-json";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
+import { fabricKnowledgeDraftV1Schema } from "@/ai/output/fabric-knowledge-draft";
+import { productDescriptionDraftV1Schema } from "@/ai/output/product-description-draft";
+import { draftOutputDefinitionV1 } from "@/ai/output/registry";
+import { seoContentDraftV1Schema } from "@/ai/output/seo-content-draft";
+import { sourcingGuideDraftV1Schema } from "@/ai/output/sourcing-guide-draft";
 import {
-  faqItemSchema,
-  fabricNarrativeBlockSchema,
-  productNarrativeBlockSchema,
-  seoNarrativeBlockSchema,
-  sourcingNarrativeBlockSchema,
-  evidenceTextSchema,
-  protectDraftCandidateV1,
-} from "@/ai/output/common";
-import { attemptResponseFingerprintV2 } from "@/ai/runs/attempt-evidence";
-import type { AiRunAuthorizedEvidenceV1, AttemptHistoryEntryV2 } from "@/ai/runs/contracts";
+  attemptResponseFingerprintV2,
+  decodeAttemptHistoryEntryV2,
+} from "@/ai/runs/attempt-evidence";
+import type { AiRunAuthorizedEvidenceV1 } from "@/ai/runs/contracts";
 import type {
   ProductAiDraftReaderV1,
 } from "@/catalog/product-ai-context-reader";
@@ -69,65 +68,11 @@ const protectedCandidateSchema = z.object({
   semanticReviewStatus: z.literal("human_review_required"),
 }).strict();
 
-const seoPayloadSchema = z.object({
-  schemaVersion: z.literal(1),
-  useCase: z.literal("seo_content_draft"),
-  locale: z.literal("en"),
-  titleProposal: evidenceTextSchema(120).optional(),
-  metaDescriptionProposal: evidenceTextSchema(320).optional(),
-  outline: z.array(evidenceTextSchema(300)).max(20),
-  blocks: z.array(seoNarrativeBlockSchema).max(40),
-  internalLinkSuggestions: z.array(z.object({
-    candidateRef: z.string().regex(/^link_[0-9]{2}$/),
-    anchorText: evidenceTextSchema(200),
-  }).strict()).max(12),
-}).strict();
-const fabricPayloadSchema = z.object({
-  schemaVersion: z.literal(1),
-  useCase: z.literal("fabric_knowledge_draft"),
-  locale: z.literal("en"),
-  titleProposal: evidenceTextSchema(300).optional(),
-  summaryProposal: evidenceTextSchema(1_000).optional(),
-  outline: z.array(evidenceTextSchema(300)).max(20),
-  blocks: z.array(fabricNarrativeBlockSchema).max(50),
-}).strict();
-const productPayloadSchema = z.object({
-  schemaVersion: z.literal(1),
-  useCase: z.literal("product_description_draft"),
-  locale: z.literal("en"),
-  displayNameProposal: evidenceTextSchema(300).optional(),
-  summaryProposal: evidenceTextSchema(1_000).optional(),
-  descriptionBlocks: z.array(productNarrativeBlockSchema).max(30),
-  featureProposals: z.array(evidenceTextSchema(500)).max(20),
-  faqProposals: z.array(faqItemSchema).max(20),
-  mediaTextProposals: z.array(z.object({
-    placementRef: z.string().regex(/^media_[0-9]{2}$/),
-    altText: evidenceTextSchema(500).optional(),
-    caption: evidenceTextSchema(1_000).optional(),
-  }).strict()).max(12),
-}).strict();
-const sourcingPayloadSchema = z.object({
-  schemaVersion: z.literal(1),
-  useCase: z.literal("sourcing_guide_draft"),
-  locale: z.literal("en"),
-  titleProposal: evidenceTextSchema(200).optional(),
-  summaryProposal: evidenceTextSchema(1_000).optional(),
-  outline: z.array(evidenceTextSchema(300)).max(24),
-  blocks: z.array(sourcingNarrativeBlockSchema).max(60),
-}).strict();
-
-const outputIdentities = Object.freeze({
-  seo_content_draft: { schemaId: "cwt.seo-content-draft.v1", schemaVersion: 1, policyVersion: "draft-seo-content-v1" },
-  fabric_knowledge_draft: { schemaId: "cwt.fabric-knowledge-draft.v1", schemaVersion: 1, policyVersion: "draft-fabric-knowledge-v1" },
-  product_description_draft: { schemaId: "cwt.product-description-draft.v1", schemaVersion: 1, policyVersion: "draft-product-description-v1" },
-  sourcing_guide_draft: { schemaId: "cwt.sourcing-guide-draft.v1", schemaVersion: 1, policyVersion: "draft-sourcing-guide-v1" },
-} as const);
-
 type ValidPayload =
-  | z.infer<typeof seoPayloadSchema>
-  | z.infer<typeof fabricPayloadSchema>
-  | z.infer<typeof productPayloadSchema>
-  | z.infer<typeof sourcingPayloadSchema>;
+  | z.infer<typeof seoContentDraftV1Schema>
+  | z.infer<typeof fabricKnowledgeDraftV1Schema>
+  | z.infer<typeof productDescriptionDraftV1Schema>
+  | z.infer<typeof sourcingGuideDraftV1Schema>;
 
 interface ValidCandidate {
   readonly value: z.infer<typeof protectedCandidateSchema>;
@@ -140,19 +85,12 @@ interface DomainReadersV1<TQueryResult extends PgQueryResultHKT> {
 }
 
 function payloadFor(useCase: ProductionAiUseCase, value: unknown): ValidPayload | null {
-  const schema = useCase === "seo_content_draft" ? seoPayloadSchema
-    : useCase === "fabric_knowledge_draft" ? fabricPayloadSchema
-      : useCase === "product_description_draft" ? productPayloadSchema
-        : sourcingPayloadSchema;
+  const schema = useCase === "seo_content_draft" ? seoContentDraftV1Schema
+    : useCase === "fabric_knowledge_draft" ? fabricKnowledgeDraftV1Schema
+      : useCase === "product_description_draft" ? productDescriptionDraftV1Schema
+        : sourcingGuideDraftV1Schema;
   const parsed = schema.safeParse(value);
   return parsed.success ? parsed.data : null;
-}
-
-function schemaFor(useCase: ProductionAiUseCase): z.ZodType {
-  return useCase === "seo_content_draft" ? seoPayloadSchema
-    : useCase === "fabric_knowledge_draft" ? fabricPayloadSchema
-      : useCase === "product_description_draft" ? productPayloadSchema
-        : sourcingPayloadSchema;
 }
 
 function blockMaterial(payload: ValidPayload): readonly {
@@ -184,22 +122,18 @@ function validateCandidate(
   if (!outer.success || outer.data.useCase !== evidence.useCase) {
     return aiFailure("output_schema_invalid");
   }
-  const identity = outputIdentities[outer.data.useCase];
-  if (evidence.outputSchemaVersion !== identity.schemaVersion ||
-    evidence.policyVersion !== identity.policyVersion) {
+  const output = draftOutputDefinitionV1(outer.data.useCase);
+  if (output === undefined || evidence.outputSchemaVersion !== output.schemaVersion ||
+    evidence.policyVersion !== output.policyVersion) {
     return aiFailure("output_policy_rejected");
   }
   const payload = payloadFor(outer.data.useCase, outer.data.payload);
   if (payload === null || payload.useCase !== outer.data.useCase) {
     return aiFailure("output_schema_invalid");
   }
-  const reprotected = protectDraftCandidateV1({
+  const reprotected = output.policy.parseAndProtect({
     rawObject: payload as unknown as ReadonlyJsonObject,
     context,
-    schema: schemaFor(outer.data.useCase),
-    useCase: outer.data.useCase,
-    schemaId: identity.schemaId,
-    policyVersion: identity.policyVersion,
   });
   if (!reprotected.ok || reprotected.value.hash !== evidence.candidateHash) {
     return aiFailure("output_policy_rejected");
@@ -233,21 +167,28 @@ function validateCandidate(
       return aiFailure("output_policy_rejected");
     }
   }
-  const last = evidence.attemptHistory.at(-1);
-  if (last === undefined || last.outcome !== "draft_ready" ||
-    typeof last.response_fingerprint !== "string") {
+  if (!Number.isInteger(evidence.attemptCount) || evidence.attemptCount < 1 ||
+    evidence.attemptCount > 3 || evidence.attemptHistory.length !== evidence.attemptCount) {
     return aiFailure("output_policy_rejected");
   }
-  const { response_fingerprint: responseFingerprint, ...withoutFingerprint } = last;
-  const fingerprint = attemptResponseFingerprintV2({
-    entryWithoutFingerprint: withoutFingerprint as unknown as Omit<
-      AttemptHistoryEntryV2,
-      "response_fingerprint"
-    >,
-    candidateHash: evidence.candidateHash,
-  });
-  if (!fingerprint.ok || fingerprint.value !== responseFingerprint) {
-    return aiFailure("output_policy_rejected");
+  for (const [index, storedEntry] of evidence.attemptHistory.entries()) {
+    const decoded = decodeAttemptHistoryEntryV2(storedEntry);
+    if (!decoded.ok) return aiFailure("output_policy_rejected");
+    const entry = decoded.value;
+    const final = index === evidence.attemptCount - 1;
+    if (entry.attempt !== index + 1 || (final
+      ? entry.outcome !== "draft_ready" || entry.attempt !== evidence.attemptCount
+      : entry.outcome !== "retry_scheduled")) {
+      return aiFailure("output_policy_rejected");
+    }
+    const { response_fingerprint: responseFingerprint, ...withoutFingerprint } = entry;
+    const fingerprint = attemptResponseFingerprintV2({
+      entryWithoutFingerprint: withoutFingerprint,
+      candidateHash: final ? evidence.candidateHash : null,
+    });
+    if (!fingerprint.ok || fingerprint.value !== responseFingerprint) {
+      return aiFailure("output_policy_rejected");
+    }
   }
   return aiSuccess({ value: outer.data, payload });
 }
@@ -388,7 +329,7 @@ function proposalNodes(input: {
     const id = `ai_${identity.value.hash.slice(0, 60)}`;
     if (id.length !== 63 || identities.has(id)) return null;
     identities.add(id);
-    return { id, ordinal, ...value };
+    return { id, ordinal, ...value, editable: value.previewOnly ? false : value.editable };
   };
   const addNode = (value: Omit<ReviewProposalNodeV1, "id" | "ordinal">): boolean => {
     const node = append(value);
