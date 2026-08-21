@@ -268,6 +268,7 @@ describe("Draft reconstructible context", () => {
     ["fabricStyle", "verified", "SYNTHETIC plain weave"],
     ["customAvailable", "provided", "unknown"],
     ["moqPair", "verified", { moqValue: "500", moqUnit: null }],
+    ["moqPair", "provided", { moqValue: "500", moqUnit: "invalid-unit" }],
   ] as const)("rejects an ineligible Product %s projection", async (field, provenance, value) => {
     const policy = createDraftContextPolicy({
       ...auxiliaryReaders,
@@ -448,6 +449,32 @@ describe("Draft reconstructible context", () => {
       source: productSource,
     });
     expect(correctProduct.ok).toBe(true);
+
+    const seoProductRevision = await buildContextWithSource({
+      useCase: "seo_content_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "product_structured", sourceId: productId, fields: ["name"] },
+      source: productSource,
+    });
+    expect(seoProductRevision.ok).toBe(true);
+
+    const seoContentRevision = await buildContextWithSource({
+      useCase: "seo_content_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "product_structured", sourceId: productId, fields: ["name"] },
+      source: {
+        ...productSource,
+        targetBinding: {
+          ...productSource.targetBinding,
+          revisionEntityType: "content",
+          revisionEntityId: contentId,
+        },
+      },
+    });
+    expect(seoContentRevision).toMatchObject({
+      ok: false,
+      error: { code: "context_provenance_mismatch" },
+    });
 
     const productMutations: DraftContextSourceDtoV1[] = [
       {

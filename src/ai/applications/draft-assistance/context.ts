@@ -341,7 +341,7 @@ function sourceAllowed(
       return sourceClass === "explicit_human_input" ||
         sourceClass === "fabric_knowledge" ||
         sourceClass === "public_company_fact" ||
-        (sourceClass === "product_structured" && targetType === "product_draft");
+        (sourceClass === "product_structured" && targetType !== "content_draft");
     case "fabric_knowledge_draft":
     case "product_description_draft":
       return sourceClass === "explicit_human_input" ||
@@ -437,6 +437,7 @@ function serializeProductField(
 
 function serializeSelectedSource(
   alias: string,
+  useCase: ProductionAiUseCase,
   sourceInput: DraftContextSourceDtoV1,
   selection: Exclude<
     DraftAssistanceCommandV1["contextSelections"][number],
@@ -450,6 +451,13 @@ function serializeSelectedSource(
     return aiFailure("context_provenance_mismatch");
   }
   const source = parsed.data;
+  if (useCase === "seo_content_draft" && source.sourceClass === "product_structured") {
+    const binding = source.targetBinding;
+    if (binding.targetType !== "product_draft" &&
+      (binding.targetType !== "editorial_revision" || binding.revisionEntityType !== "product")) {
+      return aiFailure("context_source_forbidden");
+    }
+  }
   if (selection.fields.length === 0 ||
     new Set(selection.fields).size !== selection.fields.length ||
     source.fields.length !== selection.fields.length ||
@@ -837,6 +845,7 @@ export function createDraftContextPolicy<
         if (!read.ok) return read;
         const entry = serializeSelectedSource(
           alias,
+          input.command.useCase,
           read.value,
           selection,
           input.association.association,

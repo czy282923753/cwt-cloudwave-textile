@@ -30,6 +30,7 @@ const actorId = "20000000-0000-4000-8000-000000000001";
 const authorId = "20000000-0000-4000-8000-000000000002";
 const contentId = "20000000-0000-4000-8000-000000000003";
 const revisionId = "20000000-0000-4000-8000-000000000004";
+const missingDraftVersionRevisionId = "20000000-0000-4000-8000-000000000011";
 const companyFactId = "20000000-0000-4000-8000-000000000005";
 const sourceRouteId = "20000000-0000-4000-8000-000000000006";
 const destinationRouteOne = "20000000-0000-4000-8000-000000000007";
@@ -151,11 +152,31 @@ describe.skipIf(postgresUrl === undefined)("ContentAiDraftReaderV1 on PostgreSQL
       status: "draft",
       snapshot: {
         kind: "content_blocks_v1",
-        title: "Synthetic Content Revision",
+        title: "Synthetic Content Revision Snapshot",
+        excerpt: "Synthetic revision excerpt",
+        document: { version: 1, blocks: [{
+          id: "revision-structured-proof",
+          type: "paragraph",
+          text: "SYNTHETIC REVISION SNAPSHOT NARRATIVE",
+        }] },
+        expectedEditorDocumentVersion: 5,
+        draftVersion: 4,
+      },
+      createdByUserId: actorId,
+    });
+    await db().insert(editorialRevisions).values({
+      id: missingDraftVersionRevisionId,
+      entityType: "content",
+      entityId: contentId,
+      locale: "en",
+      versionNumber: 4,
+      status: "draft",
+      snapshot: {
+        kind: "content_blocks_v1",
+        title: "Synthetic invalid legacy snapshot",
         excerpt: null,
         document: { version: 1, blocks: [] },
         expectedEditorDocumentVersion: 5,
-        draftVersion: 4,
       },
       createdByUserId: actorId,
     });
@@ -215,6 +236,60 @@ describe.skipIf(postgresUrl === undefined)("ContentAiDraftReaderV1 on PostgreSQL
     const lineage = await withReadOnlyDraftAvailabilityScope(db(), (scope) =>
       reader.readTargetSnapshot({ scope, actor, command: lineageCommand, association: lineageAssociation.value }));
     expect(lineage).toMatchObject({ ok: false, error: { code: "target_version_conflict" } });
+
+    const missingCommand = fabricCommand({
+      type: "editorial_revision",
+      revisionId: missingDraftVersionRevisionId,
+      expectedVersion: 4,
+    });
+    const missingAssociation = prepareDraftAssociationV1(missingCommand.target);
+    if (!missingAssociation.ok) throw new Error("Missing-version association fixture failed.");
+    const missing = await withReadOnlyDraftAvailabilityScope(db(), (scope) =>
+      reader.readTargetSnapshot({ scope, actor, command: missingCommand, association: missingAssociation.value }));
+    expect(missing).toMatchObject({ ok: false, error: { code: "context_provenance_mismatch" } });
+  });
+
+  it("uses the exact Content Revision snapshot after live localization drift", async () => {
+    await db().update(contentLocalizations).set({
+      title: "SYNTHETIC LIVE DRIFT TITLE",
+      excerpt: "SYNTHETIC LIVE DRIFT EXCERPT",
+      structuredBlocks: { version: 1, blocks: [{
+        id: "live-drift",
+        type: "paragraph",
+        text: "SYNTHETIC LIVE DRIFT NARRATIVE",
+      }] },
+      editorDocumentVersion: 6,
+    }).where(eq(contentLocalizations.contentId, contentId));
+    const command = fabricCommand({ type: "editorial_revision", revisionId, expectedVersion: 4 });
+    const association = prepareDraftAssociationV1(command.target);
+    if (!association.ok) throw new Error("Revision drift association fixture failed.");
+    const result = await withReadOnlyDraftAvailabilityScope(db(), async (scope) => {
+      const target = await reader.readTargetSnapshot({ scope, actor, command, association: association.value });
+      return target.ok ? reader.readSelectedFabricContext({
+        scope,
+        actor,
+        command,
+        target: target.value,
+        selector: {
+          sourceClass: "fabric_knowledge",
+          sourceId: contentId,
+          fields: ["title", "excerpt", "narrativeText"],
+        },
+      }) : target;
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        recordVersion: 4,
+        authoritativeRecordVersion: 4,
+        fields: [
+          { field: "title", value: "Synthetic Content Revision Snapshot" },
+          { field: "excerpt", value: "Synthetic revision excerpt" },
+          { field: "narrativeText", value: "SYNTHETIC REVISION SNAPSHOT NARRATIVE" },
+        ],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("SYNTHETIC LIVE DRIFT");
   });
 
   it("projects Fabric narrative from structured Blocks and only four public Company Fact fields", async () => {
@@ -265,6 +340,50 @@ describe.skipIf(postgresUrl === undefined)("ContentAiDraftReaderV1 on PostgreSQL
       ] },
     });
     expect(JSON.stringify(result.fact)).not.toContain("SYNTHETIC PRIVATE EVIDENCE LOCATION");
+  });
+
+  it("reuses the complete current public Company Fact predicate", async () => {
+    const command = fabricCommand();
+    const association = prepareDraftAssociationV1(command.target);
+    if (!association.ok) throw new Error("Company Fact association fixture failed.");
+    const read = () => withReadOnlyDraftAvailabilityScope(db(), async (scope) => {
+      const target = await reader.readTargetSnapshot({ scope, actor, command, association: association.value });
+      return target.ok ? reader.readSelectedPublicCompanyFact({
+        scope,
+        actor,
+        command,
+        target: target.value,
+        selector: {
+          sourceClass: "public_company_fact",
+          sourceId: companyFactId,
+          fields: ["factKey", "subject", "statement", "relationshipToCwt"],
+        },
+      }) : target;
+    });
+    expect(await read()).toMatchObject({ ok: true });
+    const canonical = {
+      evidenceReference: "SYNTHETIC PRIVATE EVIDENCE LOCATION",
+      publicUseAllowed: true,
+      verificationStatus: "verified" as const,
+      verifiedByUserId: actorId,
+      verifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+      reviewAfter: null,
+    };
+    const invalidStates = [
+      { reviewAfter: new Date("2020-01-01T00:00:00.000Z") },
+      { evidenceReference: "   " },
+      { verifiedByUserId: null },
+      { verifiedAt: null },
+      { publicUseAllowed: false },
+      { verificationStatus: "provided" as const },
+    ];
+    for (const invalid of invalidStates) {
+      await db().update(companyFacts).set({ ...canonical, ...invalid }).where(eq(companyFacts.id, companyFactId));
+      expect(await read()).toMatchObject({
+        ok: false,
+        error: { code: "context_record_unauthorized" },
+      });
+    }
   });
 
   it("keeps selected-link order as opaque aliases and fails on route/authorization races", async () => {

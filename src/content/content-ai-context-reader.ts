@@ -17,6 +17,7 @@ import {
 } from "@/ai/applications/draft-assistance/read-scopes";
 import { buildAuthorizedDraftAssociationV1 } from "@/ai/applications/draft-assistance/association";
 import type { ProductAiTargetSnapshotV1 } from "@/catalog/product-ai-context-reader";
+import { currentPublicCompanyFactConditions } from "@/content/company-facts-service";
 import {
   companyFacts,
   contentLocalizations,
@@ -43,7 +44,7 @@ const contentRevisionSnapshotSchema = z.object({
   excerpt: z.string().nullable(),
   document: blockDocumentSchema,
   expectedEditorDocumentVersion: z.number().int().positive(),
-  draftVersion: z.number().int().positive().optional(),
+  draftVersion: z.number().int().positive(),
   authorId: z.string().uuid().optional(),
   type: z.enum(["article", "pillar", "comparison", "how_to", "guide"]).optional(),
   media: z.array(contentMediaPlacementSchema).max(100).optional(),
@@ -54,6 +55,7 @@ const contentRevisionSnapshotSchema = z.object({
     focusKeyword: z.string().nullable(),
   }).strict().optional(),
 }).strict();
+type ContentRevisionSnapshotV1 = z.infer<typeof contentRevisionSnapshotSchema>;
 
 export interface ContentAiTargetSnapshotV1 {
   readonly owner: "content";
@@ -61,6 +63,7 @@ export interface ContentAiTargetSnapshotV1 {
   readonly channel: "fabric_knowledge" | "china_sourcing_guide" | "china_textile_guide";
   readonly editVersion: number;
   readonly revisionId: string | null;
+  readonly revisionSnapshot: ContentRevisionSnapshotV1 | null;
   readonly authorizedAssociation: AuthorizedDraftAssociationV1;
 }
 
@@ -192,6 +195,42 @@ function boundedPlainText(value: string, maximumUtf8Bytes = 6 * 1_024): string {
   return result.trim();
 }
 
+function projectFabricContext(input: {
+  readonly target: AiDraftTargetSnapshotV1;
+  readonly selector: ContentAiContextReadV1<PgQueryResultHKT>["selector"];
+  readonly contentId: string;
+  readonly recordVersion: number;
+  readonly title: string;
+  readonly excerpt: string | null;
+  readonly structuredBlocks: unknown;
+}): AiServiceResult<DraftContextSourceDtoV1> {
+  let narrativeText: string;
+  try {
+    narrativeText = boundedPlainText(blockDocumentPlainText(
+      parseBlockDocument(input.structuredBlocks, "content"),
+    ));
+  } catch {
+    return aiFailure("context_field_ineligible");
+  }
+  const values = { title: input.title, excerpt: input.excerpt, narrativeText };
+  const fields: DraftContextSourceDtoV1["fields"] = [];
+  for (const field of input.selector.fields) {
+    const value = values[field];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return aiFailure("context_field_ineligible");
+    }
+    fields.push({ field, provenance: "provided", value });
+  }
+  return aiSuccess({
+    sourceClass: "fabric_knowledge",
+    contentId: input.contentId,
+    recordVersion: input.recordVersion,
+    authoritativeRecordVersion: input.recordVersion,
+    targetBinding: targetBinding(input.target),
+    fields,
+  });
+}
+
 export function createContentAiDraftReaderV1<
   TQueryResult extends PgQueryResultHKT,
 >(): ContentAiDraftReaderV1<TQueryResult> {
@@ -238,6 +277,7 @@ export function createContentAiDraftReaderV1<
             channel: row.channel,
             editVersion: row.version,
             revisionId: null,
+            revisionSnapshot: null,
             authorizedAssociation: authorized.value,
           }) : authorized;
         }
@@ -274,7 +314,7 @@ export function createContentAiDraftReaderV1<
         if (row.status !== "draft") return aiFailure("target_not_editable");
         const snapshot = contentRevisionSnapshotSchema.safeParse(row.snapshot);
         if (!snapshot.success) return aiFailure("context_provenance_mismatch");
-        const draftVersion = snapshot.data.draftVersion ?? 1;
+        const draftVersion = snapshot.data.draftVersion;
         if (draftVersion !== input.association.expectedTargetVersion) {
           return aiFailure("target_version_conflict");
         }
@@ -285,6 +325,7 @@ export function createContentAiDraftReaderV1<
           channel: row.channel,
           editVersion: draftVersion,
           revisionId: input.association.targetRevisionId,
+          revisionSnapshot: snapshot.data,
           authorizedAssociation: authorized.value,
         }) : authorized;
       });
@@ -294,6 +335,20 @@ export function createContentAiDraftReaderV1<
       if (!await actorIsCurrent(input.scope, input.actor, input.command) ||
         !actorCanOwnTarget(input.actor, input.target)) {
         return aiFailure("context_record_unauthorized");
+      }
+      if (input.target.owner === "content" &&
+        input.target.entityId === input.selector.sourceId &&
+        input.target.channel === "fabric_knowledge" &&
+        input.target.revisionSnapshot !== null) {
+        return projectFabricContext({
+          target: input.target,
+          selector: input.selector,
+          contentId: input.target.entityId,
+          recordVersion: input.target.editVersion,
+          title: input.target.revisionSnapshot.title,
+          excerpt: input.target.revisionSnapshot.excerpt,
+          structuredBlocks: input.target.revisionSnapshot.document,
+        });
       }
       return withDraftReadExecutor(input.scope, async (database) => {
         const rows = await database.select({
@@ -315,30 +370,14 @@ export function createContentAiDraftReaderV1<
           row.status !== "published" && !sameEditableContent) {
           return aiFailure("context_record_unauthorized");
         }
-        let narrativeText: string;
-        try {
-          narrativeText = boundedPlainText(blockDocumentPlainText(
-            parseBlockDocument(row.structuredBlocks, "content"),
-          ));
-        } catch {
-          return aiFailure("context_field_ineligible");
-        }
-        const values = { title: row.title, excerpt: row.excerpt, narrativeText };
-        const fields: DraftContextSourceDtoV1["fields"] = [];
-        for (const field of input.selector.fields) {
-          const value = values[field];
-          if (typeof value !== "string" || value.trim().length === 0) {
-            return aiFailure("context_field_ineligible");
-          }
-          fields.push({ field, provenance: "provided", value });
-        }
-        return aiSuccess({
-          sourceClass: "fabric_knowledge",
+        return projectFabricContext({
+          target: input.target,
+          selector: input.selector,
           contentId: row.id,
           recordVersion: row.version,
-          authoritativeRecordVersion: row.version,
-          targetBinding: targetBinding(input.target),
-          fields,
+          title: row.title,
+          excerpt: row.excerpt,
+          structuredBlocks: row.structuredBlocks,
         });
       });
     },
@@ -358,8 +397,7 @@ export function createContentAiDraftReaderV1<
           updatedAt: companyFacts.updatedAt,
         }).from(companyFacts).where(and(
           eq(companyFacts.id, input.selector.sourceId),
-          eq(companyFacts.publicUseAllowed, true),
-          eq(companyFacts.verificationStatus, "verified"),
+          currentPublicCompanyFactConditions(),
         )).limit(1);
         const row = rows[0];
         if (row === undefined) return aiFailure("context_record_unauthorized");

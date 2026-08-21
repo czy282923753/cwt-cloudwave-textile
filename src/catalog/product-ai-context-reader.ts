@@ -2,6 +2,8 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
+import type { ReadonlyJsonValue } from "@/ai/canonical-json";
+import type { ProductContextField } from "@/ai/context/contracts";
 import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type { CoreAiActorV1 } from "@/ai/core/contracts";
 import type {
@@ -21,6 +23,7 @@ import {
   editorialRevisions,
   productApplications,
   productAssets,
+  productFieldReviews,
   productLocalizations,
   productTaxonomyTerms,
   products,
@@ -36,15 +39,17 @@ const productRevisionSnapshotSchema = z.object({
   shortDescription: z.string().nullable(),
   document: blockDocumentSchema,
   expectedEditorDocumentVersion: z.number().int().positive(),
-  draftVersion: z.number().int().positive().optional(),
+  draftVersion: z.number().int().positive(),
   pendingChanges: z.array(z.unknown()).optional(),
 }).strict();
+type ProductRevisionSnapshotV1 = z.infer<typeof productRevisionSnapshotSchema>;
 
 export interface ProductAiTargetSnapshotV1 {
   readonly owner: "product";
   readonly entityId: string;
   readonly editVersion: number;
   readonly revisionId: string | null;
+  readonly revisionSnapshot: ProductRevisionSnapshotV1 | null;
   readonly authorizedAssociation: AuthorizedDraftAssociationV1;
 }
 
@@ -113,6 +118,42 @@ function commandTargetsProduct(command: DraftAssistanceCommandV1): boolean {
     command.useCase === "seo_content_draft";
 }
 
+const reviewedProductFactFields = [
+  "composition", "weightGsm", "widthCm", "moqValue", "moqUnit",
+] as const;
+type ReviewedProductFactField = (typeof reviewedProductFactFields)[number];
+type EligibleFactProvenance = "provided" | "verified";
+
+interface ProductContextRowV1 {
+  readonly id: string;
+  readonly name: string;
+  readonly version: number;
+  readonly composition: string | null;
+  readonly weightGsm: string | null;
+  readonly widthCm: string | null;
+  readonly moqValue: string | null;
+  readonly moqUnit: string | null;
+  readonly fabricStyle: string | null;
+  readonly colorOptions: string | null;
+  readonly moqNote: string | null;
+  readonly customAvailable: "unknown" | "yes" | "no";
+  readonly sampleAvailable: "unknown" | "yes" | "no";
+}
+
+function eligibleFactProvenance(
+  value: string | undefined,
+): EligibleFactProvenance | null {
+  return value === "provided" || value === "verified" ? value : null;
+}
+
+function canonicalPositiveDecimal(value: string | null): string | null {
+  if (value === null || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
+  const [integer = "", fraction = ""] = value.split(".");
+  const canonicalFraction = fraction.replace(/0+$/, "");
+  if (/^0+$/.test(integer) && canonicalFraction.length === 0) return null;
+  return canonicalFraction.length === 0 ? integer : `${integer}.${canonicalFraction}`;
+}
+
 function targetBinding(target: ProductAiTargetSnapshotV1): DraftContextSourceDtoV1["targetBinding"] {
   const association = target.authorizedAssociation.association;
   if (association.targetType === "product_draft") {
@@ -177,6 +218,7 @@ export function createProductAiDraftReaderV1<
             entityId: input.association.targetProductId,
             editVersion: row.version,
             revisionId: null,
+            revisionSnapshot: null,
             authorizedAssociation: authorized.value,
           }) : authorized;
         }
@@ -210,7 +252,7 @@ export function createProductAiDraftReaderV1<
         if (row.status !== "draft") return aiFailure("target_not_editable");
         const snapshot = productRevisionSnapshotSchema.safeParse(row.snapshot);
         if (!snapshot.success) return aiFailure("context_provenance_mismatch");
-        const draftVersion = snapshot.data.draftVersion ?? 1;
+        const draftVersion = snapshot.data.draftVersion;
         if (draftVersion !== input.association.expectedTargetVersion) {
           return aiFailure("target_version_conflict");
         }
@@ -220,6 +262,7 @@ export function createProductAiDraftReaderV1<
           entityId: row.entityId,
           editVersion: draftVersion,
           revisionId: input.association.targetRevisionId,
+          revisionSnapshot: snapshot.data,
           authorizedAssociation: authorized.value,
         }) : authorized;
       });
@@ -233,25 +276,50 @@ export function createProductAiDraftReaderV1<
         return aiFailure("context_record_unauthorized");
       }
       return withDraftReadExecutor(input.scope, async (database) => {
-        const rows = await database.select({
-          id: products.id,
-          name: productLocalizations.name,
-          version: productLocalizations.editorDocumentVersion,
-          composition: products.composition,
-          weightGsm: products.weightGsm,
-          widthCm: products.widthCm,
-          moqValue: products.moqValue,
-          moqUnit: products.moqUnit,
-          fabricStyle: products.fabricStyle,
-          colorOptions: products.colorOptions,
-          moqNote: products.moqNote,
-          customAvailable: products.customAvailable,
-          sampleAvailable: products.sampleAvailable,
-        }).from(products).innerJoin(productLocalizations, and(
-          eq(productLocalizations.productId, products.id),
-          eq(productLocalizations.locale, "en"),
-        )).where(eq(products.id, input.selector.sourceId)).limit(1);
-        const row = rows[0];
+        let row: ProductContextRowV1 | undefined;
+        if (input.target.revisionSnapshot === null) {
+          const rows = await database.select({
+            id: products.id,
+            name: productLocalizations.name,
+            version: productLocalizations.editorDocumentVersion,
+            composition: products.composition,
+            weightGsm: products.weightGsm,
+            widthCm: products.widthCm,
+            moqValue: products.moqValue,
+            moqUnit: products.moqUnit,
+            fabricStyle: products.fabricStyle,
+            colorOptions: products.colorOptions,
+            moqNote: products.moqNote,
+            customAvailable: products.customAvailable,
+            sampleAvailable: products.sampleAvailable,
+          }).from(products).innerJoin(productLocalizations, and(
+            eq(productLocalizations.productId, products.id),
+            eq(productLocalizations.locale, "en"),
+          )).where(eq(products.id, input.selector.sourceId)).limit(1);
+          row = rows[0];
+        } else {
+          const rows = await database.select({
+            id: products.id,
+            composition: products.composition,
+            weightGsm: products.weightGsm,
+            widthCm: products.widthCm,
+            moqValue: products.moqValue,
+            moqUnit: products.moqUnit,
+            fabricStyle: products.fabricStyle,
+            colorOptions: products.colorOptions,
+            moqNote: products.moqNote,
+            customAvailable: products.customAvailable,
+            sampleAvailable: products.sampleAvailable,
+          }).from(products).where(eq(products.id, input.selector.sourceId)).limit(1);
+          const factualRow = rows[0];
+          if (factualRow !== undefined) {
+            row = {
+              ...factualRow,
+              name: input.target.revisionSnapshot.name,
+              version: input.target.editVersion,
+            };
+          }
+        }
         if (row === undefined) return aiFailure("context_record_unauthorized");
         const primary = await database.select({ name: taxonomyTermLocalizations.name })
           .from(productTaxonomyTerms)
@@ -280,34 +348,82 @@ export function createProductAiDraftReaderV1<
             eq(applicationLocalizations.applicationId, applications.id),
             eq(applicationLocalizations.locale, "en"),
           )).where(eq(productApplications.productId, row.id)).orderBy(asc(applications.id));
-        const values: Record<string, unknown> = {
-          name: row.name,
-          primaryCategoryLabel: primary[0]?.name,
-          additionalCategoryLabels: additional.map((item) => item.name),
-          applicationLabels: applicationRows.map((item) => item.name),
-          composition: row.composition,
-          weightGsm: row.weightGsm,
-          widthCm: row.widthCm,
-          moqPair: row.moqValue === null || row.moqUnit === null
-            ? null : { moqValue: row.moqValue, moqUnit: row.moqUnit },
-          fabricStyle: row.fabricStyle,
-          colorOptions: row.colorOptions,
-          moqNote: row.moqNote,
-          customAvailable: row.customAvailable === "unknown" ? null : row.customAvailable,
-          sampleAvailable: row.sampleAvailable === "unknown" ? null : row.sampleAvailable,
+        const reviewRows = await database.select({
+          fieldName: productFieldReviews.fieldName,
+          status: productFieldReviews.verificationStatus,
+        }).from(productFieldReviews).where(and(
+          eq(productFieldReviews.productId, row.id),
+          inArray(productFieldReviews.fieldName, reviewedProductFactFields),
+        ));
+        const reviews = new Map<ReviewedProductFactField, string>();
+        for (const review of reviewRows) {
+          if (reviewedProductFactFields.includes(review.fieldName as ReviewedProductFactField)) {
+            reviews.set(review.fieldName as ReviewedProductFactField, review.status);
+          }
+        }
+        const compositionProvenance = eligibleFactProvenance(reviews.get("composition"));
+        const weightProvenance = eligibleFactProvenance(reviews.get("weightGsm"));
+        const widthProvenance = eligibleFactProvenance(reviews.get("widthCm"));
+        const moqValueProvenance = eligibleFactProvenance(reviews.get("moqValue"));
+        const moqUnitProvenance = eligibleFactProvenance(reviews.get("moqUnit"));
+        const canonicalWeight = canonicalPositiveDecimal(row.weightGsm);
+        const canonicalWidth = canonicalPositiveDecimal(row.widthCm);
+        const canonicalMoq = canonicalPositiveDecimal(row.moqValue);
+        const moqProvenance = moqValueProvenance !== null && moqUnitProvenance !== null
+          ? moqValueProvenance === "verified" && moqUnitProvenance === "verified"
+            ? "verified" as const : "provided" as const
+          : null;
+        const values: Record<ProductContextField, {
+          readonly value: ReadonlyJsonValue | undefined;
+          readonly provenance: "structural" | EligibleFactProvenance | null;
+        }> = {
+          name: { value: row.name, provenance: "structural" },
+          primaryCategoryLabel: { value: primary[0]?.name, provenance: "structural" },
+          additionalCategoryLabels: {
+            value: additional.map((item) => item.name),
+            provenance: "structural",
+          },
+          applicationLabels: {
+            value: applicationRows.map((item) => item.name),
+            provenance: "structural",
+          },
+          composition: {
+            value: row.composition ?? undefined,
+            provenance: compositionProvenance,
+          },
+          weightGsm: { value: canonicalWeight ?? undefined, provenance: weightProvenance },
+          widthCm: { value: canonicalWidth ?? undefined, provenance: widthProvenance },
+          moqPair: {
+            value: canonicalMoq !== null && row.moqUnit !== null &&
+                ["m", "kg", "roll", "yd"].includes(row.moqUnit)
+              ? { moqValue: canonicalMoq, moqUnit: row.moqUnit }
+              : undefined,
+            provenance: moqProvenance,
+          },
+          fabricStyle: { value: row.fabricStyle ?? undefined, provenance: "provided" },
+          colorOptions: { value: row.colorOptions ?? undefined, provenance: "provided" },
+          moqNote: { value: row.moqNote ?? undefined, provenance: "provided" },
+          customAvailable: {
+            value: row.customAvailable === "unknown" ? undefined : row.customAvailable,
+            provenance: "provided",
+          },
+          sampleAvailable: {
+            value: row.sampleAvailable === "unknown" ? undefined : row.sampleAvailable,
+            provenance: "provided",
+          },
         };
         const fields: DraftContextSourceDtoV1["fields"] = [];
         for (const field of input.selector.fields) {
-          const value = values[field];
-          if (value === undefined || value === null || Array.isArray(value) && value.length === 0) {
+          const projection = values[field];
+          if (projection.value === undefined || projection.provenance === null ||
+            typeof projection.value === "string" && projection.value.trim().length === 0 ||
+            Array.isArray(projection.value) && projection.value.length === 0) {
             return aiFailure("context_field_ineligible");
           }
           fields.push({
             field,
-            provenance: field === "name" || field === "primaryCategoryLabel" ||
-              field === "additionalCategoryLabels" || field === "applicationLabels"
-              ? "structural" : "provided",
-            value: value as import("@/ai/canonical-json").ReadonlyJsonValue,
+            provenance: projection.provenance,
+            value: projection.value,
           });
         }
         return aiSuccess({
