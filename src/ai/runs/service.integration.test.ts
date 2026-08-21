@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1655,6 +1655,103 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
     expect(await db().select().from(auditLogs)
       .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+
+    const changedCommands: ApplyAiDraftCandidateV1[] = [
+      { ...application, decisions: application.decisions.map((decision, index) => index === 0
+        ? { candidatePath: decision.candidatePath, decision: "rejected" as const }
+        : decision) },
+      { ...application, decisions: application.decisions.map((decision, index) => index === 0
+        ? { ...decision, editedText: "Changed replay text" } : decision) },
+      { ...application, decisions: application.decisions.map((decision) =>
+        decision.insertAfterBlockId === undefined ? decision
+          : { ...decision, insertAfterBlockId: "changed-anchor" }) },
+      { ...application, decisions: [...application.decisions].reverse() },
+      { ...application, expectedRunStateVersion: application.expectedRunStateVersion + 1 },
+      { ...application, candidateHash: "f".repeat(64) },
+      { ...application, expectedTargetVersion: application.expectedTargetVersion + 1 },
+      { ...application, qualityRating: 4 },
+      { ...application, qualityLabels: ["clarity"] },
+      { ...application, qualityComment: "Changed replay quality evidence." },
+    ];
+    for (const changed of changedCommands) {
+      expect(await service().applyDraftAssistanceCandidate({ actor, command: changed }))
+        .toMatchObject({ ok: false, error: { code: "state_conflict" } });
+    }
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ humanDisposition: "accepted", appliedTargetVersion: 2 });
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+  });
+
+  it("fails closed when durable candidate_applied replay evidence is absent or malformed", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic E4 replay Audit enqueue failed.");
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    expect((await service().applyDraftAssistanceCandidate({ actor, command: application })).ok)
+      .toBe(true);
+    const [audit] = await db().select().from(auditLogs).where(and(
+      eq(auditLogs.action, "ai.run.candidate_applied"),
+      eq(auditLogs.entityId, created.value.runId),
+    ));
+    if (audit === undefined || typeof audit.afterSummary !== "object" ||
+      audit.afterSummary === null || Array.isArray(audit.afterSummary)) {
+      throw new Error("Synthetic E4 replay Audit fixture failed.");
+    }
+    const original = audit.afterSummary as Record<string, unknown>;
+    const conflict = async () => expect(await service().applyDraftAssistanceCandidate({
+      actor, command: application,
+    })).toMatchObject({ ok: false, error: { code: "state_conflict" } });
+    await db().delete(auditLogs).where(eq(auditLogs.id, audit.id));
+    await conflict();
+    await db().insert(auditLogs).values({
+      id: audit.id,
+      actorUserId: audit.actorUserId,
+      action: audit.action,
+      entityType: audit.entityType,
+      entityId: audit.entityId,
+      beforeSummary: audit.beforeSummary,
+      afterSummary: audit.afterSummary,
+      createdAt: audit.createdAt,
+    });
+    await db().update(auditLogs).set({ beforeSummary: {
+      stateVersion: application.expectedRunStateVersion + 1,
+      targetVersion: application.expectedTargetVersion,
+    } }).where(eq(auditLogs.id, audit.id));
+    await conflict();
+    await db().update(auditLogs).set({ beforeSummary: audit.beforeSummary })
+      .where(eq(auditLogs.id, audit.id));
+    const { applyCommandFingerprint: omitted, ...missingFingerprint } = original;
+    expect(omitted).toBeDefined();
+    for (const afterSummary of [
+      missingFingerprint,
+      { ...original, applyCommandFingerprint: { version: "1", hash: "f".repeat(64) } },
+      { ...original, applyCommandFingerprint: { version: 2, hash: "f".repeat(64) } },
+      { ...original, applyCommandFingerprint: { version: 1, hash: "f".repeat(64) } },
+    ]) {
+      await db().update(auditLogs).set({ afterSummary }).where(eq(auditLogs.id, audit.id));
+      await conflict();
+    }
+    await db().update(auditLogs).set({ afterSummary: original }).where(eq(auditLogs.id, audit.id));
+    await db().insert(auditLogs).values({
+      actorUserId: audit.actorUserId,
+      action: audit.action,
+      entityType: audit.entityType,
+      entityId: audit.entityId,
+      beforeSummary: audit.beforeSummary,
+      afterSummary: audit.afterSummary,
+    });
+    await conflict();
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ humanDisposition: "accepted", stateVersion: application.expectedRunStateVersion + 1 });
   });
 
   it("atomically applies a Content Draft Candidate while excluding preview-only outline", async () => {
@@ -1828,10 +1925,16 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
     if (!contentCreated.ok) throw new Error(`Content Revision enqueue failed: ${contentCreated.error.code}`);
     await settleProtectedContentCandidate(contentCreated.value.runId);
     const contentApplication = await fullAcceptCommand(contentCreated.value.runId, contentActor);
+    const contentApplied = await service().applyDraftAssistanceCandidate({
+      actor: contentActor, command: contentApplication,
+    });
+    expect(contentApplied).toMatchObject({ ok: true, value: { appliedTargetVersion: null,
+      appliedRevisionId: contentRevision.id, appliedRevisionDraftVersion: 2 } });
     expect(await service().applyDraftAssistanceCandidate({
       actor: contentActor, command: contentApplication,
-    })).toMatchObject({ ok: true, value: { appliedTargetVersion: null,
-      appliedRevisionId: contentRevision.id, appliedRevisionDraftVersion: 2 } });
+    })).toEqual(contentApplied.ok
+      ? { ...contentApplied, value: { ...contentApplied.value, exactReplay: true } }
+      : contentApplied);
     const [contentLive] = await db().select().from(contentLocalizations)
       .where(eq(contentLocalizations.contentId, content.contentId));
     expect(contentLive).toMatchObject({ title: "Synthetic Run Service Content",
@@ -1856,8 +1959,52 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       service().applyDraftAssistanceCandidate({ actor, command: application }),
       service().applyDraftAssistanceCandidate({ actor, command: application }),
     ]);
-    expect(contenders.filter((result) => result.ok && !result.value.exactReplay)).toHaveLength(1);
-    expect(contenders.filter((result) => result.ok).length).toBeGreaterThanOrEqual(1);
+    const winner = contenders.find((result) => result.ok);
+    expect(winner).toMatchObject({ ok: true, value: { exactReplay: false } });
+    expect(contenders.filter((result) => !result.ok)).toEqual([
+      expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "state_conflict" }) }),
+    ]);
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: application }))
+      .toEqual(winner?.ok
+        ? { ...winner, value: { ...winner.value, exactReplay: true } }
+        : winner);
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+  });
+
+  it("never false-replays semantically different independent Apply contenders", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic E4 distinct race enqueue failed.");
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    const changed = { ...application, decisions: application.decisions.map((decision, index) =>
+      index === 0 ? { candidatePath: decision.candidatePath, decision: "rejected" as const }
+        : decision) };
+    const contenders = await Promise.all([
+      service().applyDraftAssistanceCandidate({ actor, command: application }),
+      service().applyDraftAssistanceCandidate({ actor, command: changed }),
+    ]);
+    const winnerIndex = contenders.findIndex((result) => result.ok);
+    expect(winnerIndex).toBeGreaterThanOrEqual(0);
+    const winner = contenders[winnerIndex]!;
+    expect(winner).toMatchObject({ ok: true, value: { exactReplay: false } });
+    expect(contenders.filter((result) => !result.ok)).toEqual([
+      expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "state_conflict" }) }),
+    ]);
+    const winningCommand = winnerIndex === 0 ? application : changed;
+    const losingCommand = winnerIndex === 0 ? changed : application;
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: winningCommand }))
+      .toEqual(winner.ok
+        ? { ...winner, value: { ...winner.value, exactReplay: true } }
+        : winner);
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: losingCommand }))
+      .toMatchObject({ ok: false, error: { code: "state_conflict" } });
     expect((await db().select().from(productLocalizations)
       .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
     expect(await db().select().from(auditLogs)

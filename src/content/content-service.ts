@@ -1372,8 +1372,15 @@ export async function archiveContent<TQueryResult extends PgQueryResultHKT>(
 
 class ContentAiCandidateApplicationConflict extends Error {}
 
+function isContentAiSerializationConflict(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  if ("code" in error && error.code === "40001") return true;
+  if (!("cause" in error) || typeof error.cause !== "object" || error.cause === null) return false;
+  return "code" in error.cause && error.cause.code === "40001";
+}
+
 function aiContentApplicationFailure(error: unknown): AiServiceResult<never> {
-  if (typeof error === "object" && error !== null && "code" in error && error.code === "40001") {
+  if (isContentAiSerializationConflict(error)) {
     return aiFailure("state_conflict");
   }
   return aiFailure(error instanceof ContentAiCandidateApplicationConflict ||
@@ -1400,6 +1407,8 @@ export async function applyContentAiDraftCandidateV1(
     (actor.role !== "admin" && actor.role !== "content_editor")) {
     return aiFailure("authorization_denied");
   }
+  const applyCommandFingerprint = dependencies.planner.fingerprint(command);
+  if (!applyCommandFingerprint.ok) return applyCommandFingerprint;
   try {
     requireEditorialResourceAccess(actor.role, "content", "write");
     return await runGovernedMutation(db, async ({ transaction, audit }) => {
@@ -1474,6 +1483,7 @@ export async function applyContentAiDraftCandidateV1(
           qualityRating: command.qualityRating,
           qualityLabels: command.qualityLabels,
           qualityComment: command.qualityComment,
+          applyCommandFingerprint: applyCommandFingerprint.value,
         },
       );
       if (locked.kind === "exact_replay") return { ok: true, value: locked.result };
@@ -1612,7 +1622,9 @@ export async function applyContentAiDraftCandidateV1(
           disposition: plan.value.disposition,
           runStateVersion: disposition.result.runStateVersion,
           appliedTargetVersion: disposition.result.appliedTargetVersion,
+          appliedRevisionId: disposition.result.appliedRevisionId,
           appliedRevisionVersion: disposition.result.appliedRevisionDraftVersion,
+          applyCommandFingerprint: applyCommandFingerprint.value,
         },
       });
       return { ok: true, value: disposition.result };

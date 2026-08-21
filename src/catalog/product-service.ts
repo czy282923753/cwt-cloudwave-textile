@@ -2733,8 +2733,15 @@ export async function proposeProductImportSlugRevision<TQueryResult extends PgQu
 
 class ProductAiCandidateApplicationConflict extends Error {}
 
+function isProductAiSerializationConflict(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  if ("code" in error && error.code === "40001") return true;
+  if (!("cause" in error) || typeof error.cause !== "object" || error.cause === null) return false;
+  return "code" in error.cause && error.cause.code === "40001";
+}
+
 function aiProductApplicationFailure(error: unknown): AiServiceResult<never> {
-  if (typeof error === "object" && error !== null && "code" in error && error.code === "40001") {
+  if (isProductAiSerializationConflict(error)) {
     return aiFailure("state_conflict");
   }
   return aiFailure(error instanceof ProductAiCandidateApplicationConflict ||
@@ -2761,6 +2768,8 @@ export async function applyProductAiDraftCandidateV1(
     (actor.role !== "admin" && actor.role !== "product_editor")) {
     return aiFailure("authorization_denied");
   }
+  const applyCommandFingerprint = dependencies.planner.fingerprint(command);
+  if (!applyCommandFingerprint.ok) return applyCommandFingerprint;
   try {
     requireEditorialResourceAccess(actor.role, "product", "write");
     return await runGovernedMutation(db, async ({ transaction, audit }) => {
@@ -2832,6 +2841,7 @@ export async function applyProductAiDraftCandidateV1(
           qualityRating: command.qualityRating,
           qualityLabels: command.qualityLabels,
           qualityComment: command.qualityComment,
+          applyCommandFingerprint: applyCommandFingerprint.value,
         },
       );
       if (locked.kind === "exact_replay") return { ok: true, value: locked.result };
@@ -3017,7 +3027,9 @@ export async function applyProductAiDraftCandidateV1(
           disposition: plan.value.disposition,
           runStateVersion: disposition.result.runStateVersion,
           appliedTargetVersion: disposition.result.appliedTargetVersion,
+          appliedRevisionId: disposition.result.appliedRevisionId,
           appliedRevisionVersion: disposition.result.appliedRevisionDraftVersion,
+          applyCommandFingerprint: applyCommandFingerprint.value,
         },
       });
       return { ok: true, value: disposition.result };

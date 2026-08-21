@@ -18,6 +18,7 @@ import type { ReconstructibleDraftContextV1 } from "./context";
 import {
   composeDraftCandidateBlocksV1,
   createDraftReviewProjectionBuilderV1,
+  fingerprintApplyAiDraftCandidateV1,
 } from "./review-projection";
 
 const runId = "10000000-0000-4000-8000-000000000001";
@@ -543,5 +544,74 @@ describe("server-authorized E4 application plan", () => {
       insertAfterBlockId: "locked-b" }], "product").ok).toBe(false);
     expect(composeDraftCandidateBlocksV1(current, [{ ...generated[0]!,
       block: { ...generated[0]!.block, id: "open-c" } }], "product").ok).toBe(false);
+  });
+});
+
+describe("E4 Apply command replay fingerprint", () => {
+  const command = (): ApplyAiDraftCandidateV1 => ({
+    runId,
+    expectedRunStateVersion: 7,
+    candidateHash: "a".repeat(64),
+    expectedTargetVersion: 3,
+    expectedRevisionId: null,
+    expectedRevisionDraftVersion: null,
+    decisions: [
+      { candidatePath: "/displayNameProposal", decision: "accepted" },
+      { candidatePath: "/descriptionBlocks/0", decision: "accepted",
+        insertAfterBlockId: null },
+    ],
+    qualityRating: 4,
+    qualityLabels: ["clarity", "tone"],
+    qualityComment: "Synthetic replay evidence.",
+  });
+  const hashOf = (value: unknown): string => {
+    const result = fingerprintApplyAiDraftCandidateV1(value);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (!result.ok) throw new Error("Apply fingerprint fixture failed.");
+    expect(result.value.version).toBe(1);
+    return result.value.hash;
+  };
+
+  it("is stable for the same strictly parsed normalized command", () => {
+    expect(hashOf(command())).toBe(hashOf({ ...command(),
+      qualityComment: "  Synthetic replay evidence.  ",
+    }));
+  });
+
+  it("binds ordered decisions, edits, anchor presence/value and every fence", () => {
+    const base = command();
+    const baseHash = hashOf(base);
+    const variants: unknown[] = [
+      { ...base, runId: actor.principalId },
+      { ...base, expectedRunStateVersion: 8 },
+      { ...base, candidateHash: "b".repeat(64) },
+      { ...base, expectedTargetVersion: 4 },
+      { ...base, expectedTargetVersion: 4, expectedRevisionId: actor.principalId,
+        expectedRevisionDraftVersion: 4 },
+      { ...base, decisions: [...base.decisions].reverse() },
+      { ...base, decisions: base.decisions.map((value, index) => index === 0
+        ? { ...value, decision: "rejected" as const } : value) },
+      { ...base, decisions: base.decisions.map((value, index) => index === 0
+        ? { ...value, editedText: "Edited synthetic title" } : value) },
+      { ...base, decisions: base.decisions.map((value, index) => index === 1
+        ? { candidatePath: value.candidatePath, decision: value.decision } : value) },
+      { ...base, decisions: base.decisions.map((value, index) => index === 1
+        ? { ...value, insertAfterBlockId: "open-anchor" } : value) },
+    ];
+    for (const variant of variants) expect(hashOf(variant)).not.toBe(baseHash);
+  });
+
+  it("binds every quality field and rejects malformed commands", () => {
+    const base = command();
+    const baseHash = hashOf(base);
+    for (const variant of [
+      { ...base, qualityRating: 5 },
+      { ...base, qualityLabels: ["tone", "clarity"] },
+      { ...base, qualityComment: "Different synthetic evidence." },
+    ]) expect(hashOf(variant)).not.toBe(baseHash);
+    expect(fingerprintApplyAiDraftCandidateV1({ ...base, unknown: true }).ok).toBe(false);
+    expect(fingerprintApplyAiDraftCandidateV1({ ...base, decisions: [
+      ...base.decisions, base.decisions[0],
+    ] }).ok).toBe(false);
   });
 });

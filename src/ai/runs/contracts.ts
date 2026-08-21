@@ -251,6 +251,11 @@ export interface AiCandidateApplyRouteV1 {
   readonly revisionId: string | null;
 }
 
+export interface AiCandidateApplyCommandFingerprintV1 {
+  readonly version: 1;
+  readonly hash: string;
+}
+
 export type AiCandidateApplyLockOutcomeV1 =
   | {
       readonly kind: "ready";

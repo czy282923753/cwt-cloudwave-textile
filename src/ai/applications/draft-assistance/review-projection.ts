@@ -19,7 +19,10 @@ import {
   attemptResponseFingerprintV2,
   decodeAttemptHistoryEntryV2,
 } from "@/ai/runs/attempt-evidence";
-import type { AiRunAuthorizedEvidenceV1 } from "@/ai/runs/contracts";
+import type {
+  AiCandidateApplyCommandFingerprintV1,
+  AiRunAuthorizedEvidenceV1,
+} from "@/ai/runs/contracts";
 import { mayManuallyRetryFailureV1 } from "@/ai/runs/retry-policy";
 import type {
   ProductAiDraftReaderV1,
@@ -805,6 +808,42 @@ function buildApplicationPlan(
   });
 }
 
+export function fingerprintApplyAiDraftCandidateV1(
+  untrustedCommand: unknown,
+): AiServiceResult<AiCandidateApplyCommandFingerprintV1> {
+  const decoded = applyAiDraftCandidateV1Schema.safeParse(untrustedCommand);
+  if (!decoded.success) return aiFailure("state_conflict");
+  const command = decoded.data;
+  const fingerprint = canonicalJsonHash({
+    contract: "cwt.ai.apply-draft-candidate-command",
+    version: 1,
+    runId: command.runId,
+    expectedRunStateVersion: command.expectedRunStateVersion,
+    candidateHash: command.candidateHash,
+    expectedTargetVersion: command.expectedTargetVersion,
+    expectedRevisionId: command.expectedRevisionId,
+    expectedRevisionDraftVersion: command.expectedRevisionDraftVersion,
+    decisions: command.decisions.map((decision) => ({
+      candidatePath: decision.candidatePath,
+      decision: decision.decision,
+      editedText: Object.hasOwn(decision, "editedText")
+        ? { present: true, value: decision.editedText as string }
+        : { present: false },
+      insertAfterBlockId: Object.hasOwn(decision, "insertAfterBlockId")
+        ? { present: true, value: decision.insertAfterBlockId ?? null }
+        : { present: false },
+    })),
+    quality: {
+      rating: command.qualityRating,
+      labels: command.qualityLabels,
+      comment: command.qualityComment,
+    },
+  });
+  return fingerprint.ok
+    ? aiSuccess({ version: 1, hash: fingerprint.value.hash })
+    : aiFailure("state_conflict");
+}
+
 export interface DraftReviewProjectionBuilderV1<TQueryResult extends PgQueryResultHKT> {
   build(input: {
     readonly scope: DraftConsistentReadScope<TQueryResult>;
@@ -1052,6 +1091,7 @@ export function createDraftReviewProjectionBuilderV1<
 }
 
 export interface DraftCandidateApplicationPlannerV1 {
+  fingerprint(command: unknown): AiServiceResult<AiCandidateApplyCommandFingerprintV1>;
   build(input: {
     readonly transaction: AppDatabase<PostgresJsQueryResultHKT>;
     readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
@@ -1082,6 +1122,7 @@ export function createDraftCandidateApplicationPlannerV1(
     },
   };
   return {
+    fingerprint: fingerprintApplyAiDraftCandidateV1,
     compose: composeDraftCandidateBlocksV1,
     build(input) {
       return withTransactionBoundDraftEnqueueScope(

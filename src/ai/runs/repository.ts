@@ -26,6 +26,7 @@ import type { AppDatabase } from "@/db/types";
 import {
   aiModelConfig,
   aiRuns,
+  auditLogs,
   editorialRevisions,
   featureFlags,
   users,
@@ -173,6 +174,7 @@ export interface AiCandidateDispositionPortV1 {
       readonly qualityRating: number | null;
       readonly qualityLabels: readonly string[];
       readonly qualityComment: string | null;
+      readonly applyCommandFingerprint: import("./contracts").AiCandidateApplyCommandFingerprintV1;
     },
   ): Promise<AiCandidateApplyLockOutcomeV1>;
   recordCandidateAppliedWithinTransaction(
@@ -1393,6 +1395,54 @@ export function createAiRunRepositoryV1(
           row.appliedRevisionId === route.revisionId && row.appliedRevisionVersion !== null) ||
           (route.targetType !== "editorial_revision" && row.appliedTargetVersion !== null &&
             row.appliedRevisionId === null && row.appliedRevisionVersion === null))) {
+        const auditRows = await transaction.select({
+          actorUserId: auditLogs.actorUserId,
+          beforeSummary: auditLogs.beforeSummary,
+          afterSummary: auditLogs.afterSummary,
+        }).from(auditLogs).where(and(
+          eq(auditLogs.action, "ai.run.candidate_applied"),
+          eq(auditLogs.entityType, "ai_run"),
+          eq(auditLogs.entityId, row.id),
+        )).limit(2);
+        const audit = auditRows.length === 1 ? auditRows[0] : undefined;
+        const before = audit?.beforeSummary;
+        const beforeRecord = typeof before === "object" && before !== null &&
+          !Array.isArray(before) ? before as Record<string, unknown> : null;
+        const summary = audit?.afterSummary;
+        const summaryRecord = typeof summary === "object" && summary !== null &&
+          !Array.isArray(summary) ? summary as Record<string, unknown> : null;
+        const fingerprint = summaryRecord?.applyCommandFingerprint;
+        const fingerprintRecord = typeof fingerprint === "object" && fingerprint !== null &&
+          !Array.isArray(fingerprint) ? fingerprint as Record<string, unknown> : null;
+        const exactSummaryKeys = summaryRecord === null ? false :
+          Object.keys(summaryRecord).sort().join("|") === [
+            "appliedRevisionId",
+            "appliedRevisionVersion",
+            "appliedTargetVersion",
+            "applyCommandFingerprint",
+            "disposition",
+            "owner",
+            "runStateVersion",
+            "useCase",
+          ].join("|");
+        const exactFingerprintKeys = fingerprintRecord === null ? false :
+          Object.keys(fingerprintRecord).sort().join("|") === "hash|version";
+        const exactBeforeKeys = beforeRecord === null ? false :
+          Object.keys(beforeRecord).sort().join("|") === "stateVersion|targetVersion";
+        if (!exactBeforeKeys || !exactSummaryKeys || !exactFingerprintKeys ||
+          audit?.actorUserId !== row.evaluatedByUserId ||
+          beforeRecord?.stateVersion !== input.expectedStateVersion ||
+          beforeRecord?.targetVersion !== input.expectedTargetVersion ||
+          summaryRecord?.owner !== route.owner || summaryRecord?.useCase !== row.useCase ||
+          summaryRecord?.disposition !== row.humanDisposition ||
+          summaryRecord?.runStateVersion !== row.stateVersion ||
+          summaryRecord?.appliedTargetVersion !== row.appliedTargetVersion ||
+          summaryRecord?.appliedRevisionId !== row.appliedRevisionId ||
+          summaryRecord?.appliedRevisionVersion !== row.appliedRevisionVersion ||
+          fingerprintRecord?.version !== input.applyCommandFingerprint.version ||
+          fingerprintRecord?.hash !== input.applyCommandFingerprint.hash) {
+          return { kind: "state_conflict" };
+        }
         return {
           kind: "exact_replay",
           result: {
