@@ -112,7 +112,7 @@ const selectorSchema = z.discriminatedUnion("sourceClass", [
     origin: z.enum(["typed_brief", "operator_selected_target_text"]),
   }).strict(),
 ]);
-const commandSchema = z.object({
+const commandObjectSchema = z.object({
   useCase: z.enum(productionAiUseCases),
   task: taskSchema,
   actor: z.object({
@@ -127,7 +127,15 @@ const commandSchema = z.object({
   idempotencyKey: uuid,
   contextSelections: z.array(selectorSchema).max(32),
   explicitInput: z.string().max(16_384).optional(),
-}).strict().superRefine((command, context) => {
+}).strict();
+
+function requireMatchingTaskKind(
+  command: {
+    readonly useCase: ProductionAiUseCase;
+    readonly task: { readonly kind: ProductionAiUseCase };
+  },
+  context: z.RefinementCtx,
+): void {
   if (command.task.kind !== command.useCase) {
     context.addIssue({
       code: "custom",
@@ -135,7 +143,72 @@ const commandSchema = z.object({
       path: ["task", "kind"],
     });
   }
-});
+}
+
+const commandSchema = commandObjectSchema.superRefine(requireMatchingTaskKind);
+const actorlessCommandSchema = commandObjectSchema.omit({ actor: true })
+  .superRefine(requireMatchingTaskKind);
+const actorlessAvailabilitySchema = commandObjectSchema.omit({ actor: true, idempotencyKey: true })
+  .superRefine(requireMatchingTaskKind);
+
+function reconstructDraftCommandV1(
+  parsed: z.infer<typeof commandObjectSchema>,
+): DraftAssistanceCommandV1 {
+  const task: DraftAssistanceTaskV1 = parsed.task.kind === "seo_content_draft"
+    ? {
+        kind: "seo_content_draft",
+        tone: "concise_professional_b2b",
+        pageIntent: parsed.task.pageIntent,
+        selectedInternalLinkIds: parsed.task.selectedInternalLinkIds,
+        ...(parsed.task.primaryPhrase === undefined
+          ? {} : { primaryPhrase: parsed.task.primaryPhrase }),
+      }
+    : parsed.task;
+  const base = {
+    useCase: parsed.useCase,
+    task,
+    actor: parsed.actor,
+    target: parsed.target,
+    idempotencyKey: parsed.idempotencyKey,
+    contextSelections: parsed.contextSelections,
+  };
+  return parsed.explicitInput === undefined
+    ? base
+    : { ...base, explicitInput: parsed.explicitInput };
+}
+
+/**
+ * The sole actorless Server Action decoder. It is derived from the exact strict
+ * Production command object and only adds the authenticated server-side actor.
+ */
+export function decodeDraftAssistanceActionCommandV1(
+  payload: unknown,
+  actor: DraftAssistanceCommandV1["actor"],
+): import("@/ai/errors").AiServiceResult<DraftAssistanceCommandV1> {
+  const parsed = actorlessCommandSchema.safeParse(payload);
+  return parsed.success
+    ? aiSuccess(reconstructDraftCommandV1({ ...parsed.data, actor }))
+    : aiFailure("target_scope_mismatch");
+}
+
+/** Strict availability counterpart derived from the same Production command object. */
+export function decodeDraftAssistanceAvailabilityActionQueryV1(
+  payload: unknown,
+  actor: DraftAssistanceCommandV1["actor"],
+): import("@/ai/errors").AiServiceResult<
+  import("@/ai/applications/draft-assistance/contracts").DraftAssistanceAvailabilityQueryV1
+> {
+  const parsed = actorlessAvailabilitySchema.safeParse(payload);
+  if (!parsed.success) return aiFailure("target_scope_mismatch");
+  const command = reconstructDraftCommandV1({
+    ...parsed.data,
+    actor,
+    idempotencyKey: "00000000-0000-4000-8000-000000000000",
+  });
+  const { idempotencyKey: _discarded, ...query } = command;
+  void _discarded;
+  return aiSuccess(query);
+}
 
 export interface DraftRegistryDependenciesV1<
   TQueryResult extends PgQueryResultHKT,
@@ -481,35 +554,7 @@ function createProductionDefinitionsV1<
           const parsed = commandSchema.safeParse(payload);
           if (!parsed.success) return aiFailure("target_scope_mismatch");
           if (parsed.data.useCase !== useCase) return aiFailure("use_case_unknown");
-          const task: DraftAssistanceTaskV1 = parsed.data.task.kind === "seo_content_draft"
-            ? {
-                kind: "seo_content_draft",
-                tone: "concise_professional_b2b",
-                pageIntent: parsed.data.task.pageIntent,
-                selectedInternalLinkIds: parsed.data.task.selectedInternalLinkIds,
-                ...(parsed.data.task.primaryPhrase === undefined
-                  ? {} : { primaryPhrase: parsed.data.task.primaryPhrase }),
-              }
-            : parsed.data.task;
-          const command: DraftAssistanceCommandV1 =
-            parsed.data.explicitInput === undefined
-              ? {
-                  useCase: parsed.data.useCase,
-                  task,
-                  actor: parsed.data.actor,
-                  target: parsed.data.target,
-                  idempotencyKey: parsed.data.idempotencyKey,
-                  contextSelections: parsed.data.contextSelections,
-                }
-              : {
-                  useCase: parsed.data.useCase,
-                  task,
-                  actor: parsed.data.actor,
-                  target: parsed.data.target,
-                  idempotencyKey: parsed.data.idempotencyKey,
-                  contextSelections: parsed.data.contextSelections,
-                  explicitInput: parsed.data.explicitInput,
-                };
+          const command = reconstructDraftCommandV1(parsed.data);
           return aiSuccess(command);
         },
         associationFrom(command) {

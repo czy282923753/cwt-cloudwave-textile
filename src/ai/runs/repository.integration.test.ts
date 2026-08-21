@@ -358,6 +358,70 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
     });
   });
 
+  it("derives safe lifecycle controls from current authorization and retry policy", async () => {
+    const fixture = await seedFixture();
+    const [otherEditor] = await db().insert(users).values({
+      email: `${randomUUID()}@repository.example.test`,
+      displayName: "Synthetic Other Product Editor",
+      role: "product_editor",
+      passwordHash: "test-only",
+    }).returning({ id: users.id });
+    if (otherEditor === undefined) throw new Error("Other editor fixture failed.");
+    const inserted = await insertPrepared(preparedRun(fixture));
+    if (inserted.kind !== "inserted") throw new Error("Expected inserted run.");
+    const repository = createAiRunRepositoryV1(db());
+    const readAs = (claim: { readonly userId: string; readonly role: string }) =>
+      db().transaction(async (transaction) => {
+        const actor = await resolveAuthoritativeAiActorV1(transaction, claim);
+        if (actor === null) throw new Error("Authoritative lifecycle actor failed.");
+        return repository.readAuthorizedWithinTransaction(transaction, {
+          runId: inserted.row.id,
+          actor,
+        });
+      });
+
+    await expect(readAs({ userId: fixture.actorId, role: "product_editor" }))
+      .resolves.toMatchObject({
+        status: "pending",
+        cancelAvailable: true,
+        manualRetryAvailable: false,
+        rejectAvailable: false,
+      });
+    await expect(readAs({ userId: otherEditor.id, role: "product_editor" }))
+      .resolves.toMatchObject({ cancelAvailable: false });
+
+    const claimed = await repository.claimOrRecover({
+      executionEnvironment: "test",
+      workerId: "lifecycle-control-worker",
+    });
+    if (claimed.kind !== "claimed") throw new Error("Lifecycle control claim failed.");
+    await db().update(aiRuns).set({
+      status: "failed",
+      retryState: "not_retryable",
+      nextAttemptAt: null,
+      leaseOwner: null,
+      leaseToken: null,
+      leaseAcquiredAt: null,
+      leaseExpiresAt: null,
+      failureCode: "provider_auth_failed",
+      completedAt: sql`statement_timestamp()`,
+      costAccountingState: "final",
+      budgetReservedCostMicrousd: 0,
+      stateVersion: sql`${aiRuns.stateVersion} + 1`,
+      updatedAt: sql`statement_timestamp()`,
+    }).where(eq(aiRuns.id, inserted.row.id));
+    await expect(readAs({ userId: fixture.actorId, role: "product_editor" }))
+      .resolves.toMatchObject({
+        status: "failed",
+        cancelAvailable: false,
+        manualRetryAvailable: true,
+        rejectAvailable: false,
+      });
+    await db().update(featureFlags).set({ enabled: false }).where(eq(featureFlags.key, "ai"));
+    await expect(readAs({ userId: fixture.actorId, role: "product_editor" }))
+      .resolves.toMatchObject({ manualRetryAvailable: false });
+  });
+
   it("claims with database time, a fresh lease token, and CAS-fenced heartbeat", async () => {
     const fixture = await seedFixture();
     const inserted = await insertPrepared(preparedRun(fixture));

@@ -42,6 +42,10 @@ export interface AiRunAuthorizedReadV1 extends AiRunSummaryReadV1 {
   readonly humanDisposition: string;
   readonly qualityRating: number | null;
   readonly qualityLabels: readonly string[];
+  /** Authoritative current controls, derived inside the authorized read transaction. */
+  readonly cancelAvailable: boolean;
+  readonly manualRetryAvailable: boolean;
+  readonly rejectAvailable: boolean;
 }
 
 export type LifecycleLockOutcomeV1 =

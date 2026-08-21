@@ -446,6 +446,34 @@ async function humanCanPerformRunOperationV1(
   return actor.role === "admin" || row.requestedByUserId === actor.userId;
 }
 
+async function manualRetryPolicyAllowsV1(
+  transaction: PhaseCPgDatabase,
+  row: typeof aiRuns.$inferSelect,
+): Promise<boolean> {
+  if (row.status !== "failed" || row.retryState !== "not_retryable" ||
+    row.attemptCount >= row.maxAttempts ||
+    (row.failureCode !== "provider_auth_failed" &&
+      row.failureCode !== "provider_quota_exceeded")) return false;
+  const feature = await transaction.select({ enabled: featureFlags.enabled }).from(featureFlags)
+    .where(eq(featureFlags.key, "ai")).limit(2);
+  const config = await transaction.select({ enabled: aiModelConfig.enabled }).from(aiModelConfig)
+    .where(eq(aiModelConfig.id, row.modelConfigId)).limit(1);
+  if (feature.length !== 1 || feature[0]?.enabled !== true || config[0]?.enabled !== true) {
+    return false;
+  }
+  if (row.executionEnvironment !== "staging") return true;
+  if (row.budgetChargeDay === null || row.budgetChargeMonth === null) return false;
+  const reservation = Math.max(0, row.runCostLimitMicrousd - row.budgetAccountedCostMicrousd);
+  const totals = await transaction.select({
+    day: sql<number>`coalesce(sum(${aiRuns.budgetAccountedCostMicrousd} + ${aiRuns.budgetReservedCostMicrousd}) filter (where ${aiRuns.budgetChargeDay} = ${row.budgetChargeDay}), 0)`,
+    month: sql<number>`coalesce(sum(${aiRuns.budgetAccountedCostMicrousd} + ${aiRuns.budgetReservedCostMicrousd}) filter (where ${aiRuns.budgetChargeMonth} = ${row.budgetChargeMonth}), 0)`,
+  }).from(aiRuns).where(eq(aiRuns.executionEnvironment, "staging"));
+  const total = totals[0];
+  return total !== undefined &&
+    Number(total.day) + reservation <= row.dailyHardLimitMicrousd &&
+    Number(total.month) + reservation <= row.monthlyHardLimitMicrousd;
+}
+
 function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
   const targetId = row.targetProductId ?? row.targetContentId ?? row.targetRevisionId;
   if (targetId === null) throw new Error("Stored AI run target was invalid.");
@@ -1285,34 +1313,11 @@ export function createAiRunRepositoryV1(
         transaction, row, input.actor, "manual_retry",
       )) return { kind: "not_found_or_unauthorized" };
       if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
-      if (row.status !== "failed" || row.retryState !== "not_retryable" ||
-        row.attemptCount >= row.maxAttempts ||
-        (row.failureCode !== "provider_auth_failed" && row.failureCode !== "provider_quota_exceeded")) {
-        return { kind: "transition_forbidden" };
-      }
-      const feature = await transaction.select({ enabled: featureFlags.enabled }).from(featureFlags)
-        .where(eq(featureFlags.key, "ai")).limit(2);
-      const config = await transaction.select({ enabled: aiModelConfig.enabled }).from(aiModelConfig)
-        .where(eq(aiModelConfig.id, row.modelConfigId)).limit(1);
-      if (feature.length !== 1 || feature[0]?.enabled !== true || config[0]?.enabled !== true) {
+      if (!await manualRetryPolicyAllowsV1(transaction, row)) {
         return { kind: "transition_forbidden" };
       }
       const reservation = row.executionEnvironment === "staging"
         ? Math.max(0, row.runCostLimitMicrousd - row.budgetAccountedCostMicrousd) : 0;
-      if (row.executionEnvironment === "staging") {
-        if (row.budgetChargeDay === null || row.budgetChargeMonth === null) {
-          throw new Error("A failed billable run had no charge period.");
-        }
-        const totals = await transaction.select({
-          day: sql<number>`coalesce(sum(${aiRuns.budgetAccountedCostMicrousd} + ${aiRuns.budgetReservedCostMicrousd}) filter (where ${aiRuns.budgetChargeDay} = ${row.budgetChargeDay}), 0)`,
-          month: sql<number>`coalesce(sum(${aiRuns.budgetAccountedCostMicrousd} + ${aiRuns.budgetReservedCostMicrousd}) filter (where ${aiRuns.budgetChargeMonth} = ${row.budgetChargeMonth}), 0)`,
-        }).from(aiRuns).where(eq(aiRuns.executionEnvironment, "staging"));
-        const total = totals[0];
-        if (total === undefined || Number(total.day) + reservation > row.dailyHardLimitMicrousd ||
-          Number(total.month) + reservation > row.monthlyHardLimitMicrousd) {
-          return { kind: "transition_forbidden" };
-        }
-      }
       const updated = await transaction.update(aiRuns).set({
         status: "pending",
         retryState: "scheduled",
@@ -1467,6 +1472,14 @@ export function createAiRunRepositoryV1(
       const summary = humanMutationProjection(row);
       const candidate = row.candidateJson === null || jsonRecord(row.candidateJson) === undefined
         ? null : jsonRecord(row.candidateJson) ?? null;
+      const cancelAvailable = (row.status === "pending" || row.status === "processing") &&
+        await humanCanPerformRunOperationV1(transaction, row, input.actor, "cancel");
+      const manualRetryAvailable =
+        await humanCanPerformRunOperationV1(transaction, row, input.actor, "manual_retry") &&
+        await manualRetryPolicyAllowsV1(transaction, row);
+      const rejectAvailable = row.status === "draft_ready" &&
+        row.humanDisposition === "not_evaluated" && row.candidateHash !== null &&
+        await humanCanPerformRunOperationV1(transaction, row, input.actor, "disposition");
       return {
         runId: row.id,
         applicationClass: "draft_assistance",
@@ -1484,6 +1497,9 @@ export function createAiRunRepositoryV1(
         humanDisposition: row.humanDisposition,
         qualityRating: row.qualityRating,
         qualityLabels: Object.freeze([...row.qualityLabels]),
+        cancelAvailable,
+        manualRetryAvailable,
+        rejectAvailable,
       };
     },
 
