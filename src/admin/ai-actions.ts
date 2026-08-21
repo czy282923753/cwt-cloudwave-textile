@@ -2,7 +2,11 @@
 
 import { z } from "zod";
 
-import type { AiDraftReviewProjectionV1 } from "@/ai/applications/draft-assistance/contracts";
+import {
+  applyAiDraftCandidateV1Schema,
+  type AiDraftReviewProjectionV1,
+  type DraftAssistanceCandidateApplyService,
+} from "@/ai/applications/draft-assistance/contracts";
 import type { SafeAiError } from "@/ai/errors";
 import {
   decodeDraftAssistanceActionCommandV1,
@@ -63,6 +67,10 @@ export interface AiDraftRunViewV1 {
   readonly cancelAvailable: boolean;
   readonly manualRetryAvailable: boolean;
   readonly rejectAvailable: boolean;
+  readonly applyAvailable: boolean;
+  readonly appliedTargetVersion: number | null;
+  readonly appliedRevisionId: string | null;
+  readonly appliedRevisionDraftVersion: number | null;
   readonly message: string;
 }
 
@@ -105,7 +113,12 @@ function runMessage(row: AiRunAuthorizedReadV1): string {
     case "pending": return "AI draft request queued.";
     case "processing": return "AI draft processing.";
     case "draft_ready": return row.humanDisposition === "not_evaluated"
-      ? "AI draft candidate ready for review." : "AI draft candidate review recorded.";
+      ? "AI draft candidate ready for review."
+      : row.humanDisposition === "rejected"
+        ? "AI draft candidate rejected."
+        : row.appliedTargetVersion !== null || row.appliedRevisionId !== null
+          ? "AI draft candidate applied."
+          : "AI draft candidate review recorded.";
     case "failed": return row.manualRetryAvailable
       ? "AI draft failed. An authorized manual retry is available."
       : "AI draft failed safely. Ordinary manual editing is unchanged.";
@@ -147,6 +160,10 @@ function safeRun(row: AiRunAuthorizedReadV1): AiDraftRunViewV1 {
     cancelAvailable: row.cancelAvailable,
     manualRetryAvailable: row.manualRetryAvailable,
     rejectAvailable: ready && row.rejectAvailable,
+    applyAvailable: ready && row.applyAvailable,
+    appliedTargetVersion: row.appliedTargetVersion,
+    appliedRevisionId: row.appliedRevisionId,
+    appliedRevisionDraftVersion: row.appliedRevisionVersion,
     message: runMessage(row),
   };
 }
@@ -174,12 +191,16 @@ function authenticationFailure<T>(): AiDraftActionResultV1<T> {
   };
 }
 
-function durableRunService(service: unknown): service is AiRunServiceV1 {
+function durableRunService(service: unknown): service is AiRunServiceV1 &
+DraftAssistanceCandidateApplyService {
   if (typeof service !== "object" || service === null) return false;
   const candidate = service as Partial<Record<keyof AiRunServiceV1, unknown>>;
   return typeof candidate.requestDraftAssistance === "function" &&
     typeof candidate.readRun === "function" && typeof candidate.cancelRun === "function" &&
-    typeof candidate.manualRetry === "function" && typeof candidate.rejectDisposition === "function";
+    typeof candidate.manualRetry === "function" && typeof candidate.rejectDisposition === "function" &&
+    typeof candidate.resolveCandidateApplyRoute === "function" &&
+    typeof (service as Partial<DraftAssistanceCandidateApplyService>)
+      .applyDraftAssistanceCandidate === "function";
 }
 
 async function withAuthenticatedActor<T>(
@@ -298,5 +319,23 @@ export async function rejectAiDraftAssistanceCandidateAction(
       qualityComment: parsed.data.qualityComment,
     });
     return result.ok ? { ok: true, value: safeRun(result.value) } : safeFailure(result.error);
+  });
+}
+
+export async function applyAiDraftAssistanceCandidateAction(
+  input: unknown,
+): Promise<AiDraftActionResultV1<AiDraftRunViewV1>> {
+  const parsed = applyAiDraftCandidateV1Schema.safeParse(input);
+  if (!parsed.success) return invalidRequest();
+  return withAuthenticatedActor(async (actor) => {
+    const service = createPhaseDServerAiServiceV1();
+    if (!durableRunService(service)) return infrastructureFailure();
+    const applied = await service.applyDraftAssistanceCandidate({
+      actor,
+      command: parsed.data,
+    });
+    if (!applied.ok) return safeFailure(applied.error);
+    const read = await service.readRun({ runId: parsed.data.runId, actor });
+    return read.ok ? { ok: true, value: safeRun(read.value) } : safeFailure(read.error);
   });
 }

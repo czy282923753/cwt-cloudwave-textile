@@ -4,6 +4,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 
 import type { DraftAssistanceAvailabilityQueryV1 } from "@/ai/applications/draft-assistance/contracts";
 import {
+  applyAiDraftAssistanceCandidateAction,
   cancelAiDraftAssistanceRunAction,
   enqueueAiDraftAssistanceAction,
   inspectAiDraftAssistanceAvailabilityAction,
@@ -14,6 +15,8 @@ import {
   type AiDraftRunViewV1,
 } from "@/admin/ai-actions";
 import {
+  buildApplyAiDraftCandidateV1,
+  candidateNodeRequiresAnchorV1,
   createAiCandidateDiffV1,
   createCandidateReviewStateV1,
   reduceCandidateReviewStateV1,
@@ -262,6 +265,20 @@ export function AiDraftAssistancePanel({
     }));
   });
 
+  const apply = () => exclusive("Applying the reviewed AI candidate atomically…", async (epoch) => {
+    if (state.run?.reviewProjection === null || state.run?.reviewProjection === undefined ||
+      reviewState === null || !state.run.applyAvailable) return;
+    const command = buildApplyAiDraftCandidateV1(state.run.reviewProjection, reviewState);
+    if (command === null) {
+      if (epoch === operationEpochRef.current) dispatch({
+        type: "failure",
+        message: "Decide every applicable proposal and choose each required insertion boundary before Apply.",
+      });
+      return;
+    }
+    acceptRun(epoch, await applyAiDraftAssistanceCandidateAction(command));
+  });
+
   const startNewRequest = (): void => {
     operationEpochRef.current += 1;
     idempotencyKeyRef.current = null;
@@ -279,7 +296,8 @@ export function AiDraftAssistancePanel({
       <div>
         <h2 className="text-lg font-semibold" id="ai-draft-assistance-heading">AI draft assistance</h2>
         <p className="mt-1 text-sm text-slate-300">
-          AI creates a protected candidate only. It never changes the editor or publishes content here.
+          AI creates a protected candidate only. Apply is explicit and updates only the authorized Draft;
+          it never autosaves or publishes content.
         </p>
       </div>
 
@@ -342,6 +360,32 @@ export function AiDraftAssistancePanel({
                         />
                       </label>
                     ) : null}
+                    {decision === "accepted" && candidateNodeRequiresAnchorV1(node) ? (
+                      <label>
+                        Insert after
+                        <select
+                          disabled={state.busy}
+                          onChange={(event) => {
+                            const blockId = event.currentTarget.value;
+                            setReviewState((current) => current === null ? current
+                              : reduceCandidateReviewStateV1(current, {
+                                  type: "anchor",
+                                  nodeId: node.id,
+                                  blockId: blockId === "__start__" ? null : blockId,
+                                }));
+                          }}
+                          value={Object.prototype.hasOwnProperty.call(reviewState.anchors, node.id)
+                            ? reviewState.anchors[node.id] ?? "__start__" : ""}
+                        >
+                          <option disabled value="">Choose an unlocked boundary</option>
+                          <option value="__start__">Start of document</option>
+                          {view.beforeDocument.filter((block) => !block.locked)
+                            .map((block) => <option key={block.id} value={block.id}>
+                              After {block.kind.replaceAll("_", " ")} {block.id}
+                            </option>)}
+                        </select>
+                      </label>
+                    ) : null}
                   </article>
                 );
               })}
@@ -378,6 +422,13 @@ export function AiDraftAssistancePanel({
         {state.run?.status === "draft_ready" && state.run.rejectAvailable &&
         state.run.candidateHash !== null ? (
           <button disabled={state.busy} onClick={() => void reject()} type="button">Reject candidate</button>
+        ) : null}
+
+        {state.run?.status === "draft_ready" && state.run.applyAvailable &&
+        state.run.reviewProjection !== null && reviewState !== null ? (
+          <button disabled={state.busy ||
+            buildApplyAiDraftCandidateV1(state.run.reviewProjection, reviewState) === null}
+            onClick={() => void apply()} type="button">Apply reviewed candidate</button>
         ) : null}
 
         {state.pollingExhausted && state.run !== null ? (

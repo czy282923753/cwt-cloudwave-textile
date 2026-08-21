@@ -16,7 +16,7 @@ function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-describe("Phase E E3 static AI boundaries", () => {
+describe("Phase E E4 static AI boundaries", () => {
   it("has exactly one new runtime importer of the byte-unchanged server AI composition", () => {
     const runtimeImporters = filesBelow(sourceRoot)
       .filter((path) => /\.(?:ts|tsx)$/.test(path) && !/\.(?:test|spec)\./.test(path))
@@ -38,7 +38,8 @@ describe("Phase E E3 static AI boundaries", () => {
     expect(panel).not.toMatch(/@\/(?:catalog|content)\/(?:product|content)-service/);
     expect(panel).toContain("Undo local review");
     expect(panel).toContain("Accept locally");
-    expect(panel).not.toMatch(/>\s*Apply(?:\s|<)/i);
+    expect(panel).toContain("Apply reviewed candidate");
+    expect(panel).toContain("applyAiDraftAssistanceCandidateAction");
 
     const props = panel.slice(
       panel.indexOf("export interface AiDraftAssistancePanelPropsV1"),
@@ -49,7 +50,7 @@ describe("Phase E E3 static AI boundaries", () => {
     expect(props).not.toMatch(/(?:safeBefore|candidate|targetSnapshot|onApply|onChangeTarget)/i);
   });
 
-  it("keeps the one existing lifecycle Action authority thin and E4/E5 absent", () => {
+  it("keeps the one existing lifecycle/Apply Action authority thin and E5 absent", () => {
     const actions = source("src/admin/ai-actions.ts");
     expect(actions).toContain('"use server"');
     expect(actions).toContain("phase-d-provider-composition");
@@ -63,6 +64,7 @@ describe("Phase E E3 static AI boundaries", () => {
         "cancelAiDraftAssistanceRunAction",
         "retryAiDraftAssistanceRunAction",
         "rejectAiDraftAssistanceCandidateAction",
+        "applyAiDraftAssistanceCandidateAction",
       ]);
     expect(actions).not.toMatch(/\bcandidate:\s*(?:ready\s*\?|row\.)/);
 
@@ -81,5 +83,7 @@ describe("Phase E E3 static AI boundaries", () => {
     expect(helper).not.toMatch(/(?:onApply|onChangeTarget|autosave|revalidatePath|router\.refresh)/i);
     expect(helper).toContain("MAX_UNDO");
     expect(helper).toContain("MAX_EDIT_SCALARS");
+    expect(helper).toContain("buildApplyAiDraftCandidateV1");
+    expect(helper).not.toMatch(/applyAiDraftAssistanceCandidateAction|@\/(?:catalog|content)\/.*service/);
   });
 });

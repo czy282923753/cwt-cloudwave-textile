@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AiDraftReviewProjectionV1 } from "@/ai/applications/draft-assistance/contracts";
 
 import {
+  buildApplyAiDraftCandidateV1,
   createAiCandidateDiffV1,
   createCandidateReviewStateV1,
   reduceCandidateReviewStateV1,
@@ -21,7 +22,7 @@ function projection(overrides: Partial<AiDraftReviewProjectionV1> = {}): AiDraft
       stateVersion: 4,
       candidateHash,
     },
-    target: { kind: "product", locale: "en", draftVersion: 3 },
+    target: { kind: "product", locale: "en", draftVersion: 3, revisionId: null },
     projectionKey: "b".repeat(64),
     before: {
       kind: "product",
@@ -164,5 +165,56 @@ describe("browser-safe AI candidate review state", () => {
       proposal: { nodes: [{ ...projection().proposal.nodes[0]!, id: "candidate_1" }] },
     });
     expect(() => createAiCandidateDiffV1(malformed)).toThrow(/invalid/i);
+  });
+
+  it("requires every applicable decision and an unlocked generated-Block anchor", () => {
+    const blockProjection = projection({
+      proposal: { nodes: [{
+        ...projection().proposal.nodes[0]!, kind: "block", path: "/descriptionBlocks/0",
+      }, projection().proposal.nodes[1]!] },
+    });
+    let state = createCandidateReviewStateV1("product:1:3", blockProjection);
+    expect(buildApplyAiDraftCandidateV1(blockProjection, state)).toBeNull();
+    state = reduceCandidateReviewStateV1(state, {
+      type: "decide", nodeId: firstId, decision: "accepted",
+    });
+    expect(buildApplyAiDraftCandidateV1(blockProjection, state)).toBeNull();
+    expect(reduceCandidateReviewStateV1(state, {
+      type: "anchor", nodeId: firstId, blockId: "locked",
+    })).toBe(state);
+    state = reduceCandidateReviewStateV1(state, {
+      type: "anchor", nodeId: firstId, blockId: "open",
+    });
+    const command = buildApplyAiDraftCandidateV1(blockProjection, state);
+    expect(command).toMatchObject({
+      expectedRunStateVersion: 4,
+      expectedTargetVersion: 3,
+      expectedRevisionId: null,
+      expectedRevisionDraftVersion: null,
+      decisions: [{ candidatePath: "/descriptionBlocks/0", decision: "accepted",
+        insertAfterBlockId: "open" }],
+    });
+    state = reduceCandidateReviewStateV1(state, {
+      type: "anchor", nodeId: firstId, blockId: null,
+    });
+    state = reduceCandidateReviewStateV1(state, { type: "undo" });
+    expect(state.anchors[firstId]).toBe("open");
+  });
+
+  it("binds Revision Apply fences and rejects a replaced review state", () => {
+    const revisionId = "30000000-0000-4000-8000-000000000003";
+    const revisionProjection = projection({
+      target: { kind: "product", locale: "en", draftVersion: 8, revisionId },
+    });
+    let state = createCandidateReviewStateV1("product:revision:8", revisionProjection);
+    state = reduceCandidateReviewStateV1(state, {
+      type: "decide", nodeId: firstId, decision: "accepted",
+    });
+    expect(buildApplyAiDraftCandidateV1(revisionProjection, state)).toMatchObject({
+      expectedTargetVersion: 8,
+      expectedRevisionId: revisionId,
+      expectedRevisionDraftVersion: 8,
+    });
+    expect(buildApplyAiDraftCandidateV1(projection(), state)).toBeNull();
   });
 });

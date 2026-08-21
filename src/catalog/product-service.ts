@@ -2,7 +2,23 @@ import { createHash } from "node:crypto";
 
 import { and, count, desc, eq, gt, inArray, isNotNull, isNull, like, ne, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import { z } from "zod";
+
+import { canonicalJsonHash } from "@/ai/canonical-json";
+import type {
+  ApplyAiDraftCandidateV1,
+  AppliedAiDraftCandidateV1,
+} from "@/ai/applications/draft-assistance/contracts";
+import type { DraftCandidateApplicationPlannerV1 } from "@/ai/applications/draft-assistance/review-projection";
+import { aiFailure, type AiServiceResult } from "@/ai/errors";
+import type {
+  AiCandidateApplyRouteV1,
+} from "@/ai/runs/contracts";
+import type {
+  AiCandidateDispositionPortV1,
+  AuthoritativeAiActorV1,
+} from "@/ai/runs/repository";
 
 import { writeAuditLog } from "@/audit/service";
 import {
@@ -2713,4 +2729,303 @@ export async function proposeProductImportSlugRevision<TQueryResult extends PgQu
     currentRouteId: current.routeId,
     newPath,
   }));
+}
+
+class ProductAiCandidateApplicationConflict extends Error {}
+
+function aiProductApplicationFailure(error: unknown): AiServiceResult<never> {
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "40001") {
+    return aiFailure("state_conflict");
+  }
+  return aiFailure(error instanceof ProductAiCandidateApplicationConflict ||
+      error instanceof ProductRevisionConflictError || error instanceof ProductValidationError
+    ? "state_conflict" : "internal_failure");
+}
+
+export async function applyProductAiDraftCandidateV1(
+  db: AppDatabase<PostgresJsQueryResultHKT>,
+  actor: Actor,
+  route: AiCandidateApplyRouteV1,
+  command: ApplyAiDraftCandidateV1,
+  dependencies: {
+    readonly disposition: AiCandidateDispositionPortV1;
+    readonly planner: DraftCandidateApplicationPlannerV1;
+    readonly resolveActor: (
+      transaction: AppDatabase<PostgresJsQueryResultHKT>,
+      actor: Actor,
+    ) => Promise<AuthoritativeAiActorV1 | null>;
+  },
+  options: GovernedMutationOptions = {},
+): Promise<AiServiceResult<AppliedAiDraftCandidateV1>> {
+  if (route.owner !== "product" ||
+    (actor.role !== "admin" && actor.role !== "product_editor")) {
+    return aiFailure("authorization_denied");
+  }
+  try {
+    requireEditorialResourceAccess(actor.role, "product", "write");
+    return await runGovernedMutation(db, async ({ transaction, audit }) => {
+      const authoritativeActor = await dependencies.resolveActor(transaction, actor);
+      if (authoritativeActor === null ||
+        (authoritativeActor.role !== "admin" && authoritativeActor.role !== "product_editor")) {
+        return aiFailure("authorization_denied");
+      }
+      const productRows = await transaction.select({ status: products.status })
+        .from(products).where(eq(products.id, route.entityId)).limit(2)
+        .for("update", { of: products });
+      const product = productRows.length === 1 ? productRows[0] : undefined;
+      if (product === undefined || product.status === "archived") {
+        return aiFailure("authorization_denied");
+      }
+      let currentVersion: number;
+      let currentDocument: BlockDocument;
+      let currentName: string;
+      let currentSummary: string | null;
+      let revision: typeof editorialRevisions.$inferSelect | null = null;
+      let revisionSnapshot: Extract<ProductRevisionSnapshot, { kind: "editorial_blocks" }> | null = null;
+      if (route.targetType === "product_draft") {
+        if (product.status !== "draft" || route.revisionId !== null ||
+          command.expectedRevisionId !== null || command.expectedRevisionDraftVersion !== null) {
+          return aiFailure("state_conflict");
+        }
+        const localizationRows = await transaction.select().from(productLocalizations).where(and(
+          eq(productLocalizations.productId, route.entityId),
+          eq(productLocalizations.locale, "en"),
+        )).limit(2).for("update", { of: productLocalizations });
+        const localization = localizationRows.length === 1 ? localizationRows[0] : undefined;
+        if (localization === undefined) return aiFailure("authorization_denied");
+        currentVersion = localization.editorDocumentVersion;
+        currentDocument = parseBlockDocument(localization.structuredBlocks, "product");
+        currentName = localization.name;
+        currentSummary = localization.shortDescription;
+      } else {
+        if (product.status !== "published" || route.revisionId === null ||
+          command.expectedRevisionId !== route.revisionId ||
+          command.expectedRevisionDraftVersion === null) return aiFailure("state_conflict");
+        const revisionRows = await transaction.select().from(editorialRevisions).where(and(
+          eq(editorialRevisions.id, route.revisionId),
+          eq(editorialRevisions.entityType, "product"),
+          eq(editorialRevisions.entityId, route.entityId),
+          eq(editorialRevisions.locale, "en"),
+          eq(editorialRevisions.status, "draft"),
+        )).limit(2).for("update", { of: editorialRevisions });
+        revision = revisionRows.length === 1 ? revisionRows[0]! : null;
+        const parsed = productRevisionSnapshotSchema.safeParse(revision?.snapshot);
+        if (!parsed.success || parsed.data.kind !== "editorial_blocks" ||
+          parsed.data.draftVersion === undefined) return aiFailure("state_conflict");
+        revisionSnapshot = parsed.data;
+        currentVersion = parsed.data.draftVersion;
+        currentDocument = parsed.data.document;
+        currentName = parsed.data.name;
+        currentSummary = parsed.data.shortDescription;
+      }
+      const locked = await dependencies.disposition.lockCandidateForApplyWithinTransaction(
+        transaction,
+        {
+          runId: command.runId,
+          actor: authoritativeActor,
+          route,
+          expectedStateVersion: command.expectedRunStateVersion,
+          candidateHash: command.candidateHash,
+          expectedTargetVersion: command.expectedTargetVersion,
+          expectedRevisionId: command.expectedRevisionId,
+          expectedRevisionDraftVersion: command.expectedRevisionDraftVersion,
+          qualityRating: command.qualityRating,
+          qualityLabels: command.qualityLabels,
+          qualityComment: command.qualityComment,
+        },
+      );
+      if (locked.kind === "exact_replay") return { ok: true, value: locked.result };
+      if (locked.kind !== "ready") {
+        return aiFailure(locked.kind === "not_found_or_unauthorized"
+          ? "authorization_denied" : "state_conflict");
+      }
+      if (currentVersion !== command.expectedTargetVersion) return aiFailure("state_conflict");
+      const plan = await dependencies.planner.build({
+        transaction,
+        actor: { principalId: authoritativeActor.userId, roleKey: authoritativeActor.role },
+        evidence: locked.evidence,
+        command,
+      });
+      if (!plan.ok) return plan;
+      if (plan.value.owner !== "product" || plan.value.useCase !== locked.evidence.useCase ||
+        plan.value.targetDraftVersion !== currentVersion ||
+        plan.value.revisionId !== route.revisionId) return aiFailure("state_conflict");
+      const composed = dependencies.planner.compose(
+        currentDocument,
+        plan.value.generatedBlocks,
+        "product",
+      );
+      if (!composed.ok) return composed;
+      const nextName = plan.value.title === undefined
+        ? currentName : normalizeProductName(plan.value.title);
+      const nextSummary = plan.value.summary === undefined ? currentSummary : plan.value.summary;
+      const placementRows = plan.value.mediaSelectionHashes.length === 0 ? []
+        : await transaction.select().from(productAssets).where(and(
+            eq(productAssets.productId, route.entityId),
+            eq(productAssets.isVisible, true),
+          )).for("update", { of: productAssets });
+      const placementByHash = new Map<string, typeof placementRows[number]>();
+      for (const placement of placementRows) {
+        const hash = canonicalJsonHash({ selectedMediaPlacementId: placement.assetId });
+        if (!hash.ok || placementByHash.has(hash.value.hash)) return aiFailure("state_conflict");
+        placementByHash.set(hash.value.hash, placement);
+      }
+      const selectedPlacements = plan.value.mediaSelectionHashes.map((hash) => placementByHash.get(hash));
+      if (selectedPlacements.some((placement) => placement === undefined)) {
+        return aiFailure("state_conflict");
+      }
+      const mediaByAlias = new Map(plan.value.mediaSelectionHashes.map((_, index) => [
+        `media_${String(index + 1).padStart(2, "0")}`,
+        selectedPlacements[index]!,
+      ]));
+      if (plan.value.mediaText.some((item) => !mediaByAlias.has(item.placementRef))) {
+        return aiFailure("state_conflict");
+      }
+      const nextVersion = currentVersion + 1;
+      if (route.targetType === "product_draft") {
+        const updated = await transaction.update(productLocalizations).set({
+          name: nextName,
+          shortDescription: nextSummary,
+          structuredBlocks: composed.value,
+          blocksVersion: 1,
+          editorDocumentVersion: nextVersion,
+        }).where(and(
+          eq(productLocalizations.productId, route.entityId),
+          eq(productLocalizations.locale, "en"),
+          eq(productLocalizations.editorDocumentVersion, currentVersion),
+        )).returning({ version: productLocalizations.editorDocumentVersion });
+        if (updated[0]?.version !== nextVersion) throw new ProductAiCandidateApplicationConflict();
+        if (plan.value.seoTitle !== undefined || plan.value.seoMetaDescription !== undefined) {
+          const currentRoute = await transaction.select({ routeId: routes.id })
+            .from(routes).where(and(eq(routes.entityType, "product"),
+              eq(routes.entityId, route.entityId), eq(routes.locale, "en"),
+              eq(routes.isCurrent, true))).limit(2).for("update", { of: routes });
+          if (currentRoute.length !== 1) throw new ProductAiCandidateApplicationConflict();
+          const seoUpdated = await transaction.update(seoMetadata).set({
+            ...(plan.value.seoTitle === undefined ? {} : { title: plan.value.seoTitle }),
+            ...(plan.value.seoMetaDescription === undefined
+              ? {} : { metaDescription: plan.value.seoMetaDescription }),
+            updatedByUserId: authoritativeActor.userId,
+            updatedAt: new Date(),
+          }).where(eq(seoMetadata.routeId, currentRoute[0]!.routeId)).returning({ id: seoMetadata.routeId });
+          if (seoUpdated.length !== 1) throw new ProductAiCandidateApplicationConflict();
+        }
+        for (const item of plan.value.mediaText) {
+          const placement = mediaByAlias.get(item.placementRef)!;
+          const updated = await transaction.update(productAssets).set({
+            ...(item.altText === undefined ? {} : { altText: item.altText }),
+            ...(item.caption === undefined ? {} : { caption: item.caption }),
+          }).where(and(eq(productAssets.productId, route.entityId),
+            eq(productAssets.assetId, placement.assetId))).returning({ id: productAssets.assetId });
+          if (updated.length !== 1) throw new ProductAiCandidateApplicationConflict();
+        }
+        await transaction.update(products).set({ updatedAt: new Date() })
+          .where(eq(products.id, route.entityId));
+      } else {
+        const current = revisionSnapshot!;
+        const pending = (current.pendingChanges ?? []).map((value) =>
+          productRevisionSnapshotSchema.parse(value));
+        let nextPending = [...pending];
+        if (plan.value.seoTitle !== undefined || plan.value.seoMetaDescription !== undefined) {
+          let seo = nextPending.find((value) => value.kind === "seo");
+          if (seo?.kind !== "seo") {
+            const rows = await transaction.select({
+              routeId: routes.id,
+              title: seoMetadata.title,
+              metaDescription: seoMetadata.metaDescription,
+              focusKeyword: seoMetadata.focusKeyword,
+            }).from(routes).innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id)).where(and(
+              eq(routes.entityType, "product"), eq(routes.entityId, route.entityId),
+              eq(routes.locale, "en"), eq(routes.isCurrent, true),
+            )).limit(2).for("update", { of: seoMetadata });
+            if (rows.length !== 1) return aiFailure("state_conflict");
+            seo = { kind: "seo", routeId: rows[0]!.routeId, title: rows[0]!.title,
+              metaDescription: rows[0]!.metaDescription, focusKeyword: rows[0]!.focusKeyword };
+          }
+          const nextSeo = productRevisionSnapshotSchema.parse({
+            ...seo,
+            ...(plan.value.seoTitle === undefined ? {} : { title: plan.value.seoTitle }),
+            ...(plan.value.seoMetaDescription === undefined
+              ? {} : { metaDescription: plan.value.seoMetaDescription }),
+          });
+          nextPending = [...nextPending.filter((value) => value.kind !== "seo"), nextSeo];
+        }
+        if (plan.value.mediaText.length > 0) {
+          const existing = nextPending.find((value) => value.kind === "structure");
+          const base = existing?.kind === "structure" ? existing
+            : (await loadLiveProductStructure(transaction, route.entityId)).snapshot;
+          const media = productStructureMedia(base).map((placement) => {
+            const alias = [...mediaByAlias.entries()].find(([, selected]) =>
+              selected.assetId === placement.assetId)?.[0];
+            const change = alias === undefined ? undefined
+              : plan.value.mediaText.find((item) => item.placementRef === alias);
+            return change === undefined ? placement : {
+              ...placement,
+              ...(change.altText === undefined ? {} : { altText: change.altText }),
+              ...(change.caption === undefined ? {} : { caption: change.caption }),
+            };
+          });
+          if (plan.value.mediaText.some((item) => !media.some((placement) =>
+            placement.assetId === mediaByAlias.get(item.placementRef)?.assetId))) {
+            return aiFailure("state_conflict");
+          }
+          const nextStructure = productRevisionSnapshotSchema.parse({ ...base, media });
+          nextPending = [...nextPending.filter((value) => value.kind !== "structure"), nextStructure];
+        }
+        const nextSnapshot = productRevisionSnapshotSchema.parse({
+          ...current,
+          name: nextName,
+          shortDescription: nextSummary,
+          document: composed.value,
+          draftVersion: nextVersion,
+          pendingChanges: nextPending,
+        });
+        const updated = await transaction.update(editorialRevisions).set({
+          snapshot: nextSnapshot,
+          changeSummary: "AI Product Draft candidate applied",
+        }).where(and(eq(editorialRevisions.id, revision!.id),
+          eq(editorialRevisions.status, "draft"))).returning({ id: editorialRevisions.id });
+        if (updated.length !== 1) throw new ProductAiCandidateApplicationConflict();
+      }
+      const disposition = await dependencies.disposition.recordCandidateAppliedWithinTransaction(
+        transaction,
+        {
+          runId: command.runId,
+          actor: authoritativeActor,
+          expectedStateVersion: command.expectedRunStateVersion,
+          candidateHash: command.candidateHash,
+          disposition: plan.value.disposition,
+          qualityRating: command.qualityRating,
+          qualityLabels: command.qualityLabels,
+          qualityComment: command.qualityComment,
+          appliedTargetVersion: route.targetType === "product_draft" ? nextVersion : null,
+          appliedRevisionId: route.targetType === "editorial_revision" ? route.revisionId : null,
+          appliedRevisionVersion: route.targetType === "editorial_revision" ? nextVersion : null,
+        },
+      );
+      if (disposition.kind !== "updated") throw new ProductAiCandidateApplicationConflict();
+      await audit({
+        actorUserId: authoritativeActor.userId,
+        action: "ai.run.candidate_applied",
+        entityType: "ai_run",
+        entityId: command.runId,
+        beforeSummary: { stateVersion: command.expectedRunStateVersion,
+          targetVersion: command.expectedTargetVersion },
+        afterSummary: {
+          owner: "product",
+          useCase: plan.value.useCase,
+          disposition: plan.value.disposition,
+          runStateVersion: disposition.result.runStateVersion,
+          appliedTargetVersion: disposition.result.appliedTargetVersion,
+          appliedRevisionVersion: disposition.result.appliedRevisionDraftVersion,
+        },
+      });
+      return { ok: true, value: disposition.result };
+    }, {
+      ...options,
+      transactionConfig: { ...options.transactionConfig, isolationLevel: "serializable" },
+    });
+  } catch (error) {
+    return aiProductApplicationFailure(error);
+  }
 }

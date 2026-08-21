@@ -21,6 +21,7 @@ import { draftOutputDefinitionV1 } from "@/ai/output/registry";
 import type { PricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
 import {
   authoritativeAiActorCanPerformV1,
+  createAiRunRepositoryV1,
   resolveAuthoritativeAiActorV1,
 } from "@/ai/runs/repository";
 import { createAiRunServiceV1 } from "@/ai/runs/service";
@@ -29,11 +30,13 @@ import {
   createProductAiDraftReaderV1,
   type ProductAiDraftReaderV1,
 } from "@/catalog/product-ai-context-reader";
+import { applyProductAiDraftCandidateV1 } from "@/catalog/product-service";
 import {
   createContentAiDraftReaderV1,
   type AiDraftTargetSnapshotV1,
   type ContentAiDraftReaderV1,
 } from "@/content/content-ai-context-reader";
+import { applyContentAiDraftCandidateV1 } from "@/content/content-service";
 
 import {
   createDraftAvailabilityAuthorization,
@@ -47,6 +50,7 @@ import {
 } from "./context";
 import type {
   DraftAssistanceAvailabilityService,
+  DraftAssistanceCandidateApplyService,
   DraftAssistanceCommandV1,
   DraftAssistanceService,
   DraftDurableAssociationWithoutHashV1,
@@ -56,7 +60,10 @@ import {
   createDraftAssistanceDurableFacadeV1,
 } from "./facade";
 import type { DraftConsistentReadScope } from "./read-scopes";
-import { createDraftReviewProjectionBuilderV1 } from "./review-projection";
+import {
+  createDraftCandidateApplicationPlannerV1,
+  createDraftReviewProjectionBuilderV1,
+} from "./review-projection";
 
 interface DomainReadersV1<TQueryResult extends PgQueryResultHKT> {
   readonly product: ProductAiDraftReaderV1<TQueryResult>;
@@ -317,7 +324,7 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
 }): DraftAssistanceService & Pick<
   import("@/ai/runs/service").AiRunServiceV1,
   "readRun" | "cancelRun" | "manualRetry" | "rejectDisposition"
-> {
+> & DraftAssistanceCandidateApplyService {
   const readers = domainReaders<PostgresJsQueryResultHKT>();
   const contextPolicy = createDraftContextPolicy(
     contextRepository(readers),
@@ -338,15 +345,51 @@ export function createPhaseCDurableDraftAssistanceServiceV1(dependencies: {
     resolveAuthoritativeActor: resolveAuthoritativeAiActorV1,
     authoritativeActorCanPerform: authoritativeAiActorCanPerformV1,
   });
+  const repository = createAiRunRepositoryV1(dependencies.database);
+  const reviewProjection = createDraftReviewProjectionBuilderV1(readers);
+  const planner = createDraftCandidateApplicationPlannerV1(readers);
   const runService = createAiRunServiceV1(dependencies.database, {
     executionEnvironment: dependencies.trustedEnvironment.appEnvironment,
     pricingRegistry: dependencies.pricingRegistry,
     registry,
     orchestrator,
-    reviewProjection: createDraftReviewProjectionBuilderV1(readers),
+    reviewProjection,
+    repository,
     ...(dependencies.governedMutationOptions === undefined
       ? {}
       : { governedMutationOptions: dependencies.governedMutationOptions }),
   });
-  return createDraftAssistanceDurableFacadeV1({ availability, runService });
+  return createDraftAssistanceDurableFacadeV1({
+    availability,
+    runService,
+    async candidateApply(input) {
+      const route = await runService.resolveCandidateApplyRoute({
+        runId: input.command.runId,
+        actor: input.actor,
+      });
+      if (!route.ok) return route;
+      const applicationDependencies = {
+        disposition: repository,
+        planner,
+        resolveActor: resolveAuthoritativeAiActorV1,
+      };
+      return route.value.owner === "product"
+        ? applyProductAiDraftCandidateV1(
+            dependencies.database,
+            input.actor,
+            route.value,
+            input.command,
+            applicationDependencies,
+            dependencies.governedMutationOptions ?? {},
+          )
+        : applyContentAiDraftCandidateV1(
+            dependencies.database,
+            input.actor,
+            route.value,
+            input.command,
+            applicationDependencies,
+            dependencies.governedMutationOptions ?? {},
+          );
+    },
+  });
 }

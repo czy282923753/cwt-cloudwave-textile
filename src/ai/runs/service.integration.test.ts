@@ -8,7 +8,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 vi.mock("server-only", () => ({}));
 
 import { createPhaseCDurableDraftAssistanceServiceV1 } from "@/ai/applications/draft-assistance/composition";
-import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
+import type {
+  ApplyAiDraftCandidateV1,
+  DraftAssistanceCommandV1,
+} from "@/ai/applications/draft-assistance/contracts";
 import type { UserRole } from "@/auth/permissions";
 import type { ProtectedApplicationResultEnvelopeV1 } from "@/ai/core/contracts";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
@@ -31,6 +34,7 @@ import { migrateDatabase } from "@/db/migrate";
 import {
   aiModelConfig,
   aiRuns,
+  assets,
   auditLogs,
   authors,
   contentLocalizations,
@@ -38,6 +42,7 @@ import {
   editorialRevisions,
   featureFlags,
   productLocalizations,
+  productAssets,
   productFieldReviews,
   productTaxonomyTerms,
   products,
@@ -45,6 +50,7 @@ import {
   users,
 } from "@/db/schema";
 import * as schema from "@/db/schema";
+import { parseBlockDocument } from "@/editorial/blocks";
 
 const postgresUrl = process.env.CWT_PHASE_C_POSTGRES_URL;
 const hash = (character: string) => character.repeat(64);
@@ -237,16 +243,18 @@ async function seedContentFixture(actor: { readonly userId: string }) {
 function command(fixture: Awaited<ReturnType<typeof seedFixture>>, input: {
   readonly idempotencyKey: string;
   readonly explicitInput?: string;
+  readonly target?: DraftAssistanceCommandV1["target"];
+  readonly selectedMediaPlacementIds?: readonly string[];
 }): DraftAssistanceCommandV1 {
   return {
     useCase: "product_description_draft",
     task: {
       kind: "product_description_draft",
       tone: "concise_professional_b2b",
-      selectedMediaPlacementIds: [],
+      selectedMediaPlacementIds: [...(input.selectedMediaPlacementIds ?? [])],
     },
     actor: { userId: fixture.actorId, role: "product_editor" },
-    target: {
+    target: input.target ?? {
       type: "product_draft",
       productId: fixture.productId,
       locale: "en",
@@ -384,6 +392,13 @@ async function settleProtectedProductCandidate(runId: string) {
   const decodedContext = decodeReconstructibleDraftContextV1(row.context);
   if (!decodedContext.ok) throw new Error(`Stored context failed: ${decodedContext.error.code}`);
   const sourceRef = "src_01:text";
+  const mediaTextProposals = decodedContext.value.mediaPlacementRefs.includes("media_01")
+    ? [{ placementRef: "media_01", altText: {
+        text: "Synthetic accessible textile swatch", sourceRefs: [sourceRef],
+      }, caption: {
+        text: "Synthetic swatch caption", sourceRefs: [sourceRef],
+      } }]
+    : [];
   const protectedResult = protectDraftCandidateV1({
     rawObject: {
       schemaVersion: 1,
@@ -396,7 +411,7 @@ async function settleProtectedProductCandidate(runId: string) {
       } }],
       featureProposals: [],
       faqProposals: [],
-      mediaTextProposals: [],
+      mediaTextProposals,
     },
     context: decodedContext.value,
     schema: productDescriptionDraftV1Schema,
@@ -493,6 +508,41 @@ async function settleProtectedContentCandidate(runId: string) {
   return { settled, protectedResult: protectedResult.value };
 }
 
+async function fullAcceptCommand(
+  runId: string,
+  actor: { readonly userId: string; readonly role: UserRole },
+): Promise<ApplyAiDraftCandidateV1> {
+  const read = await service().readRun({ runId, actor });
+  if (!read.ok || read.value.reviewProjection === null) {
+    throw new Error(`Synthetic E4 projection failed: ${JSON.stringify(read)}`);
+  }
+  const projection = read.value.reviewProjection;
+  const nodes = [
+    ...(projection.proposal.seo?.title ? [projection.proposal.seo.title] : []),
+    ...(projection.proposal.seo?.metaDescription
+      ? [projection.proposal.seo.metaDescription] : []),
+    ...projection.proposal.nodes,
+  ].filter((node) => !node.previewOnly);
+  return {
+    runId,
+    expectedRunStateVersion: projection.run.stateVersion,
+    candidateHash: projection.run.candidateHash,
+    expectedTargetVersion: projection.target.draftVersion,
+    expectedRevisionId: projection.target.revisionId,
+    expectedRevisionDraftVersion: projection.target.revisionId === null
+      ? null : projection.target.draftVersion,
+    decisions: nodes.map((node) => ({
+      candidatePath: node.path,
+      decision: "accepted" as const,
+      ...(node.kind === "block" || node.kind === "feature" || node.kind === "faq"
+        ? { insertAfterBlockId: null } : {}),
+    })),
+    qualityRating: 5,
+    qualityLabels: [],
+    qualityComment: "Synthetic E4 application evidence.",
+  };
+}
+
 describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service", () => {
   beforeAll(async () => {
     if (postgresUrl === undefined) return;
@@ -512,7 +562,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
   }, 30_000);
 
   beforeEach(async () => {
-    await db().execute(sql`truncate table ${aiRuns}, ${aiModelConfig}, ${auditLogs}, ${featureFlags}, ${editorialRevisions}, ${contentLocalizations}, ${contents}, ${authors}, ${productLocalizations}, ${products}, ${users} cascade`);
+    await db().execute(sql`truncate table ${aiRuns}, ${aiModelConfig}, ${auditLogs}, ${featureFlags}, ${editorialRevisions}, ${contentLocalizations}, ${contents}, ${authors}, ${productAssets}, ${assets}, ${productLocalizations}, ${products}, ${users} cascade`);
   });
 
   afterAll(async () => {
@@ -1554,6 +1604,289 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       runId: created.value.runId,
       actor: contentEditor,
     })).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+  });
+
+  it("atomically applies a Product Draft Candidate and exact-replays without a second mutation", async () => {
+    const fixture = await seedFixture();
+    await db().update(products).set({
+      productCode: "SYNTHETIC-E4-PROTECTED-CODE",
+      composition: "Synthetic protected composition",
+      moqValue: "500",
+      moqUnit: "kg",
+    }).where(eq(products.id, fixture.productId));
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic E4 Product enqueue failed.");
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+
+    const applied = await service().applyDraftAssistanceCandidate({ actor, command: application });
+    expect(applied).toMatchObject({ ok: true, value: {
+      runId: created.value.runId,
+      disposition: "accepted",
+      appliedTargetVersion: 2,
+      appliedRevisionId: null,
+      appliedRevisionDraftVersion: null,
+    } });
+    const [localization] = await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId));
+    expect(localization).toMatchObject({
+      name: "Synthetic product title",
+      shortDescription: "Synthetic product summary",
+      editorDocumentVersion: 2,
+    });
+    expect(parseBlockDocument(localization?.structuredBlocks, "product").blocks)
+      .toMatchObject([{ type: "paragraph", text: "Synthetic product paragraph" }]);
+    expect((await db().select().from(products).where(eq(products.id, fixture.productId)))[0])
+      .toMatchObject({ productCode: "SYNTHETIC-E4-PROTECTED-CODE",
+        composition: "Synthetic protected composition", moqValue: "500.00", moqUnit: "kg",
+        status: "draft" });
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ humanDisposition: "accepted", stateVersion: application.expectedRunStateVersion + 1,
+        appliedTargetVersion: 2, appliedRevisionId: null, appliedRevisionVersion: null });
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: application }))
+      .toEqual(applied.ok ? { ...applied, value: { ...applied.value, exactReplay: true } } : applied);
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+  });
+
+  it("atomically applies a Content Draft Candidate while excluding preview-only outline", async () => {
+    const actor = await seedUser("content_editor");
+    const fixture = await seedContentFixture(actor);
+    const created = await service().requestDraftAssistance(contentCommand(fixture, actor));
+    if (!created.ok) throw new Error("Synthetic E4 Content enqueue failed.");
+    await settleProtectedContentCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    expect(application.decisions.some((decision) => decision.candidatePath.startsWith("/outline/")))
+      .toBe(false);
+
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: application }))
+      .toMatchObject({
+      ok: true,
+      value: { disposition: "accepted", appliedTargetVersion: 2 },
+    });
+    const [localization] = await db().select().from(contentLocalizations)
+      .where(eq(contentLocalizations.contentId, fixture.contentId));
+    expect(localization).toMatchObject({
+      title: "Synthetic fabric title",
+      excerpt: "Synthetic fabric summary",
+      editorDocumentVersion: 2,
+    });
+    expect(parseBlockDocument(localization?.structuredBlocks, "content").blocks)
+      .toMatchObject([{ type: "paragraph", text: "Synthetic fabric paragraph" }]);
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+  });
+
+  it("updates only exact selected Product media alt/caption and preserves relation and rights", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const [asset] = await db().insert(assets).values({
+      uploadedByUserId: fixture.actorId,
+      originalFileName: "synthetic-e4-public.png",
+      storageProvider: "local",
+      storagePartition: "public",
+      objectKey: `synthetic/e4/${randomUUID()}.png`,
+      access: "public",
+      category: "product",
+      status: "ready",
+      declaredMimeType: "image/png",
+      detectedMimeType: "image/png",
+      byteSize: 4,
+      sha256: hash("7"),
+      scanStatus: "passed",
+      rightsStatus: "verified",
+    }).returning({ id: assets.id });
+    if (asset === undefined) throw new Error("Synthetic E4 media fixture failed.");
+    await db().insert(productAssets).values({
+      productId: fixture.productId,
+      assetId: asset.id,
+      role: "gallery",
+      sortOrder: 7,
+      altText: "Before alt",
+      caption: "Before caption",
+      isVisible: true,
+    });
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+      selectedMediaPlacementIds: [asset.id],
+    }));
+    if (!created.ok) throw new Error(`Synthetic E4 media enqueue failed: ${created.error.code}`);
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    expect(application.decisions.filter((decision) =>
+      decision.candidatePath.startsWith("/mediaTextProposals/"))).toHaveLength(2);
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: application }))
+      .toMatchObject({ ok: true, value: { disposition: "accepted" } });
+    expect((await db().select().from(productAssets).where(eq(productAssets.assetId, asset.id)))[0])
+      .toMatchObject({ role: "gallery", sortOrder: 7, isVisible: true,
+        altText: "Synthetic accessible textile swatch", caption: "Synthetic swatch caption" });
+    expect((await db().select().from(assets).where(eq(assets.id, asset.id)))[0])
+      .toMatchObject({ storagePartition: "public", access: "public", status: "ready",
+        rightsStatus: "verified" });
+  });
+
+  it("rolls Product target and run disposition back together when required Apply Audit fails", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic E4 rollback enqueue failed.");
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    const failed = await service(async () => {
+      throw new Error("TEST required E4 Audit failure");
+    }).applyDraftAssistanceCandidate({ actor, command: application });
+    expect(failed).toMatchObject({ ok: false, error: { code: "internal_failure" } });
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0])
+      .toMatchObject({ name: "Synthetic Run Service Product", editorDocumentVersion: 1 });
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ humanDisposition: "not_evaluated",
+        stateVersion: application.expectedRunStateVersion, appliedTargetVersion: null });
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(0);
+  });
+
+  it("updates only the current Product and Content Draft Revisions and preserves live copy", async () => {
+    const product = await seedFixture();
+    const productActor = { userId: product.actorId, role: "product_editor" as const };
+    await db().update(products).set({ status: "published" }).where(eq(products.id, product.productId));
+    const [productRevision] = await db().insert(editorialRevisions).values({
+      entityType: "product",
+      entityId: product.productId,
+      locale: "en",
+      versionNumber: 9,
+      status: "draft",
+      snapshot: {
+        kind: "editorial_blocks",
+        name: "Synthetic Product Revision Before",
+        shortDescription: null,
+        document: { version: 1, blocks: [] },
+        expectedEditorDocumentVersion: 1,
+        draftVersion: 1,
+        pendingChanges: [],
+      },
+      createdByUserId: product.actorId,
+    }).returning({ id: editorialRevisions.id });
+    if (productRevision === undefined) throw new Error("Product Revision fixture failed.");
+    const productCreated = await service().requestDraftAssistance(command(product, {
+      idempotencyKey: randomUUID(),
+      target: { type: "editorial_revision", revisionId: productRevision.id,
+        expectedVersion: 1 },
+    }));
+    if (!productCreated.ok) throw new Error(`Product Revision enqueue failed: ${productCreated.error.code}`);
+    await settleProtectedProductCandidate(productCreated.value.runId);
+    const productApplication = await fullAcceptCommand(productCreated.value.runId, productActor);
+    expect(await service().applyDraftAssistanceCandidate({
+      actor: productActor, command: productApplication,
+    })).toMatchObject({ ok: true, value: { appliedTargetVersion: null,
+      appliedRevisionId: productRevision.id, appliedRevisionDraftVersion: 2 } });
+    const [productLive] = await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, product.productId));
+    expect(productLive).toMatchObject({ name: "Synthetic Run Service Product",
+      editorDocumentVersion: 1 });
+    const [productRevisionAfter] = await db().select().from(editorialRevisions)
+      .where(eq(editorialRevisions.id, productRevision.id));
+    expect(productRevisionAfter?.snapshot).toMatchObject({
+      name: "Synthetic product title", shortDescription: "Synthetic product summary", draftVersion: 2,
+    });
+
+    const contentActor = await seedUser("content_editor");
+    const content = await seedContentFixture(contentActor);
+    await db().update(contents).set({ status: "published" }).where(eq(contents.id, content.contentId));
+    const [contentRevision] = await db().insert(editorialRevisions).values({
+      entityType: "content",
+      entityId: content.contentId,
+      locale: "en",
+      versionNumber: 11,
+      status: "draft",
+      snapshot: {
+        kind: "content_blocks_v1",
+        title: "Synthetic Content Revision Before",
+        excerpt: null,
+        document: { version: 1, blocks: [] },
+        expectedEditorDocumentVersion: 1,
+        draftVersion: 1,
+      },
+      createdByUserId: contentActor.userId,
+    }).returning({ id: editorialRevisions.id });
+    if (contentRevision === undefined) throw new Error("Content Revision fixture failed.");
+    const contentCreated = await service().requestDraftAssistance(contentCommand(
+      content,
+      contentActor,
+      { type: "editorial_revision", revisionId: contentRevision.id, expectedVersion: 1 },
+    ));
+    if (!contentCreated.ok) throw new Error(`Content Revision enqueue failed: ${contentCreated.error.code}`);
+    await settleProtectedContentCandidate(contentCreated.value.runId);
+    const contentApplication = await fullAcceptCommand(contentCreated.value.runId, contentActor);
+    expect(await service().applyDraftAssistanceCandidate({
+      actor: contentActor, command: contentApplication,
+    })).toMatchObject({ ok: true, value: { appliedTargetVersion: null,
+      appliedRevisionId: contentRevision.id, appliedRevisionDraftVersion: 2 } });
+    const [contentLive] = await db().select().from(contentLocalizations)
+      .where(eq(contentLocalizations.contentId, content.contentId));
+    expect(contentLive).toMatchObject({ title: "Synthetic Run Service Content",
+      editorDocumentVersion: 1 });
+    const [contentRevisionAfter] = await db().select().from(editorialRevisions)
+      .where(eq(editorialRevisions.id, contentRevision.id));
+    expect(contentRevisionAfter?.snapshot).toMatchObject({
+      title: "Synthetic fabric title", excerpt: "Synthetic fabric summary", draftVersion: 2,
+    });
+  });
+
+  it("allows one winner under independent concurrent Product Apply connections", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic E4 race enqueue failed.");
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    const contenders = await Promise.all([
+      service().applyDraftAssistanceCandidate({ actor, command: application }),
+      service().applyDraftAssistanceCandidate({ actor, command: application }),
+    ]);
+    expect(contenders.filter((result) => result.ok && !result.value.exactReplay)).toHaveLength(1);
+    expect(contenders.filter((result) => result.ok).length).toBeGreaterThanOrEqual(1);
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(2);
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(1);
+  });
+
+  it("denies Reviewer-only Apply and stale target fences with zero mutation", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const reviewer = await seedUser("reviewer_publisher");
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Synthetic E4 authorization enqueue failed.");
+    await settleProtectedProductCandidate(created.value.runId);
+    const application = await fullAcceptCommand(created.value.runId, actor);
+    expect(await service().applyDraftAssistanceCandidate({ actor: reviewer, command: application }))
+      .toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(await service().applyDraftAssistanceCandidate({ actor, command: {
+      ...application,
+      expectedTargetVersion: application.expectedTargetVersion + 1,
+    } })).toMatchObject({ ok: false });
+    expect((await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId)))[0]?.editorDocumentVersion).toBe(1);
+    expect((await db().select().from(aiRuns).where(eq(aiRuns.id, created.value.runId)))[0])
+      .toMatchObject({ humanDisposition: "not_evaluated",
+        stateVersion: application.expectedRunStateVersion });
+    expect(await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(0);
   });
 
   it("returns the protected Content projection only to authorized Content roles", async () => {

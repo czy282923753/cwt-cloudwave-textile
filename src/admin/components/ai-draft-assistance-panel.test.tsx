@@ -11,6 +11,7 @@ const actions = vi.hoisted(() => ({
   cancel: vi.fn(),
   retry: vi.fn(),
   reject: vi.fn(),
+  apply: vi.fn(),
 }));
 
 vi.mock("@/admin/ai-actions", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/admin/ai-actions", () => ({
   cancelAiDraftAssistanceRunAction: actions.cancel,
   retryAiDraftAssistanceRunAction: actions.retry,
   rejectAiDraftAssistanceCandidateAction: actions.reject,
+  applyAiDraftAssistanceCandidateAction: actions.apply,
 }));
 
 import { AiDraftAssistancePanel } from "./ai-draft-assistance-panel";
@@ -53,7 +55,7 @@ function reviewProjection(stateVersion = 4) {
   return {
     version: 1,
     run: { id: runId, useCase: "product_description_draft", stateVersion, candidateHash },
-    target: { kind: "product", locale: "en", draftVersion: 3 },
+    target: { kind: "product", locale: "en", draftVersion: 3, revisionId: null },
     projectionKey,
     before: {
       kind: "product",
@@ -71,7 +73,7 @@ function reviewProjection(stateVersion = 4) {
       nodes: [
         {
           id: `ai_${"c".repeat(60)}`,
-          path: "payload.descriptionBlocks[0]",
+          path: "/descriptionBlocks/0",
           ordinal: 1,
           kind: "block",
           label: "Description block 1",
@@ -83,7 +85,7 @@ function reviewProjection(stateVersion = 4) {
         },
         {
           id: `ai_${"d".repeat(60)}`,
-          path: "payload.outline[0]",
+          path: "/outline/0",
           ordinal: 2,
           kind: "outline",
           label: "Planning outline",
@@ -114,6 +116,10 @@ function run(
     cancelAvailable: status === "pending" || status === "processing",
     manualRetryAvailable: false,
     rejectAvailable: status === "draft_ready",
+    applyAvailable: status === "draft_ready",
+    appliedTargetVersion: null,
+    appliedRevisionId: null,
+    appliedRevisionVersion: null,
     message: {
       pending: "AI draft request queued.",
       processing: "AI draft processing.",
@@ -166,6 +172,16 @@ describe("AI draft assistance five-state panel", () => {
       reviewProjection: null,
       rejectAvailable: false,
       message: "AI draft candidate rejected.",
+    })));
+    actions.apply.mockResolvedValue(ok(run("draft_ready", {
+      stateVersion: 5,
+      disposition: "accepted",
+      candidateHash: null,
+      reviewProjection: null,
+      rejectAvailable: false,
+      applyAvailable: false,
+      appliedTargetVersion: 4,
+      message: "AI draft candidate applied.",
     })));
   });
 
@@ -459,7 +475,66 @@ describe("AI draft assistance five-state panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo local review" }));
     expect(screen.getByText("Local decision: accepted")).toBeInTheDocument();
     expect(screen.getByText("Proposal: Locally edited preview")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /apply|save/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Apply reviewed candidate" })).toBeDisabled();
+  });
+
+  it("builds Apply only from the retained projection, decisions, anchor and exact fences", async () => {
+    actions.enqueue.mockResolvedValueOnce(ok(run("draft_ready")));
+    render(<AiDraftAssistancePanel request={request} requestIdentity="product:apply" />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate AI draft" }));
+    await screen.findByText("AI draft candidate ready for review.");
+
+    const apply = screen.getByRole("button", { name: "Apply reviewed candidate" });
+    expect(apply).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Accept locally" }));
+    expect(apply).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "Insert after" }), {
+      target: { value: "open_last" },
+    });
+    expect(apply).toBeEnabled();
+    fireEvent.click(apply);
+    await screen.findByText("AI draft candidate applied.");
+
+    expect(actions.apply).toHaveBeenCalledWith({
+      runId,
+      expectedRunStateVersion: 4,
+      candidateHash,
+      expectedTargetVersion: 3,
+      expectedRevisionId: null,
+      expectedRevisionDraftVersion: null,
+      decisions: [{
+        candidatePath: "/descriptionBlocks/0",
+        decision: "accepted",
+        insertAfterBlockId: "open_last",
+      }],
+      qualityRating: null,
+      qualityLabels: [],
+      qualityComment: null,
+    });
+    expect(actions.apply).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves exact Apply fences after an uncertain rejected Promise for safe replay", async () => {
+    actions.enqueue.mockResolvedValueOnce(ok(run("draft_ready")));
+    actions.apply.mockRejectedValueOnce(new Error("RAW apply transport detail"));
+    render(<AiDraftAssistancePanel request={request} requestIdentity="product:apply-uncertain" />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate AI draft" }));
+    await screen.findByText("AI draft candidate ready for review.");
+    fireEvent.click(screen.getByRole("button", { name: "Accept locally" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Insert after" }), {
+      target: { value: "__start__" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply reviewed candidate" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(unexpectedRejectionMessage);
+    expect(screen.queryByText(/RAW apply transport/)).toBeNull();
+    const apply = screen.getByRole("button", { name: "Apply reviewed candidate" });
+    expect(apply).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Refresh status" })).toBeEnabled();
+    fireEvent.click(apply);
+    await screen.findByText("AI draft candidate applied.");
+    expect(actions.apply).toHaveBeenCalledTimes(2);
+    expect(actions.apply.mock.calls[1]?.[0]).toEqual(actions.apply.mock.calls[0]?.[0]);
   });
 
   it("uses authoritative controls and exact lifecycle fences", async () => {

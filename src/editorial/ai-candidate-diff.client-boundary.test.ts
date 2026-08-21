@@ -9,6 +9,8 @@ describe("AI candidate diff browser closure", () => {
     expect(source).toContain("AiDraftReviewProjectionV1");
     expect(source).not.toMatch(/@\/(?:db|server|catalog|content|ai\/runs|ai\/output|ai\/prompts)\//);
     expect(source).not.toMatch(/(?:server-only|node:crypto|Buffer|fetch\(|WebSocket|localStorage|sessionStorage|indexedDB)/);
-    expect(source).not.toMatch(/(?:candidateJson|rawObject|ProtectedDraftCandidate|apply|autosave|onChangeTarget)/i);
+    expect(source).not.toMatch(/(?:candidateJson|rawObject|ProtectedDraftCandidate|autosave|onChangeTarget)/i);
+    expect(source).toContain("buildApplyAiDraftCandidateV1");
+    expect(source).not.toMatch(/applyAiDraftAssistanceCandidateAction|product-service|content-service/);
   });
 });

@@ -12,6 +12,7 @@ vi.mock("@/server/ai/phase-d-provider-composition", () => ({
 }));
 
 import {
+  applyAiDraftAssistanceCandidateAction,
   cancelAiDraftAssistanceRunAction,
   enqueueAiDraftAssistanceAction,
   inspectAiDraftAssistanceAvailabilityAction,
@@ -31,7 +32,7 @@ function reviewProjection(stateVersion = 7) {
   return {
     version: 1,
     run: { id: runId, useCase: "product_description_draft", stateVersion, candidateHash },
-    target: { kind: "product", locale: "en", draftVersion: 3 },
+    target: { kind: "product", locale: "en", draftVersion: 3, revisionId: null },
     projectionKey,
     before: {
       kind: "product",
@@ -94,6 +95,10 @@ function authorizedRun(overrides: Record<string, unknown> = {}) {
     cancelAvailable: true,
     manualRetryAvailable: false,
     rejectAvailable: false,
+    applyAvailable: false,
+    appliedTargetVersion: null,
+    appliedRevisionId: null,
+    appliedRevisionVersion: null,
     ...overrides,
   } as const;
 }
@@ -133,6 +138,18 @@ function service() {
         reviewProjection: null,
         cancelAvailable: false,
       }),
+    }),
+    resolveCandidateApplyRoute: vi.fn().mockResolvedValue({
+      ok: true,
+      value: { owner: "product", entityId: productId, targetType: "product_draft", revisionId: null },
+    }),
+    applyDraftAssistanceCandidate: vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        runId, runStateVersion: 8, disposition: "accepted_with_edits",
+        appliedTargetVersion: 4, appliedRevisionId: null,
+        appliedRevisionDraftVersion: null, exactReplay: false,
+      },
     }),
   };
 }
@@ -310,6 +327,43 @@ describe("Phase E AI Server Actions", () => {
     });
     expect(rejected).toMatchObject({ ok: false, code: "invalid_request" });
     expect(current.rejectDisposition).toHaveBeenCalledTimes(1);
+  });
+
+  it("strictly decodes Apply and supplies only the authenticated actor", async () => {
+    const current = service();
+    current.readRun.mockResolvedValueOnce({ ok: true, value: authorizedRun({
+      status: "draft_ready", humanDisposition: "accepted_with_edits", stateVersion: 8,
+      candidateHash, appliedTargetVersion: 4, applyAvailable: false, cancelAvailable: false,
+    }) });
+    mocks.createService.mockReturnValue(current);
+    const command = {
+      runId,
+      expectedRunStateVersion: 7,
+      candidateHash,
+      expectedTargetVersion: 3,
+      expectedRevisionId: null,
+      expectedRevisionDraftVersion: null,
+      decisions: [{ candidatePath: "/displayNameProposal", decision: "accepted" }],
+      qualityRating: null,
+      qualityLabels: [],
+      qualityComment: null,
+    } as const;
+    await expect(applyAiDraftAssistanceCandidateAction(command)).resolves.toMatchObject({
+      ok: true,
+      value: { disposition: "accepted_with_edits", appliedTargetVersion: 4 },
+    });
+    expect(current.applyDraftAssistanceCandidate).toHaveBeenCalledWith({
+      actor: { userId: actorId, role: "product_editor" },
+      command,
+    });
+    await expect(applyAiDraftAssistanceCandidateAction({ ...command,
+      actor: { userId: actorId, role: "admin" } })).resolves.toMatchObject({
+        ok: false, code: "invalid_request",
+      });
+    await expect(applyAiDraftAssistanceCandidateAction({ ...command,
+      decisions: [...command.decisions, command.decisions[0]] })).resolves.toMatchObject({
+        ok: false, code: "invalid_request",
+      });
   });
 
   it("fails closed for authorization loss and missing durable PostgreSQL", async () => {

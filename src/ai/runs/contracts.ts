@@ -43,6 +43,10 @@ export interface AiRunAuthorizedReadV1 extends AiRunSummaryReadV1 {
   readonly cancelAvailable: boolean;
   readonly manualRetryAvailable: boolean;
   readonly rejectAvailable: boolean;
+  readonly applyAvailable: boolean;
+  readonly appliedTargetVersion: number | null;
+  readonly appliedRevisionId: string | null;
+  readonly appliedRevisionVersion: number | null;
   readonly reviewProjection: import("@/ai/applications/draft-assistance/contracts")
     .AiDraftReviewProjectionV1 | null;
 }
@@ -239,6 +243,41 @@ export interface RunDispositionInputV1 {
   )[];
   readonly qualityComment: string | null;
 }
+
+export interface AiCandidateApplyRouteV1 {
+  readonly owner: "product" | "content";
+  readonly entityId: string;
+  readonly targetType: "product_draft" | "content_draft" | "editorial_revision";
+  readonly revisionId: string | null;
+}
+
+export type AiCandidateApplyLockOutcomeV1 =
+  | {
+      readonly kind: "ready";
+      readonly evidence: AiRunAuthorizedEvidenceV1;
+      readonly route: AiCandidateApplyRouteV1;
+    }
+  | {
+      readonly kind: "exact_replay";
+      readonly result: import("@/ai/applications/draft-assistance/contracts")
+        .AppliedAiDraftCandidateV1;
+    }
+  | {
+      readonly kind:
+        | "not_found_or_unauthorized"
+        | "state_conflict"
+        | "transition_forbidden";
+    };
+
+export type AiCandidateApplyDispositionOutcomeV1 =
+  | {
+      readonly kind: "updated";
+      readonly result: import("@/ai/applications/draft-assistance/contracts")
+        .AppliedAiDraftCandidateV1;
+    }
+  | {
+      readonly kind: "state_conflict" | "transition_forbidden";
+    };
 
 export type HumanLifecycleMutationOutcomeV1 =
   | {

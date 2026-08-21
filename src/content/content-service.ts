@@ -1,6 +1,19 @@
 import { and, count, desc, eq, gt, inArray, not, or } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import { z } from "zod";
+
+import type {
+  ApplyAiDraftCandidateV1,
+  AppliedAiDraftCandidateV1,
+} from "@/ai/applications/draft-assistance/contracts";
+import type { DraftCandidateApplicationPlannerV1 } from "@/ai/applications/draft-assistance/review-projection";
+import { aiFailure, type AiServiceResult } from "@/ai/errors";
+import type { AiCandidateApplyRouteV1 } from "@/ai/runs/contracts";
+import type {
+  AiCandidateDispositionPortV1,
+  AuthoritativeAiActorV1,
+} from "@/ai/runs/repository";
 
 import { writeAuditLog } from "@/audit/service";
 import {
@@ -1355,4 +1368,259 @@ export async function archiveContent<TQueryResult extends PgQueryResultHKT>(
       afterSummary: { reason: reason.trim().slice(0, 500) },
     });
   });
+}
+
+class ContentAiCandidateApplicationConflict extends Error {}
+
+function aiContentApplicationFailure(error: unknown): AiServiceResult<never> {
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "40001") {
+    return aiFailure("state_conflict");
+  }
+  return aiFailure(error instanceof ContentAiCandidateApplicationConflict ||
+      error instanceof EditorialDraftConflictError
+    ? "state_conflict" : "internal_failure");
+}
+
+export async function applyContentAiDraftCandidateV1(
+  db: AppDatabase<PostgresJsQueryResultHKT>,
+  actor: Actor,
+  route: AiCandidateApplyRouteV1,
+  command: ApplyAiDraftCandidateV1,
+  dependencies: {
+    readonly disposition: AiCandidateDispositionPortV1;
+    readonly planner: DraftCandidateApplicationPlannerV1;
+    readonly resolveActor: (
+      transaction: AppDatabase<PostgresJsQueryResultHKT>,
+      actor: Actor,
+    ) => Promise<AuthoritativeAiActorV1 | null>;
+  },
+  options: GovernedMutationOptions = {},
+): Promise<AiServiceResult<AppliedAiDraftCandidateV1>> {
+  if (route.owner !== "content" ||
+    (actor.role !== "admin" && actor.role !== "content_editor")) {
+    return aiFailure("authorization_denied");
+  }
+  try {
+    requireEditorialResourceAccess(actor.role, "content", "write");
+    return await runGovernedMutation(db, async ({ transaction, audit }) => {
+      const authoritativeActor = await dependencies.resolveActor(transaction, actor);
+      if (authoritativeActor === null ||
+        (authoritativeActor.role !== "admin" && authoritativeActor.role !== "content_editor")) {
+        return aiFailure("authorization_denied");
+      }
+      const contentRows = await transaction.select({
+        status: contents.status,
+        channel: contents.channel,
+      }).from(contents).where(eq(contents.id, route.entityId)).limit(2)
+        .for("update", { of: contents });
+      const content = contentRows.length === 1 ? contentRows[0] : undefined;
+      if (content === undefined || content.status === "archived") {
+        return aiFailure("authorization_denied");
+      }
+      let currentVersion: number;
+      let currentDocument: BlockDocument;
+      let currentTitle: string;
+      let currentSummary: string | null;
+      let revision: typeof editorialRevisions.$inferSelect | null = null;
+      let revisionSnapshot: z.infer<typeof structuredRevisionSnapshotSchema> | null = null;
+      if (route.targetType === "content_draft") {
+        if (content.status !== "draft" || route.revisionId !== null ||
+          command.expectedRevisionId !== null || command.expectedRevisionDraftVersion !== null) {
+          return aiFailure("state_conflict");
+        }
+        const localizationRows = await transaction.select().from(contentLocalizations).where(and(
+          eq(contentLocalizations.contentId, route.entityId),
+          eq(contentLocalizations.locale, "en"),
+        )).limit(2).for("update", { of: contentLocalizations });
+        const localization = localizationRows.length === 1 ? localizationRows[0] : undefined;
+        if (localization === undefined) return aiFailure("authorization_denied");
+        currentVersion = localization.editorDocumentVersion;
+        currentDocument = parseBlockDocument(localization.structuredBlocks, "content");
+        currentTitle = localization.title;
+        currentSummary = localization.excerpt;
+      } else {
+        if (content.status !== "published" || route.revisionId === null ||
+          command.expectedRevisionId !== route.revisionId ||
+          command.expectedRevisionDraftVersion === null) return aiFailure("state_conflict");
+        const revisionRows = await transaction.select().from(editorialRevisions).where(and(
+          eq(editorialRevisions.id, route.revisionId),
+          eq(editorialRevisions.entityType, "content"),
+          eq(editorialRevisions.entityId, route.entityId),
+          eq(editorialRevisions.locale, "en"),
+          eq(editorialRevisions.status, "draft"),
+        )).limit(2).for("update", { of: editorialRevisions });
+        revision = revisionRows.length === 1 ? revisionRows[0]! : null;
+        const parsed = structuredRevisionSnapshotSchema.safeParse(revision?.snapshot);
+        if (!parsed.success || parsed.data.draftVersion === undefined) {
+          return aiFailure("state_conflict");
+        }
+        revisionSnapshot = parsed.data;
+        currentVersion = parsed.data.draftVersion;
+        currentDocument = parsed.data.document;
+        currentTitle = parsed.data.title;
+        currentSummary = parsed.data.excerpt;
+      }
+      const locked = await dependencies.disposition.lockCandidateForApplyWithinTransaction(
+        transaction,
+        {
+          runId: command.runId,
+          actor: authoritativeActor,
+          route,
+          expectedStateVersion: command.expectedRunStateVersion,
+          candidateHash: command.candidateHash,
+          expectedTargetVersion: command.expectedTargetVersion,
+          expectedRevisionId: command.expectedRevisionId,
+          expectedRevisionDraftVersion: command.expectedRevisionDraftVersion,
+          qualityRating: command.qualityRating,
+          qualityLabels: command.qualityLabels,
+          qualityComment: command.qualityComment,
+        },
+      );
+      if (locked.kind === "exact_replay") return { ok: true, value: locked.result };
+      if (locked.kind !== "ready") {
+        return aiFailure(locked.kind === "not_found_or_unauthorized"
+          ? "authorization_denied" : "state_conflict");
+      }
+      if (currentVersion !== command.expectedTargetVersion) return aiFailure("state_conflict");
+      const plan = await dependencies.planner.build({
+        transaction,
+        actor: { principalId: authoritativeActor.userId, roleKey: authoritativeActor.role },
+        evidence: locked.evidence,
+        command,
+      });
+      if (!plan.ok) return plan;
+      if (plan.value.owner !== "content" || plan.value.useCase !== locked.evidence.useCase ||
+        plan.value.targetDraftVersion !== currentVersion ||
+        plan.value.revisionId !== route.revisionId ||
+        (plan.value.useCase === "fabric_knowledge_draft" && content.channel !== "fabric_knowledge") ||
+        (plan.value.useCase === "sourcing_guide_draft" &&
+          content.channel !== "china_sourcing_guide") ||
+        (plan.value.useCase === "product_description_draft")) return aiFailure("state_conflict");
+      const composed = dependencies.planner.compose(
+        currentDocument,
+        plan.value.generatedBlocks,
+        "content",
+      );
+      if (!composed.ok) return composed;
+      const nextTitle = plan.value.title === undefined ? currentTitle : plan.value.title.trim();
+      const nextSummary = plan.value.summary === undefined ? currentSummary : plan.value.summary;
+      if (nextTitle.length === 0) return aiFailure("state_conflict");
+      const projection = await validateContentMedia(
+        transaction,
+        route.entityId,
+        composed.value,
+        undefined,
+      );
+      await assertIndexedContentRemainsReadable(transaction, route.entityId, projection.readableText);
+      const nextVersion = currentVersion + 1;
+      if (route.targetType === "content_draft") {
+        const updated = await transaction.update(contentLocalizations).set({
+          title: nextTitle,
+          excerpt: nextSummary,
+          structuredBlocks: composed.value,
+          blocksVersion: 1,
+          editorDocumentVersion: nextVersion,
+        }).where(and(
+          eq(contentLocalizations.contentId, route.entityId),
+          eq(contentLocalizations.locale, "en"),
+          eq(contentLocalizations.editorDocumentVersion, currentVersion),
+        )).returning({ version: contentLocalizations.editorDocumentVersion });
+        if (updated[0]?.version !== nextVersion) throw new ContentAiCandidateApplicationConflict();
+        if (plan.value.seoTitle !== undefined || plan.value.seoMetaDescription !== undefined) {
+          const rows = await transaction.select({ routeId: routes.id }).from(routes).where(and(
+            eq(routes.entityType, "content"), eq(routes.entityId, route.entityId),
+            eq(routes.locale, "en"), eq(routes.isCurrent, true),
+          )).limit(2).for("update", { of: routes });
+          if (rows.length !== 1) throw new ContentAiCandidateApplicationConflict();
+          const updatedSeo = await transaction.update(seoMetadata).set({
+            ...(plan.value.seoTitle === undefined ? {} : { title: plan.value.seoTitle }),
+            ...(plan.value.seoMetaDescription === undefined
+              ? {} : { metaDescription: plan.value.seoMetaDescription }),
+            updatedByUserId: authoritativeActor.userId,
+            updatedAt: new Date(),
+          }).where(eq(seoMetadata.routeId, rows[0]!.routeId)).returning({ id: seoMetadata.routeId });
+          if (updatedSeo.length !== 1) throw new ContentAiCandidateApplicationConflict();
+        }
+        await transaction.update(contents).set({ updatedAt: new Date() })
+          .where(eq(contents.id, route.entityId));
+      } else {
+        const current = revisionSnapshot!;
+        let seo = current.seo;
+        if (plan.value.seoTitle !== undefined || plan.value.seoMetaDescription !== undefined) {
+          if (seo === undefined) {
+            const rows = await transaction.select({
+              routeId: routes.id,
+              title: seoMetadata.title,
+              metaDescription: seoMetadata.metaDescription,
+              focusKeyword: seoMetadata.focusKeyword,
+            }).from(routes).innerJoin(seoMetadata, eq(seoMetadata.routeId, routes.id)).where(and(
+              eq(routes.entityType, "content"), eq(routes.entityId, route.entityId),
+              eq(routes.locale, "en"), eq(routes.isCurrent, true),
+            )).limit(2).for("update", { of: seoMetadata });
+            if (rows.length !== 1) return aiFailure("state_conflict");
+            seo = rows[0]!;
+          }
+          seo = {
+            ...seo,
+            ...(plan.value.seoTitle === undefined ? {} : { title: plan.value.seoTitle }),
+            ...(plan.value.seoMetaDescription === undefined
+              ? {} : { metaDescription: plan.value.seoMetaDescription }),
+          };
+        }
+        const nextSnapshot = structuredRevisionSnapshotSchema.parse({
+          ...current,
+          title: nextTitle,
+          excerpt: nextSummary,
+          document: composed.value,
+          draftVersion: nextVersion,
+          ...(seo === undefined ? {} : { seo }),
+        });
+        const updated = await transaction.update(editorialRevisions).set({
+          snapshot: nextSnapshot,
+          changeSummary: "AI Content Draft candidate applied",
+        }).where(and(eq(editorialRevisions.id, revision!.id),
+          eq(editorialRevisions.status, "draft"))).returning({ id: editorialRevisions.id });
+        if (updated.length !== 1) throw new ContentAiCandidateApplicationConflict();
+      }
+      const disposition = await dependencies.disposition.recordCandidateAppliedWithinTransaction(
+        transaction,
+        {
+          runId: command.runId,
+          actor: authoritativeActor,
+          expectedStateVersion: command.expectedRunStateVersion,
+          candidateHash: command.candidateHash,
+          disposition: plan.value.disposition,
+          qualityRating: command.qualityRating,
+          qualityLabels: command.qualityLabels,
+          qualityComment: command.qualityComment,
+          appliedTargetVersion: route.targetType === "content_draft" ? nextVersion : null,
+          appliedRevisionId: route.targetType === "editorial_revision" ? route.revisionId : null,
+          appliedRevisionVersion: route.targetType === "editorial_revision" ? nextVersion : null,
+        },
+      );
+      if (disposition.kind !== "updated") throw new ContentAiCandidateApplicationConflict();
+      await audit({
+        actorUserId: authoritativeActor.userId,
+        action: "ai.run.candidate_applied",
+        entityType: "ai_run",
+        entityId: command.runId,
+        beforeSummary: { stateVersion: command.expectedRunStateVersion,
+          targetVersion: command.expectedTargetVersion },
+        afterSummary: {
+          owner: "content",
+          useCase: plan.value.useCase,
+          disposition: plan.value.disposition,
+          runStateVersion: disposition.result.runStateVersion,
+          appliedTargetVersion: disposition.result.appliedTargetVersion,
+          appliedRevisionVersion: disposition.result.appliedRevisionDraftVersion,
+        },
+      });
+      return { ok: true, value: disposition.result };
+    }, {
+      ...options,
+      transactionConfig: { ...options.transactionConfig, isolationLevel: "serializable" },
+    });
+  } catch (error) {
+    return aiContentApplicationFailure(error);
+  }
 }

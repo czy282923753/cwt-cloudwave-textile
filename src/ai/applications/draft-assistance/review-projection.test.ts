@@ -6,14 +6,19 @@ import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json"
 import { draftOutputDefinitionV1 } from "@/ai/output/registry";
 import { attemptResponseFingerprintV2 } from "@/ai/runs/attempt-evidence";
 import type { AiRunAuthorizedEvidenceV1, AttemptHistoryEntryV2 } from "@/ai/runs/contracts";
+import { parseBlockDocument } from "@/editorial/blocks";
 
 import { buildAuthorizedDraftAssociationV1 } from "./association";
 import type {
+  ApplyAiDraftCandidateV1,
   DraftDurableAssociationWithoutHashV1,
   ProductionAiUseCase,
 } from "./contracts";
 import type { ReconstructibleDraftContextV1 } from "./context";
-import { createDraftReviewProjectionBuilderV1 } from "./review-projection";
+import {
+  composeDraftCandidateBlocksV1,
+  createDraftReviewProjectionBuilderV1,
+} from "./review-projection";
 
 const runId = "10000000-0000-4000-8000-000000000001";
 const actor = {
@@ -101,7 +106,10 @@ function rawPayload(useCase: ProductionAiUseCase): ReadonlyJsonObject {
         { type: "paragraph", text: evidence("Synthetic product paragraph") },
         { type: "heading", level: 2, text: evidence("Synthetic product heading") },
       ],
-      featureProposals: [], faqProposals: [], mediaTextProposals: [],
+      featureProposals: [evidence("Synthetic feature one"), evidence("Synthetic feature two")],
+      faqProposals: [{ question: evidence("Synthetic question?"),
+        answer: evidence("Synthetic answer.") }],
+      mediaTextProposals: [],
     };
     case "sourcing_guide_draft": return {
       schemaVersion: 1, useCase, locale: "en", titleProposal: evidence("Synthetic guide title"),
@@ -169,7 +177,8 @@ function evidence(useCase: ProductionAiUseCase): AiRunAuthorizedEvidenceV1 {
     queuedAt: "2026-01-01T00:00:00.000Z", candidateHash: candidate.hash,
     failureCode: null, humanDisposition: "not_evaluated", qualityRating: null,
     qualityLabels: [], cancelAvailable: false, manualRetryAvailable: false,
-    rejectAvailable: true,
+    rejectAvailable: true, applyAvailable: true,
+    appliedTargetVersion: null, appliedRevisionId: null, appliedRevisionVersion: null,
     targetType: target.targetType,
     targetProductId: target.targetType === "product_draft" ? target.targetProductId : null,
     targetContentId: target.targetType === "content_draft" ? target.targetContentId : null,
@@ -249,6 +258,49 @@ async function build(row: AiRunAuthorizedEvidenceV1, collisionId?: string) {
     ...(collisionId === undefined ? {} : { collisionId }),
   }));
   return builder.build({ scope: { mode: "read_only" } as never, actor, evidence: row });
+}
+
+async function buildPlan(
+  row: AiRunAuthorizedEvidenceV1,
+  mutate?: (command: ApplyAiDraftCandidateV1) => ApplyAiDraftCandidateV1,
+  collisionId?: string,
+) {
+  const builder = createDraftReviewProjectionBuilderV1(readers({
+    ...(collisionId === undefined ? {} : { collisionId }),
+  }));
+  const scope = { mode: "read_only" } as never;
+  const projected = await builder.build({ scope, actor, evidence: row });
+  if (!projected.ok) return projected;
+  const applicable = [
+    ...(projected.value.proposal.seo?.title ? [projected.value.proposal.seo.title] : []),
+    ...(projected.value.proposal.seo?.metaDescription
+      ? [projected.value.proposal.seo.metaDescription] : []),
+    ...projected.value.proposal.nodes,
+  ].filter((node) => !node.previewOnly);
+  const command: ApplyAiDraftCandidateV1 = {
+    runId: projected.value.run.id,
+    expectedRunStateVersion: projected.value.run.stateVersion,
+    candidateHash: projected.value.run.candidateHash,
+    expectedTargetVersion: projected.value.target.draftVersion,
+    expectedRevisionId: projected.value.target.revisionId,
+    expectedRevisionDraftVersion: projected.value.target.revisionId === null
+      ? null : projected.value.target.draftVersion,
+    decisions: applicable.map((node) => ({
+      candidatePath: node.path,
+      decision: "accepted" as const,
+      ...(node.kind === "block" || node.kind === "feature" || node.kind === "faq"
+        ? { insertAfterBlockId: null } : {}),
+    })),
+    qualityRating: null,
+    qualityLabels: [],
+    qualityComment: null,
+  };
+  return builder.buildApplicationPlan({
+    scope,
+    actor,
+    evidence: row,
+    command: mutate === undefined ? command : mutate(structuredClone(command)),
+  });
 }
 
 describe("server-authorized E3 review projection", () => {
@@ -384,5 +436,112 @@ describe("server-authorized E3 review projection", () => {
     expect(first.value.proposal.nodes[0]?.id).not.toBe(second.value.proposal.nodes[0]?.id);
     expect((await build(evidence("product_description_draft"),
       first.value.proposal.nodes[0]!.id)).ok).toBe(false);
+  });
+});
+
+describe("server-authorized E4 application plan", () => {
+  it.each([
+    ["product_description_draft", "product"],
+    ["seo_content_draft", "product"],
+    ["fabric_knowledge_draft", "content"],
+    ["sourcing_guide_draft", "content"],
+  ] as const)("maps %s through the strict stored Candidate as %s-owned", async (useCase, owner) => {
+    const result = await buildPlan(evidence(useCase));
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toMatchObject({ owner, useCase, disposition: "accepted" });
+    if (useCase === "seo_content_draft") {
+      expect(result.value.seoTitle).toBe("Synthetic textile title");
+      expect(result.value.generatedBlocks).toEqual([]);
+      expect(result.value.title).toBeUndefined();
+    } else {
+      expect(result.value.title).toMatch(/^Synthetic /);
+      expect(result.value.generatedBlocks).not.toHaveLength(0);
+    }
+    if (useCase === "product_description_draft") {
+      expect(result.value.generatedBlocks.filter((item) => item.block.type === "feature_list"))
+        .toHaveLength(1);
+      expect(result.value.generatedBlocks.filter((item) => item.block.type === "faq"))
+        .toHaveLength(1);
+    }
+    expect(JSON.stringify(result.value)).not.toMatch(/sourceRefs|src_01|targetProductId|targetContentId/);
+  });
+
+  it("rejects unknown, duplicate, preview-only, empty and locked-anchor decisions", async () => {
+    const base = evidence("product_description_draft");
+    expect((await buildPlan(base, (command) => ({
+      ...command,
+      decisions: [...command.decisions, command.decisions[0]!],
+    }))).ok).toBe(false);
+    expect((await buildPlan(base, (command) => ({
+      ...command,
+      decisions: [{ candidatePath: "/outline/0", decision: "accepted" }],
+    }))).ok).toBe(false);
+    expect((await buildPlan(base, (command) => ({
+      ...command,
+      decisions: command.decisions.map((decision) => ({
+        candidatePath: decision.candidatePath,
+        decision: "rejected" as const,
+      })),
+    }))).ok).toBe(false);
+    expect((await buildPlan(base, (command) => ({
+      ...command,
+      decisions: command.decisions.map((decision) => decision.insertAfterBlockId === undefined
+        ? decision : { ...decision, insertAfterBlockId: "locked-current" }),
+    }), "locked-current")).ok).toBe(false);
+  });
+
+  it("marks any edit, rejection or omission as accepted_with_edits", async () => {
+    const edited = await buildPlan(evidence("product_description_draft"), (command) => ({
+      ...command,
+      decisions: command.decisions.map((decision, index) => index === 0
+        ? { ...decision, editedText: "Synthetic operator-edited title" } : decision),
+    }));
+    expect(edited).toMatchObject({ ok: true, value: { disposition: "accepted_with_edits",
+      title: "Synthetic operator-edited title" } });
+    const partial = await buildPlan(evidence("product_description_draft"), (command) => ({
+      ...command,
+      decisions: command.decisions.map((decision, index) => index === 0
+        ? { candidatePath: decision.candidatePath, decision: "rejected" as const } : decision),
+    }));
+    expect(partial).toMatchObject({ ok: true, value: { disposition: "accepted_with_edits" } });
+  });
+
+  it("fails closed when run, hash, target or Revision fences drift", async () => {
+    for (const mutate of [
+      (command: ApplyAiDraftCandidateV1) => ({ ...command, runId: actor.principalId }),
+      (command: ApplyAiDraftCandidateV1) => ({ ...command, candidateHash: "f".repeat(64) }),
+      (command: ApplyAiDraftCandidateV1) => ({ ...command, expectedTargetVersion: 4 }),
+      (command: ApplyAiDraftCandidateV1) => ({ ...command,
+        expectedRevisionId: actor.principalId, expectedRevisionDraftVersion: 3 }),
+    ]) expect((await buildPlan(evidence("fabric_knowledge_draft"), mutate)).ok).toBe(false);
+  });
+
+  it("inserts generated Blocks only at explicit unlocked boundaries without changing old bytes/order", () => {
+    const current = parseBlockDocument({
+      version: 1 as const,
+      blocks: [
+        { id: "open-a", type: "paragraph" as const, text: "Before A" },
+        { id: "locked-b", type: "paragraph" as const, text: "Before B", locked: true },
+        { id: "open-c", type: "paragraph" as const, text: "Before C" },
+      ],
+    }, "product");
+    const generated = [{
+      candidatePath: "/descriptionBlocks/0",
+      ordinal: 1,
+      block: { id: `ai_${"1".repeat(60)}`, type: "paragraph" as const, text: "After A" },
+      insertAfterBlockId: "open-a",
+    }];
+    const composed = composeDraftCandidateBlocksV1(current, generated, "product");
+    expect(composed.ok).toBe(true);
+    if (!composed.ok) return;
+    expect(composed.value.blocks.map((block) => block.id))
+      .toEqual(["open-a", generated[0]!.block.id, "locked-b", "open-c"]);
+    expect(composed.value.blocks.filter((block) => block.id !== generated[0]!.block.id))
+      .toEqual(current.blocks);
+    expect(composeDraftCandidateBlocksV1(current, [{ ...generated[0]!,
+      insertAfterBlockId: "locked-b" }], "product").ok).toBe(false);
+    expect(composeDraftCandidateBlocksV1(current, [{ ...generated[0]!,
+      block: { ...generated[0]!.block, id: "open-c" } }], "product").ok).toBe(false);
   });
 });

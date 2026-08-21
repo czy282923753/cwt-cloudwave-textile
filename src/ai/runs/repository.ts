@@ -36,6 +36,9 @@ import {
 } from "./attempt-evidence";
 import type {
   ClaimedLeaseHandleV1,
+  AiCandidateApplyDispositionOutcomeV1,
+  AiCandidateApplyLockOutcomeV1,
+  AiCandidateApplyRouteV1,
   AiRunAuthorizedEvidenceV1,
   DispatchAuthorizationOutcomeV1,
   HeartbeatOutcomeV1,
@@ -151,7 +154,46 @@ export interface AiLifecycleBarrierHooksV1 {
   }): Promise<void>;
 }
 
-export interface AiRunRepositoryV1 {
+export interface AiCandidateDispositionPortV1 {
+  resolveApplyRouteWithinTransaction(
+    transaction: PhaseCPgDatabase,
+    input: { readonly runId: string; readonly actor: AuthoritativeAiActorV1 },
+  ): Promise<AiCandidateApplyRouteV1 | null>;
+  lockCandidateForApplyWithinTransaction(
+    transaction: PhaseCPgDatabase,
+    input: {
+      readonly runId: string;
+      readonly actor: AuthoritativeAiActorV1;
+      readonly route: AiCandidateApplyRouteV1;
+      readonly expectedStateVersion: number;
+      readonly candidateHash: string;
+      readonly expectedTargetVersion: number;
+      readonly expectedRevisionId: string | null;
+      readonly expectedRevisionDraftVersion: number | null;
+      readonly qualityRating: number | null;
+      readonly qualityLabels: readonly string[];
+      readonly qualityComment: string | null;
+    },
+  ): Promise<AiCandidateApplyLockOutcomeV1>;
+  recordCandidateAppliedWithinTransaction(
+    transaction: PhaseCPgDatabase,
+    input: {
+      readonly runId: string;
+      readonly actor: AuthoritativeAiActorV1;
+      readonly expectedStateVersion: number;
+      readonly candidateHash: string;
+      readonly disposition: "accepted" | "accepted_with_edits";
+      readonly qualityRating: number | null;
+      readonly qualityLabels: readonly string[];
+      readonly qualityComment: string | null;
+      readonly appliedTargetVersion: number | null;
+      readonly appliedRevisionId: string | null;
+      readonly appliedRevisionVersion: number | null;
+    },
+  ): Promise<AiCandidateApplyDispositionOutcomeV1>;
+}
+
+export interface AiRunRepositoryV1 extends AiCandidateDispositionPortV1 {
   claimOrRecover(input: {
     readonly executionEnvironment: "local" | "test" | "staging";
     readonly workerId: string;
@@ -432,6 +474,48 @@ export async function resolveAuthoritativeRunEntityTypeV1(
     ? revision.entityType : null;
 }
 
+async function resolveAuthoritativeApplyRouteV1(
+  transaction: PhaseCPgDatabase,
+  row: typeof aiRuns.$inferSelect,
+): Promise<AiCandidateApplyRouteV1 | null> {
+  if (row.targetType === "product_draft" && row.targetProductId !== null &&
+    row.targetContentId === null && row.targetRevisionId === null && row.targetLocale === "en") {
+    return {
+      owner: "product",
+      entityId: row.targetProductId,
+      targetType: "product_draft",
+      revisionId: null,
+    };
+  }
+  if (row.targetType === "content_draft" && row.targetContentId !== null &&
+    row.targetProductId === null && row.targetRevisionId === null && row.targetLocale === "en") {
+    return {
+      owner: "content",
+      entityId: row.targetContentId,
+      targetType: "content_draft",
+      revisionId: null,
+    };
+  }
+  if (row.targetType !== "editorial_revision" || row.targetRevisionId === null ||
+    row.targetProductId !== null || row.targetContentId !== null || row.targetLocale !== null) {
+    return null;
+  }
+  const selected = await transaction.select({
+    entityType: editorialRevisions.entityType,
+    entityId: editorialRevisions.entityId,
+    locale: editorialRevisions.locale,
+  }).from(editorialRevisions).where(eq(editorialRevisions.id, row.targetRevisionId)).limit(2);
+  const revision = selected.length === 1 ? selected[0] : undefined;
+  if (revision === undefined || revision.locale !== "en" ||
+    (revision.entityType !== "product" && revision.entityType !== "content")) return null;
+  return {
+    owner: revision.entityType,
+    entityId: revision.entityId,
+    targetType: "editorial_revision",
+    revisionId: row.targetRevisionId,
+  };
+}
+
 async function humanCanPerformRunOperationV1(
   transaction: PhaseCPgDatabase,
   row: typeof aiRuns.$inferSelect,
@@ -498,6 +582,75 @@ function humanMutationProjection(row: typeof aiRuns.$inferSelect) {
     humanDisposition: row.humanDisposition,
     qualityRating: row.qualityRating,
     qualityLabels: Object.freeze([...row.qualityLabels]),
+  };
+}
+
+async function authorizedEvidenceFromRowV1(
+  transaction: PhaseCPgDatabase,
+  row: typeof aiRuns.$inferSelect,
+  actor: AuthoritativeAiActorV1,
+): Promise<AiRunAuthorizedEvidenceV1> {
+  const summary = humanMutationProjection(row);
+  const candidate = row.candidateJson === null || jsonRecord(row.candidateJson) === undefined
+    ? null : jsonRecord(row.candidateJson) ?? null;
+  const context = jsonRecord(row.inputContextJson);
+  const sources = Array.isArray(row.inputSourcesJson) && row.inputSourcesJson.every((value) =>
+    jsonRecord(value) !== undefined,
+  ) ? row.inputSourcesJson.map((value) => jsonRecord(value)!) : null;
+  const history = attemptHistory(row.attemptHistoryJson);
+  const attemptObjects = history?.every((value) => jsonRecord(value) !== undefined)
+    ? history.map((value) => jsonRecord(value)!) : null;
+  if (context === undefined || sources === null || attemptObjects === null) {
+    throw new Error("Stored AI run review evidence was invalid.");
+  }
+  const cancelAvailable = (row.status === "pending" || row.status === "processing") &&
+    await humanCanPerformRunOperationV1(transaction, row, actor, "cancel");
+  const manualRetryAvailable =
+    await humanCanPerformRunOperationV1(transaction, row, actor, "manual_retry") &&
+    await manualRetryPolicyAllowsV1(transaction, row);
+  const dispositionAvailable = row.status === "draft_ready" &&
+    row.humanDisposition === "not_evaluated" && row.candidateHash !== null &&
+    await humanCanPerformRunOperationV1(transaction, row, actor, "disposition");
+  const route = await resolveAuthoritativeApplyRouteV1(transaction, row);
+  const applyAvailable = dispositionAvailable && route !== null &&
+    (actor.role === "admin" ||
+      route.owner === "product" && actor.role === "product_editor" ||
+      route.owner === "content" && actor.role === "content_editor");
+  return {
+    runId: row.id,
+    applicationClass: "draft_assistance",
+    useCase: row.useCase,
+    status: summary.status,
+    retryState: summary.retryState,
+    attemptCount: row.attemptCount,
+    stateVersion: row.stateVersion,
+    queuedAt: row.queuedAt.toISOString(),
+    targetType: row.targetType,
+    targetProductId: row.targetProductId,
+    targetContentId: row.targetContentId,
+    targetRevisionId: row.targetRevisionId,
+    targetLocale: row.targetLocale,
+    expectedTargetVersion: row.expectedTargetVersion,
+    targetSnapshotHash: row.targetSnapshotHash,
+    outputSchemaVersion: row.outputSchemaVersion,
+    policyVersion: row.policyVersion,
+    inputContext: context,
+    inputSources: sources as unknown as readonly import("@/ai/core/contracts").SafeInputSourceReferenceV1[],
+    inputHash: row.inputHash,
+    attemptHistory: attemptObjects,
+    candidateHash: row.candidateHash,
+    candidate,
+    failureCode: row.failureCode,
+    humanDisposition: row.humanDisposition,
+    qualityRating: row.qualityRating,
+    qualityLabels: Object.freeze([...row.qualityLabels]),
+    cancelAvailable,
+    manualRetryAvailable,
+    rejectAvailable: dispositionAvailable,
+    applyAvailable,
+    appliedTargetVersion: row.appliedTargetVersion,
+    appliedRevisionId: row.appliedRevisionId,
+    appliedRevisionVersion: row.appliedRevisionVersion,
   };
 }
 
@@ -1201,6 +1354,113 @@ export function createAiRunRepositoryV1(
       });
     },
 
+    async resolveApplyRouteWithinTransaction(transaction, input) {
+      const rows = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId)).limit(2);
+      const row = rows.length === 1 ? rows[0] : undefined;
+      if (row === undefined || !await humanCanPerformRunOperationV1(
+        transaction, row, input.actor, "disposition",
+      )) return null;
+      return resolveAuthoritativeApplyRouteV1(transaction, row);
+    },
+
+    async lockCandidateForApplyWithinTransaction(transaction, input) {
+      const rows = await transaction.select().from(aiRuns).where(eq(aiRuns.id, input.runId))
+        .limit(2).for("update", { of: aiRuns });
+      const row = rows.length === 1 ? rows[0] : undefined;
+      if (row === undefined || !await humanCanPerformRunOperationV1(
+        transaction, row, input.actor, "disposition",
+      )) return { kind: "not_found_or_unauthorized" };
+      const route = await resolveAuthoritativeApplyRouteV1(transaction, row);
+      if (route === null || route.owner !== input.route.owner ||
+        route.entityId !== input.route.entityId || route.targetType !== input.route.targetType ||
+        route.revisionId !== input.route.revisionId ||
+        row.expectedTargetVersion !== input.expectedTargetVersion ||
+        input.expectedRevisionId !== route.revisionId ||
+        (route.targetType === "editorial_revision"
+          ? input.expectedRevisionDraftVersion !== row.expectedTargetVersion
+          : input.expectedRevisionDraftVersion !== null)) {
+        return { kind: "state_conflict" };
+      }
+      const qualityMatches = row.qualityRating === input.qualityRating &&
+        row.qualityComment === input.qualityComment &&
+        row.qualityLabels.length === input.qualityLabels.length &&
+        row.qualityLabels.every((label, index) => label === input.qualityLabels[index]);
+      if ((row.humanDisposition === "accepted" ||
+        row.humanDisposition === "accepted_with_edits") &&
+        row.status === "draft_ready" && row.candidateHash === input.candidateHash &&
+        row.stateVersion === input.expectedStateVersion + 1 && qualityMatches &&
+        ((route.targetType === "editorial_revision" && row.appliedTargetVersion === null &&
+          row.appliedRevisionId === route.revisionId && row.appliedRevisionVersion !== null) ||
+          (route.targetType !== "editorial_revision" && row.appliedTargetVersion !== null &&
+            row.appliedRevisionId === null && row.appliedRevisionVersion === null))) {
+        return {
+          kind: "exact_replay",
+          result: {
+            runId: row.id,
+            runStateVersion: row.stateVersion,
+            disposition: row.humanDisposition,
+            appliedTargetVersion: row.appliedTargetVersion,
+            appliedRevisionId: row.appliedRevisionId,
+            appliedRevisionDraftVersion: row.appliedRevisionVersion,
+            exactReplay: true,
+          },
+        };
+      }
+      if (row.stateVersion !== input.expectedStateVersion) return { kind: "state_conflict" };
+      if (row.status !== "draft_ready" || row.humanDisposition !== "not_evaluated" ||
+        row.candidateHash !== input.candidateHash) return { kind: "transition_forbidden" };
+      return {
+        kind: "ready",
+        route,
+        evidence: await authorizedEvidenceFromRowV1(transaction, row, input.actor),
+      };
+    },
+
+    async recordCandidateAppliedWithinTransaction(transaction, input) {
+      const directLink = input.appliedTargetVersion !== null &&
+        input.appliedRevisionId === null && input.appliedRevisionVersion === null;
+      const revisionLink = input.appliedTargetVersion === null &&
+        input.appliedRevisionId !== null && input.appliedRevisionVersion !== null;
+      if (!directLink && !revisionLink) return { kind: "transition_forbidden" };
+      const updated = await transaction.update(aiRuns).set({
+        humanDisposition: input.disposition,
+        qualityRating: input.qualityRating,
+        qualityLabels: [...input.qualityLabels],
+        qualityComment: input.qualityComment,
+        evaluatedByUserId: input.actor.userId,
+        evaluatedAt: sql`statement_timestamp()`,
+        appliedTargetVersion: input.appliedTargetVersion,
+        appliedRevisionId: input.appliedRevisionId,
+        appliedRevisionVersion: input.appliedRevisionVersion,
+        stateVersion: input.expectedStateVersion + 1,
+        updatedAt: sql`statement_timestamp()`,
+      }).where(and(
+        eq(aiRuns.id, input.runId),
+        eq(aiRuns.stateVersion, input.expectedStateVersion),
+        eq(aiRuns.status, "draft_ready"),
+        eq(aiRuns.humanDisposition, "not_evaluated"),
+        eq(aiRuns.candidateHash, input.candidateHash),
+      )).returning();
+      const row = updated[0];
+      if (row === undefined) return { kind: "state_conflict" };
+      if ((row.humanDisposition !== "accepted" &&
+        row.humanDisposition !== "accepted_with_edits") || row.candidateHash === null) {
+        return { kind: "transition_forbidden" };
+      }
+      return {
+        kind: "updated",
+        result: {
+          runId: row.id,
+          runStateVersion: row.stateVersion,
+          disposition: row.humanDisposition,
+          appliedTargetVersion: row.appliedTargetVersion,
+          appliedRevisionId: row.appliedRevisionId,
+          appliedRevisionDraftVersion: row.appliedRevisionVersion,
+          exactReplay: false,
+        },
+      };
+    },
+
     async cancelWithinGovernedTransaction(transaction, input) {
       const lock = await tryLifecycleLock(transaction, null);
       if (lock.kind === "lock_busy") return lock;
@@ -1467,59 +1727,7 @@ export function createAiRunRepositoryV1(
       if (row === undefined || !await humanCanPerformRunOperationV1(
         transaction, row, input.actor, "inspect",
       )) return null;
-      const summary = humanMutationProjection(row);
-      const candidate = row.candidateJson === null || jsonRecord(row.candidateJson) === undefined
-        ? null : jsonRecord(row.candidateJson) ?? null;
-      const context = jsonRecord(row.inputContextJson);
-      const sources = Array.isArray(row.inputSourcesJson) && row.inputSourcesJson.every((value) =>
-        jsonRecord(value) !== undefined,
-      ) ? row.inputSourcesJson.map((value) => jsonRecord(value)!) : null;
-      const history = attemptHistory(row.attemptHistoryJson);
-      const attemptObjects = history?.every((value) => jsonRecord(value) !== undefined)
-        ? history.map((value) => jsonRecord(value)!) : null;
-      if (context === undefined || sources === null || attemptObjects === null) {
-        throw new Error("Stored AI run review evidence was invalid.");
-      }
-      const cancelAvailable = (row.status === "pending" || row.status === "processing") &&
-        await humanCanPerformRunOperationV1(transaction, row, input.actor, "cancel");
-      const manualRetryAvailable =
-        await humanCanPerformRunOperationV1(transaction, row, input.actor, "manual_retry") &&
-        await manualRetryPolicyAllowsV1(transaction, row);
-      const rejectAvailable = row.status === "draft_ready" &&
-        row.humanDisposition === "not_evaluated" && row.candidateHash !== null &&
-        await humanCanPerformRunOperationV1(transaction, row, input.actor, "disposition");
-      return {
-        runId: row.id,
-        applicationClass: "draft_assistance",
-        useCase: row.useCase,
-        status: summary.status,
-        retryState: summary.retryState,
-        attemptCount: row.attemptCount,
-        stateVersion: row.stateVersion,
-        queuedAt: row.queuedAt.toISOString(),
-        targetType: row.targetType,
-        targetProductId: row.targetProductId,
-        targetContentId: row.targetContentId,
-        targetRevisionId: row.targetRevisionId,
-        targetLocale: row.targetLocale,
-        expectedTargetVersion: row.expectedTargetVersion,
-        targetSnapshotHash: row.targetSnapshotHash,
-        outputSchemaVersion: row.outputSchemaVersion,
-        policyVersion: row.policyVersion,
-        inputContext: context,
-        inputSources: sources as unknown as readonly import("@/ai/core/contracts").SafeInputSourceReferenceV1[],
-        inputHash: row.inputHash,
-        attemptHistory: attemptObjects,
-        candidateHash: row.candidateHash,
-        candidate,
-        failureCode: row.failureCode,
-        humanDisposition: row.humanDisposition,
-        qualityRating: row.qualityRating,
-        qualityLabels: Object.freeze([...row.qualityLabels]),
-        cancelAvailable,
-        manualRetryAvailable,
-        rejectAvailable,
-      };
+      return authorizedEvidenceFromRowV1(transaction, row, input.actor);
     },
 
     async readPricingForWorker(runId) {

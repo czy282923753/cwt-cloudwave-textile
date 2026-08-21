@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
 import { z } from "zod";
 
 import {
@@ -34,12 +35,14 @@ import {
   draftTargetFromAssociationV1,
 } from "./association";
 import type {
+  ApplyAiDraftCandidateV1,
   AiDraftReviewProjectionV1,
   DraftAssistanceCommandV1,
   DraftDurableAssociationWithoutHashV1,
   ProductionAiUseCase,
   ReviewProposalNodeV1,
 } from "./contracts";
+import { applyAiDraftCandidateV1Schema } from "./contracts";
 import {
   decodeReconstructibleDraftContextV1,
   decodeStoredDraftInputSourcesV1,
@@ -47,7 +50,18 @@ import {
   type ReconstructibleDraftContextV1,
   type StoredDraftInputSourceV1,
 } from "./context";
-import type { DraftConsistentReadScope } from "./read-scopes";
+import {
+  type DraftConsistentReadScope,
+  type DraftTransactionScopeOperationsV1,
+  withTransactionBoundDraftEnqueueScope,
+} from "./read-scopes";
+import type { AppDatabase } from "@/db/types";
+import {
+  blockSchema,
+  parseBlockDocument,
+  type BlockDocument,
+  type EditorialBlock,
+} from "@/editorial/blocks";
 
 const hashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const derivedReferenceSchema = z.object({
@@ -343,7 +357,11 @@ function proposalNodes(input: {
     nodes.push(node);
     return true;
   };
-  const addBlock = (block: Readonly<Record<string, unknown>>, path: string): boolean => {
+  const addBlock = (
+    block: Readonly<Record<string, unknown>>,
+    path: string,
+    previewOnly = false,
+  ): boolean => {
     const text = blockText(block);
     return addNode({
       path,
@@ -353,7 +371,7 @@ function proposalNodes(input: {
       beforeText: null,
       details: text,
       editable: block.type === "heading" || block.type === "paragraph",
-      previewOnly: false,
+      previewOnly,
     });
   };
   const titleBefore = input.before.kind === "product" ? input.before.name : input.before.title;
@@ -380,7 +398,7 @@ function proposalNodes(input: {
       }
     }
     for (const [index, block] of input.payload.blocks.entries()) {
-      if (!addBlock(block as unknown as Readonly<Record<string, unknown>>, `/blocks/${index}`)) {
+      if (!addBlock(block as unknown as Readonly<Record<string, unknown>>, `/blocks/${index}`, true)) {
         return aiFailure("output_policy_rejected");
       }
     }
@@ -474,9 +492,317 @@ async function targetSnapshot<TQueryResult extends PgQueryResultHKT>(
 ): Promise<AiServiceResult<AiDraftTargetSnapshotV1>> {
   if (input.association.targetType === "product_draft") return readers.product.readTargetSnapshot(input);
   if (input.association.targetType === "content_draft") return readers.content.readTargetSnapshot(input);
+  if (input.actor.roleKey === "product_editor") {
+    return readers.product.readTargetSnapshot(input);
+  }
+  if (input.actor.roleKey === "content_editor") {
+    return readers.content.readTargetSnapshot(input);
+  }
   const product = await readers.product.readTargetSnapshot(input);
-  if (product.ok || product.error.code !== "target_scope_mismatch") return product;
-  return readers.content.readTargetSnapshot(input);
+  if (product.ok) return product;
+  const content = await readers.content.readTargetSnapshot(input);
+  if (content.ok) return content;
+  return product.error.code === "authorization_denied" ||
+    content.error.code === "authorization_denied"
+    ? aiFailure("authorization_denied") : product;
+}
+
+export interface DraftCandidateGeneratedBlockV1 {
+  readonly candidatePath: string;
+  readonly ordinal: number;
+  readonly block: EditorialBlock;
+  readonly insertAfterBlockId: string | null;
+}
+
+export interface DraftCandidateApplicationPlanV1 {
+  readonly owner: "product" | "content";
+  readonly useCase: ProductionAiUseCase;
+  readonly projectionKey: string;
+  readonly targetDraftVersion: number;
+  readonly revisionId: string | null;
+  readonly title?: string;
+  readonly summary?: string | null;
+  readonly seoTitle?: string | null;
+  readonly seoMetaDescription?: string | null;
+  readonly generatedBlocks: readonly DraftCandidateGeneratedBlockV1[];
+  readonly mediaText: readonly {
+    readonly placementRef: `media_${string}`;
+    readonly altText?: string | null;
+    readonly caption?: string | null;
+  }[];
+  readonly mediaSelectionHashes: readonly string[];
+  readonly disposition: "accepted" | "accepted_with_edits";
+}
+
+export function composeDraftCandidateBlocksV1(
+  current: BlockDocument,
+  generated: readonly DraftCandidateGeneratedBlockV1[],
+  owner: "product" | "content",
+): AiServiceResult<BlockDocument> {
+  const currentIds = new Set(current.blocks.map((block) => block.id));
+  const generatedIds = new Set<string>();
+  if (generated.some((item) => {
+    if (generatedIds.has(item.block.id) || currentIds.has(item.block.id)) return true;
+    generatedIds.add(item.block.id);
+    if (item.insertAfterBlockId === null) return false;
+    const anchor = current.blocks.find((block) => block.id === item.insertAfterBlockId);
+    return anchor === undefined || anchor.locked === true;
+  })) return aiFailure("state_conflict");
+  const atStart = generated.filter((item) => item.insertAfterBlockId === null);
+  const byAnchor = new Map<string, DraftCandidateGeneratedBlockV1[]>();
+  for (const item of generated) {
+    if (item.insertAfterBlockId === null) continue;
+    const values = byAnchor.get(item.insertAfterBlockId) ?? [];
+    values.push(item);
+    byAnchor.set(item.insertAfterBlockId, values);
+  }
+  const blocks: EditorialBlock[] = [...atStart.map((item) => item.block)];
+  for (const existing of current.blocks) {
+    blocks.push(existing);
+    blocks.push(...(byAnchor.get(existing.id) ?? []).map((item) => item.block));
+  }
+  try {
+    const document = parseBlockDocument({ version: 1, blocks }, owner);
+    const existingAfter = document.blocks.filter((block) => currentIds.has(block.id));
+    if (JSON.stringify(existingAfter) !== JSON.stringify(current.blocks)) {
+      return aiFailure("state_conflict");
+    }
+    return aiSuccess(document);
+  } catch {
+    return aiFailure("state_conflict");
+  }
+}
+
+function allReviewProposalNodes(
+  projection: AiDraftReviewProjectionV1,
+): readonly ReviewProposalNodeV1[] {
+  return [
+    ...(projection.proposal.seo?.title ? [projection.proposal.seo.title] : []),
+    ...(projection.proposal.seo?.metaDescription
+      ? [projection.proposal.seo.metaDescription] : []),
+    ...projection.proposal.nodes,
+  ];
+}
+
+function plainCandidateBlock(
+  value: Readonly<Record<string, unknown>>,
+  id: string,
+  editedText: string | undefined,
+): EditorialBlock | null {
+  const text = (candidate: unknown): string | null =>
+    typeof candidate === "object" && candidate !== null && !Array.isArray(candidate) &&
+      typeof (candidate as { readonly text?: unknown }).text === "string"
+      ? (candidate as { readonly text: string }).text : null;
+  let raw: unknown;
+  switch (value.type) {
+    case "heading": raw = {
+      id, type: "heading", level: value.level,
+      text: editedText ?? text(value.text),
+    }; break;
+    case "paragraph": raw = {
+      id, type: "paragraph", text: editedText ?? text(value.text),
+    }; break;
+    case "feature_list":
+    case "bullet_list": raw = {
+      id, type: value.type,
+      items: Array.isArray(value.items) ? value.items.map(text) : [],
+    }; break;
+    case "callout": raw = {
+      id, type: "callout",
+      ...(value.title === undefined ? {} : { title: text(value.title) }),
+      text: text(value.text),
+    }; break;
+    case "faq": raw = {
+      id, type: "faq",
+      items: Array.isArray(value.items) ? value.items.map((item) => {
+        const object = typeof item === "object" && item !== null && !Array.isArray(item)
+          ? item as Readonly<Record<string, unknown>> : {};
+        return { question: text(object.question), answer: text(object.answer) };
+      }) : [],
+    }; break;
+    default: return null;
+  }
+  const parsed = blockSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+function boundedEditedValue(node: ReviewProposalNodeV1, editedText: string | undefined): string {
+  return editedText === undefined ? node.proposedText : editedText;
+}
+
+function buildApplicationPlan(
+  projection: AiDraftReviewProjectionV1,
+  candidate: ValidCandidate,
+  evidence: AiRunAuthorizedEvidenceV1,
+  untrustedCommand: ApplyAiDraftCandidateV1,
+): AiServiceResult<DraftCandidateApplicationPlanV1> {
+  const decoded = applyAiDraftCandidateV1Schema.safeParse(untrustedCommand);
+  if (!decoded.success) return aiFailure("state_conflict");
+  const command = decoded.data;
+  if (command.runId !== projection.run.id ||
+    command.expectedRunStateVersion !== projection.run.stateVersion ||
+    command.candidateHash !== projection.run.candidateHash ||
+    command.expectedTargetVersion !== projection.target.draftVersion ||
+    command.expectedRevisionId !== projection.target.revisionId ||
+    command.expectedRevisionDraftVersion !==
+      (projection.target.revisionId === null ? null : projection.target.draftVersion)) {
+    return aiFailure("state_conflict");
+  }
+  const nodes = allReviewProposalNodes(projection);
+  const actionable = nodes.filter((node) => !node.previewOnly);
+  const nodeByPath = new Map(actionable.map((node) => [node.path, node]));
+  const decisions = new Map(command.decisions.map((decision) => [decision.candidatePath, decision]));
+  if (decisions.size !== actionable.length || command.decisions.length !== actionable.length ||
+    actionable.some((node) => !decisions.has(node.path)) ||
+    command.decisions.some((decision) => !nodeByPath.has(decision.candidatePath))) {
+    return aiFailure("state_conflict");
+  }
+  let acceptedCount = 0;
+  let pristine = true;
+  const generatedBlocks: DraftCandidateGeneratedBlockV1[] = [];
+  const media = new Map<string, {
+    placementRef: `media_${string}`;
+    altText?: string | null;
+    caption?: string | null;
+  }>();
+  const result: {
+    title?: string;
+    summary?: string | null;
+    seoTitle?: string | null;
+    seoMetaDescription?: string | null;
+  } = {};
+  const acceptedFeatures: { node: ReviewProposalNodeV1; text: string; anchor: string | null }[] = [];
+  const acceptedFaqs: { node: ReviewProposalNodeV1; question: string; answer: string;
+    anchor: string | null }[] = [];
+  for (const node of actionable) {
+    const decision = decisions.get(node.path)!;
+    if (decision.decision === "rejected") {
+      pristine = false;
+      continue;
+    }
+    acceptedCount += 1;
+    if (decision.editedText !== undefined) {
+      if (!node.editable) return aiFailure("state_conflict");
+      if (decision.editedText !== node.proposedText) pristine = false;
+    }
+    const requiresAnchor = node.kind === "block" || node.kind === "feature" || node.kind === "faq";
+    const hasAnchor = Object.prototype.hasOwnProperty.call(decision, "insertAfterBlockId");
+    if (requiresAnchor !== hasAnchor || (!requiresAnchor && decision.insertAfterBlockId !== undefined)) {
+      return aiFailure("state_conflict");
+    }
+    if (requiresAnchor) {
+      const anchor = decision.insertAfterBlockId ?? null;
+      const currentAnchor = anchor === null ? undefined
+        : projection.before.document.find((block) => block.id === anchor);
+      if (anchor !== null && (currentAnchor === undefined || currentAnchor.locked)) {
+        return aiFailure("state_conflict");
+      }
+    }
+    const value = boundedEditedValue(node, decision.editedText);
+    if (candidate.payload.useCase === "seo_content_draft") {
+      if (node.path === "/titleProposal") result.seoTitle = value.trim() || null;
+      else if (node.path === "/metaDescriptionProposal") {
+        result.seoMetaDescription = value.trim() || null;
+      } else return aiFailure("state_conflict");
+    } else if (candidate.payload.useCase === "product_description_draft") {
+      if (node.path === "/displayNameProposal") result.title = value;
+      else if (node.path === "/summaryProposal") result.summary = value.trim() || null;
+      else if (node.path.startsWith("/descriptionBlocks/")) {
+        const index = Number(node.path.slice("/descriptionBlocks/".length));
+        const block = candidate.payload.descriptionBlocks[index];
+        const plain = block === undefined ? null : plainCandidateBlock(
+          block as unknown as Readonly<Record<string, unknown>>, node.id, decision.editedText,
+        );
+        if (plain === null) return aiFailure("state_conflict");
+        generatedBlocks.push({ candidatePath: node.path, ordinal: node.ordinal, block: plain,
+          insertAfterBlockId: decision.insertAfterBlockId ?? null });
+      } else if (node.path.startsWith("/featureProposals/")) {
+        acceptedFeatures.push({ node, text: value,
+          anchor: decision.insertAfterBlockId ?? null });
+      } else if (node.path.startsWith("/faqProposals/")) {
+        const index = Number(node.path.slice("/faqProposals/".length));
+        const faq = candidate.payload.faqProposals[index];
+        if (faq === undefined) return aiFailure("state_conflict");
+        acceptedFaqs.push({ node, question: faq.question.text, answer: faq.answer.text,
+          anchor: decision.insertAfterBlockId ?? null });
+      } else {
+        const match = /^\/mediaTextProposals\/(\d+)\/(altText|caption)$/.exec(node.path);
+        if (match === null) return aiFailure("state_conflict");
+        const index = Number(match[1]);
+        const field = match[2] as "altText" | "caption";
+        const proposal = candidate.payload.mediaTextProposals[index];
+        if (proposal === undefined) return aiFailure("state_conflict");
+        const existing = media.get(proposal.placementRef) ?? {
+          placementRef: proposal.placementRef as `media_${string}`,
+        };
+        media.set(proposal.placementRef, { ...existing, [field]: value.trim() || null });
+      }
+    } else {
+      if (node.path === "/titleProposal") result.title = value;
+      else if (node.path === "/summaryProposal") result.summary = value.trim() || null;
+      else if (node.path.startsWith("/blocks/")) {
+        const index = Number(node.path.slice("/blocks/".length));
+        const block = candidate.payload.blocks[index];
+        const plain = block === undefined ? null : plainCandidateBlock(
+          block as unknown as Readonly<Record<string, unknown>>, node.id, decision.editedText,
+        );
+        if (plain === null) return aiFailure("state_conflict");
+        generatedBlocks.push({ candidatePath: node.path, ordinal: node.ordinal, block: plain,
+          insertAfterBlockId: decision.insertAfterBlockId ?? null });
+      } else return aiFailure("state_conflict");
+    }
+  }
+  if (acceptedCount === 0) return aiFailure("state_conflict");
+  const aggregate = <T extends { node: ReviewProposalNodeV1; anchor: string | null }>(
+    values: readonly T[],
+    block: (id: string) => EditorialBlock | null,
+  ): boolean => {
+    if (values.length === 0) return true;
+    if (values.some((value) => value.anchor !== values[0]!.anchor)) return false;
+    const built = block(values[0]!.node.id);
+    if (built === null) return false;
+    generatedBlocks.push({ candidatePath: values[0]!.node.path,
+      ordinal: values[0]!.node.ordinal, block: built, insertAfterBlockId: values[0]!.anchor });
+    return true;
+  };
+  if (!aggregate(acceptedFeatures, (id) => {
+    const parsed = blockSchema.safeParse({ id, type: "feature_list",
+      items: acceptedFeatures.map((item) => item.text) });
+    return parsed.success ? parsed.data : null;
+  }) || !aggregate(acceptedFaqs, (id) => {
+    const parsed = blockSchema.safeParse({ id, type: "faq",
+      items: acceptedFaqs.map((item) => ({ question: item.question, answer: item.answer })) });
+    return parsed.success ? parsed.data : null;
+  })) return aiFailure("state_conflict");
+  generatedBlocks.sort((left, right) => left.ordinal - right.ordinal);
+  const anchorIndex = (anchor: string | null): number => anchor === null ? -1
+    : projection.before.document.findIndex((block) => block.id === anchor);
+  if (generatedBlocks.some((block, index) => index > 0 &&
+    anchorIndex(block.insertAfterBlockId) < anchorIndex(generatedBlocks[index - 1]!.insertAfterBlockId))) {
+    return aiFailure("state_conflict");
+  }
+  const storedSources = decodeStoredDraftInputSourcesV1(evidence.inputSources);
+  if (!storedSources.ok) return aiFailure("context_provenance_mismatch");
+  const mediaSelectionHashes = storedSources.value.filter((source) =>
+    source.sourceClass === "product_media_placement").map((source) =>
+    source.sourceIdentity.selectionSha256);
+  if (projection.before.kind === "product" &&
+    mediaSelectionHashes.length !== projection.before.mediaText.length ||
+    projection.before.kind === "content" && mediaSelectionHashes.length !== 0) {
+    return aiFailure("context_provenance_mismatch");
+  }
+  return aiSuccess({
+    owner: projection.target.kind,
+    useCase: projection.run.useCase,
+    projectionKey: projection.projectionKey,
+    targetDraftVersion: projection.target.draftVersion,
+    revisionId: projection.target.revisionId,
+    ...result,
+    generatedBlocks,
+    mediaText: [...media.values()],
+    mediaSelectionHashes,
+    disposition: pristine ? "accepted" : "accepted_with_edits",
+  });
 }
 
 export interface DraftReviewProjectionBuilderV1<TQueryResult extends PgQueryResultHKT> {
@@ -485,13 +811,18 @@ export interface DraftReviewProjectionBuilderV1<TQueryResult extends PgQueryResu
     readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
     readonly evidence: AiRunAuthorizedEvidenceV1;
   }): Promise<AiServiceResult<AiDraftReviewProjectionV1>>;
+  buildApplicationPlan(input: {
+    readonly scope: DraftConsistentReadScope<TQueryResult>;
+    readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
+    readonly evidence: AiRunAuthorizedEvidenceV1;
+    readonly command: ApplyAiDraftCandidateV1;
+  }): Promise<AiServiceResult<DraftCandidateApplicationPlanV1>>;
 }
 
 export function createDraftReviewProjectionBuilderV1<
   TQueryResult extends PgQueryResultHKT,
 >(readers: DomainReadersV1<TQueryResult>): DraftReviewProjectionBuilderV1<TQueryResult> {
-  return {
-    async build(input) {
+  const build: DraftReviewProjectionBuilderV1<TQueryResult>["build"] = async (input) => {
       const context = decodeReconstructibleDraftContextV1(input.evidence.inputContext);
       const storedSources = decodeStoredDraftInputSourcesV1(input.evidence.inputSources);
       const contextHash = canonicalJsonHash(input.evidence.inputContext);
@@ -698,11 +1029,71 @@ export function createDraftReviewProjectionBuilderV1<
         proposal: nodes.value,
       };
       return target.value.owner === "product"
-        ? aiSuccess({ ...base, target: { kind: "product", locale: "en", draftVersion: target.value.editVersion },
+        ? aiSuccess({ ...base, target: { kind: "product", locale: "en", draftVersion: target.value.editVersion,
+          revisionId: target.value.revisionId },
           before: before as Extract<AiDraftReviewProjectionV1, { target: { kind: "product" } }>["before"] })
         : aiSuccess({ ...base, target: { kind: "content", locale: "en", draftVersion: target.value.editVersion,
-          channel: (target.value as ContentAiTargetSnapshotV1).channel },
+          revisionId: target.value.revisionId, channel: (target.value as ContentAiTargetSnapshotV1).channel },
           before: before as Extract<AiDraftReviewProjectionV1, { target: { kind: "content" } }>["before"] });
+  };
+  return {
+    build,
+    async buildApplicationPlan(input) {
+      const projection = await build(input);
+      if (!projection.ok) return projection;
+      const context = decodeReconstructibleDraftContextV1(input.evidence.inputContext);
+      if (!context.ok) return context;
+      const candidate = validateCandidate(input.evidence, context.value);
+      return candidate.ok
+        ? buildApplicationPlan(projection.value, candidate.value, input.evidence, input.command)
+        : candidate;
+    },
+  };
+}
+
+export interface DraftCandidateApplicationPlannerV1 {
+  build(input: {
+    readonly transaction: AppDatabase<PostgresJsQueryResultHKT>;
+    readonly actor: import("@/ai/core/contracts").CoreAiActorV1;
+    readonly evidence: AiRunAuthorizedEvidenceV1;
+    readonly command: ApplyAiDraftCandidateV1;
+  }): Promise<AiServiceResult<DraftCandidateApplicationPlanV1>>;
+  compose(
+    current: BlockDocument,
+    generated: readonly DraftCandidateGeneratedBlockV1[],
+    owner: "product" | "content",
+  ): AiServiceResult<BlockDocument>;
+}
+
+export function createDraftCandidateApplicationPlannerV1(
+  readers: DomainReadersV1<PostgresJsQueryResultHKT>,
+): DraftCandidateApplicationPlannerV1 {
+  const builder = createDraftReviewProjectionBuilderV1(readers);
+  const unavailableOperations: DraftTransactionScopeOperationsV1 = {
+    async findReplay() { throw new Error("Apply review scope cannot enqueue a run."); },
+    async authorizeLockAndSnapshotTargetForNewRequest() {
+      throw new Error("Apply review scope cannot authorize an enqueue target.");
+    },
+    async lockSelectedConfigForNewRequest() {
+      throw new Error("Apply review scope cannot read configuration.");
+    },
+    async insertPreparedWithRequiredAudit() {
+      throw new Error("Apply review scope cannot insert a run.");
+    },
+  };
+  return {
+    compose: composeDraftCandidateBlocksV1,
+    build(input) {
+      return withTransactionBoundDraftEnqueueScope(
+        input.transaction,
+        unavailableOperations,
+        (scope) => builder.buildApplicationPlan({
+          scope,
+          actor: input.actor,
+          evidence: input.evidence,
+          command: input.command,
+        }),
+      );
     },
   };
 }

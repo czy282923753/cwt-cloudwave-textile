@@ -1,6 +1,7 @@
 import type { UserRole } from "@/auth/permissions";
 import type { ExplicitContextSelector } from "@/ai/context/contracts";
 import type { AiErrorCode, AiServiceResult } from "@/ai/errors";
+import { z } from "zod";
 
 export const productionAiUseCases = [
   "seo_content_draft",
@@ -10,6 +11,87 @@ export const productionAiUseCases = [
 ] as const;
 
 export type ProductionAiUseCase = (typeof productionAiUseCases)[number];
+
+export const aiQualityLabelsV1 = [
+  "factual_issue",
+  "relevance",
+  "clarity",
+  "tone",
+  "format",
+  "duplication",
+  "unsafe_claim",
+] as const;
+
+export type AiQualityLabelV1 = (typeof aiQualityLabelsV1)[number];
+
+const applyUuidSchema = z.string().uuid();
+const applyHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
+const applyVersionSchema = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+const applyBlockIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
+const applyEditedTextSchema = z.string().refine((value) =>
+  Array.from(value).length <= 20_000 && !value.includes("\r") && !value.includes("\0"),
+);
+
+export const candidateNodeDecisionV1Schema = z.object({
+  candidatePath: z.string().min(1).max(200).regex(/^\/[A-Za-z][A-Za-z0-9]*(?:\/[A-Za-z0-9]+)*$/),
+  decision: z.enum(["accepted", "rejected"]),
+  editedText: applyEditedTextSchema.optional(),
+  insertAfterBlockId: applyBlockIdSchema.nullable().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.decision === "rejected" &&
+    (value.editedText !== undefined || value.insertAfterBlockId !== undefined)) {
+    context.addIssue({ code: "custom", message: "Rejected decisions cannot carry edits or anchors." });
+  }
+});
+
+export const applyAiDraftCandidateV1Schema = z.object({
+  runId: applyUuidSchema,
+  expectedRunStateVersion: applyVersionSchema,
+  candidateHash: applyHashSchema,
+  expectedTargetVersion: applyVersionSchema,
+  expectedRevisionId: applyUuidSchema.nullable(),
+  expectedRevisionDraftVersion: applyVersionSchema.nullable(),
+  decisions: z.array(candidateNodeDecisionV1Schema).min(1).max(100).refine(
+    (values) => new Set(values.map((value) => value.candidatePath)).size === values.length,
+    "Candidate decision paths must be unique.",
+  ),
+  qualityRating: z.number().int().min(1).max(5).nullable(),
+  qualityLabels: z.array(z.enum(aiQualityLabelsV1)).max(aiQualityLabelsV1.length).refine(
+    (values) => new Set(values).size === values.length,
+    "Quality labels must be unique.",
+  ),
+  qualityComment: z.string().trim().min(1).max(1_000).refine(
+    (value) => !/[\u0000-\u001f\u007f]/u.test(value),
+  ).nullable(),
+}).strict().superRefine((value, context) => {
+  if ((value.expectedRevisionId === null) !==
+    (value.expectedRevisionDraftVersion === null)) {
+    context.addIssue({
+      code: "custom",
+      message: "Revision identity and Draft version must be supplied together.",
+    });
+  }
+  if (value.expectedRevisionDraftVersion !== null &&
+    value.expectedRevisionDraftVersion !== value.expectedTargetVersion) {
+    context.addIssue({
+      code: "custom",
+      message: "Revision Draft version must equal the target edit fence.",
+    });
+  }
+});
+
+export type CandidateNodeDecisionV1 = z.infer<typeof candidateNodeDecisionV1Schema>;
+export type ApplyAiDraftCandidateV1 = z.infer<typeof applyAiDraftCandidateV1Schema>;
+
+export interface AppliedAiDraftCandidateV1 {
+  readonly runId: string;
+  readonly runStateVersion: number;
+  readonly disposition: "accepted" | "accepted_with_edits";
+  readonly appliedTargetVersion: number | null;
+  readonly appliedRevisionId: string | null;
+  readonly appliedRevisionDraftVersion: number | null;
+  readonly exactReplay: boolean;
+}
 
 export type DraftAssistanceTaskV1 =
   | {
@@ -266,6 +348,7 @@ export type AiDraftReviewProjectionV1 =
         readonly kind: "product";
         readonly locale: "en";
         readonly draftVersion: number;
+        readonly revisionId: string | null;
       };
       readonly before: ProductBeforeV1;
     })
@@ -274,6 +357,7 @@ export type AiDraftReviewProjectionV1 =
         readonly kind: "content";
         readonly locale: "en";
         readonly draftVersion: number;
+        readonly revisionId: string | null;
         readonly channel: "fabric_knowledge" | "china_sourcing_guide" | "china_textile_guide";
       };
       readonly before: ContentBeforeV1;
@@ -286,6 +370,13 @@ export interface DraftAssistanceService {
   requestDraftAssistance(
     command: DraftAssistanceCommandV1,
   ): Promise<AiServiceResult<AiRunSummaryV1>>;
+}
+
+export interface DraftAssistanceCandidateApplyService {
+  applyDraftAssistanceCandidate(input: {
+    readonly actor: AiActor;
+    readonly command: ApplyAiDraftCandidateV1;
+  }): Promise<AiServiceResult<AppliedAiDraftCandidateV1>>;
 }
 
 export type DraftAssistanceAvailabilityService = Pick<

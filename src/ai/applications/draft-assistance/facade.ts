@@ -10,6 +10,7 @@ import type {
   DraftAssistanceAvailabilityService,
   DraftAssistanceAvailabilityQueryV1,
   DraftAssistanceCommandV1,
+  DraftAssistanceCandidateApplyService,
   DraftAssistanceService,
   DraftDurableAssociationWithoutHashV1,
 } from "./contracts";
@@ -122,10 +123,11 @@ export function createDraftAssistanceAvailabilityFacadeV1<
 export function createDraftAssistanceDurableFacadeV1(dependencies: {
   readonly availability: DraftAssistanceAvailabilityService;
   readonly runService: AiRunServiceV1;
+  readonly candidateApply: DraftAssistanceCandidateApplyService["applyDraftAssistanceCandidate"];
 }): DraftAssistanceService & Pick<
   AiRunServiceV1,
   "readRun" | "cancelRun" | "manualRetry" | "rejectDisposition"
-> {
+> & DraftAssistanceCandidateApplyService {
   return {
     inspectDraftAssistanceAvailability: (query) =>
       dependencies.availability.inspectDraftAssistanceAvailability(query),
@@ -149,5 +151,6 @@ export function createDraftAssistanceDurableFacadeV1(dependencies: {
     cancelRun: (input) => dependencies.runService.cancelRun(input),
     manualRetry: (input) => dependencies.runService.manualRetry(input),
     rejectDisposition: (input) => dependencies.runService.rejectDisposition(input),
+    applyDraftAssistanceCandidate: dependencies.candidateApply,
   };
 }
