@@ -19,6 +19,7 @@ import {
   decodeAttemptHistoryEntryV2,
 } from "@/ai/runs/attempt-evidence";
 import type { AiRunAuthorizedEvidenceV1 } from "@/ai/runs/contracts";
+import { mayManuallyRetryFailureV1 } from "@/ai/runs/retry-policy";
 import type {
   ProductAiDraftReaderV1,
 } from "@/catalog/product-ai-context-reader";
@@ -176,9 +177,14 @@ function validateCandidate(
     if (!decoded.ok) return aiFailure("output_policy_rejected");
     const entry = decoded.value;
     const final = index === evidence.attemptCount - 1;
+    const continuingPrefix = entry.outcome === "retry_scheduled" ||
+      (entry.outcome === "failed" && entry.failure_code !== null &&
+        mayManuallyRetryFailureV1(entry.failure_code as Parameters<
+          typeof mayManuallyRetryFailureV1
+        >[0]));
     if (entry.attempt !== index + 1 || (final
       ? entry.outcome !== "draft_ready" || entry.attempt !== evidence.attemptCount
-      : entry.outcome !== "retry_scheduled")) {
+      : !continuingPrefix)) {
       return aiFailure("output_policy_rejected");
     }
     const { response_fingerprint: responseFingerprint, ...withoutFingerprint } = entry;

@@ -1423,6 +1423,105 @@ describe.skipIf(postgresUrl === undefined)("Phase C governed durable run service
       .where(eq(auditLogs.action, "ai.run.manual_retry_scheduled"))).toHaveLength(2);
   });
 
+  it("returns the protected projection after one governed audited manual retry", async () => {
+    const fixture = await seedFixture();
+    const actor = { userId: fixture.actorId, role: "product_editor" as const };
+    const created = await service().requestDraftAssistance(command(fixture, {
+      idempotencyKey: randomUUID(),
+    }));
+    if (!created.ok) throw new Error("Manual retry projection enqueue failed.");
+
+    const active = await claimAndMark(created.value.runId);
+    const failure = aiFailure("provider_auth_failed");
+    if (failure.ok) throw new Error("Static Provider auth failure was invalid.");
+    const failureEvidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+      version: 3,
+      dispatchState: "dispatched",
+      protectedResult: null,
+      error: failure.error,
+      responseStatus: "client_error",
+      retryClass: "not_retryable",
+      returnedModel: null,
+      completion: null,
+      usage: null,
+      providerHttpStatus: 401,
+      providerErrorCode: "synthetic_auth",
+      providerRequestId: null,
+      providerSystemFingerprint: null,
+      durationMs: 1,
+    });
+    if (!failureEvidence.ok) throw new Error("Manual retry failure evidence failed.");
+    const failed = await active.repository.settle({
+      runId: created.value.runId,
+      executionEnvironment: "test",
+      leaseOwner: active.leaseOwner,
+      leaseToken: active.leaseToken,
+      leaseExpiresAt: active.marker.leaseExpiresAt,
+      stateVersion: active.marker.stateVersion,
+      evidence: failureEvidence.value,
+    });
+    if (failed.kind !== "settled") throw new Error("Manual retry failure settlement failed.");
+    expect(failed).toMatchObject({ status: "failed", retryState: "not_retryable" });
+
+    const retried = await service().manualRetry({
+      runId: created.value.runId,
+      actor,
+      expectedStateVersion: failed.stateVersion,
+    });
+    expect(retried.ok).toBe(true);
+    if (!retried.ok) throw new Error("Governed manual retry failed.");
+    expect(retried.value).toMatchObject({ status: "pending", retryState: "scheduled" });
+
+    const { settled, protectedResult } = await settleProtectedProductCandidate(created.value.runId);
+    expect(settled).toMatchObject({ status: "draft_ready" });
+    const [row] = await db().select({
+      status: aiRuns.status,
+      attemptCount: aiRuns.attemptCount,
+      attemptHistory: aiRuns.attemptHistoryJson,
+      candidateHash: aiRuns.candidateHash,
+      candidate: aiRuns.candidateJson,
+    }).from(aiRuns).where(eq(aiRuns.id, created.value.runId));
+    expect(row).toMatchObject({
+      status: "draft_ready",
+      attemptCount: 2,
+      candidateHash: protectedResult.hash,
+      candidate: protectedResult.value,
+    });
+    const history = row?.attemptHistory as readonly Record<string, unknown>[];
+    expect(history.map((entry) => ({
+      attempt: entry.attempt,
+      outcome: entry.outcome,
+      failureCode: entry.failure_code,
+    }))).toEqual([
+      { attempt: 1, outcome: "failed", failureCode: "provider_auth_failed" },
+      { attempt: 2, outcome: "draft_ready", failureCode: null },
+    ]);
+
+    const retryAudits = await db().select().from(auditLogs)
+      .where(eq(auditLogs.action, "ai.run.manual_retry_scheduled"));
+    expect(retryAudits).toHaveLength(1);
+    expect(retryAudits[0]).toMatchObject({
+      actorUserId: fixture.actorId,
+      entityType: "ai_run",
+      entityId: created.value.runId,
+      beforeSummary: { stateVersion: failed.stateVersion },
+      afterSummary: {
+        status: "pending",
+        retryState: "scheduled",
+        stateVersion: retried.value.stateVersion,
+      },
+    });
+
+    const read = await service().readRun({ runId: created.value.runId, actor });
+    expect(read.ok, JSON.stringify(read)).toBe(true);
+    if (!read.ok) return;
+    expect(read.value.reviewProjection).toMatchObject({
+      version: 1,
+      run: { id: created.value.runId, candidateHash: protectedResult.hash },
+      target: { kind: "product", locale: "en", draftVersion: 1 },
+    });
+  });
+
   it("returns one server-authorized protected projection immediately on draft_ready", async () => {
     const fixture = await seedFixture();
     const reviewer = await seedUser("reviewer_publisher");

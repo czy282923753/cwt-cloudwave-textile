@@ -126,20 +126,29 @@ function attempt(
   candidateHash: string | null,
   attemptNumber = 1,
   outcome: "retry_scheduled" | "failed" | "draft_ready" | "discarded_cancelled" = "draft_ready",
+  failureCode: string | null = null,
 ): ReadonlyJsonObject {
+  const failed = outcome === "failed";
   const base: Omit<AttemptHistoryEntryV2, "response_fingerprint"> = {
     version: 2, attempt: attemptNumber, dispatch_state: "dispatched", outcome,
     requested_provider: "synthetic", actual_provider: "synthetic",
-    requested_model: "synthetic", returned_model: "synthetic",
+    requested_model: "synthetic", returned_model: failed ? null : "synthetic",
     provider_envelope_version: 1, provider_envelope_hash: "9".repeat(64),
     dispatched_at: "2026-01-01T00:00:00.000Z", responded_at: "2026-01-01T00:00:01.000Z",
     duration_ms: 1000, input_tokens: 10, output_tokens: 10, total_tokens: 20,
     cache_hit_input_tokens: null, cache_miss_input_tokens: null,
     attempt_upper_cost_microusd: 0, actual_cost_microusd: 0,
     accounted_cost_microusd: 0, actual_cost_complete: true,
-    provider_response_status: "success", provider_http_status: 200,
+    provider_response_status: failed
+      ? failureCode === "provider_quota_exceeded" ? "quota_exceeded"
+        : failureCode === "provider_timeout" ? "timeout" : "client_error"
+      : "success",
+    provider_http_status: failed
+      ? failureCode === "provider_auth_failed" ? 401
+        : failureCode === "provider_quota_exceeded" ? 429 : null
+      : 200,
     provider_error_code: null, provider_request_id: null, provider_system_fingerprint: null,
-    failure_code: null, controlled_validation_fixture_id: null,
+    failure_code: failureCode, controlled_validation_fixture_id: null,
     controlled_validation_fixture_hash: null, provider_request_identity_version: null,
     provider_request_identity_hash: null,
   };
@@ -279,6 +288,19 @@ describe("server-authorized E3 review projection", () => {
     ];
     const valid = { ...original, attemptCount: 2, attemptHistory: validHistory };
     expect((await build(valid)).ok).toBe(true);
+    expect((await build({ ...original, attemptCount: 2, attemptHistory: [
+      attempt(null, 1, "failed", "provider_auth_failed"),
+      attempt(original.candidateHash, 2, "draft_ready"),
+    ] })).ok).toBe(true);
+    expect((await build({ ...original, attemptCount: 2, attemptHistory: [
+      attempt(null, 1, "failed", "provider_quota_exceeded"),
+      attempt(original.candidateHash, 2, "draft_ready"),
+    ] })).ok).toBe(true);
+    expect((await build({ ...original, attemptCount: 3, attemptHistory: [
+      attempt(null, 1, "retry_scheduled"),
+      attempt(null, 2, "failed", "provider_auth_failed"),
+      attempt(original.candidateHash, 3, "draft_ready"),
+    ] })).ok).toBe(true);
 
     const prefix = validHistory[0]!;
     const final = validHistory[1]!;
@@ -292,9 +314,14 @@ describe("server-authorized E3 review projection", () => {
       { ...valid, attemptHistory: [{ ...prefix, arbitrary: true }, final] },
       { ...valid, attemptHistory: [{ ...prefix, outcome: "arbitrary" }, final] },
       { ...valid, attemptHistory: [attempt(null, 1, "failed"), final] },
+      { ...valid, attemptHistory: [attempt(null, 1, "failed", "provider_timeout"), final] },
+      { ...valid, attemptHistory: [attempt(null, 1, "failed", "unknown_failure"), final] },
+      { ...valid, attemptHistory: [attempt(null, 1, "discarded_cancelled",
+        "provider_auth_failed"), final] },
       { ...valid, attemptHistory: [{ ...prefix, provider_http_status: 999 }, final] },
       { ...valid, attemptHistory: [{ ...prefix, response_fingerprint: "0".repeat(64) }, final] },
       { ...valid, attemptHistory: [prefix, { ...final, response_fingerprint: "0".repeat(64) }] },
+      { ...valid, attemptHistory: [attempt(null, 1, "draft_ready"), final] },
       { ...valid, attemptHistory: [prefix, attempt(original.candidateHash, 1, "draft_ready")] },
     ] as AiRunAuthorizedEvidenceV1[];
     for (const row of invalidRows) expect((await build(row)).ok).toBe(false);
