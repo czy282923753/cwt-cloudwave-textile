@@ -297,6 +297,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
   it("keeps bounded stop separate from the exact claimed-generation join", async () => {
     const providerEntered = deferred();
     const releaseProvider = deferred();
+    let providerCalls = 0;
     const controlledProvider: TextAiProvider = {
       ...provider,
       prepareTextDispatch(input) {
@@ -305,6 +306,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
         return aiSuccess({
           ...prepared.value,
           async execute() {
+            providerCalls += 1;
             providerEntered.resolve();
             await releaseProvider.promise;
             throw new Error("Controlled Provider rejection after release.");
@@ -370,6 +372,10 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     expect(worker.join()).toBe(generationCompletion);
     await stopCompletion;
     expect(joined).toBe(false);
+    await worker.start();
+    expect(worker.join()).toBe(generationCompletion);
+    expect(joined).toBe(false);
+    expect(providerCalls).toBe(1);
     const [beforeRelease] = await db().select().from(aiRuns)
       .where(eq(aiRuns.id, enqueued.value.runId));
     expect(beforeRelease).toMatchObject({
@@ -383,6 +389,10 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     expect(joined).toBe(true);
     expect(worker.join()).toBe(generationCompletion);
     await expect(worker.join()).resolves.toBeUndefined();
+    await worker.start();
+    expect(worker.join()).toBe(generationCompletion);
+    expect(worker.running).toBe(false);
+    expect(providerCalls).toBe(1);
     const [final] = await db().select().from(aiRuns)
       .where(eq(aiRuns.id, enqueued.value.runId));
     expect(final).toMatchObject({

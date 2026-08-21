@@ -298,6 +298,7 @@ export function createAiRunWorkerV1(dependencies: {
   const slotCount = dependencies.slotCount ?? AI_TEXT_CONCURRENCY_LIMIT_V1;
   const processAbort = new AbortController();
   const activeControllers = new Set<AbortController>();
+  let started = false;
   let acceptingClaims = false;
   let loops: readonly Promise<void>[] = [];
   let generationCompletion = Promise.resolve();
@@ -338,7 +339,8 @@ export function createAiRunWorkerV1(dependencies: {
     workerId,
     get running() { return acceptingClaims || activeControllers.size > 0; },
     async start() {
-      if (acceptingClaims) return;
+      if (started) return;
+      started = true;
       acceptingClaims = true;
       loops = Array.from({ length: slotCount }, (_, slot) => slotLoop(slot));
       generationCompletion = Promise.allSettled(loops).then((outcomes) => {

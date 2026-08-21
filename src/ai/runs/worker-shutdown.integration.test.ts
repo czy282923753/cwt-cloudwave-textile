@@ -72,6 +72,9 @@ describe.skipIf(postgresUrl === undefined)("Phase C Worker shutdown boundary", (
     expect(worker.join()).toBe(generationCompletion);
     await expect(worker.join()).resolves.toBeUndefined();
     expect(worker.running).toBe(false);
+    await worker.start();
+    expect(worker.join()).toBe(generationCompletion);
+    expect(worker.running).toBe(false);
     const locks = await db().execute<{ readonly count: number }>(sql`
       select count(*)::integer as count
       from pg_locks
