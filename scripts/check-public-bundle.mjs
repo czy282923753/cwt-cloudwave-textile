@@ -130,26 +130,31 @@ function hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]) {
   );
   if (parsed.parseDiagnostics?.length > 0) return false;
   let matched = false;
-  function visit(node) {
+  function visit(node, insideSpreadOperand = false) {
     if (matched) return;
-    if (ts.isObjectLiteralExpression(node)) {
+    if (!insideSpreadOperand && ts.isObjectLiteralExpression(node)) {
       const directFields = new Map();
       for (const property of node.properties) {
         const name = directPropertyName(property);
-        if (name === undefined) continue;
-        const values = directFields.get(name) ?? [];
-        values.push(property.initializer);
-        directFields.set(name, values);
+        if (name === undefined || directFields.has(name)) {
+          directFields.clear();
+          break;
+        }
+        directFields.set(name, property.initializer);
       }
-      const ids = directFields.get("promptId") ?? [];
-      const versions = directFields.get("promptVersion") ?? [];
-      const hashes = directFields.get("sha256") ?? [];
-      matched = ids.length === 1 && versions.length === 1 && hashes.length === 1 &&
-        ts.isStringLiteral(ids[0]) && ids[0].text === promptId &&
-        ts.isNumericLiteral(versions[0]) && Number(versions[0].text) === promptVersion &&
-        ts.isStringLiteral(hashes[0]) && hashes[0].text === sha256;
+      const id = directFields.get("promptId");
+      const version = directFields.get("promptVersion");
+      const hash = directFields.get("sha256");
+      matched = id !== undefined && version !== undefined && hash !== undefined &&
+        ts.isStringLiteral(id) && id.text === promptId &&
+        ts.isNumericLiteral(version) && Number(version.text) === promptVersion &&
+        ts.isStringLiteral(hash) && hash.text === sha256;
     }
-    if (!matched) ts.forEachChild(node, visit);
+    if (ts.isSpreadAssignment(node)) {
+      visit(node.expression, true);
+      return;
+    }
+    if (!matched) ts.forEachChild(node, (child) => visit(child, insideSpreadOperand));
   }
   visit(parsed);
   return matched;

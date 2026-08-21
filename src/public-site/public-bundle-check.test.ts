@@ -257,6 +257,48 @@ describe("public bundle checker", () => {
     expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
   });
 
+  const exactFirstTupleFields =
+    `promptId:"${promptTuples[0][0]}",promptVersion:1,sha256:"${promptTuples[0][2]}"`;
+  it.each([
+    ["direct tuple followed by a spread override", `const override={promptId:"wrong"};({${exactFirstTupleFields},...override})`],
+    ["spread before the direct tuple", `const extra={note:"not tuple evidence"};({...extra,${exactFirstTupleFields}})`],
+    ["direct tuple followed by a computed override", `({${exactFirstTupleFields},["promptId"]:"wrong"})`],
+    ["computed override before the direct tuple", `({["promptId"]:"wrong",${exactFirstTupleFields}})`],
+    ["exact inner tuple used only as a spread operand", `({ ...({${exactFirstTupleFields}}) })`],
+    ["duplicate required property before the exact value", `({promptId:"wrong",${exactFirstTupleFields}})`],
+    ["duplicate required property after the exact value", `({${exactFirstTupleFields},promptId:"wrong"})`],
+    ["duplicate additional static property", `({${exactFirstTupleFields},note:"first",note:"second"})`],
+    ["shorthand override", `const promptId="wrong";({${exactFirstTupleFields},promptId})`],
+    ["method override", `({${exactFirstTupleFields},promptId(){return "wrong"}})`],
+    ["getter override", `({${exactFirstTupleFields},get promptId(){return "wrong"}})`],
+    ["setter override", `({${exactFirstTupleFields},set promptId(value){void value}})`],
+    ["nonmatching computed property", `({${exactFirstTupleFields},["note"]:"computed"})`],
+    ["nonmatching spread property", `const extra={note:"spread"};({${exactFirstTupleFields},...extra})`],
+  ])("rejects closed-object ambiguity: %s", async (_case, ambiguousTuple) => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js": evidenceWithFirstTuple(ambiguousTuple),
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/co-bound server Prompt tuple is missing/i);
+  });
+
+  it("accepts exact closed tuples with additional unique direct static properties", async () => {
+    const tupleEvidence = promptTuples.map(([promptId, promptVersion, sha256], index) =>
+      `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}",ordinal:${index}})`)
+      .join("\n");
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/admin-ai.js":
+          `${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
+      },
+    }));
+
+    expect(result.status).toBe(0);
+  });
+
   it("does not accept an exact-looking tuple from JavaScript with parse diagnostics", async () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
