@@ -470,6 +470,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     const abortingRegistryResult = createTextProviderRegistryV1([abortingProvider]);
     if (!abortingRegistryResult.ok) throw new Error("Aborting Provider registry failed.");
     const telemetryEvents: string[] = [];
+    // This test owns the lifecycle-lock contention schedule, so one slot prevents an unrelated idle-sibling competitor.
     const worker = createAiRunWorkerV1({
       database: db(),
       trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
@@ -484,6 +485,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
         gracefulShutdownMs: 300,
         postAbortPersistenceMs: 150,
       },
+      slotCount: 1,
       workerId: "synthetic-contention-worker",
     });
     cleanupWorker = worker;
@@ -573,6 +575,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
         gracefulShutdownMs: 1_000,
         postAbortPersistenceMs: 200,
       },
+      slotCount: 1,
       workerId: "synthetic-restarted-worker",
     });
     cleanupWorker = restarted;
