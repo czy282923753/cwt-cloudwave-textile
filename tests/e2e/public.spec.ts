@@ -671,10 +671,26 @@ test("@desktop E5 mounts exact eligible AI panels without implicit requests and 
       expect(headingId).toBeTruthy();
       expect(labelledBy).toBe(headingId);
       headingIds.push(headingId!);
-      await panel.getByRole("button", { name: "Check availability" }).click();
-      await expect(panel.getByRole("status")).toContainText(
+      const actionUrl = page.url();
+      const [availabilityRequest] = await Promise.all([
+        page.waitForRequest((candidate) =>
+          candidate.method() === "POST" &&
+          candidate.url() === actionUrl &&
+          typeof candidate.headers()["next-action"] === "string" &&
+          candidate.headers()["next-action"]!.length > 0),
+        panel.getByRole("button", { name: "Check availability" }).click(),
+      ]);
+      const availabilityResponse = await availabilityRequest.response();
+      expect(availabilityResponse).not.toBeNull();
+      expect(availabilityResponse!.ok()).toBe(true);
+      expect(availabilityResponse!.headers()["content-type"]).toContain("text/x-component");
+      const unavailableMessage = panel.getByText(
         "AI assistance is unavailable. Ordinary manual editing is unchanged.",
+        { exact: true },
       );
+      await expect(unavailableMessage).toBeVisible();
+      expect(await unavailableMessage.getAttribute("role")).toMatch(/^(?:alert|status)$/);
+      await expect(panel.getByText("Checking AI availability…", { exact: true })).toHaveCount(0);
       await expect(panel.getByRole("button", { name: "Generate AI draft" })).toBeDisabled();
     }
     expect(new Set(headingIds).size).toBe(headingIds.length);
