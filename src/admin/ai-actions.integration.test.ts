@@ -2,11 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireCurrentUser: vi.fn(),
+  decodeActionCommand: vi.fn(),
+  decodeAvailabilityQuery: vi.fn(),
   createService: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/auth/current-user", () => ({ requireCurrentUser: mocks.requireCurrentUser }));
+vi.mock("@/ai/registry/production-use-cases", () => ({
+  decodeDraftAssistanceActionCommandV1: mocks.decodeActionCommand,
+  decodeDraftAssistanceAvailabilityActionQueryV1: mocks.decodeAvailabilityQuery,
+}));
 vi.mock("@/server/ai/phase-d-provider-composition", () => ({
   createPhaseDServerAiServiceV1: mocks.createService,
 }));
@@ -160,6 +166,22 @@ function service() {
   };
 }
 
+const decoderFailure = { ok: false } as const;
+
+function acceptedCommandDecoder(payload: unknown, actor: unknown) {
+  return {
+    ok: true,
+    value: { ...(payload as Record<string, unknown>), actor },
+  } as const;
+}
+
+function acceptedAvailabilityDecoder(payload: unknown, actor: unknown) {
+  return {
+    ok: true,
+    value: { ...(payload as Record<string, unknown>), actor },
+  } as const;
+}
+
 async function importActionsWithAuthorityFactories({
   registryFactory,
   compositionFactory,
@@ -173,10 +195,11 @@ async function importActionsWithAuthorityFactories({
   return import("./ai-actions");
 }
 
-function actualProductionRegistry(): Promise<Record<string, unknown>> {
-  return vi.importActual<Record<string, unknown>>(
-    "@/ai/registry/production-use-cases",
-  );
+function mockedProductionRegistry() {
+  return {
+    decodeDraftAssistanceActionCommandV1: mocks.decodeActionCommand,
+    decodeDraftAssistanceAvailabilityActionQueryV1: mocks.decodeAvailabilityQuery,
+  };
 }
 
 function mockedComposition() {
@@ -187,15 +210,22 @@ describe("Phase E AI Server Actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireCurrentUser.mockResolvedValue({ id: actorId, role: "product_editor" });
+    mocks.decodeActionCommand.mockImplementation(acceptedCommandDecoder);
+    mocks.decodeAvailabilityQuery.mockImplementation(acceptedAvailabilityDecoder);
     mocks.createService.mockReturnValue(service());
   });
 
-  it("uses the strict Production actorless decoder and supplies only the authenticated actor", async () => {
+  it("uses the exact Production decoder seam and supplies only the authenticated actor", async () => {
     const current = service();
     mocks.createService.mockReturnValue(current);
-    const result = await enqueueAiDraftAssistanceAction(request());
+    const validRequest = request();
+    const result = await enqueueAiDraftAssistanceAction(validRequest);
 
     expect(result).toMatchObject({ ok: true, value: { runId, status: "pending" } });
+    expect(mocks.decodeActionCommand).toHaveBeenCalledWith(validRequest, {
+      userId: actorId,
+      role: "product_editor",
+    });
     expect(current.requestDraftAssistance).toHaveBeenCalledWith(expect.objectContaining({
       actor: { userId: actorId, role: "product_editor" },
       idempotencyKey,
@@ -206,9 +236,11 @@ describe("Phase E AI Server Actions", () => {
       actor: { userId: actorId, role: "product_editor" },
     });
 
+    mocks.decodeActionCommand.mockReturnValueOnce(decoderFailure);
     await expect(enqueueAiDraftAssistanceAction(request({
       actor: { userId: "50000000-0000-4000-8000-000000000005", role: "admin" },
     }))).resolves.toMatchObject({ ok: false, code: "invalid_request" });
+    mocks.decodeActionCommand.mockReturnValueOnce(decoderFailure);
     await expect(enqueueAiDraftAssistanceAction(request({
       task: { kind: "fabric_knowledge_draft", tone: "neutral_editorial", topic: "Synthetic" },
     }))).resolves.toMatchObject({ ok: false, code: "invalid_request" });
@@ -217,6 +249,9 @@ describe("Phase E AI Server Actions", () => {
 
   it("rejects duplicate/bounded selectors and unknown keys before enqueue", async () => {
     const duplicate = "60000000-0000-4000-8000-000000000006";
+    mocks.decodeActionCommand
+      .mockReturnValueOnce(decoderFailure)
+      .mockReturnValueOnce(decoderFailure);
     await expect(enqueueAiDraftAssistanceAction(request({
       task: {
         kind: "product_description_draft",
@@ -249,6 +284,10 @@ describe("Phase E AI Server Actions", () => {
       },
     });
     expect(current.requestDraftAssistance).not.toHaveBeenCalled();
+    expect(mocks.decodeAvailabilityQuery).toHaveBeenCalledWith(availability, {
+      userId: actorId,
+      role: "product_editor",
+    });
     expect(current.inspectDraftAssistanceAvailability).toHaveBeenCalledWith(
       expect.objectContaining({ actor: { userId: actorId, role: "product_editor" } }),
     );
@@ -418,6 +457,8 @@ describe("Phase E AI Server Action lazy authority resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireCurrentUser.mockResolvedValue({ id: actorId, role: "product_editor" });
+    mocks.decodeActionCommand.mockImplementation(acceptedCommandDecoder);
+    mocks.decodeAvailabilityQuery.mockImplementation(acceptedAvailabilityDecoder);
     mocks.createService.mockReturnValue(service());
   });
 
@@ -463,7 +504,7 @@ describe("Phase E AI Server Action lazy authority resolution", () => {
   ])("sanitizes %s module rejection %j", async (authority, rejection) => {
     const registryFactory = authority === "Production registry"
       ? vi.fn(() => { throw rejection; })
-      : vi.fn(actualProductionRegistry);
+      : vi.fn(mockedProductionRegistry);
     const compositionFactory = authority === "server composition"
       ? vi.fn(() => { throw rejection; })
       : vi.fn(mockedComposition);
@@ -485,5 +526,36 @@ describe("Phase E AI Server Action lazy authority resolution", () => {
     expect(compositionFactory).toHaveBeenCalledTimes(
       authority === "Production registry" ? 0 : 1,
     );
+    expect(mocks.decodeAvailabilityQuery).not.toHaveBeenCalled();
+    expect(mocks.createService).not.toHaveBeenCalled();
+  });
+});
+
+describe("accepted-runtime Production decoder authority", () => {
+  it("accepts the valid actorless command and rejects actor, unknown, and mismatched task input", async () => {
+    if (process.platform !== "darwin" || process.arch !== "arm64") {
+      expect({ platform: process.platform, arch: process.arch })
+        .not.toEqual({ platform: "darwin", arch: "arm64" });
+      return;
+    }
+    const production = await vi.importActual<{
+      decodeDraftAssistanceActionCommandV1: (payload: unknown, actor: unknown) => {
+        readonly ok: boolean;
+        readonly value?: { readonly actor?: unknown };
+      };
+    }>("@/ai/registry/production-use-cases");
+    const actor = { userId: actorId, role: "product_editor" } as const;
+
+    const valid = production.decodeDraftAssistanceActionCommandV1(request(), actor);
+    expect(valid).toMatchObject({ ok: true, value: { actor } });
+    expect(production.decodeDraftAssistanceActionCommandV1(request({
+      actor: { userId: actorId, role: "admin" },
+    }), actor).ok).toBe(false);
+    expect(production.decodeDraftAssistanceActionCommandV1(
+      request({ unexpected: true }), actor,
+    ).ok).toBe(false);
+    expect(production.decodeDraftAssistanceActionCommandV1(request({
+      task: { kind: "fabric_knowledge_draft", tone: "neutral_editorial", topic: "Synthetic" },
+    }), actor).ok).toBe(false);
   });
 });
