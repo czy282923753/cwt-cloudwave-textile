@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const sourceRoot = resolve(process.cwd(), "src");
@@ -14,6 +15,29 @@ function filesBelow(directory: string): string[] {
 
 function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
+}
+
+function syntaxTree(path: string): ts.SourceFile {
+  return ts.createSourceFile(
+    path,
+    source(path),
+    ts.ScriptTarget.ESNext,
+    true,
+    path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
+function collectNodes<T extends ts.Node>(
+  root: ts.Node,
+  predicate: (node: ts.Node) => node is T,
+): T[] {
+  const nodes: T[] = [];
+  function visit(node: ts.Node) {
+    if (predicate(node)) nodes.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(root);
+  return nodes;
 }
 
 describe("Phase E E5 static AI boundaries", () => {
@@ -71,6 +95,75 @@ describe("Phase E E5 static AI boundaries", () => {
 
   it("keeps the one existing lifecycle/Apply Action authority thin and integrates E5 only on the two detail pages", () => {
     const actions = source("src/admin/ai-actions.ts");
+    const actionsTree = syntaxTree("src/admin/ai-actions.ts");
+    const protectedAuthorities = [
+      "@/ai/registry/production-use-cases",
+      "@/server/ai/phase-d-provider-composition",
+    ];
+    const eagerAuthorityImports = actionsTree.statements
+      .filter(ts.isImportDeclaration)
+      .map((statement) => statement.moduleSpecifier)
+      .filter(ts.isStringLiteral)
+      .map((literal) => literal.text)
+      .filter((moduleName) => protectedAuthorities.includes(moduleName));
+    const dynamicAuthorityImports = collectNodes(
+      actionsTree,
+      (node): node is ts.CallExpression =>
+        ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword,
+    );
+    expect(eagerAuthorityImports).toEqual([]);
+    expect(dynamicAuthorityImports.map((call) => {
+      const moduleName = call.arguments[0];
+      return moduleName !== undefined && ts.isStringLiteral(moduleName) ? moduleName.text : null;
+    })).toEqual(protectedAuthorities);
+    const resolver = actionsTree.statements.find((statement): statement is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === "resolveAuthenticatedAiAuthorities");
+    expect(resolver).toBeDefined();
+    for (const dynamicImport of dynamicAuthorityImports) {
+      let parent: ts.Node | undefined = dynamicImport.parent;
+      while (parent !== undefined && parent !== resolver) parent = parent.parent;
+      expect(parent).toBe(resolver);
+    }
+    const resolverCalls = collectNodes(
+      actionsTree,
+      (node): node is ts.CallExpression => ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "resolveAuthenticatedAiAuthorities",
+    );
+    expect(resolverCalls).toHaveLength(7);
+    for (const resolverCall of resolverCalls) {
+      let parent: ts.Node | undefined = resolverCall.parent;
+      let authenticated = false;
+      while (parent !== undefined && parent !== actionsTree) {
+        if (ts.isArrowFunction(parent) && ts.isCallExpression(parent.parent) &&
+          parent.parent.arguments.includes(parent) &&
+          ts.isIdentifier(parent.parent.expression) &&
+          parent.parent.expression.text === "withAuthenticatedActor") {
+          authenticated = true;
+          break;
+        }
+        parent = parent.parent;
+      }
+      expect(authenticated).toBe(true);
+    }
+    const authenticatedBoundary = actionsTree.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) &&
+        statement.name?.text === "withAuthenticatedActor",
+    );
+    expect(authenticatedBoundary?.body).toBeDefined();
+    const boundaryTries = authenticatedBoundary?.body === undefined
+      ? []
+      : authenticatedBoundary.body.statements.filter(ts.isTryStatement);
+    expect(boundaryTries).toHaveLength(2);
+    expect(boundaryTries[0]?.tryBlock.getText(actionsTree)).toContain("await currentActor()");
+    expect(boundaryTries[1]?.tryBlock.getText(actionsTree)).toContain("await operation(actor)");
+    expect(boundaryTries[1]?.catchClause?.block.getText(actionsTree))
+      .toContain("infrastructureFailure()");
+    for (const authority of protectedAuthorities) {
+      expect(actions.split(authority)).toHaveLength(2);
+    }
     expect(actions).toContain('"use server"');
     expect(actions).toContain("phase-d-provider-composition");
     expect(actions).not.toMatch(/@\/(?:db|catalog|content|crm|uploads)\//);

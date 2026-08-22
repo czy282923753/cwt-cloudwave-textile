@@ -27,6 +27,12 @@ const runId = "30000000-0000-4000-8000-000000000003";
 const idempotencyKey = "40000000-0000-4000-8000-000000000004";
 const candidateHash = "a".repeat(64);
 const projectionKey = "b".repeat(64);
+const unavailableResult = {
+  ok: false,
+  code: "unavailable",
+  message: "AI assistance is unavailable. Ordinary manual editing is unchanged.",
+  manualEditorAvailable: true,
+} as const;
 
 function reviewProjection(stateVersion = 7) {
   return {
@@ -152,6 +158,29 @@ function service() {
       },
     }),
   };
+}
+
+async function importActionsWithAuthorityFactories({
+  registryFactory,
+  compositionFactory,
+}: {
+  registryFactory: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+  compositionFactory: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+}) {
+  vi.resetModules();
+  vi.doMock("@/ai/registry/production-use-cases", registryFactory);
+  vi.doMock("@/server/ai/phase-d-provider-composition", compositionFactory);
+  return import("./ai-actions");
+}
+
+function actualProductionRegistry(): Promise<Record<string, unknown>> {
+  return vi.importActual<Record<string, unknown>>(
+    "@/ai/registry/production-use-cases",
+  );
+}
+
+function mockedComposition() {
+  return { createPhaseDServerAiServiceV1: mocks.createService };
 }
 
 describe("Phase E AI Server Actions", () => {
@@ -382,5 +411,79 @@ describe("Phase E AI Server Actions", () => {
       code: "unavailable",
       manualEditorAvailable: true,
     });
+  });
+});
+
+describe("Phase E AI Server Action lazy authority resolution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.requireCurrentUser.mockResolvedValue({ id: actorId, role: "product_editor" });
+    mocks.createService.mockReturnValue(service());
+  });
+
+  it("imports the Action boundary and denies authentication before resolving either authority", async () => {
+    const registryFactory = vi.fn(() => {
+      throw new Error("raw registry authority detail");
+    });
+    const compositionFactory = vi.fn(() => {
+      throw new Error("raw composition authority detail");
+    });
+    const actions = await importActionsWithAuthorityFactories({
+      registryFactory,
+      compositionFactory,
+    });
+
+    expect(registryFactory).not.toHaveBeenCalled();
+    expect(compositionFactory).not.toHaveBeenCalled();
+    mocks.requireCurrentUser.mockRejectedValueOnce(new Error("Authentication required."));
+    await expect(actions.readAiDraftAssistanceRunAction({ runId })).resolves.toEqual({
+      ok: false,
+      code: "access_denied",
+      message: "Sign in again before using AI assistance.",
+      manualEditorAvailable: false,
+    });
+    mocks.requireCurrentUser.mockRejectedValueOnce(new Error("Permission denied."));
+    await expect(actions.readAiDraftAssistanceRunAction({ runId })).resolves.toEqual({
+      ok: false,
+      code: "access_denied",
+      message: "Sign in again before using AI assistance.",
+      manualEditorAvailable: false,
+    });
+    expect(registryFactory).not.toHaveBeenCalled();
+    expect(compositionFactory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Production registry", new Error("raw permission denied registry detail")],
+    ["Production registry", "raw registry string detail"],
+    ["Production registry", undefined],
+    ["server composition", new Error("raw authentication required composition detail")],
+    ["server composition", "raw composition string detail"],
+    ["server composition", undefined],
+  ])("sanitizes %s module rejection %j", async (authority, rejection) => {
+    const registryFactory = authority === "Production registry"
+      ? vi.fn(() => { throw rejection; })
+      : vi.fn(actualProductionRegistry);
+    const compositionFactory = authority === "server composition"
+      ? vi.fn(() => { throw rejection; })
+      : vi.fn(mockedComposition);
+    const actions = await importActionsWithAuthorityFactories({
+      registryFactory,
+      compositionFactory,
+    });
+    const currentRequest = request();
+    const result = await actions.inspectAiDraftAssistanceAvailabilityAction({
+      useCase: currentRequest.useCase,
+      task: currentRequest.task,
+      target: currentRequest.target,
+      contextSelections: currentRequest.contextSelections,
+    });
+
+    expect(result).toEqual(unavailableResult);
+    expect(JSON.stringify(result)).not.toContain("raw ");
+    expect(registryFactory).toHaveBeenCalledTimes(1);
+    expect(compositionFactory).toHaveBeenCalledTimes(
+      authority === "Production registry" ? 0 : 1,
+    );
   });
 });
