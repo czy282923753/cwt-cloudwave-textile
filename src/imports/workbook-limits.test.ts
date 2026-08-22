@@ -192,9 +192,15 @@ describe("Template V1 OOXML event-time resource limits", () => {
     reject([totalText(PRODUCT_IMPORT_LIMITS.workbookXmlTextBytes + 1)], /decoded text exceeds/i);
   });
 
-  it("enforces actual decompressed XML source bytes below, exactly at, and above", () => {
+  it("accepts actual decompressed XML source bytes below the limit", () => {
     accept(totalSourceBytes(PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes - 1));
+  });
+
+  it("accepts actual decompressed XML source bytes exactly at the limit", () => {
     accept(totalSourceBytes(PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes));
+  });
+
+  it("rejects actual decompressed XML source bytes at limit + 1", () => {
     reject(totalSourceBytes(PRODUCT_IMPORT_LIMITS.workbookXmlSourceBytes + 1), /source bytes exceed/i);
   });
 
