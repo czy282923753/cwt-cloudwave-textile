@@ -31,6 +31,8 @@ const candidateHash = "a".repeat(64);
 const projectionKey = "b".repeat(64);
 const unexpectedRejectionMessage =
   "AI assistance status is uncertain because the server response was interrupted. Ordinary manual editing is unchanged. Retry the explicit request; if a run is visible, use Refresh status first.";
+const unavailableMessage =
+  "AI assistance is unavailable. Ordinary manual editing is unchanged.";
 
 const request = {
   useCase: "product_description_draft" as const,
@@ -230,6 +232,45 @@ describe("AI draft assistance five-state panel", () => {
     expect(actions.enqueue).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Generate disabled after confirmed unavailability without enqueueing", async () => {
+    actions.availability.mockResolvedValueOnce(failure(unavailableMessage));
+    render(<AiDraftAssistancePanel request={request} requestIdentity="product:confirmed-unavailable" />);
+
+    expect(actions.availability).not.toHaveBeenCalled();
+    expect(actions.enqueue).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Check availability" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(unavailableMessage);
+    expect(screen.queryByText("Checking AI availability…", { exact: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Check availability" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Generate AI draft" })).toBeDisabled();
+    expect(actions.availability).toHaveBeenCalledTimes(1);
+    expect(actions.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("re-enables Generate after a later explicit availability success", async () => {
+    actions.availability
+      .mockResolvedValueOnce(failure(unavailableMessage))
+      .mockResolvedValueOnce(ok({
+        available: true,
+        manualEditorAvailable: true,
+        message: "AI draft assistance is available.",
+      }));
+    render(<AiDraftAssistancePanel request={request} requestIdentity="product:availability-recovery" />);
+
+    const check = screen.getByRole("button", { name: "Check availability" });
+    fireEvent.click(check);
+    await screen.findByText(unavailableMessage);
+    expect(screen.getByRole("button", { name: "Generate AI draft" })).toBeDisabled();
+
+    fireEvent.click(check);
+    expect(await screen.findByText("AI draft assistance is available.")).toBeInTheDocument();
+    expect(check).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Generate AI draft" })).toBeEnabled();
+    expect(actions.availability).toHaveBeenCalledTimes(2);
+    expect(actions.enqueue).not.toHaveBeenCalled();
+  });
+
   it("retains one UUID for safe resubmission and blocks duplicate in-flight requests", async () => {
     actions.enqueue.mockResolvedValueOnce(failure()).mockResolvedValueOnce(ok(run("pending")));
     render(<AiDraftAssistancePanel request={request} requestIdentity="product:1:3" />);
@@ -275,18 +316,20 @@ describe("AI draft assistance five-state panel", () => {
       .toBe(actions.enqueue.mock.calls[1]?.[0].idempotencyKey);
   });
 
-  it("catches a rejected availability inspection without exposing the rejected value", async () => {
-    actions.availability.mockRejectedValueOnce({
-      message: "RAW Secret config payload",
-      stack: "RAW stack",
-    });
+  it.each([
+    ["Error", new Error("RAW Error rejection")],
+    ["string", "RAW string rejection"],
+    ["undefined", undefined],
+  ])("keeps Generate retryable after an uncertain %s availability rejection", async (_label, rejection) => {
+    actions.availability.mockRejectedValueOnce(rejection);
     render(<AiDraftAssistancePanel request={request} requestIdentity="product:rejected-availability" />);
     fireEvent.click(screen.getByRole("button", { name: "Check availability" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(unexpectedRejectionMessage);
-    expect(screen.queryByText(/RAW Secret|RAW stack/)).toBeNull();
+    expect(screen.queryByText(/RAW Error|RAW string/)).toBeNull();
     expect(screen.getByRole("button", { name: "Check availability" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Generate AI draft" })).toBeEnabled();
+    expect(actions.enqueue).not.toHaveBeenCalled();
   });
 
   it("catches a rejected automatic read, stops polling, and preserves the run for Refresh", async () => {

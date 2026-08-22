@@ -221,6 +221,14 @@ export function AiDraftAssistancePanel({
     const result = await inspectAiDraftAssistanceAvailabilityAction(request);
     if (epoch !== operationEpochRef.current) return;
     if (result.ok) dispatch({ type: "availability", value: result.value });
+    else if (result.code === "unavailable" && result.manualEditorAvailable) dispatch({
+      type: "availability",
+      value: {
+        available: false,
+        manualEditorAvailable: true,
+        message: result.message,
+      },
+    });
     else dispatch({ type: "failure", message: result.message });
   });
 
