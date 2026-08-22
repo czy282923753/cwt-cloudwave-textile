@@ -13,6 +13,7 @@ import {
   updateContentAction,
 } from "@/admin/actions";
 import { AdminActionForm } from "@/admin/components/admin-action-form";
+import { AiDraftAssistancePanel } from "@/admin/components/ai-draft-assistance-panel";
 import { BlockEditor } from "@/admin/components/block-editor";
 import { AssetUploadForm } from "@/admin/components/asset-upload-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
@@ -54,6 +55,58 @@ export default async function ContentEditorPage({ params }: Readonly<{ params: P
     "draftVersion" in draftSnapshot && typeof draftSnapshot.draftVersion === "number"
     ? draftSnapshot.draftVersion
     : draftRevision ? 1 : null;
+  const aiRevisionDraftVersion = typeof draftSnapshot === "object" && draftSnapshot !== null &&
+    "draftVersion" in draftSnapshot && typeof draftSnapshot.draftVersion === "number" &&
+    Number.isInteger(draftSnapshot.draftVersion) && draftSnapshot.draftVersion >= 1
+    ? draftSnapshot.draftVersion
+    : null;
+  const aiTarget = content.status === "draft"
+    ? {
+        type: "content_draft" as const,
+        contentId: content.id,
+        locale: "en" as const,
+        expectedVersion: content.editorDocumentVersion,
+      }
+    : content.status === "published" && draftRevision && aiRevisionDraftVersion !== null
+      ? {
+          type: "editorial_revision" as const,
+          revisionId: draftRevision.id,
+          expectedVersion: aiRevisionDraftVersion,
+        }
+      : null;
+  const contentSeoRequest = aiTarget === null ? null : {
+    useCase: "seo_content_draft" as const,
+    task: {
+      kind: "seo_content_draft" as const,
+      tone: "concise_professional_b2b" as const,
+      pageIntent: editorTitle,
+      selectedInternalLinkIds: [],
+    },
+    target: aiTarget,
+    contextSelections: [],
+  };
+  const fabricKnowledgeRequest = aiTarget === null || content.channel !== "fabric_knowledge"
+    ? null : {
+        useCase: "fabric_knowledge_draft" as const,
+        task: {
+          kind: "fabric_knowledge_draft" as const,
+          tone: "neutral_editorial" as const,
+          topic: editorTitle,
+        },
+        target: aiTarget,
+        contextSelections: [],
+      };
+  const sourcingGuideRequest = aiTarget === null || content.channel !== "china_sourcing_guide"
+    ? null : {
+        useCase: "sourcing_guide_draft" as const,
+        task: {
+          kind: "sourcing_guide_draft" as const,
+          tone: "concise_professional_b2b" as const,
+          guideIntent: editorTitle,
+        },
+        target: aiTarget,
+        contextSelections: [],
+      };
   const readyAssets = assets.filter((asset) => isEligiblePublicImagePickerAsset(asset));
   const assetNames = new Map(assets.map((asset) => [asset.id, asset.fileName]));
   const mediaAssets = assets
@@ -82,6 +135,38 @@ export default async function ContentEditorPage({ params }: Readonly<{ params: P
     <div className="grid gap-8">
       {content.status === "published" ? <p className="rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-amber-100">Published Content edits merge into one Draft Revision. The public article remains unchanged until explicit Review and Apply.</p> : null}
       <BlockEditor contentOptions={pickerOptions.contents} draftRevisionId={draftRevision?.id ?? null} draftRevisionVersion={draftVersion} editorDocumentVersion={content.editorDocumentVersion} entityId={content.id} entityType="content" initialDocument={editorDocument} initialSummary={editorSummary} initialTitle={editorTitle} internalLinkOptions={pickerOptions.links} mediaOptions={blockMediaOptions} previewHref={`/admin/preview/content/${content.id}/`} productOptions={pickerOptions.products} />
+      {contentSeoRequest ? <>
+        <section aria-label="Content SEO AI assistance">
+          <AiDraftAssistancePanel
+            request={contentSeoRequest}
+            requestIdentity={JSON.stringify(contentSeoRequest)}
+          />
+        </section>
+        {fabricKnowledgeRequest ? (
+          <section aria-label="Fabric knowledge AI assistance">
+            <AiDraftAssistancePanel
+              request={fabricKnowledgeRequest}
+              requestIdentity={JSON.stringify(fabricKnowledgeRequest)}
+            />
+          </section>
+        ) : null}
+        {sourcingGuideRequest ? (
+          <section aria-label="Sourcing guide AI assistance">
+            <AiDraftAssistancePanel
+              request={sourcingGuideRequest}
+              requestIdentity={JSON.stringify(sourcingGuideRequest)}
+            />
+          </section>
+        ) : null}
+      </> : (
+        <section aria-label="AI draft assistance unavailable" className={panelClass}>
+          <h2 className="text-xl font-semibold">AI draft assistance unavailable</h2>
+          <p className="text-sm text-slate-300">
+            This Content record has no eligible English Draft target with an authoritative edit
+            version. Ordinary manual editing remains available.
+          </p>
+        </section>
+      )}
       {draftRevision ? <AdminActionForm action={submitBlockDraftForReviewAction} className={panelClass} successMessage="Content Block Draft submitted for review."><h2 className="text-xl font-semibold">Content Block Draft Revision</h2><p className="text-sm text-slate-300">Autosave remains Draft-only. Submit explicitly when this revision is ready for human review.</p><input name="entityType" type="hidden" value="content" /><input name="entityId" type="hidden" value={content.id} /><input name="revisionId" type="hidden" value={draftRevision.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Submit Block Draft for Review</button></AdminActionForm> : null}
       <AssetUploadForm associations={[{ value: `content:${content.id}`, label: content.title, group: "Content" }]} returnTo={`/admin/contents/${content.id}/`} />
       <AdminActionForm action={updateContentAction} className={panelClass} successMessage="Content changes saved.">

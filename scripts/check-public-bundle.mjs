@@ -1,9 +1,12 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import ts from "typescript";
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
+const serverRoot = join(buildRoot, "server");
 const serverAppRoot = join(buildRoot, "server/app");
 const absoluteBuildRoot = resolve(buildRoot);
+const promptBundleSourcePath = "src/ai/prompts/generated/production-prompt-bundle.generated.ts";
 const currentChunkPrefix = "/_next/static/chunks/";
 const legacyChunkPrefix = "static/chunks/";
 const clientReferenceManifestFramings = [
@@ -20,16 +23,61 @@ const clientReferenceManifestFramings = [
     delimiter: "]=",
   },
 ];
-const forbidden = [
+const serverMarkers = [
+  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
+  "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
+];
+const approvedPromptTuples = [
+  ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
+  ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
+  ["seo-content-draft", 1, "91f8868efad16310a5ed26c85a6001024572949c59725efe2b6c0df935499195"],
+  ["sourcing-guide-draft", 1, "e4aaf2e39483bde7569edb529f1c1d213b0a11d68ac4a9b99075992620238adf"],
+];
+const baseForbidden = [
   "@refinedev",
   "/src/admin/",
   "RefineAdminProvider",
-  "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
-  "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
+  ...serverMarkers,
+  ...approvedPromptTuples.flatMap((tuple) => [tuple[0], tuple[2]]),
   "CWT_SYNTHETIC_TEST_DATA_NOT_A_CWT_FACT_V1",
   "synthetic_test_application",
   "synthetic_case_association",
+  "src/ai/testing",
+  "deepseek-text-adapter",
+  "api.deepseek.com",
+  "deepseek-v4-flash",
+  "DeepSeek-V4-Flash-0731",
+  "phase-d-provider-composition",
+  "production-prompt-bundle.generated",
+  "productionPromptBundleV1",
+  '"targetProductId"',
+  '"targetContentId"',
+  '"targetRevisionId"',
+  '"targetSnapshotHash"',
+  '"runId"',
+  '"candidateHash"',
 ];
+
+async function readProductionPromptAuthority() {
+  const source = await readFile(promptBundleSourcePath, "utf8");
+  const entries = [...source.matchAll(
+    /promptId: "([a-z-]+)",\s+promptVersion: ([0-9]+),\s+sha256: "([0-9a-f]{64})",[\s\S]*?rawBase64: "([A-Za-z0-9+/=]+)"/g,
+  )].map((match) => ({
+    promptId: match[1],
+    promptVersion: Number(match[2]),
+    sha256: match[3],
+    rawBase64: match[4],
+  }));
+  if (entries.length !== approvedPromptTuples.length ||
+    entries.some((entry, index) => {
+      const tuple = approvedPromptTuples[index];
+      return entry.promptId !== tuple[0] || entry.promptVersion !== tuple[1] ||
+        entry.sha256 !== tuple[2] || entry.rawBase64.length === 0;
+    })) {
+    throw new Error("Generated Production Prompt authority does not match the approved tuple contract.");
+  }
+  return entries;
+}
 
 async function filesUnder(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -40,6 +88,76 @@ async function filesUnder(directory) {
     else files.push(path);
   }
   return files;
+}
+
+function eligibleServerRuntimeIdentity(path) {
+  const absolutePath = resolve(path);
+  if (!isContainedPath(absoluteBuildRoot, absolutePath)) return undefined;
+  const serverRelativePath = relative(resolve(serverRoot), absolutePath);
+  if (serverRelativePath === "" || serverRelativePath === ".." ||
+    serverRelativePath.startsWith(`..${sep}`) || isAbsolute(serverRelativePath)) return undefined;
+  const identity = serverRelativePath.split(sep).join("/");
+  const lowerIdentity = identity.toLowerCase();
+  if (!identity.endsWith(".js") || lowerIdentity.includes("manifest") ||
+    lowerIdentity.includes("trace") || lowerIdentity.includes("cache")) {
+    return undefined;
+  }
+  if (identity.startsWith("chunks/") && identity.length > "chunks/.js".length) {
+    return `server/${identity}`;
+  }
+  if (/^app\/(?:.*\/)?(?:page|route)\.js$/.test(identity)) return `server/${identity}`;
+  return undefined;
+}
+
+function directPropertyName(property) {
+  if (!ts.isPropertyAssignment(property) || ts.isComputedPropertyName(property.name)) {
+    return undefined;
+  }
+  if (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) {
+    return property.name.text;
+  }
+  return undefined;
+}
+
+function hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]) {
+  if (!file.content.includes(promptId) || !file.content.includes(sha256)) return false;
+  const parsed = ts.createSourceFile(
+    file.identity,
+    file.content,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.JS,
+  );
+  if (parsed.parseDiagnostics?.length > 0) return false;
+  let matched = false;
+  function visit(node, insideSpreadOperand = false) {
+    if (matched) return;
+    if (!insideSpreadOperand && ts.isObjectLiteralExpression(node)) {
+      const directFields = new Map();
+      for (const property of node.properties) {
+        const name = directPropertyName(property);
+        if (name === undefined || directFields.has(name)) {
+          directFields.clear();
+          break;
+        }
+        directFields.set(name, property.initializer);
+      }
+      const id = directFields.get("promptId");
+      const version = directFields.get("promptVersion");
+      const hash = directFields.get("sha256");
+      matched = id !== undefined && version !== undefined && hash !== undefined &&
+        ts.isStringLiteral(id) && id.text === promptId &&
+        ts.isNumericLiteral(version) && Number(version.text) === promptVersion &&
+        ts.isStringLiteral(hash) && hash.text === sha256;
+    }
+    if (ts.isSpreadAssignment(node)) {
+      visit(node.expression, true);
+      return;
+    }
+    if (!matched) ts.forEachChild(node, (child) => visit(child, insideSpreadOperand));
+  }
+  visit(parsed);
+  return matched;
 }
 
 function hasSafeRouteKeyShape(routeKey) {
@@ -309,6 +427,56 @@ async function assertFreshBuild() {
 
 await assertFreshBuild();
 const realBuildRoot = await realpath(absoluteBuildRoot);
+const promptAuthority = await readProductionPromptAuthority();
+const forbidden = [...baseForbidden, ...promptAuthority.map((entry) => entry.rawBase64)];
+
+const eligibleServerRuntimePaths = (await filesUnder(serverRoot))
+  .map((path) => ({ path, identity: eligibleServerRuntimeIdentity(path) }))
+  .filter((entry) => entry.identity !== undefined);
+if (eligibleServerRuntimePaths.length === 0) {
+  throw new Error("No eligible executable server runtime JavaScript output was found.");
+}
+const serverRuntimeJavaScript = [];
+for (const { path: lexicalPath, identity } of eligibleServerRuntimePaths) {
+  const absoluteLexicalPath = resolve(lexicalPath);
+  if (!isContainedPath(absoluteBuildRoot, absoluteLexicalPath)) {
+    throw new Error("Server runtime JavaScript output escapes the lexical build root.");
+  }
+  let physicalPath;
+  try {
+    physicalPath = await realpath(absoluteLexicalPath);
+  } catch {
+    throw new Error("Server runtime JavaScript output is missing or inaccessible.");
+  }
+  if (!isContainedPath(realBuildRoot, physicalPath)) {
+    throw new Error("Server runtime JavaScript output escapes the real build root.");
+  }
+  const details = await stat(physicalPath);
+  if (!details.isFile()) {
+    throw new Error("Server runtime JavaScript output is not a regular file.");
+  }
+  serverRuntimeJavaScript.push({
+    identity,
+    content: await readFile(physicalPath, "utf8"),
+  });
+}
+
+const serverEvidenceIdentities = new Set();
+for (const marker of serverMarkers) {
+  const evidence = serverRuntimeJavaScript.find((file) => file.content.includes(marker));
+  if (evidence === undefined) {
+    throw new Error(`Required server AI marker is missing: ${marker}`);
+  }
+  serverEvidenceIdentities.add(evidence.identity);
+}
+for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
+  const evidence = serverRuntimeJavaScript.find((file) =>
+    hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]));
+  if (evidence === undefined) {
+    throw new Error(`Required co-bound server Prompt tuple is missing: ${promptId}@${promptVersion}`);
+  }
+  serverEvidenceIdentities.add(evidence.identity);
+}
 
 const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
   const name = relative(serverAppRoot, path).replaceAll("\\", "/");
@@ -391,5 +559,5 @@ if (leaks.length > 0) {
 }
 
 process.stdout.write(
-  `Public bundle boundary verified: ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
+  `Public bundle boundary verified: ${serverRuntimeJavaScript.length} eligible server runtime JavaScript files; AI evidence in ${[...serverEvidenceIdentities].sort().join(", ")}; ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
 );

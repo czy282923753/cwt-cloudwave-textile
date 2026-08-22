@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 import { createPhaseCDurableDraftAssistanceServiceV1 } from "@/ai/applications/draft-assistance/composition";
 import type { DraftAssistanceCommandV1 } from "@/ai/applications/draft-assistance/contracts";
+import { canonicalJsonHash } from "@/ai/canonical-json";
 import { aiSuccess } from "@/ai/errors";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
@@ -38,6 +39,27 @@ import { createAiRunWorkerV1 } from "./worker";
 const postgresUrl = process.env.CWT_PHASE_C_POSTGRES_URL;
 const hash = (character: string) => character.repeat(64);
 const requests: import("@/ai/canonical-json").ReadonlyJsonObject[] = [];
+const syntheticOutput = {
+  schemaVersion: 1,
+  useCase: "product_description_draft",
+  locale: "en",
+  summaryProposal: { text: "Synthetic Worker candidate.", sourceRefs: ["src_01:text"] },
+  descriptionBlocks: [],
+  featureProposals: [],
+  faqProposals: [],
+  mediaTextProposals: [],
+} as const;
+const syntheticCandidate = {
+  schemaVersion: 1,
+  useCase: "product_description_draft",
+  locale: "en",
+  payload: syntheticOutput,
+  derivedCandidateRefs: [],
+  automaticEvidenceStatus: "structural_provenance_checked",
+  semanticReviewStatus: "human_review_required",
+} as const;
+const syntheticCandidateHash = canonicalJsonHash(syntheticCandidate);
+if (!syntheticCandidateHash.ok) throw new Error("Synthetic candidate hash failed.");
 const provider = createFakeTextProviderV1({
   key: "synthetic_alpha",
   model: "synthetic-text-alpha-v1",
@@ -47,16 +69,7 @@ const provider = createFakeTextProviderV1({
     kind: "success",
     returnedModel: "synthetic-text-alpha-v1",
     completion: { kind: "complete" },
-    outputText: JSON.stringify({
-      schemaVersion: 1,
-      useCase: "product_description_draft",
-      locale: "en",
-      summaryProposal: { text: "Synthetic Worker candidate.", sourceRefs: ["src_01:text"] },
-      descriptionBlocks: [],
-      featureProposals: [],
-      faqProposals: [],
-      mediaTextProposals: [],
-    }),
+    outputText: JSON.stringify(syntheticOutput),
     usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
     durationMs: 3,
   },
@@ -160,6 +173,11 @@ async function seed() {
 function command(fixture: Awaited<ReturnType<typeof seed>>, idempotencyKey: string): DraftAssistanceCommandV1 {
   return {
     useCase: "product_description_draft",
+    task: {
+      kind: "product_description_draft",
+      tone: "concise_professional_b2b",
+      selectedMediaPlacementIds: [],
+    },
     actor: { userId: fixture.actorId, role: "product_editor" },
     target: { type: "product_draft", productId: fixture.productId, locale: "en", expectedVersion: 1 },
     idempotencyKey,
@@ -276,7 +294,58 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     expect(active).toHaveLength(0);
   }, 20_000);
 
-  it("aborts on bounded heartbeat contention and recovers the same row after restart", async () => {
+  it("keeps bounded stop separate from the exact claimed-generation join", async () => {
+    const providerEntered = deferred();
+    const releaseProvider = deferred();
+    let providerCalls = 0;
+    const controlledProvider: TextAiProvider = {
+      ...provider,
+      prepareTextDispatch(input) {
+        const prepared = provider.prepareTextDispatch(input);
+        if (!prepared.ok) return prepared;
+        return aiSuccess({
+          ...prepared.value,
+          async execute() {
+            providerCalls += 1;
+            providerEntered.resolve();
+            await releaseProvider.promise;
+            throw new Error("Controlled Provider rejection after release.");
+          },
+        });
+      },
+    };
+    const controlledRegistry = createTextProviderRegistryV1([controlledProvider]);
+    if (!controlledRegistry.ok) throw new Error("Controlled Provider registry failed.");
+    const worker = createAiRunWorkerV1({
+      database: db(),
+      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+      providerRegistry: controlledRegistry.value,
+      promptLoader,
+      pricingRegistry: localTestPricingPolicyRegistryV1,
+      timing: {
+        heartbeatIntervalMs: 15_000,
+        lockRetryDelayMs: 1_000,
+        idlePollMs: 10,
+        gracefulShutdownMs: 30,
+        postAbortPersistenceMs: 20,
+      },
+      workerId: "synthetic-bounded-stop-join-worker",
+      slotCount: 1,
+    });
+    let cleanupCompletion: Promise<void> | undefined;
+    const finishWorker = () => {
+      cleanupCompletion ??= (async () => {
+        const stopCompletion = worker.stop("SIGTERM");
+        releaseProvider.resolve();
+        const joinCompletion = worker.join();
+        await stopCompletion.then(() => undefined, () => undefined);
+        await joinCompletion;
+        await stopCompletion;
+      })();
+      return cleanupCompletion;
+    };
+    onTestFinished(finishWorker);
+
     const fixture = await seed();
     const service = createPhaseCDurableDraftAssistanceServiceV1({
       database: db(),
@@ -286,7 +355,88 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
       pricingRegistry: localTestPricingPolicyRegistryV1,
     });
     const enqueued = await service.requestDraftAssistance(command(fixture, randomUUID()));
-    expect(enqueued.ok).toBe(true);
+    if (!enqueued.ok) throw new Error(`Synthetic enqueue failed: ${enqueued.error.code}`);
+    const beforeStart = worker.join();
+    expect(worker.join()).toBe(beforeStart);
+    await expect(beforeStart).resolves.toBeUndefined();
+    await worker.start();
+    const generationCompletion = worker.join();
+    expect(worker.join()).toBe(generationCompletion);
+    await providerEntered.promise;
+    let joined = false;
+    void generationCompletion.then(
+      () => { joined = true; },
+      () => { joined = true; },
+    );
+    const stopCompletion = worker.stop("SIGTERM");
+    expect(worker.join()).toBe(generationCompletion);
+    await stopCompletion;
+    expect(joined).toBe(false);
+    await worker.start();
+    expect(worker.join()).toBe(generationCompletion);
+    expect(joined).toBe(false);
+    expect(providerCalls).toBe(1);
+    const [beforeRelease] = await db().select().from(aiRuns)
+      .where(eq(aiRuns.id, enqueued.value.runId));
+    expect(beforeRelease).toMatchObject({
+      status: "processing",
+      attemptCount: 1,
+      candidateJson: null,
+      candidateHash: null,
+    });
+    releaseProvider.resolve();
+    await generationCompletion;
+    expect(joined).toBe(true);
+    expect(worker.join()).toBe(generationCompletion);
+    await expect(worker.join()).resolves.toBeUndefined();
+    await worker.start();
+    expect(worker.join()).toBe(generationCompletion);
+    expect(worker.running).toBe(false);
+    expect(providerCalls).toBe(1);
+    const [final] = await db().select().from(aiRuns)
+      .where(eq(aiRuns.id, enqueued.value.runId));
+    expect(final).toMatchObject({
+      status: "failed",
+      retryState: "not_retryable",
+      attemptCount: 1,
+      failureCode: "adapter_unexpected_failure",
+      leaseOwner: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+    });
+    expect(final?.attemptHistoryJson).toHaveLength(1);
+  }, 20_000);
+
+  it("aborts on bounded heartbeat contention and recovers the same row after restart", async () => {
+    const restartedProviderEntered = deferred();
+    const releaseRestartedProvider = deferred();
+    let cleanupWorker: ReturnType<typeof createAiRunWorkerV1> | undefined;
+    let releaseCleanupProvider: () => void = () => undefined;
+    let cleanupCompletion: Promise<void> | undefined;
+    const finishWorker = () => {
+      cleanupCompletion ??= (async () => {
+        const worker = cleanupWorker;
+        const stopCompletion = worker?.stop("SIGTERM") ?? Promise.resolve();
+        releaseCleanupProvider();
+        const joinCompletion = worker?.join() ?? Promise.resolve();
+        await stopCompletion.then(() => undefined, () => undefined);
+        await joinCompletion;
+        await stopCompletion;
+      })();
+      return cleanupCompletion;
+    };
+    onTestFinished(finishWorker);
+
+    const fixture = await seed();
+    const service = createPhaseCDurableDraftAssistanceServiceV1({
+      database: db(),
+      trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
+      providerRegistry,
+      promptLoader,
+      pricingRegistry: localTestPricingPolicyRegistryV1,
+    });
+    const enqueued = await service.requestDraftAssistance(command(fixture, randomUUID()));
+    if (!enqueued.ok) throw new Error(`Synthetic enqueue failed: ${enqueued.error.code}`);
     const providerEntered = deferred();
     let observedAbortReason: unknown;
     const abortingProvider: TextAiProvider = {
@@ -320,6 +470,7 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
     const abortingRegistryResult = createTextProviderRegistryV1([abortingProvider]);
     if (!abortingRegistryResult.ok) throw new Error("Aborting Provider registry failed.");
     const telemetryEvents: string[] = [];
+    // This test owns the lifecycle-lock contention schedule, so one slot prevents an unrelated idle-sibling competitor.
     const worker = createAiRunWorkerV1({
       database: db(),
       trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
@@ -334,8 +485,10 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
         gracefulShutdownMs: 300,
         postAbortPersistenceMs: 150,
       },
+      slotCount: 1,
       workerId: "synthetic-contention-worker",
     });
+    cleanupWorker = worker;
     await worker.start();
     await providerEntered.promise;
     const lockClient = postgres(postgresUrl!, { max: 1, prepare: false, onnotice: () => undefined });
@@ -375,12 +528,44 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
       executionEnvironment: "test",
       workerId: "synthetic-recovery-owner",
     });
-    expect(recovered.kind).toBe("recovered");
+    expect(recovered).toEqual({ kind: "recovered", runId: enqueued.value.runId });
+    const [afterRecovery] = await db().select().from(aiRuns)
+      .where(eq(aiRuns.id, enqueued.value.runId));
+    expect(afterRecovery).toMatchObject({
+      status: "pending",
+      attemptCount: 1,
+      leaseOwner: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+    });
+    expect(afterRecovery?.attemptHistoryJson).toMatchObject([{
+      attempt: 1,
+      dispatch_state: "dispatched",
+      outcome: "retry_scheduled",
+      failure_code: "provider_transport_error",
+    }]);
     await db().update(aiRuns).set({ nextAttemptAt: sql`clock_timestamp()` });
+    const restartedProvider: TextAiProvider = {
+      ...provider,
+      prepareTextDispatch(input) {
+        const prepared = provider.prepareTextDispatch(input);
+        if (!prepared.ok) return prepared;
+        return aiSuccess({
+          ...prepared.value,
+          async execute(executeInput) {
+            restartedProviderEntered.resolve();
+            await releaseRestartedProvider.promise;
+            return prepared.value.execute(executeInput);
+          },
+        });
+      },
+    };
+    const restartedRegistryResult = createTextProviderRegistryV1([restartedProvider]);
+    if (!restartedRegistryResult.ok) throw new Error("Restarted Provider registry failed.");
     const restarted = createAiRunWorkerV1({
       database: db(),
       trustedEnvironment: { appEnvironment: "test", processFeatureAiEnabled: true },
-      providerRegistry,
+      providerRegistry: restartedRegistryResult.value,
       promptLoader,
       pricingRegistry: localTestPricingPolicyRegistryV1,
       timing: {
@@ -390,17 +575,22 @@ describe.skipIf(postgresUrl === undefined)("Phase C direct two-slot Worker", () 
         gracefulShutdownMs: 1_000,
         postAbortPersistenceMs: 200,
       },
+      slotCount: 1,
       workerId: "synthetic-restarted-worker",
     });
+    cleanupWorker = restarted;
+    releaseCleanupProvider = releaseRestartedProvider.resolve;
     await restarted.start();
-    await waitFor(async () => {
-      const [row] = await db().select().from(aiRuns);
-      return row?.status === "draft_ready";
-    });
-    await restarted.stop("SIGTERM");
+    await restartedProviderEntered.promise;
+    await finishWorker();
     const [final] = await db().select().from(aiRuns);
     expect(final).toMatchObject({ status: "draft_ready", attemptCount: 2 });
-    expect(final?.attemptHistoryJson).toHaveLength(2);
+    expect(final?.attemptHistoryJson).toMatchObject([
+      { attempt: 1, outcome: "retry_scheduled", failure_code: "provider_transport_error" },
+      { attempt: 2, outcome: "draft_ready", failure_code: null },
+    ]);
+    expect(final?.candidateJson).toEqual(syntheticCandidate);
+    expect(final?.candidateHash).toBe(syntheticCandidateHash.value.hash);
     const residualLocks = await db().execute<{ readonly count: number }>(sql`
       select count(*)::integer as count
       from pg_locks

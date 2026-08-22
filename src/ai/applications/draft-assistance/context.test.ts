@@ -9,7 +9,11 @@ import {
   createDraftContextPolicy,
   type DraftContextSourceDtoV1,
 } from "./context";
-import type { DraftTarget, ProductionAiUseCase } from "./contracts";
+import type {
+  DraftAssistanceTaskV1,
+  DraftTarget,
+  ProductionAiUseCase,
+} from "./contracts";
 import { withReadOnlyDraftAvailabilityScope } from "./read-scopes";
 
 describe("Draft reconstructible context", () => {
@@ -23,6 +27,61 @@ describe("Draft reconstructible context", () => {
     await database.close();
   });
 
+  const auxiliaryReaders = {
+    async readSelectedInternalLinks() {
+      return { ok: true as const, value: [] };
+    },
+    async readSelectedMediaPlacements() {
+      return { ok: true as const, value: [] };
+    },
+  };
+
+  function syntheticTask(useCase: ProductionAiUseCase): DraftAssistanceTaskV1 {
+    switch (useCase) {
+      case "product_description_draft":
+        return {
+          kind: useCase,
+          tone: "concise_professional_b2b",
+          selectedMediaPlacementIds: [],
+        };
+      case "seo_content_draft":
+        return {
+          kind: useCase,
+          tone: "concise_professional_b2b",
+          pageIntent: "Synthetic SEO page intent",
+          selectedInternalLinkIds: [],
+        };
+      case "fabric_knowledge_draft":
+        return { kind: useCase, tone: "neutral_editorial", topic: "Synthetic fabric topic" };
+      case "sourcing_guide_draft":
+        return {
+          kind: useCase,
+          tone: "concise_professional_b2b",
+          guideIntent: "Synthetic sourcing guide intent",
+        };
+    }
+  }
+
+  function syntheticDurableTask(useCase: ProductionAiUseCase) {
+    switch (useCase) {
+      case "seo_content_draft": return {
+        tone: "concise_professional_b2b" as const,
+        pageIntent: "Synthetic SEO page intent",
+      };
+      case "fabric_knowledge_draft": return {
+        tone: "neutral_editorial" as const,
+        topic: "Synthetic fabric topic",
+      };
+      case "product_description_draft": return {
+        tone: "concise_professional_b2b" as const,
+      };
+      case "sourcing_guide_draft": return {
+        tone: "concise_professional_b2b" as const,
+        guideIntent: "Synthetic sourcing guide intent",
+      };
+    }
+  }
+
   async function buildContextWithSource(input: {
     readonly useCase: ProductionAiUseCase;
     readonly target: DraftTarget;
@@ -33,6 +92,7 @@ describe("Draft reconstructible context", () => {
     readonly source: DraftContextSourceDtoV1;
   }) {
     const policy = createDraftContextPolicy({
+      ...auxiliaryReaders,
       async readSelectedSource() {
         return { ok: true, value: input.source };
       },
@@ -46,6 +106,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: input.useCase,
+          task: syntheticTask(input.useCase),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: input.target,
           idempotencyKey: "fixture-source-binding",
@@ -58,7 +119,7 @@ describe("Draft reconstructible context", () => {
 
   it("builds and deterministically re-encodes an explicit-input context", async () => {
     const readSelectedSource = vi.fn();
-    const policy = createDraftContextPolicy({ readSelectedSource });
+    const policy = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource });
     const association = prepareDraftAssociationV1({
       type: "product_draft",
       productId: "11111111-1111-4111-8111-111111111111",
@@ -76,6 +137,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "product_description_draft",
+          task: syntheticTask("product_description_draft"),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",
@@ -105,8 +167,8 @@ describe("Draft reconstructible context", () => {
   });
 
   it("adds controlled attestation only to safe input-source provenance", async () => {
-    const ordinary = createDraftContextPolicy({ readSelectedSource: vi.fn() });
-    const controlled = createDraftContextPolicy({ readSelectedSource: vi.fn() }, {
+    const ordinary = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource: vi.fn() });
+    const controlled = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource: vi.fn() }, {
       attestExplicitSource() {
         return {
           ok: true,
@@ -130,6 +192,7 @@ describe("Draft reconstructible context", () => {
     if (!authorized.ok) throw new Error("fixture authorization failed");
     const command = {
       useCase: "product_description_draft" as const,
+      task: syntheticTask("product_description_draft"),
       actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" as const },
       target,
       idempotencyKey: "fixture-attestation",
@@ -164,7 +227,7 @@ describe("Draft reconstructible context", () => {
   });
 
   it("uses the selected M02 classifier and rejects protected input", async () => {
-    const policy = createDraftContextPolicy({ readSelectedSource: vi.fn() });
+    const policy = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource: vi.fn() });
     const association = prepareDraftAssociationV1({
       type: "product_draft",
       productId: "11111111-1111-4111-8111-111111111111",
@@ -179,6 +242,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "product_description_draft",
+          task: syntheticTask("product_description_draft"),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",
@@ -204,8 +268,10 @@ describe("Draft reconstructible context", () => {
     ["fabricStyle", "verified", "SYNTHETIC plain weave"],
     ["customAvailable", "provided", "unknown"],
     ["moqPair", "verified", { moqValue: "500", moqUnit: null }],
+    ["moqPair", "provided", { moqValue: "500", moqUnit: "invalid-unit" }],
   ] as const)("rejects an ineligible Product %s projection", async (field, provenance, value) => {
     const policy = createDraftContextPolicy({
+      ...auxiliaryReaders,
       async readSelectedSource() {
         return {
           ok: true,
@@ -238,6 +304,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "product_description_draft",
+          task: syntheticTask("product_description_draft"),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",
@@ -382,6 +449,32 @@ describe("Draft reconstructible context", () => {
       source: productSource,
     });
     expect(correctProduct.ok).toBe(true);
+
+    const seoProductRevision = await buildContextWithSource({
+      useCase: "seo_content_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "product_structured", sourceId: productId, fields: ["name"] },
+      source: productSource,
+    });
+    expect(seoProductRevision.ok).toBe(true);
+
+    const seoContentRevision = await buildContextWithSource({
+      useCase: "seo_content_draft",
+      target: { type: "editorial_revision", revisionId, expectedVersion: 7 },
+      selection: { sourceClass: "product_structured", sourceId: productId, fields: ["name"] },
+      source: {
+        ...productSource,
+        targetBinding: {
+          ...productSource.targetBinding,
+          revisionEntityType: "content",
+          revisionEntityId: contentId,
+        },
+      },
+    });
+    expect(seoContentRevision).toMatchObject({
+      ok: false,
+      error: { code: "context_provenance_mismatch" },
+    });
 
     const productMutations: DraftContextSourceDtoV1[] = [
       {
@@ -576,6 +669,7 @@ describe("Draft reconstructible context", () => {
       expectedTargetVersion: 7,
     } satisfies DraftContextSourceDtoV1["targetBinding"];
     const policy = createDraftContextPolicy({
+      ...auxiliaryReaders,
       async readSelectedSource(input) {
         if (input.selector.sourceClass === "fabric_knowledge") {
           return {
@@ -625,6 +719,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "seo_content_draft",
+          task: syntheticTask("seo_content_draft"),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",
@@ -662,6 +757,7 @@ describe("Draft reconstructible context", () => {
       recordVersion: 7,
     };
     const policy = createDraftContextPolicy({
+      ...auxiliaryReaders,
       async readSelectedSource() {
         return {
           ok: true,
@@ -698,6 +794,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "product_description_draft",
+          task: syntheticTask("product_description_draft"),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",
@@ -726,13 +823,16 @@ describe("Draft reconstructible context", () => {
     expect(encoded.ok).toBe(true);
     expect(variables.ok).toBe(true);
     if (!encoded.ok || !variables.ok) return;
-    expect(encoded.value.inputSources[0]?.sourceIdentity).toEqual(sourceIdentity);
+    expect(encoded.value.inputSources[0]?.sourceIdentity).toEqual({
+      productId: sourceIdentity.productId,
+      projectionSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
     expect(JSON.stringify(encoded.value.inputContext)).not.toContain(sourceIdentity.productId);
     expect(JSON.stringify(variables.value)).not.toContain(sourceIdentity.productId);
   });
 
   it("rebuilds the exact four variable contracts and JCS hash after a JSONB-shaped round trip", async () => {
-    const policy = createDraftContextPolicy({ readSelectedSource: vi.fn() });
+    const policy = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource: vi.fn() });
     const association = prepareDraftAssociationV1({
       type: "product_draft",
       productId: "11111111-1111-4111-8111-111111111111",
@@ -747,6 +847,7 @@ describe("Draft reconstructible context", () => {
         actor: { principalId: "99999999-9999-4999-8999-999999999999", roleKey: "admin" },
         command: {
           useCase: "product_description_draft",
+          task: syntheticTask("product_description_draft"),
           actor: { userId: "99999999-9999-4999-8999-999999999999", role: "admin" },
           target: {
             type: "product_draft",
@@ -791,7 +892,7 @@ describe("Draft reconstructible context", () => {
     ]],
     ["sourcing_guide_draft", ["guide_intent", "locale", "requested_tone", "selected_context_json"]],
   ] as const)("builds the exact %s variable key set", (useCase, expectedKeys) => {
-    const policy = createDraftContextPolicy({ readSelectedSource: vi.fn() });
+    const policy = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource: vi.fn() });
     const durable = {
       version: 1,
       applicationClass: "draft_assistance",
@@ -805,7 +906,7 @@ describe("Draft reconstructible context", () => {
         expectedVersion: 7,
         snapshotHash: "a".repeat(64),
       },
-      task: { tone: useCase === "fabric_knowledge_draft" ? "neutral_editorial" : "concise_professional_b2b" },
+      task: syntheticDurableTask(useCase),
       sources: [],
       internalLinkCandidates: [],
       mediaPlacementRefs: [],
@@ -817,7 +918,7 @@ describe("Draft reconstructible context", () => {
   });
 
   it("rejects cross-use-case Company Facts and aggregate source overflows during durable reconstruction", () => {
-    const policy = createDraftContextPolicy({ readSelectedSource: vi.fn() });
+    const policy = createDraftContextPolicy({ ...auxiliaryReaders, readSelectedSource: vi.fn() });
     const source = (index: number, sourceClass: "public_company_fact" | "fabric_knowledge") => ({
       alias: `src_${String(index + 1).padStart(2, "0")}`,
       sourceClass,

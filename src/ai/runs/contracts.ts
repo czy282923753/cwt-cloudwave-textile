@@ -34,14 +34,42 @@ export interface AiRunSummaryReadV1 {
 }
 
 export interface AiRunAuthorizedReadV1 extends AiRunSummaryReadV1 {
-  readonly targetType: string;
-  readonly targetId: string;
   readonly candidateHash: string | null;
-  readonly candidate: ReadonlyJsonObject | null;
   readonly failureCode: string | null;
   readonly humanDisposition: string;
   readonly qualityRating: number | null;
   readonly qualityLabels: readonly string[];
+  /** Authoritative current controls, derived inside the authorized read transaction. */
+  readonly cancelAvailable: boolean;
+  readonly manualRetryAvailable: boolean;
+  readonly rejectAvailable: boolean;
+  readonly applyAvailable: boolean;
+  readonly appliedTargetVersion: number | null;
+  readonly appliedRevisionId: string | null;
+  readonly appliedRevisionVersion: number | null;
+  readonly reviewProjection: import("@/ai/applications/draft-assistance/contracts")
+    .AiDraftReviewProjectionV1 | null;
+}
+
+/** Server-only evidence used to construct the authorized browser projection. */
+export interface AiRunAuthorizedEvidenceV1 extends Omit<
+  AiRunAuthorizedReadV1,
+  "reviewProjection"
+> {
+  readonly targetType: string;
+  readonly targetProductId: string | null;
+  readonly targetContentId: string | null;
+  readonly targetRevisionId: string | null;
+  readonly targetLocale: string | null;
+  readonly expectedTargetVersion: number;
+  readonly targetSnapshotHash: string;
+  readonly outputSchemaVersion: number;
+  readonly policyVersion: string;
+  readonly inputContext: ReadonlyJsonObject;
+  readonly inputSources: readonly import("@/ai/core/contracts").SafeInputSourceReferenceV1[];
+  readonly inputHash: string;
+  readonly attemptHistory: readonly ReadonlyJsonObject[];
+  readonly candidate: ReadonlyJsonObject | null;
 }
 
 export type LifecycleLockOutcomeV1 =
@@ -162,6 +190,7 @@ export interface AiRunWorkerV1 {
   readonly workerId: string;
   start(): Promise<void>;
   stop(signal?: "SIGINT" | "SIGTERM"): Promise<void>;
+  join(): Promise<void>;
   readonly running: boolean;
 }
 
@@ -214,6 +243,46 @@ export interface RunDispositionInputV1 {
   )[];
   readonly qualityComment: string | null;
 }
+
+export interface AiCandidateApplyRouteV1 {
+  readonly owner: "product" | "content";
+  readonly entityId: string;
+  readonly targetType: "product_draft" | "content_draft" | "editorial_revision";
+  readonly revisionId: string | null;
+}
+
+export interface AiCandidateApplyCommandFingerprintV1 {
+  readonly version: 1;
+  readonly hash: string;
+}
+
+export type AiCandidateApplyLockOutcomeV1 =
+  | {
+      readonly kind: "ready";
+      readonly evidence: AiRunAuthorizedEvidenceV1;
+      readonly route: AiCandidateApplyRouteV1;
+    }
+  | {
+      readonly kind: "exact_replay";
+      readonly result: import("@/ai/applications/draft-assistance/contracts")
+        .AppliedAiDraftCandidateV1;
+    }
+  | {
+      readonly kind:
+        | "not_found_or_unauthorized"
+        | "state_conflict"
+        | "transition_forbidden";
+    };
+
+export type AiCandidateApplyDispositionOutcomeV1 =
+  | {
+      readonly kind: "updated";
+      readonly result: import("@/ai/applications/draft-assistance/contracts")
+        .AppliedAiDraftCandidateV1;
+    }
+  | {
+      readonly kind: "state_conflict" | "transition_forbidden";
+    };
 
 export type HumanLifecycleMutationOutcomeV1 =
   | {

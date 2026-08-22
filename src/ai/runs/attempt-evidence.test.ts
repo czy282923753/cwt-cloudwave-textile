@@ -3,9 +3,56 @@ import { describe, expect, it } from "vitest";
 import { aiFailure } from "@/ai/errors";
 import {
   attemptResponseFingerprintV2,
+  createAttemptHistoryEntryV2,
+  decodeAttemptHistoryEntryV2,
   normalizeAttemptEvidenceV3,
   sanitizedAttemptEvidenceJsonV2,
 } from "./attempt-evidence";
+
+function validNormalizedEvidence() {
+  const evidence = normalizeAttemptEvidenceV3({
+    version: 3,
+    dispatchState: "dispatched",
+    protectedResult: { synthetic: true },
+    error: null,
+    responseStatus: "success",
+    retryClass: "not_retryable",
+    returnedModel: "synthetic-model-v1",
+    completion: { kind: "complete" },
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    providerHttpStatus: 200,
+    providerErrorCode: null,
+    providerRequestId: "req_synthetic_01",
+    providerSystemFingerprint: null,
+    durationMs: 10,
+  });
+  if (!evidence.ok) throw new Error("Valid attempt evidence fixture failed.");
+  return evidence.value;
+}
+
+function validHistoryEntry() {
+  const evidence = validNormalizedEvidence();
+  const entry = createAttemptHistoryEntryV2({
+    attempt: 1,
+    outcome: "draft_ready",
+    requestedProvider: "synthetic_provider",
+    actualProvider: "synthetic_provider",
+    requestedModel: "synthetic-model-v1",
+    providerEnvelopeVersion: 1,
+    providerEnvelopeHash: "a".repeat(64),
+    dispatchedAt: new Date("2026-08-12T00:00:00.000Z"),
+    respondedAt: new Date("2026-08-12T00:00:01.000Z"),
+    attemptUpperCostMicrousd: 100,
+    actualCostMicrousd: 1,
+    accountedCostMicrousd: 1,
+    actualCostComplete: true,
+    evidence,
+    candidateHash: "b".repeat(64),
+    controlledIdentity: null,
+  });
+  if (!entry.ok) throw new Error("Valid attempt history fixture failed.");
+  return entry.value;
+}
 
 describe("normalized attempt evidence V3", () => {
   it("retains every safe failure field without raw payload authority", () => {
@@ -83,5 +130,41 @@ describe("normalized attempt evidence V3", () => {
     const first = attemptResponseFingerprintV2({ entryWithoutFingerprint: entry, candidateHash: "b".repeat(64) });
     const second = attemptResponseFingerprintV2({ entryWithoutFingerprint: entry, candidateHash: "b".repeat(64) });
     expect(first).toEqual(second);
+  });
+
+  it("uses one strict complete runtime authority for created and stored entries", () => {
+    const entry = validHistoryEntry();
+    expect(decodeAttemptHistoryEntryV2(entry)).toEqual({ ok: true, value: entry });
+    for (const invalid of [
+      { ...entry, unknown: true },
+      { ...entry, attempt: 0 },
+      { ...entry, provider_response_status: "arbitrary" },
+      { ...entry, input_tokens: null },
+      { ...entry, controlled_validation_fixture_id: "SYN-AI-ONE" },
+      { ...entry, response_fingerprint: "not-a-hash" },
+    ]) {
+      expect(decodeAttemptHistoryEntryV2(invalid)).toMatchObject({ ok: false });
+    }
+  });
+
+  it("makes the creator fail closed through the strict entry decoder", () => {
+    expect(createAttemptHistoryEntryV2({
+      attempt: 1,
+      outcome: "draft_ready",
+      requestedProvider: "bad\nprovider",
+      actualProvider: "synthetic_provider",
+      requestedModel: "synthetic-model-v1",
+      providerEnvelopeVersion: 1,
+      providerEnvelopeHash: "a".repeat(64),
+      dispatchedAt: new Date("2026-08-12T00:00:00.000Z"),
+      respondedAt: new Date("2026-08-12T00:00:01.000Z"),
+      attemptUpperCostMicrousd: 100,
+      actualCostMicrousd: 1,
+      accountedCostMicrousd: 1,
+      actualCostComplete: true,
+      evidence: validNormalizedEvidence(),
+      candidateHash: "b".repeat(64),
+      controlledIdentity: null,
+    })).toMatchObject({ ok: false });
   });
 });

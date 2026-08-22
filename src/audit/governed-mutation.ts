@@ -1,4 +1,5 @@
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
+import type { PgTransactionConfig } from "drizzle-orm/pg-core/session";
 
 import { writeAuditLog, type AuditInput } from "@/audit/service";
 import type { AppDatabase } from "@/db/types";
@@ -7,6 +8,7 @@ export type AuditWriter = typeof writeAuditLog;
 
 export interface GovernedMutationOptions {
   auditWriter?: AuditWriter;
+  transactionConfig?: PgTransactionConfig;
 }
 
 export interface GovernedMutationContext<TQueryResult extends PgQueryResultHKT> {
@@ -28,10 +30,11 @@ export async function runGovernedMutation<
   options: GovernedMutationOptions = {},
 ): Promise<TResult> {
   const auditWriter = options.auditWriter ?? writeAuditLog;
-  return db.transaction(async (transaction) =>
-    operation({
+  return db.transaction(
+    async (transaction) => operation({
       transaction,
       audit: (input) => auditWriter(transaction, input),
     }),
+    options.transactionConfig,
   );
 }

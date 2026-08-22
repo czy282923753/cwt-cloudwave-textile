@@ -24,6 +24,36 @@ import {
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
 import { productionApplicationKeysV1 } from "@/ai/registry/production-use-cases";
+import type {
+  DraftAssistanceTaskV1,
+  ProductionAiUseCase,
+} from "@/ai/applications/draft-assistance/contracts";
+
+function syntheticTask(useCase: ProductionAiUseCase): DraftAssistanceTaskV1 {
+  switch (useCase) {
+    case "seo_content_draft": return {
+      kind: "seo_content_draft",
+      tone: "concise_professional_b2b",
+      pageIntent: "Synthetic provider-neutral availability intent",
+      selectedInternalLinkIds: [],
+    };
+    case "fabric_knowledge_draft": return {
+      kind: "fabric_knowledge_draft",
+      tone: "neutral_editorial",
+      topic: "Synthetic provider-neutral fabric topic",
+    };
+    case "product_description_draft": return {
+      kind: "product_description_draft",
+      tone: "concise_professional_b2b",
+      selectedMediaPlacementIds: [],
+    };
+    case "sourcing_guide_draft": return {
+      kind: "sourcing_guide_draft",
+      tone: "concise_professional_b2b",
+      guideIntent: "Synthetic provider-neutral sourcing intent",
+    };
+  }
+}
 
 describe("Phase C Provider-neutral Production foundation", () => {
   let database: Awaited<ReturnType<typeof createTestDatabase>>;
@@ -108,7 +138,15 @@ describe("Phase C Provider-neutral Production foundation", () => {
           locale: "en",
           versionNumber: 3,
           status: "draft",
-          snapshot: { synthetic: true },
+          snapshot: {
+            kind: "editorial_blocks",
+            name: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+            shortDescription: null,
+            document: { version: 1, blocks: [] },
+            expectedEditorDocumentVersion: 7,
+            draftVersion: 3,
+            pendingChanges: [],
+          },
         },
         {
           id: contentRevisionId,
@@ -117,7 +155,14 @@ describe("Phase C Provider-neutral Production foundation", () => {
           locale: "en",
           versionNumber: 4,
           status: "draft",
-          snapshot: { synthetic: true },
+          snapshot: {
+            kind: "content_blocks_v1",
+            title: "SYNTHETIC TEST DATA — NOT A CWT FACT",
+            excerpt: null,
+            document: { version: 1, blocks: [] },
+            expectedEditorDocumentVersion: 5,
+            draftVersion: 4,
+          },
         },
         {
           id: malformedRevisionId,
@@ -152,6 +197,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const before = await database.db.select({ value: count() }).from(aiRuns);
     const result = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
+      task: syntheticTask("product_description_draft"),
       actor: { userId: adminId, role: "admin" },
       target: { type: "product_draft", productId, locale: "en", expectedVersion: 7 },
       contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
@@ -173,6 +219,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const service = createAvailabilityService();
     const result = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
+      task: syntheticTask("product_description_draft"),
       actor: { userId: adminId, role: "admin" },
       target: { type: "product_draft", productId, locale: "en", expectedVersion: 8 },
       contextSelections: [],
@@ -250,6 +297,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
       for (const actor of [admin, entry.correctEditor]) {
         const result = await service.inspectDraftAssistanceAvailability({
           useCase: entry.useCase,
+          task: syntheticTask(entry.useCase),
           actor,
           target: entry.target,
           contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
@@ -267,6 +315,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
 
       const denied = await service.inspectDraftAssistanceAvailability({
         useCase: entry.useCase,
+        task: syntheticTask(entry.useCase),
         actor: entry.wrongEditor,
         target: entry.target,
         contextSelections: [{ sourceClass: "explicit_human_input", origin: "typed_brief" }],
@@ -296,18 +345,21 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const missingRevisionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const wrongRoleExisting = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
+      task: syntheticTask("product_description_draft"),
       actor: contentEditor,
       target: { type: "editorial_revision", revisionId: productRevisionId, expectedVersion: 99 },
       contextSelections: [],
     });
     const wrongRoleMissing = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
+      task: syntheticTask("product_description_draft"),
       actor: contentEditor,
       target: { type: "editorial_revision", revisionId: missingRevisionId, expectedVersion: 99 },
       contextSelections: [],
     });
     const correctRoleMissing = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
+      task: syntheticTask("product_description_draft"),
       actor: productEditor,
       target: { type: "editorial_revision", revisionId: missingRevisionId, expectedVersion: 99 },
       contextSelections: [],
@@ -325,6 +377,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
 
     const versionConflict = await service.inspectDraftAssistanceAvailability({
       useCase: "product_description_draft",
+      task: syntheticTask("product_description_draft"),
       actor: productEditor,
       target: { type: "editorial_revision", revisionId: productRevisionId, expectedVersion: 99 },
       contextSelections: [],
@@ -361,7 +414,13 @@ describe("Phase C Provider-neutral Production foundation", () => {
       readonly useCase: Inspection["useCase"];
       readonly actor: Inspection["actor"];
       readonly target: Inspection["target"];
-    }) => service.inspectDraftAssistanceAvailability({ ...entry, contextSelections: [] });
+    }) => service.inspectDraftAssistanceAvailability({
+      useCase: entry.useCase,
+      actor: entry.actor,
+      target: entry.target,
+      task: syntheticTask(entry.useCase),
+      contextSelections: [],
+    });
     const expected = (code: string, manualEditorAvailable = false) => ({
       ok: true,
       value: { available: false, manualEditorAvailable, code },
@@ -523,6 +582,7 @@ describe("Phase C Provider-neutral Production foundation", () => {
     const inspect = (actor: Inspection["actor"], target = existingTarget) =>
       service.inspectDraftAssistanceAvailability({
         useCase: "product_description_draft",
+        task: syntheticTask("product_description_draft"),
         actor,
         target,
         contextSelections: [],

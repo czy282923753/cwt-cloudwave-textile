@@ -7,12 +7,28 @@ import {
 import type { TrustedPhaseBEnvironmentV1 } from "@/ai/config/trusted-phase-b-environment";
 import { createAiRunWorkerV1 } from "@/ai/internal/worker-entry";
 import { createTextProviderRegistryV1, productionTextProviderRegistryV1 } from "@/ai/providers/registry";
+import { CWT_PRODUCTION_PROMPT_BUNDLE_MARKER } from "@/ai/prompts/generated/production-prompt-bundle.generated";
 import { productionPromptLoaderV1 } from "@/ai/prompts/loader";
 import { productionPricingPolicyRegistryV1 } from "@/ai/runs/pricing-policy";
+import { CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A } from "@/ai/server-bundle-marker";
 import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
 import { createDeepSeekTextProviderV1 } from "@/integrations/ai/providers/deepseek-text-adapter";
 import { createDeepSeekPricingPolicyRegistryV1 } from "@/integrations/ai/providers/deepseek-pricing";
+
+const serverAiBoundaryMarkersV1 = Object.freeze([
+  CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A,
+  CWT_PRODUCTION_PROMPT_BUNDLE_MARKER,
+]);
+
+function assertServerAiBoundaryMarkersV1(): void {
+  if (new Set(serverAiBoundaryMarkersV1).size !== 2 || serverAiBoundaryMarkersV1.some((marker) =>
+    typeof marker !== "string" || !/^CWT_SERVER_AI_[A-Z0-9_]{16,}$/.test(marker))) {
+    throw new Error("The server AI boundary marker authorities are invalid.");
+  }
+}
+
+assertServerAiBoundaryMarkersV1();
 
 const trustedEnvironment = Object.freeze({
   appEnvironment: env.APP_ENV,

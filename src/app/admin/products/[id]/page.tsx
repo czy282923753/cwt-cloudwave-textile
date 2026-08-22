@@ -19,6 +19,7 @@ import {
   updateProductStructureAction,
 } from "@/admin/actions";
 import { AdminActionForm } from "@/admin/components/admin-action-form";
+import { AiDraftAssistancePanel } from "@/admin/components/ai-draft-assistance-panel";
 import { BlockEditor } from "@/admin/components/block-editor";
 import { AssetUploadForm } from "@/admin/components/asset-upload-form";
 import { AdminPageHeader } from "@/admin/components/admin-table";
@@ -84,6 +85,46 @@ export default async function ProductEditorPage({
     "draftVersion" in draftSnapshot && typeof draftSnapshot.draftVersion === "number"
     ? draftSnapshot.draftVersion
     : draftRevision ? 1 : null;
+  const aiRevisionDraftVersion = typeof draftSnapshot === "object" && draftSnapshot !== null &&
+    "draftVersion" in draftSnapshot && typeof draftSnapshot.draftVersion === "number" &&
+    Number.isInteger(draftSnapshot.draftVersion) && draftSnapshot.draftVersion >= 1
+    ? draftSnapshot.draftVersion
+    : null;
+  const aiTarget = product.status === "draft"
+    ? {
+        type: "product_draft" as const,
+        productId: product.id,
+        locale: "en" as const,
+        expectedVersion: product.editorDocumentVersion,
+      }
+    : product.status === "published" && draftRevision && aiRevisionDraftVersion !== null
+      ? {
+          type: "editorial_revision" as const,
+          revisionId: draftRevision.id,
+          expectedVersion: aiRevisionDraftVersion,
+        }
+      : null;
+  const productDescriptionRequest = aiTarget === null ? null : {
+    useCase: "product_description_draft" as const,
+    task: {
+      kind: "product_description_draft" as const,
+      tone: "concise_professional_b2b" as const,
+      selectedMediaPlacementIds: [],
+    },
+    target: aiTarget,
+    contextSelections: [],
+  };
+  const productSeoRequest = aiTarget === null ? null : {
+    useCase: "seo_content_draft" as const,
+    task: {
+      kind: "seo_content_draft" as const,
+      tone: "concise_professional_b2b" as const,
+      pageIntent: editorTitle,
+      selectedInternalLinkIds: [],
+    },
+    target: aiTarget,
+    contextSelections: [],
+  };
   const assetNames = new Map(allAssets.map((asset) => [asset.id, asset.fileName]));
   const mediaAssets = allAssets
     .filter((asset) => readyAssets.some((ready) => ready.id === asset.id) || product.assets.some((placement) => placement.assetId === asset.id))
@@ -134,6 +175,28 @@ export default async function ProductEditorPage({
           previewHref={`/admin/preview/product/${product.id}/`}
           productOptions={pickerOptions.products}
         />
+        {productDescriptionRequest && productSeoRequest ? <>
+          <section aria-label="Product description AI assistance">
+            <AiDraftAssistancePanel
+              request={productDescriptionRequest}
+              requestIdentity={JSON.stringify(productDescriptionRequest)}
+            />
+          </section>
+          <section aria-label="Product SEO AI assistance">
+            <AiDraftAssistancePanel
+              request={productSeoRequest}
+              requestIdentity={JSON.stringify(productSeoRequest)}
+            />
+          </section>
+        </> : (
+          <section aria-label="AI draft assistance unavailable" className={panelClass}>
+            <h2 className="text-xl font-semibold">AI draft assistance unavailable</h2>
+            <p className="text-sm text-slate-300">
+              This Product has no eligible English Draft target with an authoritative edit version.
+              Ordinary manual editing remains available.
+            </p>
+          </section>
+        )}
         {draftRevision ? <AdminActionForm action={submitBlockDraftForReviewAction} className={panelClass} successMessage="Product Block Draft submitted for review."><h2 className="text-xl font-semibold">Product Block Draft Revision</h2><p className="text-sm text-slate-300">Autosave remains Draft-only. Submit explicitly when this revision is ready for human review.</p><input name="entityType" type="hidden" value="product" /><input name="entityId" type="hidden" value={product.id} /><input name="revisionId" type="hidden" value={draftRevision.id} /><button className="rounded-xl border border-white/20 px-4 py-3" type="submit">Submit Block Draft for Review</button></AdminActionForm> : null}
         <AssetUploadForm associations={[{ value: `product:${product.id}`, label: product.name, group: "Product" }]} returnTo={`/admin/products/${product.id}/`} />
 

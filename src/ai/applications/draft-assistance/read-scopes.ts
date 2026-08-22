@@ -1,6 +1,6 @@
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js/session";
-import { and, eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/types";
 import type { AuditInput } from "@/audit/service";
@@ -24,15 +24,8 @@ import type {
   AuthoritativeAiActorV1,
   AiRunRepositoryV1,
 } from "@/ai/runs/repository";
-import {
-  contentLocalizations,
-  contents,
-  editorialRevisions,
-  productLocalizations,
-  products,
-} from "@/db/schema";
-
-import { buildAuthorizedDraftAssociationV1 } from "./association";
+import { createProductAiDraftReaderV1 } from "@/catalog/product-ai-context-reader";
+import { createContentAiDraftReaderV1 } from "@/content/content-ai-context-reader";
 import type {
   AuthorizedDraftAssociationV1,
   DraftAssistanceCommandV1,
@@ -70,6 +63,7 @@ export interface DraftTransactionScopeOperationsV1 {
   findReplay(input: AuthorizedReplayLookupV1):
     Promise<AiServiceResult<ReplayLookupResultV1>>;
   authorizeLockAndSnapshotTargetForNewRequest(input: {
+    readonly scope: TransactionBoundDraftEnqueueScope<PostgresJsQueryResultHKT>;
     readonly actor: CoreAiActorV1;
     readonly command: DraftAssistanceCommandV1;
     readonly association: DraftDurableAssociationWithoutHashV1;
@@ -90,9 +84,16 @@ export interface ReadOnlyDraftAvailabilityScope<
 
 export interface TransactionBoundDraftEnqueueScope<
   TQueryResult extends PgQueryResultHKT,
-> extends DraftConsistentReadScope<TQueryResult>,
-    DraftTransactionScopeOperationsV1 {
+> extends DraftConsistentReadScope<TQueryResult> {
   readonly mode: "governed_enqueue_transaction";
+  findReplay: DraftTransactionScopeOperationsV1["findReplay"];
+  authorizeLockAndSnapshotTargetForNewRequest(input: {
+    readonly actor: CoreAiActorV1;
+    readonly command: DraftAssistanceCommandV1;
+    readonly association: DraftDurableAssociationWithoutHashV1;
+  }): Promise<AiServiceResult<AuthorizedDraftAssociationV1>>;
+  lockSelectedConfigForNewRequest: DraftTransactionScopeOperationsV1["lockSelectedConfigForNewRequest"];
+  insertPreparedWithRequiredAudit: DraftTransactionScopeOperationsV1["insertPreparedWithRequiredAudit"];
 }
 
 export function withDraftReadExecutor<
@@ -125,15 +126,19 @@ function createTransactionBoundDraftEnqueueScope<
   executor: Pick<AppDatabase<TQueryResult>, "select">,
   operations: DraftTransactionScopeOperationsV1,
 ): TransactionBoundDraftEnqueueScope<TQueryResult> {
-  return {
+  const scope: TransactionBoundDraftEnqueueScope<TQueryResult> = {
     [draftConsistentReadScopeBrand]: { [draftReadExecutor]: executor },
     mode: "governed_enqueue_transaction",
     findReplay: operations.findReplay,
-    authorizeLockAndSnapshotTargetForNewRequest:
-      operations.authorizeLockAndSnapshotTargetForNewRequest,
+    authorizeLockAndSnapshotTargetForNewRequest: (input) =>
+      operations.authorizeLockAndSnapshotTargetForNewRequest({
+        ...input,
+        scope: scope as TransactionBoundDraftEnqueueScope<PostgresJsQueryResultHKT>,
+      }),
     lockSelectedConfigForNewRequest: operations.lockSelectedConfigForNewRequest,
     insertPreparedWithRequiredAudit: operations.insertPreparedWithRequiredAudit,
   };
+  return scope;
 }
 
 export function authoritativeAvailabilityActorCanAccessEntityTypeV1<
@@ -222,16 +227,6 @@ export function withTransactionBoundDraftEnqueueScope<
 
 type PhaseCPgDatabase = AppDatabase<PostgresJsQueryResultHKT>;
 
-function contentChannelAllowed(
-  useCase: DraftAssistanceCommandV1["useCase"],
-  channel: string | null,
-): boolean {
-  if (useCase === "fabric_knowledge_draft") return channel === "fabric_knowledge";
-  if (useCase === "sourcing_guide_draft") return channel === "china_sourcing_guide";
-  if (useCase === "product_description_draft") return false;
-  return channel !== null;
-}
-
 function associationMatchesRow(
   association: import("@/ai/core/contracts").DurableApplicationAssociationV1,
   row: Awaited<ReturnType<AiRunRepositoryV1["insertPreparedWithinTransaction"]>>["row"],
@@ -280,6 +275,8 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
   readonly summarizeRun:
     typeof import("@/ai/runs/repository").coreRunSummaryFromRepositoryRowV1;
 }): DraftTransactionScopeOperationsV1 {
+  const productReader = createProductAiDraftReaderV1<PostgresJsQueryResultHKT>();
+  const contentReader = createContentAiDraftReaderV1<PostgresJsQueryResultHKT>();
   return {
     async findReplay(lookup) {
       if (lookup.requestedByPrincipalId !== input.actor.userId) {
@@ -307,74 +304,38 @@ export function createPostgresDraftEnqueueOperationsV1(input: {
     async authorizeLockAndSnapshotTargetForNewRequest(request) {
       if (request.actor.principalId !== input.actor.userId ||
         request.actor.roleKey !== input.actor.role) return aiFailure("authorization_denied");
-      const association = request.association;
-      if (association.targetType === "product_draft") {
-        const rows = await input.transaction.select({
-          status: products.status,
-          version: productLocalizations.editorDocumentVersion,
-        }).from(products).innerJoin(productLocalizations, and(
-          eq(productLocalizations.productId, products.id),
-          eq(productLocalizations.locale, "en"),
-        )).where(eq(products.id, association.targetProductId)).limit(1)
-          .for("update", { of: productLocalizations });
-        const row = rows[0];
-        if (row === undefined ||
-          !input.actorCanEnqueueEntityType("product")) {
-          return aiFailure("authorization_denied");
-        }
-        if (request.command.useCase !== "product_description_draft" &&
-          request.command.useCase !== "seo_content_draft") return aiFailure("target_scope_mismatch");
-        if (row.status !== "draft") return aiFailure("target_not_editable");
-        if (row.version !== association.expectedTargetVersion) return aiFailure("target_version_conflict");
-        return buildAuthorizedDraftAssociationV1(association);
+      const readerInput = {
+        scope: request.scope,
+        actor: request.actor,
+        command: request.command,
+        association: request.association,
+      };
+      if (request.association.targetType === "product_draft") {
+        if (!input.actorCanEnqueueEntityType("product")) return aiFailure("authorization_denied");
+        const target = await productReader.readTargetSnapshot(readerInput);
+        return target.ok ? aiSuccess(target.value.authorizedAssociation) : target;
       }
-      if (association.targetType === "content_draft") {
-        const rows = await input.transaction.select({
-          status: contents.status,
-          channel: contents.channel,
-          version: contentLocalizations.editorDocumentVersion,
-        }).from(contents).innerJoin(contentLocalizations, and(
-          eq(contentLocalizations.contentId, contents.id),
-          eq(contentLocalizations.locale, "en"),
-        )).where(eq(contents.id, association.targetContentId)).limit(1)
-          .for("update", { of: contentLocalizations });
-        const row = rows[0];
-        if (row === undefined ||
-          !input.actorCanEnqueueEntityType("content")) {
-          return aiFailure("authorization_denied");
-        }
-        if (!contentChannelAllowed(request.command.useCase, row.channel)) {
-          return aiFailure("target_scope_mismatch");
-        }
-        if (row.status !== "draft") return aiFailure("target_not_editable");
-        if (row.version !== association.expectedTargetVersion) return aiFailure("target_version_conflict");
-        return buildAuthorizedDraftAssociationV1(association);
+      if (request.association.targetType === "content_draft") {
+        if (!input.actorCanEnqueueEntityType("content")) return aiFailure("authorization_denied");
+        const target = await contentReader.readTargetSnapshot(readerInput);
+        return target.ok ? aiSuccess(target.value.authorizedAssociation) : target;
       }
-      const rows = await input.transaction.select({
-        status: editorialRevisions.status,
-        entityType: editorialRevisions.entityType,
-        locale: editorialRevisions.locale,
-        version: editorialRevisions.versionNumber,
-        contentChannel: contents.channel,
-      }).from(editorialRevisions).leftJoin(contents, and(
-        eq(editorialRevisions.entityType, "content"),
-        eq(contents.id, editorialRevisions.entityId),
-      )).where(eq(editorialRevisions.id, association.targetRevisionId)).limit(1)
-        .for("update", { of: editorialRevisions });
-      const row = rows[0];
-      if (row === undefined || row.entityType !== "product" && row.entityType !== "content" ||
-        !input.actorCanEnqueueEntityType(row.entityType)) {
-        return aiFailure("authorization_denied");
+      if (input.actor.role === "product_editor") {
+        if (!input.actorCanEnqueueEntityType("product")) return aiFailure("authorization_denied");
+        const target = await productReader.readTargetSnapshot(readerInput);
+        return target.ok ? aiSuccess(target.value.authorizedAssociation) : target;
       }
-      if (row.locale !== "en" ||
-        row.entityType === "product" && request.command.useCase !== "product_description_draft" &&
-          request.command.useCase !== "seo_content_draft" ||
-        row.entityType === "content" && !contentChannelAllowed(request.command.useCase, row.contentChannel)) {
-        return aiFailure("target_scope_mismatch");
+      if (input.actor.role === "content_editor") {
+        if (!input.actorCanEnqueueEntityType("content")) return aiFailure("authorization_denied");
+        const target = await contentReader.readTargetSnapshot(readerInput);
+        return target.ok ? aiSuccess(target.value.authorizedAssociation) : target;
       }
-      if (row.status !== "draft") return aiFailure("target_not_editable");
-      if (row.version !== association.expectedTargetVersion) return aiFailure("target_version_conflict");
-      return buildAuthorizedDraftAssociationV1(association);
+      if (input.actor.role !== "admin") return aiFailure("authorization_denied");
+      const product = await productReader.readTargetSnapshot(readerInput);
+      if (product.ok) return aiSuccess(product.value.authorizedAssociation);
+      if (product.error.code !== "target_scope_mismatch") return product;
+      const content = await contentReader.readTargetSnapshot(readerInput);
+      return content.ok ? aiSuccess(content.value.authorizedAssociation) : content;
     },
 
     async lockSelectedConfigForNewRequest(configuration) {

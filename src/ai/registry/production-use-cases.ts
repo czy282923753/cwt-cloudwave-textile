@@ -11,6 +11,7 @@ import type {
 } from "@/ai/applications/draft-assistance/context";
 import type {
   DraftAssistanceCommandV1,
+  DraftAssistanceTaskV1,
   DraftDurableAssociationWithoutHashV1,
   ProductionAiUseCase,
 } from "@/ai/applications/draft-assistance/contracts";
@@ -58,6 +59,37 @@ import {
 const uuid = z.string().regex(
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 );
+const utf8Length = (value: string): number => Buffer.byteLength(value, "utf8");
+const boundedRequiredString = (maximumUtf8Bytes: number) => z.string().refine(
+  (value) => value.trim().length > 0 && utf8Length(value) <= maximumUtf8Bytes,
+);
+const selectedUuidIds = z.array(uuid).max(12).refine(
+  (values) => new Set(values).size === values.length,
+);
+const taskSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("seo_content_draft"),
+    tone: z.literal("concise_professional_b2b"),
+    pageIntent: boundedRequiredString(500),
+    primaryPhrase: boundedRequiredString(200).optional(),
+    selectedInternalLinkIds: selectedUuidIds,
+  }).strict(),
+  z.object({
+    kind: z.literal("fabric_knowledge_draft"),
+    tone: z.literal("neutral_editorial"),
+    topic: boundedRequiredString(300),
+  }).strict(),
+  z.object({
+    kind: z.literal("product_description_draft"),
+    tone: z.literal("concise_professional_b2b"),
+    selectedMediaPlacementIds: selectedUuidIds,
+  }).strict(),
+  z.object({
+    kind: z.literal("sourcing_guide_draft"),
+    tone: z.literal("concise_professional_b2b"),
+    guideIntent: boundedRequiredString(500),
+  }).strict(),
+]);
 const selectorSchema = z.discriminatedUnion("sourceClass", [
   z.object({
     sourceClass: z.literal("public_company_fact"), sourceId: uuid,
@@ -80,8 +112,9 @@ const selectorSchema = z.discriminatedUnion("sourceClass", [
     origin: z.enum(["typed_brief", "operator_selected_target_text"]),
   }).strict(),
 ]);
-const commandSchema = z.object({
+const commandObjectSchema = z.object({
   useCase: z.enum(productionAiUseCases),
+  task: taskSchema,
   actor: z.object({
     userId: uuid,
     role: z.enum(["admin", "product_editor", "content_editor", "reviewer_publisher", "sales", "analyst"]),
@@ -95,6 +128,87 @@ const commandSchema = z.object({
   contextSelections: z.array(selectorSchema).max(32),
   explicitInput: z.string().max(16_384).optional(),
 }).strict();
+
+function requireMatchingTaskKind(
+  command: {
+    readonly useCase: ProductionAiUseCase;
+    readonly task: { readonly kind: ProductionAiUseCase };
+  },
+  context: z.RefinementCtx,
+): void {
+  if (command.task.kind !== command.useCase) {
+    context.addIssue({
+      code: "custom",
+      message: "Task kind must match the requested use case.",
+      path: ["task", "kind"],
+    });
+  }
+}
+
+const commandSchema = commandObjectSchema.superRefine(requireMatchingTaskKind);
+const actorlessCommandSchema = commandObjectSchema.omit({ actor: true })
+  .superRefine(requireMatchingTaskKind);
+const actorlessAvailabilitySchema = commandObjectSchema.omit({ actor: true, idempotencyKey: true })
+  .superRefine(requireMatchingTaskKind);
+
+function reconstructDraftCommandV1(
+  parsed: z.infer<typeof commandObjectSchema>,
+): DraftAssistanceCommandV1 {
+  const task: DraftAssistanceTaskV1 = parsed.task.kind === "seo_content_draft"
+    ? {
+        kind: "seo_content_draft",
+        tone: "concise_professional_b2b",
+        pageIntent: parsed.task.pageIntent,
+        selectedInternalLinkIds: parsed.task.selectedInternalLinkIds,
+        ...(parsed.task.primaryPhrase === undefined
+          ? {} : { primaryPhrase: parsed.task.primaryPhrase }),
+      }
+    : parsed.task;
+  const base = {
+    useCase: parsed.useCase,
+    task,
+    actor: parsed.actor,
+    target: parsed.target,
+    idempotencyKey: parsed.idempotencyKey,
+    contextSelections: parsed.contextSelections,
+  };
+  return parsed.explicitInput === undefined
+    ? base
+    : { ...base, explicitInput: parsed.explicitInput };
+}
+
+/**
+ * The sole actorless Server Action decoder. It is derived from the exact strict
+ * Production command object and only adds the authenticated server-side actor.
+ */
+export function decodeDraftAssistanceActionCommandV1(
+  payload: unknown,
+  actor: DraftAssistanceCommandV1["actor"],
+): import("@/ai/errors").AiServiceResult<DraftAssistanceCommandV1> {
+  const parsed = actorlessCommandSchema.safeParse(payload);
+  return parsed.success
+    ? aiSuccess(reconstructDraftCommandV1({ ...parsed.data, actor }))
+    : aiFailure("target_scope_mismatch");
+}
+
+/** Strict availability counterpart derived from the same Production command object. */
+export function decodeDraftAssistanceAvailabilityActionQueryV1(
+  payload: unknown,
+  actor: DraftAssistanceCommandV1["actor"],
+): import("@/ai/errors").AiServiceResult<
+  import("@/ai/applications/draft-assistance/contracts").DraftAssistanceAvailabilityQueryV1
+> {
+  const parsed = actorlessAvailabilitySchema.safeParse(payload);
+  if (!parsed.success) return aiFailure("target_scope_mismatch");
+  const command = reconstructDraftCommandV1({
+    ...parsed.data,
+    actor,
+    idempotencyKey: "00000000-0000-4000-8000-000000000000",
+  });
+  const { idempotencyKey: _discarded, ...query } = command;
+  void _discarded;
+  return aiSuccess(query);
+}
 
 export interface DraftRegistryDependenciesV1<
   TQueryResult extends PgQueryResultHKT,
@@ -359,6 +473,21 @@ function verifyClaimedAssociationIntegrity(
   }
 }
 
+function claimedOwnerMatchesContext(
+  useCase: ProductionAiUseCase,
+  owner: import("@/ai/core/contracts").ClaimedTargetOwnerAuthorityV1["owner"],
+  context: ReconstructibleDraftContextV1,
+): boolean {
+  if (context.association.targetType === "product_draft" && owner !== "product" ||
+    context.association.targetType === "content_draft" && owner !== "content") return false;
+  if (useCase === "product_description_draft") return owner === "product";
+  if (useCase === "fabric_knowledge_draft" || useCase === "sourcing_guide_draft") {
+    return owner === "content";
+  }
+  return owner === "product" ||
+    !context.sources.some((source) => source.sourceClass === "product_structured");
+}
+
 function claimedRuntime(
   useCase: ProductionAiUseCase,
   output: DraftOutputDefinitionV1,
@@ -373,10 +502,11 @@ function claimedRuntime(
     outputSchemaVersion: 1,
     policyVersion: output.policyVersion,
     decodeClaimedAssociation: (row) => persistenceCodec.decodeClaimedRow(row),
-    decodeClaimedContext(input) {
+    decodeClaimedContext(input, targetOwnerAuthority) {
       const decoded = contextPolicy.decodeDurableContext(input);
       if (!decoded.ok) return decoded;
-      if (decoded.value.context.useCase !== useCase) {
+      if (decoded.value.context.useCase !== useCase ||
+        !claimedOwnerMatchesContext(useCase, targetOwnerAuthority.owner, decoded.value.context)) {
         return aiFailure("context_provenance_mismatch");
       }
       return aiSuccess({
@@ -424,23 +554,7 @@ function createProductionDefinitionsV1<
           const parsed = commandSchema.safeParse(payload);
           if (!parsed.success) return aiFailure("target_scope_mismatch");
           if (parsed.data.useCase !== useCase) return aiFailure("use_case_unknown");
-          const command: DraftAssistanceCommandV1 =
-            parsed.data.explicitInput === undefined
-              ? {
-                  useCase: parsed.data.useCase,
-                  actor: parsed.data.actor,
-                  target: parsed.data.target,
-                  idempotencyKey: parsed.data.idempotencyKey,
-                  contextSelections: parsed.data.contextSelections,
-                }
-              : {
-                  useCase: parsed.data.useCase,
-                  actor: parsed.data.actor,
-                  target: parsed.data.target,
-                  idempotencyKey: parsed.data.idempotencyKey,
-                  contextSelections: parsed.data.contextSelections,
-                  explicitInput: parsed.data.explicitInput,
-                };
+          const command = reconstructDraftCommandV1(parsed.data);
           return aiSuccess(command);
         },
         associationFrom(command) {

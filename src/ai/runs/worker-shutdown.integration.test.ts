@@ -58,9 +58,22 @@ describe.skipIf(postgresUrl === undefined)("Phase C Worker shutdown boundary", (
       },
       workerId: `synthetic-shutdown-${signal}`,
     });
+    const beforeStart = worker.join();
+    expect(worker.join()).toBe(beforeStart);
+    await expect(beforeStart).resolves.toBeUndefined();
     await worker.start();
     expect(worker.running).toBe(true);
-    await worker.stop(signal);
+    const generationCompletion = worker.join();
+    expect(worker.join()).toBe(generationCompletion);
+    const stopCompletion = worker.stop(signal);
+    expect(worker.join()).toBe(generationCompletion);
+    await stopCompletion;
+    await generationCompletion;
+    expect(worker.join()).toBe(generationCompletion);
+    await expect(worker.join()).resolves.toBeUndefined();
+    expect(worker.running).toBe(false);
+    await worker.start();
+    expect(worker.join()).toBe(generationCompletion);
     expect(worker.running).toBe(false);
     const locks = await db().execute<{ readonly count: number }>(sql`
       select count(*)::integer as count

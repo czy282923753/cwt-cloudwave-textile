@@ -298,8 +298,10 @@ export function createAiRunWorkerV1(dependencies: {
   const slotCount = dependencies.slotCount ?? AI_TEXT_CONCURRENCY_LIMIT_V1;
   const processAbort = new AbortController();
   const activeControllers = new Set<AbortController>();
+  let started = false;
   let acceptingClaims = false;
   let loops: readonly Promise<void>[] = [];
+  let generationCompletion = Promise.resolve();
   const slotLoop = async (slot: number) => {
     while (acceptingClaims && !processAbort.signal.aborted) {
       const claim = await repository.claimOrRecover({
@@ -337,9 +339,17 @@ export function createAiRunWorkerV1(dependencies: {
     workerId,
     get running() { return acceptingClaims || activeControllers.size > 0; },
     async start() {
-      if (acceptingClaims) return;
+      if (started) return;
+      started = true;
       acceptingClaims = true;
       loops = Array.from({ length: slotCount }, (_, slot) => slotLoop(slot));
+      generationCompletion = Promise.allSettled(loops).then((outcomes) => {
+        const rejected = outcomes.find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
+        return rejected === undefined ? undefined : Promise.reject(rejected.reason);
+      });
+      void generationCompletion.catch(() => undefined);
     },
     async stop() {
       acceptingClaims = false;
@@ -358,6 +368,9 @@ export function createAiRunWorkerV1(dependencies: {
         processAbort.abort("worker_stopped");
       }
       loops = [];
+    },
+    join() {
+      return generationCompletion;
     },
   };
 }
