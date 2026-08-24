@@ -21,6 +21,12 @@ const expectedProfileFileHash = "59b075f27b563f1790a62cce3c299983eeecf68f5676763
 const expectedProfileIntegrityHash = "88a107e695962f4217f7f843f8b2b25fd37be9539c03a01dba66bed482f318f6";
 const expectedFixtureHash = "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42";
 const acceptedS12Parent = "ee13e743158e245f520a8d7ec68aa1854179fdc3";
+const acceptedPhaseECommit = "41dfc135f5f124e68aaac416c049c2e387e38d57";
+const acceptedPhaseETree = "f85182ad8d4519d58e1d829967cfc889b8f1e830";
+const phaseFExecutablePaths = [
+  "scripts/phase-f-bounded-bootstrap.ts",
+  "scripts/phase-f-bounded-exercise.ts",
+] as const;
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
 const fixtureBytes = readFileSync(resolve(repositoryRoot, fixturePath));
@@ -613,6 +619,34 @@ for (const excluded of enumeration.excludedPhysicalRoots) excludedStatus[exclude
 walk(repositoryRoot, "");
 actualFiles.sort();
 
+for (const path of phaseFExecutablePaths) {
+  if (!actualFiles.includes(path)) fail(`Phase F bounded executable is absent: ${path}`);
+  const source = readFileSync(resolve(repositoryRoot, path), "utf8");
+  if (/\bexport\b/u.test(source) || /\b(?:Date\.now|new\s+Date)\s*\(/u.test(source) ||
+    /\b(?:Proxy|eval|Function)\s*\(/u.test(source) || /\bas\s+(?:any|unknown)\b/u.test(source)) {
+    fail(`Phase F executable violates the no-export/no-new-authority boundary: ${path}`);
+  }
+}
+for (const path of actualFiles) {
+  if (path.startsWith("src/") && !isTestSemantic(path) &&
+    path.toLocaleLowerCase("en-US").includes("phase-f")) {
+    fail(`Phase F Product/runtime module is prohibited: ${path}`);
+  }
+  if (/phase-f-(?:controlled|canonical|cutoff|grant|controller|materialization|zero-writer|one-time-storage)/iu.test(path)) {
+    fail(`Rejected Phase F mechanism remains present: ${path}`);
+  }
+  if (!phaseFExecutablePaths.includes(path as (typeof phaseFExecutablePaths)[number]) &&
+    /\.(?:[cm]?[jt]sx?)$/u.test(path)) {
+    const source = readFileSync(resolve(repositoryRoot, path), "utf8");
+    if (phaseFExecutablePaths.some((executable) => {
+      const stem = executable.replace(/^scripts\//u, "").replace(/\.ts$/u, "");
+      return new RegExp(`(?:from\\s*|import\\s*\\()\\s*["'][^"']*${stem}`, "u").test(source);
+    })) {
+      fail(`Phase F bounded executable became importable from ${path}`);
+    }
+  }
+}
+
 const executableExtensions = new Set(enumeration.executableExtensions);
 const rootControls = new Set(enumeration.rootControlFiles);
 function startsWithDirectory(path: string, directories: readonly string[]): boolean {
@@ -713,8 +747,10 @@ const expectedRootImports = [
   "@/ai/config/trusted-phase-b-environment",
   "@/ai/internal/worker-entry",
   "@/ai/providers/registry",
+  "@/ai/prompts/generated/production-prompt-bundle.generated",
   "@/ai/prompts/loader",
   "@/ai/runs/pricing-policy",
+  "@/ai/server-bundle-marker",
   "@/config/env",
   "@/db/client",
   "@/integrations/ai/providers/deepseek-text-adapter",
@@ -861,7 +897,7 @@ const mutationProbes: MutationProbe[] = [
   {
     id: "v1.6-12-alias-import",
     expectedCode: "fail_closed_alias_import",
-    run: () => { requireExactRootImports([...expectedRootImports.slice(0, 10), "@/integrations/ai/providers/deepseek-pricing/index"]); },
+    run: () => { requireExactRootImports([...expectedRootImports.slice(0, -1), "@/integrations/ai/providers/deepseek-pricing/index"]); },
   },
   {
     id: "v1.6-13-unmanifested-generated-resource",
@@ -1362,7 +1398,12 @@ function scanStaticLanguage(input: {
       rejectNode(node, "import_equals_loader");
     }
     if (production && ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      rejectNode(node, "dynamic_import_loader");
+      const specifier = node.arguments.length === 1 ? literalText(node.arguments[0]!) : undefined;
+      const exactAuthenticatedAiActionImport = path === "src/admin/ai-actions.ts" &&
+        (specifier === "@/ai/registry/production-use-cases" ||
+          specifier === "@/server/ai/phase-d-provider-composition") && node.typeArguments === undefined;
+      if (!exactAuthenticatedAiActionImport) rejectNode(node, "dynamic_import_loader");
+      addStatic("import", "runtime", node.arguments[0]!, node);
     }
     if (production && (ts.isCallExpression(node) || ts.isNewExpression(node))) {
       const expression = node.expression;
@@ -1835,10 +1876,15 @@ function enforceCapabilityEdge(
   const target = canonicalTarget.path;
   const exactCliRootEdge = edge.from === "scripts/process-ai-runs.ts" && target === rootPath &&
     edge.edgeKind === "runtime" && edge.specifier === "@/server/ai/phase-d-provider-composition";
-  if (target === rootPath && edge.from !== rootPath && !exactCliRootEdge) {
+  const exactAuthenticatedAiActionEdge = edge.from === "src/admin/ai-actions.ts" &&
+    edge.edgeKind === "runtime" && (target === rootPath ||
+      target === "src/ai/registry/production-use-cases.ts" ||
+      target === "src/ai/applications/draft-assistance/contracts.ts");
+  if (target === rootPath && edge.from !== rootPath && !exactCliRootEdge && !exactAuthenticatedAiActionEdge) {
     rejectGraph("phase_d_composition_violation", edgeDiagnostic(edge, "unexpected_incoming_edge_to_phase_d_composition", target));
   }
-  if (target.startsWith("src/server/ai/") && edge.from !== rootPath && !exactCliRootEdge) {
+  if (target.startsWith("src/server/ai/") && edge.from !== rootPath && !exactCliRootEdge &&
+    !exactAuthenticatedAiActionEdge) {
     rejectGraph("phase_d_composition_violation", edgeDiagnostic(edge, "incoming_edge_to_server_ai_composition", target));
   }
   if (edge.from === "scripts/process-ai-runs.ts" && target !== rootPath &&
@@ -1850,7 +1896,10 @@ function enforceCapabilityEdge(
     rejectGraph("public_client_reachability", edgeDiagnostic(edge, "public_client_reaches_ai_server_boundary", target));
   }
   const exactAdapterTestEdge = isTestSemantic(edge.from) && target.startsWith("src/integrations/ai/providers/");
-  if (!exactAdapterTestEdge &&
+  const exactPhaseFExecutableEdge = phaseFExecutablePaths.includes(
+    edge.from as (typeof phaseFExecutablePaths)[number],
+  ) && (target.startsWith("src/integrations/ai/providers/") || target.startsWith("src/ai/"));
+  if (!exactAdapterTestEdge && !exactPhaseFExecutableEdge &&
     testOrControlClasses.has(sourceClass) &&
     (target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/") ||
       (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
@@ -1858,7 +1907,14 @@ function enforceCapabilityEdge(
   }
   const targetNode = canonicalTarget.node;
   enforceProductionTargetClassCeiling(edge, sourceClass, targetNode);
-  if (sourceClass === "business-consumer" && target.startsWith("src/ai/") &&
+  const acceptedDraftBusinessAiEdge = [
+    "src/catalog/product-ai-context-reader.ts",
+    "src/catalog/product-service.ts",
+    "src/content/content-ai-context-reader.ts",
+    "src/content/content-service.ts",
+  ].includes(edge.from) && target.startsWith("src/ai/");
+  if (sourceClass === "business-consumer" && edge.edgeKind !== "type-only" &&
+    target.startsWith("src/ai/") && !exactAuthenticatedAiActionEdge && !acceptedDraftBusinessAiEdge &&
     (edge.specifier !== "@/ai" || target !== "src/ai/index.ts")) {
     rejectGraph("class_capability_violation", `${edge.from}->${target}`);
   }
@@ -1873,6 +1929,7 @@ function enforceCapabilityEdge(
         "src/ai/applications/draft-assistance/read-scopes.ts",
         "src/ai/applications/draft-assistance/composition.ts",
         "src/ai/applications/draft-assistance/facade.ts",
+        "src/ai/applications/draft-assistance/review-projection.ts",
         "src/ai/config/model-config-repository.ts",
         "src/ai/config/model-config-service.ts",
         "src/ai/runs/repository.ts",
@@ -1903,7 +1960,24 @@ function enforceCapabilityEdge(
         "src/ai/runs/service.ts",
         "src/ai/testing/accepted-draft-atomicity-harness.ts",
       ].includes(edge.from);
-      if (!typeDatabaseEdge && !typeRoleEdge && !schemaEdge && !governedAuditEdge) {
+      const acceptedDraftDomainEdge = ["runtime", "type-only"].includes(edge.edgeKind) && (
+        edge.from === "src/ai/applications/draft-assistance/composition.ts" && [
+          "src/catalog/product-ai-context-reader.ts",
+          "src/catalog/product-service.ts",
+          "src/content/content-ai-context-reader.ts",
+          "src/content/content-service.ts",
+        ].includes(target) || [
+          "src/ai/applications/draft-assistance/read-scopes.ts",
+          "src/ai/applications/draft-assistance/review-projection.ts",
+        ].includes(edge.from) && [
+          "src/catalog/product-ai-context-reader.ts",
+          "src/content/content-ai-context-reader.ts",
+        ].includes(target)
+        || edge.from === "src/ai/applications/draft-assistance/review-projection.ts" &&
+          target === "src/editorial/blocks.ts"
+      );
+      if (!typeDatabaseEdge && !typeRoleEdge && !schemaEdge && !governedAuditEdge &&
+        !acceptedDraftDomainEdge) {
         rejectGraph("class_capability_violation", `${edge.from}->${target}`);
       }
     }
@@ -2013,7 +2087,7 @@ const exactSpecifiers = rootEdges
   .map((edge) => edge.specifier ?? "");
 if (JSON.stringify(exactSpecifiers) !== JSON.stringify(expectedRootImports) ||
   rootEdges.length !== expectedRootImports.length) {
-  fail("Phase D outer composition imports differ from the exact eleven-edge seam");
+  fail("Phase D outer composition imports differ from the exact accepted-P seam");
 }
 
 const rootAst = ts.createSourceFile(
@@ -2067,7 +2141,7 @@ function inspectRoot(node: ts.Node): void {
 }
 inspectRoot(rootAst);
 rootFacts.exactExportNames.sort();
-if (rootFacts.freezeCalls !== 2 || rootFacts.kindReads !== 4 || rootFacts.dbReads !== 3 ||
+if (rootFacts.freezeCalls !== 3 || rootFacts.kindReads !== 4 || rootFacts.dbReads !== 3 ||
   rootFacts.availabilityFactoryCalls !== 1 || rootFacts.durableFactoryCalls !== 1 ||
   rootFacts.workerFactoryCalls !== 1 || rootFacts.deepSeekProviderFactoryCalls !== 1 ||
   rootFacts.deepSeekPricingFactoryCalls !== 1 || rootFacts.providerRegistryFactoryCalls !== 1 ||
@@ -2085,22 +2159,43 @@ if (rootFacts.freezeCalls !== 2 || rootFacts.kindReads !== 4 || rootFacts.dbRead
 }
 
 const protectedPaths = executableNodes
-  .filter((node) => node.classId === "protected-ai")
+  .filter((node) => node.classId === "protected-ai" && !isTestSemantic(node.path))
   .map((node) => node.path);
 const protectedClosure = executableClosure(protectedPaths, true);
-if (protectedClosure.some((path) => path === "src/config/env.ts" || path === "src/db/client.ts" ||
+const acceptedPhaseEProductEnvClosure = [
+  ["src/ai/applications/draft-assistance/composition.ts", "src/catalog/product-service.ts"],
+  ["src/catalog/product-service.ts", "src/uploads/admin-upload-service.ts"],
+  ["src/uploads/admin-upload-service.ts", "src/config/env.ts"],
+].every(([from, target]) => graphEdges.some((edge) => edge.from === from && edge.resolvedTarget === target));
+const prohibitedProtectedClosure = protectedClosure.filter((path) =>
+  path === "src/config/env.ts" && !acceptedPhaseEProductEnvClosure || path === "src/db/client.ts" ||
   path.startsWith("src/server/ai/") || path.startsWith("src/integrations/ai/providers/") ||
-  path.startsWith("src/ai/testing/"))) {
-  fail("protected graph reaches a prohibited capability origin");
+  path.startsWith("src/ai/testing/"));
+if (prohibitedProtectedClosure.length > 0) {
+  const target = prohibitedProtectedClosure[0]!;
+  const pending = [...protectedPaths];
+  const parent = new Map<string, string | null>(protectedPaths.map((path) => [path, null]));
+  while (pending.length > 0 && !parent.has(target)) {
+    const current = pending.shift()!;
+    for (const edge of edgesBySource.get(current) ?? []) {
+      if (edge.resolutionKind !== "local" || edge.resolvedTarget === undefined || parent.has(edge.resolvedTarget)) continue;
+      parent.set(edge.resolvedTarget, current);
+      pending.push(edge.resolvedTarget);
+    }
+  }
+  const path = [target];
+  while (parent.get(path[0]!) !== null && parent.get(path[0]!) !== undefined) path.unshift(parent.get(path[0]!)!);
+  fail(`protected graph reaches a prohibited capability origin: ${JSON.stringify(path)}`);
 }
 
 const coreRoots = protectedPaths.filter((path) => path.startsWith("src/ai/core/"));
-const coreClosure = executableClosure(coreRoots, true);
-if (coreClosure.some((path) => path.startsWith("src/ai/applications/draft-assistance/") ||
+const coreClosure = executableClosure(coreRoots, false);
+const prohibitedCoreTarget = coreClosure.find((path) => path.startsWith("src/ai/applications/draft-assistance/") ||
   path.startsWith("src/ai/testing/") || path.startsWith("src/catalog/") ||
   path.startsWith("src/content/") || path.startsWith("src/seo/") ||
-  path.startsWith("src/admin/") || path.startsWith("src/public-site/"))) {
-  fail("application-neutral core closure reaches Draft/business authority");
+  path.startsWith("src/admin/") || path.startsWith("src/public-site/"));
+if (prohibitedCoreTarget !== undefined) {
+  fail(`application-neutral core closure reaches Draft/business authority: ${prohibitedCoreTarget}`);
 }
 
 const publicEntryPrefixes = ["src/app/", "src/public-site/"];
@@ -2307,12 +2402,16 @@ const phaseDBespokeMutationResults = phaseDBespokeMutationInputs.map((probe) => 
 });
 if (JSON.stringify(phaseDBespokeMutationResults.map((result) => result.id)) !==
   JSON.stringify(bespokePhaseDProbeIds)) fail("Phase D bespoke mutation set is not exactly four");
-const providerRegistry = readFileSync(resolve(repositoryRoot, "src/ai/providers/registry.ts"), "utf8");
-if (!providerRegistry.includes("createTextProviderRegistryV1([])")) fail("Production Provider registry is not exact-empty");
-const productionManifest = readFileSync(resolve(repositoryRoot, "src/ai/prompts/resources/production/manifest.v1.json"), "utf8");
-if (productionManifest !== '{"manifestVersion":1,"entries":[]}\n') fail("Production Prompt manifest is not exact-empty");
-const productionPricing = readFileSync(resolve(repositoryRoot, "src/ai/runs/pricing-policy.ts"), "utf8");
-if (!productionPricing.includes("createPricingPolicyRegistryV1([])")) fail("Production pricing registry is not exact-empty");
+const acceptedProductionResourceHashes = new Map([
+  ["src/ai/providers/registry.ts", "7cedc4e751972de2ca93c23021be8087061ec1f561fd560c85b7989279acd280"],
+  ["src/ai/prompts/resources/production/manifest.v1.json", "43acb23317b5d2898b09b0e887e0baa96e757b69f9a738035415d4efd659cdc3"],
+  ["src/ai/runs/pricing-policy.ts", "55edde0a19c43ef4c2a28b50c8b663e1b1cb9baa3cae97f507480de2f95ad725"],
+]);
+for (const [path, expectedHash] of acceptedProductionResourceHashes) {
+  if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
+    fail(`accepted-P production AI resource identity drifted: ${path}`);
+  }
+}
 
 interface StaticFaultCaseV40 {
   readonly id: string;
@@ -2611,33 +2710,75 @@ for (const path of actualFiles.filter((candidate) => candidate.startsWith("test-
 }
 
 const exactHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-const parentLine = execFileSync("git", ["rev-list", "--parents", "-n", "1", exactHead], {
+const currentBranch = spawnSync("git", ["symbolic-ref", "--short", "-q", "HEAD"], {
   cwd: repositoryRoot,
   encoding: "utf8",
-}).trim().split(/\s+/u);
-if (parentLine.length !== 2 || parentLine[1] !== acceptedS12Parent) {
-  fail("aggregate/Gate lineage requires the sole parent ee13e743158e245f520a8d7ec68aa1854179fdc3");
-}
-const expectedActions = new Map<string, string>(exactImplementationPaths.map((path) => [path, "M"] as const));
-expectedActions.set("src/integrations/ai/providers/deepseek-text-adapter.ts", "M");
-for (const path of retiredPhaseDPaths) expectedActions.set(path, "D");
-for (const path of [
-  "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
-  fixturePath,
-  "src/app/fonts/geist-latin.woff2",
-  "src/app/fonts/geist-mono-latin.woff2",
-]) expectedActions.set(path, "A");
-const expectedNameStatus = [...expectedActions].sort(([left], [right]) => left.localeCompare(right, "en"));
-const observedNameStatus = execFileSync("git", [
-  "diff", "--name-status", "--no-renames", parentLine[1]!, exactHead,
-], { cwd: repositoryRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean)
-  .map((line) => {
-    const [status, path] = line.split("\t");
-    if (status === undefined || path === undefined) fail("S2 diff name-status is malformed");
-    return [path, status] as const;
-  }).sort(([left], [right]) => left.localeCompare(right, "en"));
-if (JSON.stringify(observedNameStatus) !== JSON.stringify(expectedNameStatus) || observedNameStatus.length !== 23) {
-  fail(`S2 diff is not the exact 23-path allowlist: ${JSON.stringify(observedNameStatus)}`);
+}).stdout.trim();
+const acceptedPhaseEAncestry = spawnSync("git", ["merge-base", "--is-ancestor", acceptedPhaseECommit, exactHead], {
+  cwd: repositoryRoot,
+  encoding: "utf8",
+}).status === 0;
+const phaseFMinimalCandidate = currentBranch === "codex/phase-f-minimal-experiment-v1" && acceptedPhaseEAncestry;
+let observedNameStatus: readonly (readonly [string, string])[];
+if (phaseFMinimalCandidate) {
+  if (execFileSync("git", ["rev-parse", `${acceptedPhaseECommit}^{tree}`], { encoding: "utf8" }).trim() !== acceptedPhaseETree ||
+    execFileSync("git", ["rev-parse", "codex/checkpoint/phase-e-accepted-v1"], { encoding: "utf8" }).trim() !== acceptedPhaseECommit) {
+    fail("Phase F accepted-P/freeze identity drifted");
+  }
+  const allowed = (path: string): boolean => phaseFExecutablePaths.includes(
+    path as (typeof phaseFExecutablePaths)[number],
+  ) || path === "scripts/verify-ai-architecture.ts" ||
+    /^src\/ai\/phase-f-bounded-experiment(?:\.postgres)?\.integration\.test\.ts$/u.test(path) ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md.sha256" ||
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json" ||
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json.sha256";
+  const changedPaths = new Set([
+    ...execFileSync("git", ["diff", "--name-only", acceptedPhaseECommit, exactHead], { encoding: "utf8" }).split("\n"),
+    ...execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" }).split("\n"),
+    ...execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { encoding: "utf8" }).split("\n"),
+  ].filter(Boolean));
+  const outsideBudget = [...changedPaths].filter((path) => !allowed(path));
+  if (outsideBudget.length > 0) {
+    fail(`Phase F change exceeds the approved minimal budget: ${JSON.stringify(outsideBudget)}`);
+  }
+  observedNameStatus = execFileSync("git", [
+    "diff", "--name-status", "--no-renames", acceptedPhaseECommit, exactHead,
+  ], { cwd: repositoryRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean)
+    .map((line) => {
+      const [status, path] = line.split("\t");
+      if (status === undefined || path === undefined) fail("Phase F diff name-status is malformed");
+      return [path, status] as const;
+    }).sort(([left], [right]) => left.localeCompare(right, "en"));
+} else {
+  const parentLine = execFileSync("git", ["rev-list", "--parents", "-n", "1", exactHead], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim().split(/\s+/u);
+  if (parentLine.length !== 2 || parentLine[1] !== acceptedS12Parent) {
+    fail("aggregate/Gate lineage requires the sole parent ee13e743158e245f520a8d7ec68aa1854179fdc3");
+  }
+  const expectedActions = new Map<string, string>(exactImplementationPaths.map((path) => [path, "M"] as const));
+  expectedActions.set("src/integrations/ai/providers/deepseek-text-adapter.ts", "M");
+  for (const path of retiredPhaseDPaths) expectedActions.set(path, "D");
+  for (const path of [
+    "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
+    fixturePath,
+    "src/app/fonts/geist-latin.woff2",
+    "src/app/fonts/geist-mono-latin.woff2",
+  ]) expectedActions.set(path, "A");
+  const expectedNameStatus = [...expectedActions].sort(([left], [right]) => left.localeCompare(right, "en"));
+  observedNameStatus = execFileSync("git", [
+    "diff", "--name-status", "--no-renames", parentLine[1]!, exactHead,
+  ], { cwd: repositoryRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean)
+    .map((line) => {
+      const [status, path] = line.split("\t");
+      if (status === undefined || path === undefined) fail("S2 diff name-status is malformed");
+      return [path, status] as const;
+    }).sort(([left], [right]) => left.localeCompare(right, "en"));
+  if (JSON.stringify(observedNameStatus) !== JSON.stringify(expectedNameStatus) || observedNameStatus.length !== 23) {
+    fail(`S2 diff is not the exact 23-path allowlist: ${JSON.stringify(observedNameStatus)}`);
+  }
 }
 function gitBlobSha1(bytes: Uint8Array): string {
   const header = new TextEncoder().encode(`blob ${bytes.byteLength}\0`);
@@ -2658,9 +2799,11 @@ const expectedFileSha256 = new Map<string, string>([
   ["src/server/ai/phase-d-provider-composition.ts", "6cd66c6ca636ca38ce62f206584da14950915cf8c156810a032bfefe377a0a31"],
   ["scripts/process-ai-runs.ts", "43a719732ddd26ce3a89117cb1cbf932546170a54851e3691bbaacb8d43a94b5"],
 ]);
-for (const [path, expectedHash] of expectedFileSha256) {
-  if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
-    fail(`preserved or exact-target file identity mismatch: ${path}`);
+if (!phaseFMinimalCandidate) {
+  for (const [path, expectedHash] of expectedFileSha256) {
+    if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
+      fail(`preserved or exact-target file identity mismatch: ${path}`);
+    }
   }
 }
 const expectedRouteBlobs = new Map<string, string>([
@@ -2669,9 +2812,11 @@ const expectedRouteBlobs = new Map<string, string>([
   ["src/app/api/upload-intents/[token]/route.test.ts", "fb72e65385435c9f6066892be9eb2d4a2051c153"],
   ["src/app/api/upload-intents/route.test.ts", "c855c7b34fddee4367d0b070aa6ee19b6e202906"],
 ]);
-for (const [path, expectedBlob] of expectedRouteBlobs) {
-  if (gitBlobSha1(readFileSync(resolve(repositoryRoot, path))) !== expectedBlob) {
-    fail(`numeric-origin route-test transform identity mismatch: ${path}`);
+if (!phaseFMinimalCandidate) {
+  for (const [path, expectedBlob] of expectedRouteBlobs) {
+    if (gitBlobSha1(readFileSync(resolve(repositoryRoot, path))) !== expectedBlob) {
+      fail(`numeric-origin route-test transform identity mismatch: ${path}`);
+    }
   }
 }
 for (const path of ["src/app/fonts/geist-latin.woff2", "src/app/fonts/geist-mono-latin.woff2"]) {
