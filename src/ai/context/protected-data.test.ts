@@ -50,17 +50,25 @@ describe("selected M02 protected-data authority", () => {
       .toBe("unsupported_value");
   });
 
-  it("fails initialization on runtime mismatch or registry mutation", () => {
-    expect(compileProtectedDataRegistryV1(selectedRegistry, {
-      node: "24.14.1",
-      v8: "13.6.233.17-node.41",
-      icu: "78.2",
-      unicode: "17.0",
-      cldr: "48.0",
-      platform: "darwin",
-      arch: "arm64",
-    })).toBeUndefined();
+  const exactRuntime = {
+    node: "24.14.0",
+    v8: "13.6.233.17-node.41",
+    icu: "78.2",
+    unicode: "17.0",
+    cldr: "48.0",
+  } as const;
 
+  it.each(["node", "v8", "icu", "unicode", "cldr"] as const)(
+    "fails initialization on an exact %s runtime mismatch",
+    (field) => {
+      expect(compileProtectedDataRegistryV1(selectedRegistry, {
+        ...exactRuntime,
+        [field]: `${exactRuntime[field]}-mismatch`,
+      })).toBeUndefined();
+    },
+  );
+
+  it("fails initialization on registry mutation", () => {
     const missingRule = structuredClone(selectedRegistry);
     missingRule.rules.pop();
     expect(compileProtectedDataRegistryV1(missingRule)).toBeUndefined();

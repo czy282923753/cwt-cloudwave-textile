@@ -1,4 +1,4 @@
-import selectedProfileSource from "./context-integrity-profile.v3_0.json";
+import selectedProfileSource from "./context-integrity-profile.v3_1.json";
 
 import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json";
 import {
@@ -64,8 +64,8 @@ const selectedTraversalCodes = [
 
 const expectedProfileId =
   "cwt.phase1b.stage4a.phasec.durable-run-worker.context-integrity.v3";
-const expectedProfileVersion = "3.0.0";
-const expectedProfileSha256 = "ba6a0b9bbb3cc259a25ca70616a85076a212611016400b673539cd2e1e54f49d";
+const expectedProfileVersion = "3.1.0";
+const expectedProfileSha256 = "0b0237bd13be7d0ac48e00b5c6fa4ba0dd1abae55bfb7d67c499cb8c1f690087";
 const expectedProfileKeys = [
   "associationIntegrity", "authority", "compiledAuthority", "compilerContract",
   "contextNodeAssignments", "decision", "domains", "errorTaxonomy", "executionOrders",

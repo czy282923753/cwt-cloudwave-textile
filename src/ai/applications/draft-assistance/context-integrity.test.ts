@@ -1,4 +1,4 @@
-import selectedProfileSource from "./context-integrity-profile.v3_0.json";
+import selectedProfileSource from "./context-integrity-profile.v3_1.json";
 
 import { describe, expect, it } from "vitest";
 
@@ -44,8 +44,8 @@ describe("compiled Draft context integrity product", () => {
   it("materializes the sealed 35/3/71/14 identity and accepts recursive evidence", () => {
     expect(draftContextIntegrityV1.identity).toEqual({
       profileId: "cwt.phase1b.stage4a.phasec.durable-run-worker.context-integrity.v3",
-      profileVersion: "3.0.0",
-      sha256: "ba6a0b9bbb3cc259a25ca70616a85076a212611016400b673539cd2e1e54f49d",
+      profileVersion: "3.1.0",
+      sha256: "0b0237bd13be7d0ac48e00b5c6fa4ba0dd1abae55bfb7d67c499cb8c1f690087",
     });
     expect(draftContextIntegrityV1.summary).toEqual({
       assignmentCount: 35,

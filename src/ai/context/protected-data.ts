@@ -14,8 +14,6 @@ const exactRuntime = Object.freeze({
   icu: "78.2",
   unicode: "17.0",
   cldr: "48.0",
-  platform: "darwin",
-  arch: "arm64",
 });
 
 const LIMITS = Object.freeze({
@@ -61,8 +59,6 @@ interface RuntimeTupleV1 {
   readonly icu: string;
   readonly unicode: string;
   readonly cldr: string;
-  readonly platform: string;
-  readonly arch: string;
 }
 
 interface MatchStateV1 {
@@ -130,16 +126,13 @@ function currentRuntime(): RuntimeTupleV1 {
     icu: process.versions.icu ?? "",
     unicode: process.versions.unicode ?? "",
     cldr: process.versions.cldr ?? "",
-    platform: process.platform,
-    arch: process.arch,
   };
 }
 
 function runtimeMatches(runtime: RuntimeTupleV1): boolean {
   return runtime.node === exactRuntime.node && runtime.v8 === exactRuntime.v8 &&
     runtime.icu === exactRuntime.icu && runtime.unicode === exactRuntime.unicode &&
-    runtime.cldr === exactRuntime.cldr && runtime.platform === exactRuntime.platform &&
-    runtime.arch === exactRuntime.arch;
+    runtime.cldr === exactRuntime.cldr;
 }
 
 function parseCodePoint(value: unknown): number {
