@@ -1665,6 +1665,50 @@ const productionClasses = new Set([
   "business-consumer", "other-production-src",
 ]);
 
+const approvedPhaseFPrivilegedImports = [
+  ["@/ai/applications/draft-assistance/composition", "src/ai/applications/draft-assistance/composition.ts", "runtime"],
+  ["@/ai/applications/draft-assistance/context", "src/ai/applications/draft-assistance/context.ts", "type-only"],
+  ["@/ai/applications/draft-assistance/contracts", "src/ai/applications/draft-assistance/contracts.ts", "type-only"],
+  ["@/ai/core/contracts", "src/ai/core/contracts.ts", "type-only"],
+  ["@/ai/errors", "src/ai/errors.ts", "runtime"],
+  ["@/ai/internal/worker-entry", "src/ai/internal/worker-entry.ts", "runtime"],
+  ["@/ai/providers/registry", "src/ai/providers/registry.ts", "runtime"],
+  ["@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
+  ["@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
+  ["@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
+] as const;
+
+function phaseFRuntimeAuthoritySource(path: string): boolean {
+  return phaseFExecutablePaths.includes(path as (typeof phaseFExecutablePaths)[number]);
+}
+
+function rejectPhaseFRuntimeAuthorityEdge(edge: GraphEdgeV1, reason: string, target?: string): never {
+  rejectGraph("phase_f_runtime_authority_violation", edgeDiagnostic(edge, reason, target));
+}
+
+function enforcePhaseFLocalTarget(edge: GraphEdgeV1, target: string, targetNode: ClassifiedNode | undefined): void {
+  if (!phaseFRuntimeAuthoritySource(edge.from)) return;
+  if (targetNode === undefined) rejectPhaseFRuntimeAuthorityEdge(edge, "unclassified_local_target", target);
+  const evidenceOnly = targetNode.classId === historicalEvidenceClass ||
+    targetNode.stageStatus === "evidence_only_not_production" ||
+    targetNode.bundleZones.includes("documentation-only");
+  const testOnly = targetNode.classId === "synthetic-ai-test-code" ||
+    targetNode.classId === "other-test-fixtures";
+  const publicOrBrowser = target.startsWith("src/app/") || target.startsWith("src/public-site/") ||
+    /^\s*["']use client["'];/u.test(readFileSync(resolve(repositoryRoot, target), "utf8"));
+  if (evidenceOnly) rejectPhaseFRuntimeAuthorityEdge(edge, "evidence_only_target", target);
+  if (testOnly) rejectPhaseFRuntimeAuthorityEdge(edge, "test_only_target", target);
+  if (publicOrBrowser) rejectPhaseFRuntimeAuthorityEdge(edge, "public_client_or_browser_target", target);
+
+  const privilegedTarget = targetNode.classId === "protected-ai" ||
+    target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/");
+  if (!privilegedTarget) return;
+  const approved = edge.from === "scripts/phase-f-bounded-exercise.ts" && edge.form === "import" &&
+    approvedPhaseFPrivilegedImports.some(([specifier, resolvedTarget, edgeKind]) =>
+      edge.specifier === specifier && target === resolvedTarget && edge.edgeKind === edgeKind);
+  if (!approved) rejectPhaseFRuntimeAuthorityEdge(edge, "unapproved_privileged_target", target);
+}
+
 function edgeDiagnostic(edge: GraphEdgeV1, reason: string, target?: string): string {
   return JSON.stringify({
     path: edge.from,
@@ -1828,7 +1872,7 @@ function enforceCapabilityEdge(
     ));
   }
   if (edge.resolutionKind === "unsupported" || edge.resolutionKind === "unresolved") {
-    if (productionClasses.has(sourceClass) || publicClient) {
+    if (productionClasses.has(sourceClass) || phaseFRuntimeAuthoritySource(edge.from) || publicClient) {
       rejectGraph(edge.resolutionKind === "unresolved" ? "unresolved_static_edge" : "unsupported_acquisition_syntax", JSON.stringify({
         path: edge.from,
         rule: "production-acquisition-must-resolve-uniquely",
@@ -1851,6 +1895,11 @@ function enforceCapabilityEdge(
   }
   if (edge.resolutionKind === "external") {
     const specifier = edge.specifier ?? "";
+    if (phaseFRuntimeAuthoritySource(edge.from) &&
+      (edge.form !== "import" || edge.edgeKind !== "runtime" ||
+        (specifier !== "server-only" && specifier !== "drizzle-orm"))) {
+      rejectPhaseFRuntimeAuthorityEdge(edge, "unapproved_external_target", specifier);
+    }
     if (sourceClass === "protected-ai" && !protectedExternalAllowed(edge)) {
       rejectGraph("class_capability_violation", `${edge.from}->${specifier}`);
     }
@@ -1874,6 +1923,7 @@ function enforceCapabilityEdge(
   );
   const canonicalTarget = canonicalStaticTargetIdentity(edge, sourceClass, requestedTarget);
   const target = canonicalTarget.path;
+  enforcePhaseFLocalTarget(edge, target, canonicalTarget.node);
   const exactCliRootEdge = edge.from === "scripts/process-ai-runs.ts" && target === rootPath &&
     edge.edgeKind === "runtime" && edge.specifier === "@/server/ai/phase-d-provider-composition";
   const exactAuthenticatedAiActionEdge = edge.from === "src/admin/ai-actions.ts" &&
@@ -1896,10 +1946,7 @@ function enforceCapabilityEdge(
     rejectGraph("public_client_reachability", edgeDiagnostic(edge, "public_client_reaches_ai_server_boundary", target));
   }
   const exactAdapterTestEdge = isTestSemantic(edge.from) && target.startsWith("src/integrations/ai/providers/");
-  const exactPhaseFExecutableEdge = phaseFExecutablePaths.includes(
-    edge.from as (typeof phaseFExecutablePaths)[number],
-  ) && (target.startsWith("src/integrations/ai/providers/") || target.startsWith("src/ai/"));
-  if (!exactAdapterTestEdge && !exactPhaseFExecutableEdge &&
+  if (!exactAdapterTestEdge &&
     testOrControlClasses.has(sourceClass) &&
     (target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/") ||
       (sourceClass === "root-control-file" && target.startsWith("src/ai/")))) {
@@ -1908,11 +1955,18 @@ function enforceCapabilityEdge(
   const targetNode = canonicalTarget.node;
   enforceProductionTargetClassCeiling(edge, sourceClass, targetNode);
   const acceptedDraftBusinessAiEdge = [
-    "src/catalog/product-ai-context-reader.ts",
-    "src/catalog/product-service.ts",
-    "src/content/content-ai-context-reader.ts",
-    "src/content/content-service.ts",
-  ].includes(edge.from) && target.startsWith("src/ai/");
+    ["src/catalog/product-ai-context-reader.ts", "src/ai/canonical-json.ts"],
+    ["src/catalog/product-ai-context-reader.ts", "src/ai/errors.ts"],
+    ["src/catalog/product-ai-context-reader.ts", "src/ai/applications/draft-assistance/read-scopes.ts"],
+    ["src/catalog/product-ai-context-reader.ts", "src/ai/applications/draft-assistance/association.ts"],
+    ["src/catalog/product-service.ts", "src/ai/canonical-json.ts"],
+    ["src/catalog/product-service.ts", "src/ai/errors.ts"],
+    ["src/content/content-ai-context-reader.ts", "src/ai/canonical-json.ts"],
+    ["src/content/content-ai-context-reader.ts", "src/ai/errors.ts"],
+    ["src/content/content-ai-context-reader.ts", "src/ai/applications/draft-assistance/read-scopes.ts"],
+    ["src/content/content-ai-context-reader.ts", "src/ai/applications/draft-assistance/association.ts"],
+    ["src/content/content-service.ts", "src/ai/errors.ts"],
+  ].some(([from, resolvedTarget]) => edge.from === from && target === resolvedTarget);
   if (sourceClass === "business-consumer" && edge.edgeKind !== "type-only" &&
     target.startsWith("src/ai/") && !exactAuthenticatedAiActionEdge && !acceptedDraftBusinessAiEdge &&
     (edge.specifier !== "@/ai" || target !== "src/ai/index.ts")) {
@@ -1999,7 +2053,7 @@ if (parsedConfig.errors.length > 0 || parsedConfig.options.moduleResolution !== 
 }
 const architectureProgram = ts.createProgram({
   rootNames: executableNodes
-    .filter((node) => productionClasses.has(node.classId))
+    .filter((node) => productionClasses.has(node.classId) || phaseFRuntimeAuthoritySource(node.path))
     .map((node) => resolve(repositoryRoot, node.path)),
   options: { ...parsedConfig.options, noEmit: true },
 });
@@ -2010,7 +2064,7 @@ const staticResourceCandidates: { readonly path: string; readonly position: numb
 const graphEdges: GraphEdgeV1[] = [];
 for (const node of executableNodes) {
   const absolute = resolve(repositoryRoot, node.path);
-  const production = productionClasses.has(node.classId);
+  const production = productionClasses.has(node.classId) || phaseFRuntimeAuthoritySource(node.path);
   const currentExecutableGraph = node.classId !== historicalEvidenceClass;
   const source = production
     ? architectureProgram.getSourceFile(absolute)
@@ -2732,7 +2786,11 @@ if (phaseFMinimalCandidate) {
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json" ||
-    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json.sha256";
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json.sha256" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_1.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_1.md.sha256" ||
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-1/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_1.json" ||
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-1/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_1.json.sha256";
   const changedPaths = new Set([
     ...execFileSync("git", ["diff", "--name-only", acceptedPhaseECommit, exactHead], { encoding: "utf8" }).split("\n"),
     ...execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" }).split("\n"),
@@ -3196,6 +3254,78 @@ if (JSON.stringify(finalTreeClosureMutationResults.map((result) => result.id)) !
   fail("final-tree closure mutation identity differs from bidirectional evidence-isolation authority");
 }
 
+const phaseFRuntimeAuthorityMutationCases = [
+  {
+    id: "phase-f-runtime-imports-test-only",
+    target: "src/ai/testing/accepted-draft-atomicity-harness.ts",
+    specifier: "@/ai/testing/accepted-draft-atomicity-harness",
+  },
+  {
+    id: "phase-f-runtime-imports-evidence-only",
+    target: immutableHistoricalProbePath,
+    specifier: `../../${immutableHistoricalProbePath}`,
+  },
+  {
+    id: "phase-f-runtime-imports-unapproved-protected",
+    target: "src/ai/canonical-json.ts",
+    specifier: "@/ai/canonical-json",
+  },
+  {
+    id: "phase-f-runtime-imports-extra-server-authority",
+    target: "src/server/ai/phase-d-provider-composition.ts",
+    specifier: "@/server/ai/phase-d-provider-composition",
+  },
+  {
+    id: "phase-f-runtime-imports-public-browser",
+    target: "src/app/page.tsx",
+    specifier: "@/app/page",
+  },
+] as const;
+const phaseFRuntimeAuthorityMutationResults = phaseFRuntimeAuthorityMutationCases.map((mutation) => {
+  try {
+    enforceCapabilityEdge({
+      form: "import",
+      edgeKind: "runtime",
+      specifier: mutation.specifier,
+      position: 0,
+      nodeKind: "ImportDeclaration",
+      from: "scripts/phase-f-bounded-exercise.ts",
+      resolutionKind: "local",
+      resolvedTarget: mutation.target,
+    });
+  } catch (error) {
+    if (error instanceof ArchitectureGraphFailure && error.code === "phase_f_runtime_authority_violation") {
+      return { id: mutation.id, result: "fail-closed" as const, reason: error.code };
+    }
+    throw error;
+  }
+  fail(`Phase F runtime-authority mutation did not fail closed: ${mutation.id}`);
+});
+if (JSON.stringify(phaseFRuntimeAuthorityMutationResults.map((result) => result.id)) !==
+  JSON.stringify(phaseFRuntimeAuthorityMutationCases.map((mutation) => mutation.id))) {
+  fail("Phase F runtime-authority mutation identity differs from the exact adversarial set");
+}
+const phaseFProtectedBoundaryControl = (() => {
+  try {
+    enforceCapabilityEdge({
+      form: "import",
+      edgeKind: "runtime",
+      specifier: "@/db/client",
+      position: 0,
+      nodeKind: "ImportDeclaration",
+      from: "src/ai/canonical-json.ts",
+      resolutionKind: "local",
+      resolvedTarget: "src/db/client.ts",
+    });
+  } catch (error) {
+    if (error instanceof ArchitectureGraphFailure && error.code === "class_capability_violation") {
+      return { id: "protected-canonical-json-imports-db-client", result: "fail-closed" as const, reason: error.code };
+    }
+    throw error;
+  }
+  fail("protected canonical-json database control did not fail closed");
+})();
+
 
 const resultName = "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_RESULT_V1_0.json";
 const manifestName = "PHASE_D_SYNTHETIC_ONLY_REACHABILITY_SECURITY_MANIFEST_V1_0.json";
@@ -3307,6 +3437,9 @@ const aggregateResult = Object.freeze({
       phaseCSyntheticMutationSetSha256: sha256(canonical(syntheticMutationResults)),
       finalTreeClosureMutationCount: finalTreeClosureMutationResults.length,
       finalTreeClosureMutationSetSha256: sha256(canonical(finalTreeClosureMutationResults)),
+      phaseFRuntimeAuthorityMutationCount: phaseFRuntimeAuthorityMutationResults.length,
+      phaseFRuntimeAuthorityMutationSetSha256: sha256(canonical(phaseFRuntimeAuthorityMutationResults)),
+      phaseFProtectedBoundaryControl,
     },
   },
   packageLockDelta: {
@@ -3395,6 +3528,8 @@ process.stdout.write(JSON.stringify({
   inheritedMutationCount: mutationResults.length + syntheticMutationResults.length +
     finalTreeClosureMutationResults.length,
   phaseDBespokeMutationCount: phaseDBespokeMutationResults.length,
+  phaseFRuntimeAuthorityMutationCount: phaseFRuntimeAuthorityMutationResults.length,
+  phaseFProtectedBoundaryControlCount: 1,
   bundleProofReady: bundleBoundary.sourceBundleAgreement,
   aggregateEmitted: aggregateDirectoryInput !== undefined,
 }, null, 2) + "\n");

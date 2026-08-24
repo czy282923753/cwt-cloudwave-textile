@@ -101,4 +101,27 @@ describe("Phase F bounded experiment CSR-01 static boundary", () => {
     expect(exercise.status).toBe(1);
     expect(exercise.stderr).toContain("exact fixed argument set");
   });
+
+  it("fails closed on the exact Phase F runtime-authority adversarial set", () => {
+    const checkerPath = "scripts/verify-ai-architecture.ts";
+    const checkerSource = read(checkerPath);
+    expect(checkerSource).not.toContain("exactPhaseFExecutableEdge");
+    for (const probeId of [
+      "phase-f-runtime-imports-test-only",
+      "phase-f-runtime-imports-evidence-only",
+      "phase-f-runtime-imports-unapproved-protected",
+      "phase-f-runtime-imports-extra-server-authority",
+      "phase-f-runtime-imports-public-browser",
+    ]) expect(checkerSource).toContain(probeId);
+    const output = execFileSync(process.execPath, ["--import=tsx", checkerPath], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, CWT_INSTALLED_NODE_MODULES: resolve(root, "node_modules") },
+    });
+    expect(JSON.parse(output)).toMatchObject({
+      ok: true,
+      phaseFRuntimeAuthorityMutationCount: 5,
+      phaseFProtectedBoundaryControlCount: 1,
+    });
+  }, 120_000);
 });
