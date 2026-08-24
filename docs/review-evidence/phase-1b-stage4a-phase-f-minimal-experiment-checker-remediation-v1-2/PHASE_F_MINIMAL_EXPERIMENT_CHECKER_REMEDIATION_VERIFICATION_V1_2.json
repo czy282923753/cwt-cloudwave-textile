@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "status": "REMEDIATION_CANDIDATE_NOT_INDEPENDENTLY_REVIEWED_NOT_ACCEPTED",
+  "generatedAt": "2026-08-24",
+  "finding": "H-01_ARCHITECTURE_CHECKER_PHASE_F_PROJECT_TOOLING_ESCAPE",
+  "identity": {
+    "authorizedStartHead": "776a232a27677f4ce04416ee043201ed4b57af8a",
+    "authorizedStartTree": "d47e52dce9f04ea625d36861e53bc4d1aee613d0",
+    "priorCheckerCommit": "64e035a0e77ab736f9217f5c1fc1d3c2031bda13",
+    "priorCheckerTree": "1523ab4107e2b80b73960b868b767dd492ddff55",
+    "a2CheckerCommit": "12a86aa7cd9dcf035089b287b31b1efdb5d1cc2f",
+    "a2CheckerTree": "c35a531fb1c3334c2dd4b6b5e583b345c3013aa6",
+    "branch": "codex/phase-f-minimal-experiment-v1",
+    "acceptedFreezeCommit": "41dfc135f5f124e68aaac416c049c2e387e38d57",
+    "acceptedFreezeTree": "f85182ad8d4519d58e1d829967cfc889b8f1e830"
+  },
+  "authoritativeFailEvidence": {
+    "reportSha256": "f27c09f0873d14a5d752ce7369bd8479f5dcdb5e6d03b7a0527f4231d49b4889",
+    "sidecarVerified": true,
+    "csr01Reopened": false,
+    "csr02Reopened": false,
+    "h01SelfClosed": false
+  },
+  "changedFiles": [
+    {"path":"scripts/verify-ai-architecture.ts","added":13,"deleted":1,"sha256":"918aff83f90b07a3f8498e8c035b7aa5969fd9246183967c5f32223824ec1c21"},
+    {"path":"src/ai/phase-f-bounded-experiment.integration.test.ts","added":2,"deleted":1,"sha256":"7f16f0a8fc32d9a8be7a68ae4421fe5ca0dc9001dcb017e9e03bcb821848f4f4"}
+  ],
+  "runtimePreservation": {
+    "bootstrapSha256": "c0d01a8a4676d02088efc4765cd73dd5646ffd60d80c5e8c5b890076d4f14143",
+    "exerciseSha256": "dc72feb2920501240b8137fa5ab129e8be42dfd3f321b053cdaac7a3ef329ed6",
+    "byteIdentical": true,
+    "productChanges": 0,
+    "newRuntimeFiles": 0,
+    "newExports": 0,
+    "newFrameworkOrClosurePropagation": 0
+  },
+  "correction": {
+    "sourcePaths": ["scripts/phase-f-bounded-bootstrap.ts","scripts/phase-f-bounded-exercise.ts"],
+    "edgeKind": "runtime",
+    "immediateTargetPrefix": "scripts/",
+    "exceptionCount": 0,
+    "resultCode": "phase_f_runtime_authority_violation",
+    "reason": "project_tooling_target"
+  },
+  "newProbe": {
+    "id": "phase-f-runtime-imports-project-tooling",
+    "source": "scripts/phase-f-bounded-exercise.ts",
+    "specifier": "./process-ai-runs",
+    "resolvedTarget": "scripts/process-ai-runs.ts",
+    "result": "FAIL_CLOSED_EXPECTED",
+    "code": "phase_f_runtime_authority_violation",
+    "reason": "project_tooling_target"
+  },
+  "preservedProbeSet": {
+    "existingDirectProbes": 5,
+    "protectedControl": 1,
+    "approvedPrivilegedTuples": 10,
+    "acceptedDraftBusinessRuntimeTuples": 11
+  },
+  "verification": {
+    "focusedVitest":{"result":"PASS","filesPassed":1,"testsPassed":6},
+    "cleanArchitecture":{"result":"PASS","candidateCount":846,"executableCount":532,"phaseFRuntimeAuthorityMutationCount":6,"phaseFProtectedBoundaryControlCount":1},
+    "eslint":"PASS",
+    "typecheck":"PASS",
+    "gitDiffCheck":"PASS",
+    "runtimeChecksums":"PASS",
+    "identityAncestryFreeze":"PASS"
+  },
+  "notRunByAuthorization": ["PG17","PG18","combined_fake_provider","full_vitest","RW-004","next_build","public_bundle","playwright","pnpm_audit"],
+  "nextGate": "FRESH_INDEPENDENT_CHECKER_FOCUSED_REREVIEW_SAME_REVIEWER",
+  "h01Disposition": "OPEN_PENDING_INDEPENDENT_REREVIEW",
+  "sameRootSurvivesNextReviewDisposition": "HARD_STOP_NO_ORDINARY_A3"
+}
