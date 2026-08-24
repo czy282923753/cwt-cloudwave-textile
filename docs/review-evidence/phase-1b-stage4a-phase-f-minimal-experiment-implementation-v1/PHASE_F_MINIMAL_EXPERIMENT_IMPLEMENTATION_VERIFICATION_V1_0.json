@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "status": "IMPLEMENTATION_CANDIDATE_NOT_INDEPENDENTLY_REVIEWED_NOT_ACCEPTED",
+  "generatedAt": "2026-08-24",
+  "identity": {
+    "acceptedBaseCommit": "41dfc135f5f124e68aaac416c049c2e387e38d57",
+    "acceptedBaseTree": "f85182ad8d4519d58e1d829967cfc889b8f1e830",
+    "freezeRef": "codex/checkpoint/phase-e-accepted-v1",
+    "branch": "codex/phase-f-minimal-experiment-v1",
+    "implementationCommit": "49d14edc38b13b3e0c1351f4f99737ffbc556ada",
+    "implementationTree": "8afbdf7a3651fc2fded296917a65ac461dbf8c50",
+    "failedCandidateCommit": "702e1a155c350c4a69522f1c167db205bf776e96",
+    "failedCandidateIsAncestor": false
+  },
+  "changedFiles": [
+    {"path":"scripts/phase-f-bounded-bootstrap.ts","kind":"added","added":116,"deleted":0,"sha256":"c0d01a8a4676d02088efc4765cd73dd5646ffd60d80c5e8c5b890076d4f14143"},
+    {"path":"scripts/phase-f-bounded-exercise.ts","kind":"added","added":373,"deleted":0,"sha256":"dc72feb2920501240b8137fa5ab129e8be42dfd3f321b053cdaac7a3ef329ed6"},
+    {"path":"scripts/verify-ai-architecture.ts","kind":"modified","added":199,"deleted":54,"sha256":"101b0e799d9c38cb80c18f331cf5c6fe5d0a8afef4c4ec7eb1336df838b4c6d5"},
+    {"path":"src/ai/phase-f-bounded-experiment.integration.test.ts","kind":"added_test","added":104,"deleted":0,"sha256":"59c1b2a5230fe919cb86ebf412db19bf3b1ca7cf5c1b7240550400c9701cd6e5"},
+    {"path":"src/ai/phase-f-bounded-experiment.postgres.integration.test.ts","kind":"added_test","added":608,"deleted":0,"sha256":"63fc6d9e33ab3e0a7569115b746eb1d39a3ff9aae317b71b2f997fa34467bfdf"}
+  ],
+  "complexityBudget": {
+    "runtimeFiles": 2,
+    "runtimeExports": 0,
+    "productSrcImplementationChanges": 0,
+    "schemaMigrationDependencyLockfileChanges": 0,
+    "newControllerGrantTokenLeaseTimeServiceOrStateMachine": false,
+    "externalProviderOrNetworkInvocation": false
+  },
+  "focusedA": {
+    "result": "PASS_IMPLEMENTER_EVIDENCE_ONLY",
+    "staticTests": {"passed":5,"failed":0},
+    "acceptedServiceAndResolverTests": {"passed":15,"failed":0},
+    "architecture": {"ok":true,"candidateCount":843,"executableCount":531,"acceptanceRootCount":5,"acceptanceClosureCount":35}
+  },
+  "focusedB": {
+    "result": "PASS_WITH_PROPORTIONAL_DELETION_MODEL_REVIEW_REQUIRED",
+    "postgres17": {"version":"17.10","passed":2,"failed":0},
+    "postgres18": {"version":"18.4","passed":2,"failed":0},
+    "directProofIds":["C2-01","C2-02","C2-06","C2-08","C2-09"],
+    "platformDeletionModelProofIds":["C2-03","C2-04","C2-05","C2-07"],
+    "independentReviewerMustConfirmMapping":true
+  },
+  "combinedC": {
+    "result":"PASS_IMPLEMENTER_EVIDENCE_ONLY",
+    "postgres17":{"version":"17.10","passed":1,"failed":0},
+    "postgres18":{"version":"18.4","passed":1,"failed":0},
+    "rows":4,
+    "enqueueAudits":4,
+    "draftApplyAudits":4,
+    "maximumAggregateRunCapMicrousd":80000,
+    "provider":"local_fake_spy",
+    "networkCalls":0,
+    "publish":false,
+    "index":false
+  },
+  "fullVerification": {
+    "lint":"PASS",
+    "typecheck":"PASS",
+    "gitDiffCheck":"PASS",
+    "vitest":{"result":"PASS","filesPassed":127,"filesSkipped":11,"testsPassed":856,"testsSkipped":76,"durationSeconds":290.34},
+    "promptBundleAndHistory":{"result":"PASS","testsPassed":24},
+    "rw004Postgres17":{"result":"PASS","version":"17.10","captureSha256":"9b2dc3cef9c7d72afbec07cd3d38183816d64979d5aafa81af4195a70e2cf996"},
+    "rw004Postgres18":{"result":"PASS","version":"18.4","captureSha256":"318e730fb0f136bbc617d38b6db6bc0cf50a3cdb63181b1f806d9c920009daa3"},
+    "nextBuild":"PASS_AFTER_DISPOSABLE_DATABASE_BINDING",
+    "publicBundle":{"result":"PASS","eligibleServerRuntimeJsFiles":376,"publicPageManifests":20,"distinctPublicChunkFiles":15},
+    "playwright":{"result":"PASS","passed":55,"failed":0,"durationMinutes":2.0},
+    "pnpmAuditProd":"NOT_RUN_PROHIBITED_NO_DEPENDENCY_DELTA"
+  },
+  "diagnostics": {
+    "initialBuildFailure":"Unmigrated default local PGlite lacked system_settings; compile and typecheck passed; no code change; formal rerun passed with DATABASE_DRIVER=postgres and migrated disposable PG17.",
+    "optionalBundleInputMode":"Not counted: synthetic server-fixture markers are intentionally absent from the production build; source-clean architecture and dedicated public bundle gates passed.",
+    "historicalRw004ExtraFixture":"Obsolete constraint fixture predates accepted-P active-attempt constraint; requested RW-004 core passed on PG17 and PG18 using a disposable narrowed copy."
+  },
+  "cleanup": {
+    "reviewDatabasesRemaining":0,
+    "containersRemoved":true,
+    "buildAndE2eArtifactsRemoved":true,
+    "temporaryEvidenceRemoved":true,
+    "worktreeClean":true
+  },
+  "residualRisks": [
+    "Fresh reviewed pricing evidence is required before any authorized operational exercise.",
+    "Credential, egress and hard exclusive-end cutoff remain later platform/operator gates.",
+    "Fresh Independent Review must confirm the proportional C2-03 through C2-07 deletion-model mapping.",
+    "Architecture-checker accepted-P convergence exceptions require independent exact-path review."
+  ],
+  "nextGate":"FRESH_INDEPENDENT_CODE_SECURITY_REVIEW_EXACT_IMMUTABLE_CANDIDATE_ONLY"
+}
