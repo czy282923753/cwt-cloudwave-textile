@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 vi.mock("server-only", () => ({}));
 
+import type { ReadonlyJsonValue } from "@/ai/canonical-json";
 import type {
   PreparedCoreRunV1,
   ProtectedApplicationResultEnvelopeV1,
@@ -185,13 +186,14 @@ async function insertPrepared(
     readonly runLimit?: number;
     readonly inputRate?: number;
     readonly outputRate?: number;
+    readonly pricingSnapshot?: Readonly<Record<string, ReadonlyJsonValue>>;
   } = {},
 ) {
   const repository = createAiRunRepositoryV1(db());
   return db().transaction((transaction) => repository.insertPreparedWithinTransaction(transaction, {
     preparedRun: prepared,
     executionEnvironment,
-    pricingSnapshot: executionEnvironment === "staging" ? {
+    pricingSnapshot: executionEnvironment === "staging" ? costs.pricingSnapshot ?? {
       version: 1,
       currency: "USD",
       billing_unit_tokens: 1_000_000,
@@ -592,6 +594,45 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       budgetReservedCostMicrousd: 0,
       costAccountingState: "final",
     });
+  });
+
+  it("persists and reloads only the exact seven-day cache-split pricing snapshot", async () => {
+    const fixture = await seedFixture();
+    const snapshot = {
+      version: 2,
+      currency: "USD",
+      billing_unit_tokens: 1_000_000,
+      cache_hit_input_microusd_per_unit: 14_000,
+      cache_miss_input_microusd_per_unit: 440_000,
+      output_microusd_per_unit: 1_320_000,
+      formula: "ceil-cache-split-v1",
+      source_id: "deepseek-official-pricing",
+      source_url: "https://api-docs.deepseek.com/quick_start/pricing/",
+      source_content_sha256: "d321546b99bc77060c1716c86228810e84ccfee6c157a3ee5aee5296a3cdec51",
+      source_version: "2026-08-23-deepseek-v4-flash-peak-conservative",
+      model_alias: "deepseek-v4-flash",
+      published_model_version: "DeepSeek-V4-Flash-0731",
+      effective_from: "2026-08-23T10:23:53.657Z",
+      observed_at: "2026-08-23T10:23:53.657Z",
+      max_age_seconds: 604_800,
+    } as const;
+    const inserted = await insertPrepared(preparedRun(fixture), "staging", {
+      estimatedMax: 987,
+      pricingSnapshot: snapshot,
+    });
+    if (inserted.kind !== "inserted") throw new Error("Expected inserted run.");
+    const repository = createAiRunRepositoryV1(db());
+    expect(await repository.readPricingForWorker(inserted.row.id)).toEqual({
+      provider: "synthetic_alpha",
+      model: "synthetic-text-alpha-v1",
+      snapshot,
+    });
+
+    await db().update(aiRuns).set({
+      pricingSnapshotJson: { ...snapshot, max_age_seconds: 86_400 },
+    }).where(eq(aiRuns.id, inserted.row.id));
+    await expect(repository.readPricingForWorker(inserted.row.id))
+      .rejects.toThrow("Stored pricing snapshot was invalid.");
   });
 
   it("fences a post-marker cancellation and permits one idempotent late-accounting enrichment", async () => {

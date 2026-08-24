@@ -398,7 +398,7 @@ function pricingSnapshot(value: unknown): PricingSnapshotV1 | undefined {
     typeof record.cache_miss_input_microusd_per_unit !== "number" ||
     typeof record.source_url !== "string" || typeof record.source_content_sha256 !== "string" ||
     typeof record.model_alias !== "string" || typeof record.published_model_version !== "string" ||
-    record.max_age_seconds !== 86_400) return undefined;
+    record.max_age_seconds !== 604_800) return undefined;
   return {
     version: 2,
     currency: "USD",
@@ -415,7 +415,7 @@ function pricingSnapshot(value: unknown): PricingSnapshotV1 | undefined {
     published_model_version: record.published_model_version,
     effective_from: record.effective_from,
     observed_at: record.observed_at,
-    max_age_seconds: 86_400,
+    max_age_seconds: 604_800,
   };
 }
 

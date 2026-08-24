@@ -2462,7 +2462,7 @@ if (JSON.stringify(phaseDBespokeMutationResults.map((result) => result.id)) !==
 const acceptedProductionResourceHashes = new Map([
   ["src/ai/providers/registry.ts", "7cedc4e751972de2ca93c23021be8087061ec1f561fd560c85b7989279acd280"],
   ["src/ai/prompts/resources/production/manifest.v1.json", "43acb23317b5d2898b09b0e887e0baa96e757b69f9a738035415d4efd659cdc3"],
-  ["src/ai/runs/pricing-policy.ts", "55edde0a19c43ef4c2a28b50c8b663e1b1cb9baa3cae97f507480de2f95ad725"],
+  ["src/ai/runs/pricing-policy.ts", "4ff380c91887b82d6a9010e5f4510c3b2892dc0d00329a3b33761a481c67b54e"],
 ]);
 for (const [path, expectedHash] of acceptedProductionResourceHashes) {
   if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
@@ -2786,6 +2786,14 @@ if (phaseFMinimalCandidate) {
     path as (typeof phaseFExecutablePaths)[number],
   ) || path === "scripts/verify-ai-architecture.ts" ||
     /^src\/ai\/phase-f-bounded-experiment(?:\.postgres)?\.integration\.test\.ts$/u.test(path) ||
+    path === "src/ai/runs/pricing-policy.ts" ||
+    path === "src/ai/runs/pricing-policy.test.ts" ||
+    path === "src/ai/runs/repository.ts" ||
+    path === "src/ai/runs/repository.integration.test.ts" ||
+    path === "src/integrations/ai/providers/deepseek-pricing.ts" ||
+    path === "src/integrations/ai/providers/deepseek-pricing.test.ts" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_PRICING_FRESHNESS_7_DAY_DELTA_V1_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_PRICING_FRESHNESS_7_DAY_DELTA_V1_0.md.sha256" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json" ||

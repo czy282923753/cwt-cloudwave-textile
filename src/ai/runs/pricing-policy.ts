@@ -29,7 +29,7 @@ export interface CacheSplitPricingSnapshotV2 {
   readonly published_model_version: string;
   readonly effective_from: string;
   readonly observed_at: string;
-  readonly max_age_seconds: 86_400;
+  readonly max_age_seconds: 604_800;
 }
 
 export type PricingSnapshotV1 = AggregatePricingSnapshotV1 | CacheSplitPricingSnapshotV2;
@@ -60,7 +60,7 @@ function validateSnapshot(snapshot: PricingSnapshotV1): boolean {
     Number.isSafeInteger(snapshot.cache_miss_input_microusd_per_unit) &&
     snapshot.cache_miss_input_microusd_per_unit >= 0 &&
     Number.isSafeInteger(snapshot.output_microusd_per_unit) &&
-    snapshot.output_microusd_per_unit >= 0 && snapshot.max_age_seconds === 86_400 &&
+    snapshot.output_microusd_per_unit >= 0 && snapshot.max_age_seconds === 604_800 &&
     snapshot.source_url === "https://api-docs.deepseek.com/quick_start/pricing/" &&
     /^[0-9a-f]{64}$/.test(snapshot.source_content_sha256) &&
     /^[a-z][a-z0-9_-]{0,63}$/.test(snapshot.model_alias) &&
