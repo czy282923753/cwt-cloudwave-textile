@@ -27,6 +27,10 @@ const phaseFExecutablePaths = [
   "scripts/phase-f-bounded-bootstrap.ts",
   "scripts/phase-f-bounded-exercise.ts",
 ] as const;
+const phaseFExecutableHashes = new Map([
+  ["scripts/phase-f-bounded-bootstrap.ts", "21b15c2fe90488664e087fd0bcf7f7b077ec1d4dce99f36e74a5c55dea95b3ee"],
+  ["scripts/phase-f-bounded-exercise.ts", "dc72feb2920501240b8137fa5ab129e8be42dfd3f321b053cdaac7a3ef329ed6"],
+]);
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
 const fixtureBytes = readFileSync(resolve(repositoryRoot, fixturePath));
@@ -622,6 +626,9 @@ actualFiles.sort();
 for (const path of phaseFExecutablePaths) {
   if (!actualFiles.includes(path)) fail(`Phase F bounded executable is absent: ${path}`);
   const source = readFileSync(resolve(repositoryRoot, path), "utf8");
+  if (sha256(source) !== phaseFExecutableHashes.get(path)) {
+    fail(`Phase F bounded executable identity drifted: ${path}`);
+  }
   if (/\bexport\b/u.test(source) || /\b(?:Date\.now|new\s+Date)\s*\(/u.test(source) ||
     /\b(?:Proxy|eval|Function)\s*\(/u.test(source) || /\bas\s+(?:any|unknown)\b/u.test(source)) {
     fail(`Phase F executable violates the no-export/no-new-authority boundary: ${path}`);
@@ -1666,16 +1673,22 @@ const productionClasses = new Set([
 ]);
 
 const approvedPhaseFPrivilegedImports = [
-  ["@/ai/applications/draft-assistance/composition", "src/ai/applications/draft-assistance/composition.ts", "runtime"],
-  ["@/ai/applications/draft-assistance/context", "src/ai/applications/draft-assistance/context.ts", "type-only"],
-  ["@/ai/applications/draft-assistance/contracts", "src/ai/applications/draft-assistance/contracts.ts", "type-only"],
-  ["@/ai/core/contracts", "src/ai/core/contracts.ts", "type-only"],
-  ["@/ai/errors", "src/ai/errors.ts", "runtime"],
-  ["@/ai/internal/worker-entry", "src/ai/internal/worker-entry.ts", "runtime"],
-  ["@/ai/providers/registry", "src/ai/providers/registry.ts", "runtime"],
-  ["@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
-  ["@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
-  ["@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "@/ai/config/model-config-service", "src/ai/config/model-config-service.ts", "runtime"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "@/ai/output/registry", "src/ai/output/registry.ts", "runtime"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "@/ai/providers/registry", "src/ai/providers/registry.ts", "runtime"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/applications/draft-assistance/composition", "src/ai/applications/draft-assistance/composition.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/applications/draft-assistance/context", "src/ai/applications/draft-assistance/context.ts", "type-only"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/applications/draft-assistance/contracts", "src/ai/applications/draft-assistance/contracts.ts", "type-only"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/core/contracts", "src/ai/core/contracts.ts", "type-only"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/errors", "src/ai/errors.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/internal/worker-entry", "src/ai/internal/worker-entry.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/providers/registry", "src/ai/providers/registry.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
+  ["scripts/phase-f-bounded-exercise.ts", "@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
 ] as const;
 
 function phaseFRuntimeAuthoritySource(path: string): boolean {
@@ -1706,9 +1719,9 @@ function enforcePhaseFLocalTarget(edge: GraphEdgeV1, target: string, targetNode:
   const privilegedTarget = targetNode.classId === "protected-ai" ||
     target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/");
   if (!privilegedTarget) return;
-  const approved = edge.from === "scripts/phase-f-bounded-exercise.ts" && edge.form === "import" &&
-    approvedPhaseFPrivilegedImports.some(([specifier, resolvedTarget, edgeKind]) =>
-      edge.specifier === specifier && target === resolvedTarget && edge.edgeKind === edgeKind);
+  const approved = edge.form === "import" &&
+    approvedPhaseFPrivilegedImports.some(([source, specifier, resolvedTarget, edgeKind]) =>
+      edge.from === source && edge.specifier === specifier && target === resolvedTarget && edge.edgeKind === edgeKind);
   if (!approved) rejectPhaseFRuntimeAuthorityEdge(edge, "unapproved_privileged_target", target);
 }
 
@@ -2794,6 +2807,8 @@ if (phaseFMinimalCandidate) {
     path === "src/integrations/ai/providers/deepseek-pricing.test.ts" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_PRICING_FRESHNESS_7_DAY_DELTA_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_PRICING_FRESHNESS_7_DAY_DELTA_V1_0.md.sha256" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_NARROW_OBJECTIVE_BOOTSTRAP_IMPLEMENTATION_V1_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_NARROW_OBJECTIVE_BOOTSTRAP_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-implementation-v1/PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_VERIFICATION_V1_0.json" ||
@@ -3272,33 +3287,45 @@ if (JSON.stringify(finalTreeClosureMutationResults.map((result) => result.id)) !
 const phaseFRuntimeAuthorityMutationCases = [
   {
     id: "phase-f-runtime-imports-test-only",
+    from: "scripts/phase-f-bounded-exercise.ts",
     target: "src/ai/testing/accepted-draft-atomicity-harness.ts",
     specifier: "@/ai/testing/accepted-draft-atomicity-harness",
   },
   {
     id: "phase-f-runtime-imports-evidence-only",
+    from: "scripts/phase-f-bounded-exercise.ts",
     target: immutableHistoricalProbePath,
     specifier: `../../${immutableHistoricalProbePath}`,
   },
   {
     id: "phase-f-runtime-imports-unapproved-protected",
+    from: "scripts/phase-f-bounded-exercise.ts",
     target: "src/ai/canonical-json.ts",
     specifier: "@/ai/canonical-json",
   },
   {
     id: "phase-f-runtime-imports-extra-server-authority",
+    from: "scripts/phase-f-bounded-exercise.ts",
     target: "src/server/ai/phase-d-provider-composition.ts",
     specifier: "@/server/ai/phase-d-provider-composition",
   },
   {
     id: "phase-f-runtime-imports-public-browser",
+    from: "scripts/phase-f-bounded-exercise.ts",
     target: "src/app/page.tsx",
     specifier: "@/app/page",
   },
   {
     id: "phase-f-runtime-imports-project-tooling",
+    from: "scripts/phase-f-bounded-exercise.ts",
     target: "scripts/process-ai-runs.ts",
     specifier: "./process-ai-runs",
+  },
+  {
+    id: "phase-f-bootstrap-imports-worker-authority",
+    from: "scripts/phase-f-bounded-bootstrap.ts",
+    target: "src/ai/internal/worker-entry.ts",
+    specifier: "@/ai/internal/worker-entry",
   },
 ] as const;
 const phaseFRuntimeAuthorityMutationResults = phaseFRuntimeAuthorityMutationCases.map((mutation) => {
@@ -3309,7 +3336,7 @@ const phaseFRuntimeAuthorityMutationResults = phaseFRuntimeAuthorityMutationCase
       specifier: mutation.specifier,
       position: 0,
       nodeKind: "ImportDeclaration",
-      from: "scripts/phase-f-bounded-exercise.ts",
+      from: mutation.from,
       resolutionKind: "local",
       resolvedTarget: mutation.target,
     });
