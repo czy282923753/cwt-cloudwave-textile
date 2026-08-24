@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "status": "REMEDIATION_CANDIDATE_NOT_INDEPENDENTLY_REVIEWED_NOT_ACCEPTED",
+  "generatedAt": "2026-08-24",
+  "finding": "H-01_ARCHITECTURE_CHECKER_PHASE_F_RUNTIME_ROOT_FALSE_NEGATIVE",
+  "identity": {
+    "authorizedStartHead": "6a47054f7ad7015f241259bd00ee08e779e1ffff",
+    "authorizedStartTree": "300fc05bd88d888ebd5052aa6b4a1933a7b2c035",
+    "implementationCommit": "49d14edc38b13b3e0c1351f4f99737ffbc556ada",
+    "implementationTree": "8afbdf7a3651fc2fded296917a65ac461dbf8c50",
+    "checkerRemediationCommit": "64e035a0e77ab736f9217f5c1fc1d3c2031bda13",
+    "checkerRemediationTree": "1523ab4107e2b80b73960b868b767dd492ddff55",
+    "branch": "codex/phase-f-minimal-experiment-v1",
+    "acceptedFreezeCommit": "41dfc135f5f124e68aaac416c049c2e387e38d57",
+    "acceptedFreezeTree": "f85182ad8d4519d58e1d829967cfc889b8f1e830"
+  },
+  "independentFailEvidence": {
+    "reportSha256": "e6a017a9a200bbfda1c7b0b49ad5697e9f45e85d05d20c5b339c70614b72a129",
+    "sidecarVerified": true,
+    "csr01Reopened": false,
+    "csr02Reopened": false,
+    "h01SelfClosed": false
+  },
+  "changedFiles": [
+    {"path":"scripts/verify-ai-architecture.ts","added":148,"deleted":13,"sha256":"c82ee595345bd4ec0bee4cce7c34c40749933cb66a2ff23e37f24d9d2f969a6d"},
+    {"path":"src/ai/phase-f-bounded-experiment.integration.test.ts","added":23,"deleted":0,"sha256":"3c834c947d19ac393f8fbf6e3d76000a3a6565e1f08def83531c3eebd324b2b6"}
+  ],
+  "runtimePreservation": {
+    "bootstrapSha256": "c0d01a8a4676d02088efc4765cd73dd5646ffd60d80c5e8c5b890076d4f14143",
+    "exerciseSha256": "dc72feb2920501240b8137fa5ab129e8be42dfd3f321b053cdaac7a3ef329ed6",
+    "byteIdentical": true,
+    "productChanges": 0,
+    "newRuntimeFiles": 0,
+    "newExports": 0,
+    "newMechanisms": 0
+  },
+  "correction": {
+    "exactRuntimeAuthorityRoots": ["scripts/phase-f-bounded-bootstrap.ts","scripts/phase-f-bounded-exercise.ts"],
+    "removedBroadException": "exactPhaseFExecutableEdge",
+    "approvedPrivilegedImportTuples": 10,
+    "acceptedDraftBusinessRuntimeTuples": 11,
+    "prefixWildcardDirectoryExceptionsAdded": 0
+  },
+  "adversarialProbes": [
+    {"id":"phase-f-runtime-imports-test-only","result":"FAIL_CLOSED_EXPECTED","code":"phase_f_runtime_authority_violation","reason":"test_only_target"},
+    {"id":"phase-f-runtime-imports-evidence-only","result":"FAIL_CLOSED_EXPECTED","code":"phase_f_runtime_authority_violation","reason":"evidence_only_target"},
+    {"id":"phase-f-runtime-imports-unapproved-protected","result":"FAIL_CLOSED_EXPECTED","code":"phase_f_runtime_authority_violation","reason":"unapproved_privileged_target"},
+    {"id":"phase-f-runtime-imports-extra-server-authority","result":"FAIL_CLOSED_EXPECTED","code":"phase_f_runtime_authority_violation","reason":"unapproved_privileged_target"},
+    {"id":"phase-f-runtime-imports-public-browser","result":"FAIL_CLOSED_EXPECTED","code":"phase_f_runtime_authority_violation","reason":"public_client_or_browser_target"}
+  ],
+  "control": {
+    "id":"protected-canonical-json-imports-db-client",
+    "result":"FAIL_CLOSED_EXPECTED",
+    "code":"class_capability_violation"
+  },
+  "verification": {
+    "focusedVitest":{"result":"PASS","filesPassed":1,"testsPassed":6},
+    "cleanArchitecture":{"result":"PASS","candidateCount":845,"executableCount":532,"phaseFRuntimeAuthorityMutationCount":5,"phaseFProtectedBoundaryControlCount":1},
+    "eslint":"PASS",
+    "typecheck":"PASS",
+    "gitDiffCheck":"PASS",
+    "runtimeChecksums":"PASS",
+    "identityAndFreeze":"PASS"
+  },
+  "notRunByAuthorization": ["PG17","PG18","combined_fake_provider","full_vitest","RW-004","next_build","public_bundle","playwright","pnpm_audit"],
+  "nextGate": "FRESH_INDEPENDENT_CHECKER_FOCUSED_CODE_SECURITY_REREVIEW",
+  "h01Disposition": "OPEN_PENDING_INDEPENDENT_REREVIEW"
+}
