@@ -1699,6 +1699,9 @@ function enforcePhaseFLocalTarget(edge: GraphEdgeV1, target: string, targetNode:
   if (evidenceOnly) rejectPhaseFRuntimeAuthorityEdge(edge, "evidence_only_target", target);
   if (testOnly) rejectPhaseFRuntimeAuthorityEdge(edge, "test_only_target", target);
   if (publicOrBrowser) rejectPhaseFRuntimeAuthorityEdge(edge, "public_client_or_browser_target", target);
+  if (edge.edgeKind === "runtime" && target.startsWith("scripts/")) {
+    rejectPhaseFRuntimeAuthorityEdge(edge, "project_tooling_target", target);
+  }
 
   const privilegedTarget = targetNode.classId === "protected-ai" ||
     target.startsWith("src/server/ai/") || target.startsWith("src/integrations/ai/providers/");
@@ -2790,7 +2793,11 @@ if (phaseFMinimalCandidate) {
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_1.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_1.md.sha256" ||
     path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-1/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_1.json" ||
-    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-1/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_1.json.sha256";
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-1/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_1.json.sha256" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_2.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_2.md.sha256" ||
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-2/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_2.json" ||
+    path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-2/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_2.json.sha256";
   const changedPaths = new Set([
     ...execFileSync("git", ["diff", "--name-only", acceptedPhaseECommit, exactHead], { encoding: "utf8" }).split("\n"),
     ...execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" }).split("\n"),
@@ -3279,6 +3286,11 @@ const phaseFRuntimeAuthorityMutationCases = [
     id: "phase-f-runtime-imports-public-browser",
     target: "src/app/page.tsx",
     specifier: "@/app/page",
+  },
+  {
+    id: "phase-f-runtime-imports-project-tooling",
+    target: "scripts/process-ai-runs.ts",
+    specifier: "./process-ai-runs",
   },
 ] as const;
 const phaseFRuntimeAuthorityMutationResults = phaseFRuntimeAuthorityMutationCases.map((mutation) => {

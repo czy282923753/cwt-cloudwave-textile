@@ -112,6 +112,7 @@ describe("Phase F bounded experiment CSR-01 static boundary", () => {
       "phase-f-runtime-imports-unapproved-protected",
       "phase-f-runtime-imports-extra-server-authority",
       "phase-f-runtime-imports-public-browser",
+      "phase-f-runtime-imports-project-tooling",
     ]) expect(checkerSource).toContain(probeId);
     const output = execFileSync(process.execPath, ["--import=tsx", checkerPath], {
       cwd: root,
@@ -120,7 +121,7 @@ describe("Phase F bounded experiment CSR-01 static boundary", () => {
     });
     expect(JSON.parse(output)).toMatchObject({
       ok: true,
-      phaseFRuntimeAuthorityMutationCount: 5,
+      phaseFRuntimeAuthorityMutationCount: 6,
       phaseFProtectedBoundaryControlCount: 1,
     });
   }, 120_000);
