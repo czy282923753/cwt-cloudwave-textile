@@ -65,7 +65,10 @@ function spawnExecutable(path: string, nodeOptions = "--conditions=react-server"
   });
 }
 
-function fakeProviderPreload(kind: "valid" | "usage_shape" | "authentication"): string {
+type FakeProviderKind = "valid" | "usage_shape" | "authentication" | "quota" | "model_drift" |
+  "client_error" | "transport_error" | "unknown" | "allowed_output_matrix" | "allowed_transient_matrix";
+
+function fakeProviderPreload(kind: FakeProviderKind): string {
   const source = String.raw`
     let callCount = 0;
     globalThis.fetch = async (_url, init) => {
@@ -73,7 +76,14 @@ function fakeProviderPreload(kind: "valid" | "usage_shape" | "authentication"): 
       if (callCount > 4) throw new Error("K1 fake Provider refused a fifth call");
       const request = JSON.parse(String(init.body));
       if (!String(request.messages[0].content).includes('"product_description_draft"')) throw new Error("K1 Prompt identity drifted");
+      if (${JSON.stringify(kind)} === "transport_error") throw new TypeError("synthetic transport ambiguity");
       if (${JSON.stringify(kind)} === "authentication") return new Response("", { status: 401 });
+      if (${JSON.stringify(kind)} === "quota") return new Response("", { status: 402 });
+      if (${JSON.stringify(kind)} === "client_error") return new Response("", { status: 400 });
+      if (${JSON.stringify(kind)} === "unknown") return new Response("", { status: 299 });
+      if (${JSON.stringify(kind)} === "allowed_transient_matrix" && callCount <= 3) {
+        return new Response("", { status: [408, 429, 500][callCount - 1] });
+      }
       const response = {
         id: "synthetic_k1_response_" + callCount,
         object: "chat.completion",
@@ -89,6 +99,13 @@ function fakeProviderPreload(kind: "valid" | "usage_shape" | "authentication"): 
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 20, completion_tokens_details: { reasoning_tokens: 0 } },
       };
       if (${JSON.stringify(kind)} === "usage_shape") response.usage = {};
+      if (${JSON.stringify(kind)} === "model_drift") response.model = "synthetic-model-drift";
+      if (${JSON.stringify(kind)} === "allowed_output_matrix") {
+        if (callCount === 1) response.choices[0].message.content = "";
+        if (callCount === 2) response.choices[0].message.content = "not-json";
+        if (callCount === 3) response.choices[0].message.content = "{}";
+        if (callCount === 4) response.choices[0].finish_reason = "content_filter";
+      }
       return new Response(JSON.stringify(response), { status: 200, headers: { "content-type": "application/json" } });
     };
   `;
@@ -229,16 +246,89 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
     });
   }, 30_000);
 
-  it("stops every later planned call after authentication failure", async () => {
+  it("continues the closed content, JSON, schema and safety matrix through four consumed slots", async () => {
     await reset();
     await bootstrapAndMaterialize();
-    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("authentication"));
+    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("allowed_output_matrix"));
+    expect(executed.status, output(executed.stderr)).toBe(0);
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "completed", plannedCount: 4, completedCount: 4 });
+    await withDatabase(async (db) => {
+      const rows = await db.select().from(aiRuns).orderBy(aiRuns.queuedAt);
+      expect(rows.map((row) => [row.providerResponseStatus, row.failureCode])).toEqual([
+        ["invalid_response", "output_empty"],
+        ["invalid_response", "output_invalid_json"],
+        ["invalid_response", "output_schema_invalid"],
+        ["safety_rejected", "provider_safety_rejected"],
+      ]);
+      expect(rows.every((row) => row.status === "failed" && row.attemptCount === 1 &&
+        row.candidateJson === null && row.budgetReservedCostMicrousd === 0)).toBe(true);
+    });
+  }, 60_000);
+
+  it("continues accepted timeout, rate-limit and server outcomes through the fourth fixed slot", async () => {
+    await reset();
+    await bootstrapAndMaterialize();
+    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("allowed_transient_matrix"));
+    expect(executed.status, output(executed.stderr)).toBe(0);
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "completed", plannedCount: 4, completedCount: 4 });
+    await withDatabase(async (db) => {
+      const rows = await db.select().from(aiRuns).orderBy(aiRuns.queuedAt);
+      expect(rows.map((row) => [row.status, row.providerResponseStatus, row.failureCode])).toEqual([
+        ["failed", "timeout", "provider_timeout"],
+        ["failed", "rate_limited", "provider_rate_limited"],
+        ["failed", "server_error", "provider_server_error"],
+        ["draft_ready", "success", null],
+      ]);
+      expect(rows.every((row) => row.attemptCount === 1 && row.budgetReservedCostMicrousd === 0)).toBe(true);
+    });
+  }, 60_000);
+
+  it.each([
+    ["authentication", "client_error", "provider_auth_failed"],
+    ["quota", "quota_exceeded", "provider_quota_exceeded"],
+  ] as const)("stops every later planned call after %s rejection", async (kind, responseStatus, failureCode) => {
+    await reset();
+    await bootstrapAndMaterialize();
+    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload(kind));
     expect(executed.status, output(executed.stderr)).toBe(0);
     expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "stopped", plannedCount: 4, completedCount: 1 });
     await withDatabase(async (db) => {
       const rows = await db.select().from(aiRuns);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ idempotencyKey: fixedIdempotencies[0], attemptCount: 1, failureCode: "provider_auth_failed" });
+      expect(rows[0]).toMatchObject({ idempotencyKey: fixedIdempotencies[0], attemptCount: 1,
+        providerResponseStatus: responseStatus, failureCode });
+    });
+  }, 30_000);
+
+  it("stops every later planned call after model drift", async () => {
+    await reset();
+    await bootstrapAndMaterialize();
+    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("model_drift"));
+    expect(executed.status, output(executed.stderr)).toBe(0);
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "stopped", plannedCount: 4, completedCount: 1 });
+    await withDatabase(async (db) => {
+      const rows = await db.select().from(aiRuns);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ idempotencyKey: fixedIdempotencies[0], attemptCount: 1,
+        providerResponseStatus: "model_drift", failureCode: "model_drift" });
+    });
+  }, 30_000);
+
+  it.each([
+    ["client_error", "client_error", "provider_client_error"],
+    ["transport_error", "transport_error", "provider_transport_error"],
+    ["unknown", "unknown", "adapter_unexpected_failure"],
+  ] as const)("stops every later planned call after %s ambiguity", async (kind, responseStatus, failureCode) => {
+    await reset();
+    await bootstrapAndMaterialize();
+    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload(kind));
+    expect(executed.status, output(executed.stderr)).toBe(0);
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "stopped", plannedCount: 4, completedCount: 1 });
+    await withDatabase(async (db) => {
+      const rows = await db.select().from(aiRuns);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ idempotencyKey: fixedIdempotencies[0], attemptCount: 1,
+        providerResponseStatus: responseStatus, failureCode });
     });
   }, 30_000);
 });

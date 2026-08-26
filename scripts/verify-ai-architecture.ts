@@ -29,7 +29,7 @@ const phaseFExecutablePaths = [
 ] as const;
 const phaseFExecutableHashes = new Map([
   ["scripts/phase-f-bounded-bootstrap.ts", "1d33249db3eb6a2e89b3c69226d371102395b63f04d9f0d96afd204cc9d295a7"],
-  ["scripts/phase-f-m6-one-case-diagnostic.ts", "a50acdaf737f9e0f70d58b8c4ee2339c6a5c0d8bfffad6ebec6444a1e06155bf"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "2fb27979529090ddbf8d7f7182d3bf778ed218ebc790b3b13b425c0f36433fbd"],
 ]);
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -633,6 +633,42 @@ for (const path of phaseFExecutablePaths) {
     /\b(?:Proxy|eval|Function)\s*\(/u.test(source) || /\bas\s+(?:any|unknown)\b/u.test(source)) {
     fail(`Phase F executable violates the no-export/no-new-authority boundary: ${path}`);
   }
+}
+const phaseFRunnerSource = readFileSync(resolve(repositoryRoot, "scripts/phase-f-m6-one-case-diagnostic.ts"), "utf8");
+const phaseFRunnerAst = ts.createSourceFile("phase-f-m6-one-case-diagnostic.ts", phaseFRunnerSource,
+  ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+const continuationDeclaration = phaseFRunnerAst.statements.flatMap((statement) =>
+  ts.isVariableStatement(statement) ? [...statement.declarationList.declarations] : [])
+  .find((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "continuableTerminalOutcomes");
+const continuationInitializer = continuationDeclaration?.initializer;
+const continuationArray = continuationInitializer !== undefined && ts.isCallExpression(continuationInitializer) &&
+  continuationInitializer.arguments.length === 1 ? continuationInitializer.arguments[0] : undefined;
+if (continuationArray === undefined || !ts.isAsExpression(continuationArray) ||
+  !ts.isArrayLiteralExpression(continuationArray.expression)) {
+  fail("Phase F terminal continuation allowlist is not one closed frozen tuple");
+}
+const observedContinuationOutcomes = continuationArray.expression.elements.map((element) => {
+  if (!ts.isArrayLiteralExpression(element) || element.elements.length !== 3) {
+    fail("Phase F terminal continuation tuple shape drifted");
+  }
+  return element.elements.map((member) => ts.isStringLiteral(member) ? member.text :
+    member.kind === ts.SyntaxKind.NullKeyword ? null : fail("Phase F terminal continuation member is not literal"));
+});
+const expectedContinuationOutcomes = [
+  ["draft_ready", "success", null],
+  ["failed", "invalid_response", "output_empty"],
+  ["failed", "invalid_response", "output_truncated"],
+  ["failed", "invalid_response", "output_invalid_json"],
+  ["failed", "invalid_response", "output_schema_invalid"],
+  ["failed", "invalid_response", "output_policy_rejected"],
+  ["failed", "invalid_response", "output_too_large"],
+  ["failed", "safety_rejected", "provider_safety_rejected"],
+  ["failed", "timeout", "provider_timeout"],
+  ["failed", "rate_limited", "provider_rate_limited"],
+  ["failed", "server_error", "provider_server_error"],
+] as const;
+if (JSON.stringify(observedContinuationOutcomes) !== JSON.stringify(expectedContinuationOutcomes)) {
+  fail("Phase F terminal continuation allowlist broadened or drifted");
 }
 for (const path of actualFiles) {
   if (path.startsWith("src/") && !isTestSemantic(path) &&
@@ -2815,6 +2851,8 @@ if (phaseFMinimalCandidate) {
     /^src\/ai\/phase-f-(?:bounded-experiment|m6-one-case-diagnostic)(?:\.postgres)?\.integration\.test\.ts$/u.test(path) ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_K1_FOUR_CALL_PRODUCT_USD0_50_SINGULAR_COST_AUTHORITY_IMPLEMENTATION_V2_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_K1_FOUR_CALL_PRODUCT_USD0_50_SINGULAR_COST_AUTHORITY_IMPLEMENTATION_V2_0.md.sha256" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_K1_FOUR_CALL_TERMINAL_CONTINUATION_AUTHORITY_CORRECTION_V2_1.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_K1_FOUR_CALL_TERMINAL_CONTINUATION_AUTHORITY_CORRECTION_V2_1.md.sha256" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_M6_ONE_CASE_DIAGNOSTIC_PRODUCT_RUNNER_IMPLEMENTATION_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_M6_ONE_CASE_DIAGNOSTIC_PRODUCT_RUNNER_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "src/ai/runs/pricing-policy.ts" ||

@@ -1,12 +1,34 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 const runner = "scripts/phase-f-m6-one-case-diagnostic.ts";
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
+
+type TerminalObservation = {
+  readonly status: string;
+  readonly providerResponseStatus: string;
+  readonly failureCode: string | null;
+};
+
+function loadTerminalDecision(): (input: TerminalObservation) => boolean {
+  const source = read(runner);
+  const ast = ts.createSourceFile(runner, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declarations = ast.statements.filter((statement) =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === "mayContinueAfterTerminal" ||
+    ts.isVariableStatement(statement) && statement.declarationList.declarations.some((declaration) =>
+      ts.isIdentifier(declaration.name) && declaration.name.text === "continuableTerminalOutcomes"));
+  expect(declarations).toHaveLength(2);
+  const executable = ts.transpileModule(
+    `${declarations.map((statement) => statement.getText(ast)).join("\n")}\nmayContinueAfterTerminal;`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+  ).outputText;
+  return runInNewContext(executable, Object.create(null)) as (input: TerminalObservation) => boolean;
+}
 
 describe("Phase F K1 four-call Product batch boundary", () => {
   it("keeps one private no-argument runner and exactly four immutable keys", () => {
@@ -42,6 +64,41 @@ describe("Phase F K1 four-call Product batch boundary", () => {
     expect(source).toContain("Math.max(row.budgetAccountedCostMicrousd, row.actualCostMicrousd, row.actualCostComplete ? 0 : attemptUpperMicrousd)");
     expect(source).toContain("accounted + attemptUpperMicrousd > batchHardCapMicrousd");
     expect(source).not.toMatch(/50_000|\b50000\b|20_000|\b20000\b/u);
+  });
+
+  it("uses one closed continuation allowlist with default-stop mutation behavior", () => {
+    const mayContinue = loadTerminalDecision();
+    const allowed = [
+      ["draft_ready", "success", null],
+      ["failed", "invalid_response", "output_empty"],
+      ["failed", "invalid_response", "output_truncated"],
+      ["failed", "invalid_response", "output_invalid_json"],
+      ["failed", "invalid_response", "output_schema_invalid"],
+      ["failed", "invalid_response", "output_policy_rejected"],
+      ["failed", "invalid_response", "output_too_large"],
+      ["failed", "safety_rejected", "provider_safety_rejected"],
+      ["failed", "timeout", "provider_timeout"],
+      ["failed", "rate_limited", "provider_rate_limited"],
+      ["failed", "server_error", "provider_server_error"],
+    ] as const;
+    for (const [status, providerResponseStatus, failureCode] of allowed) {
+      expect(mayContinue({ status, providerResponseStatus, failureCode })).toBe(true);
+    }
+    for (const [status, providerResponseStatus, failureCode] of [
+      ["failed", "model_drift", "model_drift"],
+      ["failed", "client_error", "provider_auth_failed"],
+      ["failed", "quota_exceeded", "provider_quota_exceeded"],
+      ["failed", "client_error", "provider_client_error"],
+      ["failed", "transport_error", "provider_transport_error"],
+      ["failed", "not_dispatched", "pricing_stale"],
+      ["cancelled", "cancelled_no_response", "provider_cancelled"],
+      ["failed", "unknown", "adapter_unexpected_failure"],
+      ["failed", "invalid_response", null],
+      ["draft_ready", "success", "output_schema_invalid"],
+      ["failed", "future_terminal_category", "future_failure_code"],
+    ] as const) {
+      expect(mayContinue({ status, providerResponseStatus, failureCode })).toBe(false);
+    }
   });
 
   it("places no-argument and closed stdin validation before Product work", () => {

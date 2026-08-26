@@ -39,6 +39,29 @@ type Fixture = { readonly actorId: string; readonly targetId: string; readonly c
 type PreflightRow = Record<string, unknown> & { readonly database_name: string; readonly actor_count: number; readonly actor_id: string | null;
   readonly product_count: number; readonly product_id: string | null; readonly primary_category_count: number; readonly public_asset_count: number;
   readonly run_count: number; readonly feature_count: number; readonly config_count: number; readonly config_id: string | null };
+const continuableTerminalOutcomes = Object.freeze([
+  ["draft_ready", "success", null],
+  ["failed", "invalid_response", "output_empty"],
+  ["failed", "invalid_response", "output_truncated"],
+  ["failed", "invalid_response", "output_invalid_json"],
+  ["failed", "invalid_response", "output_schema_invalid"],
+  ["failed", "invalid_response", "output_policy_rejected"],
+  ["failed", "invalid_response", "output_too_large"],
+  ["failed", "safety_rejected", "provider_safety_rejected"],
+  ["failed", "timeout", "provider_timeout"],
+  ["failed", "rate_limited", "provider_rate_limited"],
+  ["failed", "server_error", "provider_server_error"],
+] as const);
+
+function mayContinueAfterTerminal(input: {
+  readonly status: string;
+  readonly providerResponseStatus: string;
+  readonly failureCode: string | null;
+}): boolean {
+  return continuableTerminalOutcomes.some(([status, providerResponseStatus, failureCode]) =>
+    input.status === status && input.providerResponseStatus === providerResponseStatus &&
+    input.failureCode === failureCode);
+}
 
 function readCredential(): Buffer {
   const input = readFileSync(0);
@@ -153,7 +176,7 @@ async function main(): Promise<void> {
       if (!requested.ok) throw new Error(`K1 batch enqueue failed at ordinal ${ordinal + 1}: ${requested.error.code}.`);
       const terminal = await waitForTerminal(requested.value.runId);
       results.push({ ordinal: ordinal + 1, runId: terminal.id, status: terminal.status, attemptCount: terminal.attemptCount, publish: false, index: false });
-      if (terminal.failureCode === "provider_auth_failed" || terminal.failureCode === "provider_quota_exceeded" || terminal.failureCode === "run_cost_limit_exceeded" || terminal.status === "cancelled") break;
+      if (!mayContinueAfterTerminal(terminal)) break;
     }
     await assertCompletedPrefix(results.length, fixture); await worker.stop(); await worker.join();
     process.stdout.write(`${JSON.stringify({ status: results.length === 4 ? "completed" : "stopped", plannedCount: 4, completedCount: results.length, rows: results, publish: false, index: false })}\n`);
