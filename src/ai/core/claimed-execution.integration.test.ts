@@ -8,15 +8,16 @@ import {
   encodeDraftTargetColumnsV1,
   prepareDraftAssociationV1,
 } from "@/ai/applications/draft-assistance/association";
-import { canonicalJsonHash } from "@/ai/canonical-json";
+import { canonicalJsonHash, type ReadonlyJsonObject } from "@/ai/canonical-json";
 import {
   createDraftAvailabilityAuthorization,
   createDraftRequestAuthorization,
 } from "@/ai/applications/draft-assistance/authorization";
 import { createDraftContextPolicy } from "@/ai/applications/draft-assistance/context";
 import { withReadOnlyDraftAvailabilityScope } from "@/ai/applications/draft-assistance/read-scopes";
-import { aiFailure } from "@/ai/errors";
+import { aiFailure, aiSuccess } from "@/ai/errors";
 import { constructPreDispatchClaimedRunV2 } from "@/ai/internal/claimed-run-authority";
+import type { PreDispatchClaimedRunV2 } from "@/ai/internal/claimed-run-authority";
 import { resolvedConfigHashV1 } from "@/ai/internal/preparation";
 import type { PromptBundleLoaderV1 } from "@/ai/prompts/loader";
 import { createTextProviderRegistryV1 } from "@/ai/providers/registry";
@@ -26,6 +27,10 @@ import {
 } from "@/ai/registry/production-use-cases";
 import { createFakeTextProviderV1 } from "@/ai/testing/fake-text-provider";
 import { createTestDatabase } from "@/test/database";
+import {
+  createDeepSeekTextProviderV1,
+  DEEPSEEK_TEXT_ENVELOPE_HASH_V1,
+} from "@/integrations/ai/providers/deepseek-text-adapter";
 
 import { createAiClaimedExecutionServiceV2 } from "./orchestrator";
 
@@ -459,6 +464,234 @@ describe("strict claimed reconstruction and one-call execution", () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: "context_prohibited_data" },
+    });
+  });
+});
+
+describe("sanitized DeepSeek adapter diagnostic propagation", () => {
+  const safeUsage = {
+    inputTokens: 10,
+    outputTokens: 4,
+    totalTokens: 14,
+    cacheHitInputTokens: 6,
+    cacheMissInputTokens: 4,
+  } as const;
+
+  function response(content: string): ReadonlyJsonObject {
+    return {
+      id: "synthetic_response_01",
+      object: "chat.completion",
+      created: 1,
+      model: "deepseek-v4-flash",
+      system_fingerprint: "synthetic_fp_01",
+      choices: [{
+        index: 0,
+        finish_reason: "stop",
+        logprobs: null,
+        message: {
+          role: "assistant",
+          content,
+          reasoning_content: null,
+          tool_calls: null,
+        },
+      }],
+      usage: {
+        prompt_tokens: safeUsage.inputTokens,
+        completion_tokens: safeUsage.outputTokens,
+        total_tokens: safeUsage.totalTokens,
+        prompt_cache_hit_tokens: safeUsage.cacheHitInputTokens,
+        prompt_cache_miss_tokens: safeUsage.cacheMissInputTokens,
+        completion_tokens_details: { reasoning_tokens: 0 },
+      },
+    };
+  }
+
+  function claimed(mode: "accept" | "reject_schema"): PreDispatchClaimedRunV2 {
+    const preparedContext = {
+      version: 1 as const,
+      inputSources: [],
+      inputContext: {},
+      inputHash: "c".repeat(64),
+      explicitInputHash: "d".repeat(64),
+      requestFingerprintInput: {},
+    };
+    return {
+      version: 2,
+      runId: "66666666-6666-4666-8666-666666666666",
+      applicationClass: "draft_assistance",
+      capability: "text",
+      useCase: "product_description_draft",
+      idempotencyKey: "77777777-7777-4777-8777-777777777777",
+      requestFingerprintVersion: 1,
+      requestFingerprint: "e".repeat(64),
+      applicationAssociation: { kind: "draft_target.v1", snapshot: {}, snapshotHash: "f".repeat(64) },
+      targetSnapshotHash: "f".repeat(64),
+      modelConfigId: configId,
+      modelConfigVersion: 1,
+      resolvedConfigHash: "1".repeat(64),
+      requestedProvider: "deepseek",
+      actualProvider: "deepseek",
+      requestedModel: "deepseek-v4-flash",
+      parametersSnapshot: { temperature: 0 },
+      maxInputTokens: 16_000,
+      maxOutputTokens: 200,
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+      promptId: "product-description-draft",
+      promptVersion: 1,
+      promptHash,
+      providerEnvelopeVersion: 1,
+      providerEnvelopeHash: DEEPSEEK_TEXT_ENVELOPE_HASH_V1,
+      inputSchemaVersion: 1,
+      outputSchemaId: "cwt.product-description-draft.v1",
+      outputSchemaVersion: 1,
+      policyVersion: "draft-product-description-v1",
+      inputContext: {},
+      inputSources: [],
+      inputHash: preparedContext.inputHash,
+      controlledValidationIdentity: null,
+      status: "processing",
+      retryState: "none",
+      attemptCount: 1,
+      leaseOwner: "synthetic-diagnostic-worker",
+      leaseToken: "55555555-5555-4555-8555-555555555555",
+      leaseExpiresAt: new Date("2026-08-26T01:00:00.000Z"),
+      stateVersion: 3,
+      activeAttemptDispatchedAt: null,
+      providerDispatchedAt: null,
+      claimedContext: {
+        preparedContext,
+        verifyAssociationIntegrity: () => aiSuccess(true),
+        buildPromptVariables: () => aiSuccess({}),
+        parseAndProtect: () => mode === "reject_schema"
+          ? aiFailure("output_schema_invalid")
+          : aiSuccess({
+              version: 1,
+              resultKind: "draft_candidate",
+              dispositionKind: "draft_human_review",
+              schemaId: "cwt.product-description-draft.v1",
+              schemaVersion: 1,
+              policyVersion: "draft-product-description-v1",
+              value: { synthetic: true },
+              canonicalJson: '{"synthetic":true}',
+              hash: "2".repeat(64),
+            }),
+      },
+    } as unknown as PreDispatchClaimedRunV2;
+  }
+
+  async function execute(input: {
+    readonly response: ReadonlyJsonObject;
+    readonly mode: "accept" | "reject_schema";
+  }) {
+    const provider = createDeepSeekTextProviderV1({
+      credentialReader: () => "synthetic-diagnostic-credential-value",
+      fetchImplementation: async () => new Response(JSON.stringify(input.response), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    });
+    const providers = createTextProviderRegistryV1([provider]);
+    if (!providers.ok) throw new Error("Synthetic DeepSeek registry failed.");
+    const promptLoader: PromptBundleLoaderV1 = {
+      load(loadInput) {
+        return aiSuccess({
+          tuple: {
+            promptId: loadInput.promptId,
+            promptVersion: loadInput.promptVersion,
+            promptHash: loadInput.promptHash,
+          },
+          applicationClass: loadInput.applicationClass,
+          capability: "text",
+          useCase: loadInput.useCase,
+          locale: "en",
+          inputSchemaVersion: loadInput.inputSchemaVersion,
+          outputSchemaVersion: loadInput.outputSchemaVersion,
+          policyVersion: loadInput.policyVersion,
+          variables: [],
+          body: "Return exactly one JSON object.",
+        });
+      },
+    };
+    const execution = createAiClaimedExecutionServiceV2({
+      providerRegistry: providers.value,
+      promptLoader,
+      now: () => new Date("2026-08-26T00:00:00.000Z"),
+    });
+    return execution.executePreDispatchTextAttempt({
+      claimed: claimed(input.mode),
+      signal: new AbortController().signal,
+      async authorizeProviderDispatch() {
+        return {
+          kind: "authorized",
+          observedAt: new Date("2026-08-26T00:00:01.000Z"),
+          dispatchedAt: new Date("2026-08-26T00:00:01.000Z"),
+          leaseExpiresAt: new Date("2026-08-26T01:00:00.000Z"),
+          stateVersion: 4,
+        };
+      },
+    });
+  }
+
+  it("maps an adapter schema rejection to the fixed safe code with null usage and no candidate", async () => {
+    const result = await execute({
+      response: { ...response("{}"), provider_controlled_marker: "must-not-persist" },
+      mode: "accept",
+    });
+    expect(result).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "invalid_response",
+        retryClass: "not_retryable",
+        usage: null,
+        providerErrorCode: "cwt_response_top_level_shape",
+        protectedResult: null,
+        error: { code: "output_schema_invalid" },
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("provider_controlled_marker");
+    expect(JSON.stringify(result)).not.toContain("must-not-persist");
+  });
+
+  it("retains usage for valid envelopes followed by invalid content JSON or use-case schema", async () => {
+    const invalidJson = await execute({ response: response("[]"), mode: "accept" });
+    expect(invalidJson).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "invalid_response",
+        usage: safeUsage,
+        providerErrorCode: null,
+        protectedResult: null,
+        error: { code: "output_invalid_json" },
+      },
+    });
+    const invalidSchema = await execute({ response: response("{}"), mode: "reject_schema" });
+    expect(invalidSchema).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "invalid_response",
+        usage: safeUsage,
+        providerErrorCode: null,
+        protectedResult: null,
+        error: { code: "output_schema_invalid" },
+      },
+    });
+  });
+
+  it("keeps a fully valid fake response on the protected draft-ready evidence path", async () => {
+    const result = await execute({ response: response("{}"), mode: "accept" });
+    expect(result).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "success",
+        usage: safeUsage,
+        providerErrorCode: null,
+        error: null,
+        protectedResult: {
+          resultKind: "draft_candidate",
+          dispositionKind: "draft_human_review",
+        },
+      },
     });
   });
 });

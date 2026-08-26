@@ -2810,6 +2810,13 @@ if (phaseFMinimalCandidate) {
     path === "src/ai/applications/draft-assistance/context-integrity-profile.v3_1.json" ||
     path === "src/ai/applications/draft-assistance/context-integrity.ts" ||
     path === "src/ai/applications/draft-assistance/context-integrity.test.ts" ||
+    path === "src/integrations/ai/providers/deepseek-text-adapter.ts" ||
+    path === "src/integrations/ai/providers/deepseek-text-adapter.test.ts" ||
+    path === "src/ai/core/claimed-execution.integration.test.ts" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_M6_OUTPUT_SCHEMA_INVALID_OFFLINE_ROOT_CAUSE_ANALYSIS_V1_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_M6_OUTPUT_SCHEMA_INVALID_OFFLINE_ROOT_CAUSE_ANALYSIS_V1_0.md.sha256" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_M6_SANITIZED_ADAPTER_DIAGNOSTIC_IMPLEMENTATION_V1_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_M6_SANITIZED_ADAPTER_DIAGNOSTIC_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_PROTECTED_DATA_SEMANTIC_RUNTIME_IMPLEMENTATION_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_PROTECTED_DATA_SEMANTIC_RUNTIME_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_PRICING_FRESHNESS_7_DAY_DELTA_V1_0.md" ||

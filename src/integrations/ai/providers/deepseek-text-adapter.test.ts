@@ -195,6 +195,24 @@ function mutationCaseId(mutation: string): string {
   throw new Error("Unknown invalid-response mutation name");
 }
 
+function mutationDiagnosticCode(mutation: string): string {
+  switch (mutation) {
+    case "extra_service_tier":
+    case "unknown_top_level":
+      return "cwt_response_top_level_shape";
+    case "reasoning_content":
+    case "tool_calls":
+      return "cwt_response_message_shape";
+    case "usage_totals":
+      return "cwt_response_usage_cache_split";
+    case "second_choice":
+      return "cwt_response_choice_shape";
+    case "unknown_finish_reason":
+      return "cwt_response_finish_reason";
+  }
+  throw new Error("Unknown invalid-response diagnostic mutation name");
+}
+
 function bodyCaseId(testCase: SyntheticContractFixture["cases"]["bodyFailures"][number]): string {
   if (testCase.encoding === "empty" && testCase.payload === "") return "body:empty";
   if (testCase.encoding === "text" && testCase.payload === "{") return "body:malformed-json";
@@ -226,6 +244,7 @@ const httpCases = fixture.cases.httpFailures.map((testCase) => ({ id: httpCaseId
 const invalidResponseCases = fixture.cases.invalidResponseMutations.map((mutation) => ({
   id: mutationCaseId(mutation),
   mutation,
+  providerErrorCode: mutationDiagnosticCode(mutation),
 }));
 const bodyCases = fixture.cases.bodyFailures.map((testCase) => ({ id: bodyCaseId(testCase), testCase }));
 const finishCases = fixture.cases.finishReasons.map((testCase) => ({ id: finishCaseId(testCase), testCase }));
@@ -544,7 +563,7 @@ describe("DeepSeek Phase D synthetic contract V1", () => {
     expectExactRequestTuple(seams);
   });
 
-  it.each(invalidResponseCases)("registers $id exactly once", async ({ mutation }) => {
+  it.each(invalidResponseCases)("registers $id exactly once", async ({ mutation, providerErrorCode }) => {
     const seams = createExplicitSeams(() => jsonResponse(invalidResponse(mutation)), syntheticCredential);
     const prepared = prepare(seams);
     if (!prepared.ok) throw new Error("Synthetic invalid-response case preparation failed");
@@ -554,8 +573,125 @@ describe("DeepSeek Phase D synthetic contract V1", () => {
       responseStatus: "invalid_response",
       failureCode: "invalid_response_schema",
       retryClass: "not_retryable",
+      providerErrorCode,
     });
+    expect(result).not.toHaveProperty("usage");
+    expect(result).not.toHaveProperty("outputText");
     expect(seams.credentialReads()).toBe(1);
+    expectExactRequestTuple(seams);
+  });
+
+  it.each([
+    {
+      id: "identity-shape",
+      providerErrorCode: "cwt_response_identity_shape",
+      mutate: (response: Readonly<Record<string, unknown>>) => ({ ...response, id: "" }),
+    },
+    {
+      id: "usage-shape",
+      providerErrorCode: "cwt_response_usage_shape",
+      mutate: (response: Readonly<Record<string, unknown>>) => ({
+        ...response,
+        usage: {
+          ...(response.usage as Readonly<Record<string, unknown>>),
+          prompt_cache_miss_tokens: undefined,
+        },
+      }),
+    },
+    {
+      id: "usage-scalar",
+      providerErrorCode: "cwt_response_usage_scalar",
+      mutate: (response: Readonly<Record<string, unknown>>) => ({
+        ...response,
+        usage: { ...(response.usage as Readonly<Record<string, unknown>>), prompt_tokens: -1 },
+      }),
+    },
+    {
+      id: "usage-total",
+      providerErrorCode: "cwt_response_usage_total",
+      mutate: (response: Readonly<Record<string, unknown>>) => ({
+        ...response,
+        usage: { ...(response.usage as Readonly<Record<string, unknown>>), total_tokens: 15 },
+      }),
+    },
+    {
+      id: "completion-details",
+      providerErrorCode: "cwt_response_completion_details",
+      mutate: (response: Readonly<Record<string, unknown>>) => ({
+        ...response,
+        usage: {
+          ...(response.usage as Readonly<Record<string, unknown>>),
+          completion_tokens_details: { reasoning_tokens: 1 },
+        },
+      }),
+    },
+  ])("classifies the additional fixed $id predicate without returning usage", async ({
+    providerErrorCode,
+    mutate,
+  }) => {
+    const seams = createExplicitSeams(
+      () => jsonResponse(mutate(fixture.cases.success.response)),
+      syntheticCredential,
+    );
+    const prepared = prepare(seams);
+    if (!prepared.ok) throw new Error("Synthetic diagnostic case preparation failed");
+    const result = await prepared.value.execute({ signal: new AbortController().signal });
+    expect(result).toMatchObject({
+      kind: "failure",
+      responseStatus: "invalid_response",
+      failureCode: "invalid_response_schema",
+      retryClass: "not_retryable",
+      providerErrorCode,
+    });
+    expect(result).not.toHaveProperty("usage");
+    expect(result).not.toHaveProperty("outputText");
+    expectExactRequestTuple(seams);
+  });
+
+  it("classifies content type without reading or returning Provider-controlled body content", async () => {
+    const rawMarker = "provider-controlled-body-marker-must-not-persist";
+    const seams = createExplicitSeams(() => new Response(rawMarker, {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+    }), syntheticCredential);
+    const prepared = prepare(seams);
+    if (!prepared.ok) throw new Error("Synthetic content-type case preparation failed");
+    const result = await prepared.value.execute({ signal: new AbortController().signal });
+    expect(result).toMatchObject({
+      kind: "failure",
+      responseStatus: "invalid_response",
+      failureCode: "invalid_response_schema",
+      retryClass: "not_retryable",
+      httpStatus: 200,
+      providerErrorCode: "cwt_response_content_type",
+    });
+    expect(JSON.stringify(result)).not.toContain(rawMarker);
+    expect(result).not.toHaveProperty("usage");
+    expect(result).not.toHaveProperty("outputText");
+    expectExactRequestTuple(seams);
+  });
+
+  it("does not copy an unknown Provider-controlled key or value into diagnostic evidence", async () => {
+    const keyMarker = "provider_controlled_key_marker";
+    const valueMarker = "provider-controlled-value-marker";
+    const seams = createExplicitSeams(() => jsonResponse({
+      ...fixture.cases.success.response,
+      [keyMarker]: valueMarker,
+    }), syntheticCredential);
+    const prepared = prepare(seams);
+    if (!prepared.ok) throw new Error("Synthetic unknown-key case preparation failed");
+    const result = await prepared.value.execute({ signal: new AbortController().signal });
+    expect(result).toMatchObject({
+      kind: "failure",
+      responseStatus: "invalid_response",
+      failureCode: "invalid_response_schema",
+      providerErrorCode: "cwt_response_top_level_shape",
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(keyMarker);
+    expect(serialized).not.toContain(valueMarker);
+    expect(result).not.toHaveProperty("usage");
+    expect(result).not.toHaveProperty("outputText");
     expectExactRequestTuple(seams);
   });
 
@@ -748,6 +884,7 @@ describe("DeepSeek Phase D synthetic contract V1", () => {
     expect(seams.fetchCalls).toHaveLength(0);
     const result = await prepared.value.execute({ signal: new AbortController().signal });
     expect(result).toMatchObject({ kind: "success", ...testCase.expected });
+    expect(result).not.toHaveProperty("providerErrorCode");
     expect(seams.credentialReads()).toBe(1);
     expectExactRequestTuple(seams);
   });

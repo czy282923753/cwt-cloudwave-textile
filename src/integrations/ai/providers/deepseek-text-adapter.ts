@@ -206,36 +206,58 @@ function parseOneJsonDocument(text: string): unknown | undefined {
   }
 }
 
+type ResponseSchemaDiagnosticCode =
+  | "cwt_response_content_type"
+  | "cwt_response_top_level_shape"
+  | "cwt_response_identity_shape"
+  | "cwt_response_choice_shape"
+  | "cwt_response_message_shape"
+  | "cwt_response_usage_shape"
+  | "cwt_response_usage_scalar"
+  | "cwt_response_usage_cache_split"
+  | "cwt_response_usage_total"
+  | "cwt_response_completion_details"
+  | "cwt_response_finish_reason";
+
 function normalizeSuccess(input: {
   readonly value: unknown;
   readonly requestedModel: string;
   readonly requestedMaxOutputTokens: number;
   readonly durationMs: number;
 }): ProviderTextResultV2 {
-  const invalid = (returnedModel?: string) => failure({
+  const invalid = (providerErrorCode: ResponseSchemaDiagnosticCode, returnedModel?: string) => failure({
     responseStatus: "invalid_response",
     failureCode: "invalid_response_schema",
     retryClass: "not_retryable",
+    providerErrorCode,
     durationMs: input.durationMs,
     ...(returnedModel === undefined ? {} : { returnedModel }),
   });
   if (!isPlainObject(input.value) || !exactKeys(input.value,
     ["id", "object", "created", "model", "system_fingerprint", "choices", "usage"],
-    ["id", "model", "choices", "usage"])) return invalid();
+    ["id", "model", "choices", "usage"])) return invalid("cwt_response_top_level_shape");
   const id = input.value.id;
   const returnedModel = input.value.model;
-  if (!safeIdentifier(id) || !safeIdentifier(returnedModel, 128)) return invalid();
-  if (input.value.object !== undefined && input.value.object !== "chat.completion" ||
-    input.value.created !== undefined && !safeToken(input.value.created)) return invalid(returnedModel);
+  if (!safeIdentifier(id) || !safeIdentifier(returnedModel, 128)) {
+    return invalid("cwt_response_identity_shape");
+  }
   const systemFingerprint = input.value.system_fingerprint;
   if (systemFingerprint !== undefined && systemFingerprint !== null &&
-    !safeIdentifier(systemFingerprint)) return invalid(returnedModel);
-  if (!Array.isArray(input.value.choices) || input.value.choices.length !== 1) return invalid(returnedModel);
+    !safeIdentifier(systemFingerprint)) return invalid("cwt_response_identity_shape", returnedModel);
+  if (input.value.object !== undefined && input.value.object !== "chat.completion" ||
+    input.value.created !== undefined && !safeToken(input.value.created)) {
+    return invalid("cwt_response_identity_shape", returnedModel);
+  }
+  if (!Array.isArray(input.value.choices) || input.value.choices.length !== 1) {
+    return invalid("cwt_response_choice_shape", returnedModel);
+  }
   const choice = input.value.choices[0];
   if (!isPlainObject(choice) || !exactKeys(choice,
     ["index", "finish_reason", "message", "logprobs"],
     ["index", "finish_reason", "message"]) || choice.index !== 0 ||
-    choice.logprobs !== undefined && choice.logprobs !== null) return invalid(returnedModel);
+    choice.logprobs !== undefined && choice.logprobs !== null) {
+    return invalid("cwt_response_choice_shape", returnedModel);
+  }
   const message = choice.message;
   if (!isPlainObject(message) || !exactKeys(message,
     ["role", "content", "reasoning_content", "tool_calls"], ["role", "content"]) ||
@@ -243,7 +265,9 @@ function normalizeSuccess(input: {
     message.reasoning_content !== undefined && message.reasoning_content !== null &&
       message.reasoning_content !== "" ||
     message.tool_calls !== undefined && message.tool_calls !== null &&
-      (!Array.isArray(message.tool_calls) || message.tool_calls.length !== 0)) return invalid(returnedModel);
+      (!Array.isArray(message.tool_calls) || message.tool_calls.length !== 0)) {
+    return invalid("cwt_response_message_shape", returnedModel);
+  }
   const usage = input.value.usage;
   if (!isPlainObject(usage) || !exactKeys(usage, [
     "prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
@@ -251,22 +275,29 @@ function normalizeSuccess(input: {
   ], [
     "prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
     "prompt_cache_miss_tokens",
-  ])) return invalid(returnedModel);
+  ])) return invalid("cwt_response_usage_shape", returnedModel);
   const promptTokens = usage.prompt_tokens;
   const completionTokens = usage.completion_tokens;
   const totalTokens = usage.total_tokens;
   const cacheHit = usage.prompt_cache_hit_tokens;
   const cacheMiss = usage.prompt_cache_miss_tokens;
   if (!safeToken(promptTokens) || !safeToken(completionTokens) || !safeToken(totalTokens) ||
-    !safeToken(cacheHit) || !safeToken(cacheMiss) || cacheHit + cacheMiss !== promptTokens ||
-    promptTokens + completionTokens !== totalTokens || promptTokens > MAX_INPUT_TOKENS ||
+    !safeToken(cacheHit) || !safeToken(cacheMiss) || promptTokens > MAX_INPUT_TOKENS ||
     completionTokens > input.requestedMaxOutputTokens || completionTokens > MAX_OUTPUT_TOKENS) {
-    return invalid(returnedModel);
+    return invalid("cwt_response_usage_scalar", returnedModel);
+  }
+  if (cacheHit + cacheMiss !== promptTokens) {
+    return invalid("cwt_response_usage_cache_split", returnedModel);
+  }
+  if (promptTokens + completionTokens !== totalTokens) {
+    return invalid("cwt_response_usage_total", returnedModel);
   }
   const details = usage.completion_tokens_details;
   if (details !== undefined && (!isPlainObject(details) ||
     !exactKeys(details, ["reasoning_tokens"], []) ||
-    details.reasoning_tokens !== undefined && details.reasoning_tokens !== 0)) return invalid(returnedModel);
+    details.reasoning_tokens !== undefined && details.reasoning_tokens !== 0)) {
+    return invalid("cwt_response_completion_details", returnedModel);
+  }
   if (choice.finish_reason === "insufficient_system_resource") {
     return failure({
       responseStatus: "server_error",
@@ -282,7 +313,7 @@ function normalizeSuccess(input: {
     case "stop": completion = { kind: "complete" }; break;
     case "length": completion = { kind: "length_limit" }; break;
     case "content_filter": completion = { kind: "content_filter" }; break;
-    default: return invalid(returnedModel);
+    default: return invalid("cwt_response_finish_reason", returnedModel);
   }
   if (message.content.length === 0) {
     return failure({
@@ -459,7 +490,8 @@ export function createDeepSeekTextProviderV1(
               void response.body?.cancel().catch(() => undefined);
               return failure({
                 responseStatus: "invalid_response", failureCode: "invalid_response_schema",
-                retryClass: "not_retryable", httpStatus: 200, durationMs,
+                retryClass: "not_retryable", httpStatus: 200,
+                providerErrorCode: "cwt_response_content_type", durationMs,
               });
             }
             const body = await boundedBody(response);
