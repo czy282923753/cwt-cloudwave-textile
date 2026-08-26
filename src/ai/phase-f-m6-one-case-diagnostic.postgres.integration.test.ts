@@ -31,7 +31,7 @@ const postgresUrl = process.env.CWT_PHASE_F_POSTGRES_URL;
 const bootstrapPath = "scripts/phase-f-bounded-bootstrap.ts";
 const diagnosticPath = "scripts/phase-f-m6-one-case-diagnostic.ts";
 const adminPassword = "synthetic-phase-f-admin-password";
-const fixedIdempotency = "702a422b-4bee-4130-bd8b-8f39c6e90528";
+const fixedIdempotencies = ["702a422b-4bee-4130-bd8b-8f39c6e90528", "0b197c05-6005-4e3d-98a3-72f811f85a46", "07cd0500-39fa-4952-a3fe-7bcb8121edae", "33dec4ca-9690-44bb-8aba-ecc1978970da"] as const;
 
 async function withDatabase<T>(operation: (db: PostgresAppDatabase, client: Sql) => Promise<T>): Promise<T> {
   if (postgresUrl === undefined) throw new Error("K1 PostgreSQL URL is absent.");
@@ -59,22 +59,23 @@ function spawnExecutable(path: string, nodeOptions = "--conditions=react-server"
       DATABASE_DRIVER: "postgres",
       DATABASE_URL: postgresUrl ?? "",
       DEV_ADMIN_PASSWORD: adminPassword,
-      DEEPSEEK_API_KEY: path === diagnosticPath ? "synthetic-local-fake-provider-only" : "",
     },
+    input: path === diagnosticPath ? "synthetic-local-fake-provider-only" : undefined,
     timeout: 30_000,
   });
 }
 
-function fakeProviderPreload(kind: "valid" | "usage_shape"): string {
+function fakeProviderPreload(kind: "valid" | "usage_shape" | "authentication"): string {
   const source = String.raw`
     let callCount = 0;
     globalThis.fetch = async (_url, init) => {
       callCount += 1;
-      if (callCount !== 1) throw new Error("K1 fake Provider refused a second call");
+      if (callCount > 4) throw new Error("K1 fake Provider refused a fifth call");
       const request = JSON.parse(String(init.body));
       if (!String(request.messages[0].content).includes('"product_description_draft"')) throw new Error("K1 Prompt identity drifted");
+      if (${JSON.stringify(kind)} === "authentication") return new Response("", { status: 401 });
       const response = {
-        id: "synthetic_k1_response",
+        id: "synthetic_k1_response_" + callCount,
         object: "chat.completion",
         model: "deepseek-v4-flash",
         system_fingerprint: "synthetic_k1_fp",
@@ -152,7 +153,7 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
     });
   }, 30_000);
 
-  it("makes one fake call and persists one complete draft-ready row without Product/public mutation", async () => {
+  it("makes four sequential fake calls and persists four complete rows without Product/public mutation", async () => {
     await reset();
     const fixture = await bootstrapAndMaterialize();
     const before = await withDatabase(async (db) => ({
@@ -162,21 +163,21 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
     }));
     const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("valid"));
     expect(executed.status, output(executed.stderr)).toBe(0);
-    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "draft_ready", attemptCount: 1, publish: false, index: false });
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "completed", plannedCount: 4, completedCount: 4, publish: false, index: false });
     await withDatabase(async (db) => {
       const rows = await db.select().from(aiRuns);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({
+      expect(rows).toHaveLength(4);
+      expect(rows.map((row) => row.idempotencyKey)).toEqual(fixedIdempotencies);
+      for (const row of rows) expect(row).toMatchObject({
         useCase: "product_description_draft",
         targetType: "product_draft",
         targetProductId: fixture.productId,
         targetLocale: "en",
         expectedTargetVersion: 1,
-        idempotencyKey: fixedIdempotency,
         status: "draft_ready",
         attemptCount: 1,
         maxAttempts: 1,
-        runCostLimitMicrousd: 20_000,
+        runCostLimitMicrousd: 500_000,
         estimatedMaxCostMicrousd: 7_304,
         actualCostComplete: true,
         budgetReservedCostMicrousd: 0,
@@ -185,8 +186,8 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
         appliedTargetVersion: null,
         appliedRevisionId: null,
       });
-      expect(rows[0]?.candidateJson).not.toBeNull();
-      expect(await db.select().from(auditLogs).where(eq(auditLogs.action, "ai.run.enqueued"))).toHaveLength(1);
+      expect(rows.every((row) => row.candidateJson !== null)).toBe(true);
+      expect(await db.select().from(auditLogs).where(eq(auditLogs.action, "ai.run.enqueued"))).toHaveLength(4);
       expect(await db.select().from(auditLogs).where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(0);
       expect(await db.select().from(products)).toEqual(before.product);
       expect(await db.select().from(productLocalizations)).toEqual(before.localization);
@@ -195,8 +196,8 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
     const reentry = spawnExecutable(diagnosticPath, fakeProviderPreload("valid"));
     expect(reentry.status).toBe(1);
     expect(output(reentry.stdout)).toBe("");
-    expect(output(reentry.stderr)).toContain("preflight rejected nonexact or previously used state");
-    await withDatabase(async (db) => expect(await db.select().from(aiRuns)).toHaveLength(1));
+    expect(output(reentry.stderr)).toContain("preflight rejected nonexact state");
+    await withDatabase(async (db) => expect(await db.select().from(aiRuns)).toHaveLength(4));
   }, 30_000);
 
   it("retains the sanitized adapter predicate with null usage, incomplete cost and no candidate", async () => {
@@ -204,11 +205,11 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
     await bootstrapAndMaterialize();
     const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("usage_shape"));
     expect(executed.status, output(executed.stderr)).toBe(0);
-    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "failed", attemptCount: 1, publish: false, index: false });
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "completed", plannedCount: 4, completedCount: 4, publish: false, index: false });
     await withDatabase(async (db) => {
       const rows = await db.select().from(aiRuns);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({
+      expect(rows).toHaveLength(4);
+      for (const row of rows) expect(row).toMatchObject({
         status: "failed",
         attemptCount: 1,
         providerResponseStatus: "invalid_response",
@@ -225,6 +226,19 @@ describe.skipIf(postgresUrl === undefined)("Phase F M6 one-case diagnostic Postg
       });
       expect(await db.select().from(auditLogs).where(eq(auditLogs.action, "ai.run.candidate_applied"))).toHaveLength(0);
       expect(await db.select().from(aiModelConfig).where(eq(aiModelConfig.useCase, "product_description_draft"))).toHaveLength(1);
+    });
+  }, 30_000);
+
+  it("stops every later planned call after authentication failure", async () => {
+    await reset();
+    await bootstrapAndMaterialize();
+    const executed = spawnExecutable(diagnosticPath, fakeProviderPreload("authentication"));
+    expect(executed.status, output(executed.stderr)).toBe(0);
+    expect(JSON.parse(output(executed.stdout))).toMatchObject({ status: "stopped", plannedCount: 4, completedCount: 1 });
+    await withDatabase(async (db) => {
+      const rows = await db.select().from(aiRuns);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ idempotencyKey: fixedIdempotencies[0], attemptCount: 1, failureCode: "provider_auth_failed" });
     });
   }, 30_000);
 });

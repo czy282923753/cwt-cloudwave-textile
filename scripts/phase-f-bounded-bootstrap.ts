@@ -166,7 +166,7 @@ async function createFixedConfigurations(actorId: string): Promise<readonly Conf
       maxInputTokens: 16_000,
       maxOutputTokens: 200,
       maxAttempts: 1,
-      runCostLimitMicrousd: 20_000,
+      runCostLimitMicrousd: 500_000,
       promptId: fixed.promptId,
       promptVersion: 1,
       promptHash: fixed.promptHash,
@@ -207,7 +207,7 @@ async function createFixedConfigurations(actorId: string): Promise<readonly Conf
       row.provider !== DEEPSEEK_TEXT_PROVIDER_KEY_V1 || row.model !== DEEPSEEK_TEXT_MODEL_ALIAS_V1 ||
       JSON.stringify(row.parametersJson) !== JSON.stringify({ temperature: 0 }) ||
       row.maxInputTokens !== 16_000 || row.maxOutputTokens !== 200 || row.maxAttempts !== 1 ||
-      row.runCostLimitMicrousd !== 20_000 || row.promptId !== fixed.promptId || row.promptVersion !== 1 ||
+      row.runCostLimitMicrousd !== 500_000 || row.promptId !== fixed.promptId || row.promptVersion !== 1 ||
       row.promptHash !== fixed.promptHash || !row.enabled || !row.isDefault || row.fallbackConfigId !== null ||
       row.recordVersion !== 2 || output.recordVersion !== 2 || row.createdByUserId !== actorId ||
       row.updatedByUserId !== actorId) {

@@ -148,6 +148,13 @@
       "when": 1786311287317,
       "tag": "0020_phase1b_ai_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1787758433247,
+      "tag": "0021_phase_f_k1_run_cost_ceiling",
+      "breakpoints": true
     }
   ]
 }

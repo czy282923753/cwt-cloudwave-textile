@@ -18,6 +18,8 @@ const designPath = path.join(
 const migrationPath = path.join(root, "drizzle/0020_phase1b_ai_foundation.sql");
 const previousSnapshotPath = path.join(root, "drizzle/meta/0019_snapshot.json");
 const snapshotPath = path.join(root, "drizzle/meta/0020_snapshot.json");
+const successorMigrationPath = path.join(root, "drizzle/0021_phase_f_k1_run_cost_ceiling.sql");
+const successorSnapshotPath = path.join(root, "drizzle/meta/0021_snapshot.json");
 const journalPath = path.join(root, "drizzle/meta/_journal.json");
 
 type SnapshotColumn = {
@@ -242,7 +244,7 @@ async function main(): Promise<void> {
     journalPrefixSha256,
     "The historical 0000-0019 journal prefix changed",
   );
-  assert.equal(journal.entries.length, 21, "Journal must contain exactly one appended entry");
+  assert.equal(journal.entries.length, 22, "Journal must contain the exact 0020 and 0021 appended entries");
   assert.deepEqual(journal.entries[20], {
     idx: 20,
     version: "7",
@@ -251,6 +253,22 @@ async function main(): Promise<void> {
     breakpoints: true,
   });
   assert.ok(Number.isInteger(journal.entries[20]?.when), "0020 journal timestamp must be an integer");
+  assert.deepEqual(journal.entries[21], {
+    idx: 21,
+    version: "7",
+    when: journal.entries[21]?.when,
+    tag: "0021_phase_f_k1_run_cost_ceiling",
+    breakpoints: true,
+  });
+  assert.ok(Number.isInteger(journal.entries[21]?.when), "0021 journal timestamp must be an integer");
+
+  const successorMigration = await readFile(successorMigrationPath, "utf8");
+  const successorSnapshot = JSON.parse(await readFile(successorSnapshotPath, "utf8")) as Snapshot;
+  assert.equal(successorSnapshot.prevId, snapshot.id, "0021 snapshot does not follow 0020");
+  assert.match(successorMigration, /SET DEFAULT 500000/u);
+  assert.match(successorMigration, /ai_model_config_limits_check/u);
+  assert.match(successorMigration, /ai_runs_environment_budget_policy_check/u);
+  assert.doesNotMatch(successorMigration, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE)\b/iu, "0021 must not rewrite data");
 
   assert.equal(snapshot.prevId, previousSnapshot.id, "0020 snapshot does not follow 0019");
   assert.equal(snapshot.version, "7");

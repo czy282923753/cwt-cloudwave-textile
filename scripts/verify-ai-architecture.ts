@@ -28,8 +28,8 @@ const phaseFExecutablePaths = [
   "scripts/phase-f-m6-one-case-diagnostic.ts",
 ] as const;
 const phaseFExecutableHashes = new Map([
-  ["scripts/phase-f-bounded-bootstrap.ts", "21b15c2fe90488664e087fd0bcf7f7b077ec1d4dce99f36e74a5c55dea95b3ee"],
-  ["scripts/phase-f-m6-one-case-diagnostic.ts", "c514c3e5d81074911dae1b9b21580f9cf8ab0b1065eb24b490d9b9124fe78ffe"],
+  ["scripts/phase-f-bounded-bootstrap.ts", "1d33249db3eb6a2e89b3c69226d371102395b63f04d9f0d96afd204cc9d295a7"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "a50acdaf737f9e0f70d58b8c4ee2339c6a5c0d8bfffad6ebec6444a1e06155bf"],
 ]);
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -1911,9 +1911,10 @@ function enforceCapabilityEdge(
   }
   if (edge.resolutionKind === "external") {
     const specifier = edge.specifier ?? "";
+    const approvedPhaseFExternal = specifier === "server-only" || specifier === "drizzle-orm" ||
+      (edge.from === "scripts/phase-f-m6-one-case-diagnostic.ts" && specifier === "node:fs");
     if (phaseFRuntimeAuthoritySource(edge.from) &&
-      (edge.form !== "import" || edge.edgeKind !== "runtime" ||
-        (specifier !== "server-only" && specifier !== "drizzle-orm"))) {
+      (edge.form !== "import" || edge.edgeKind !== "runtime" || !approvedPhaseFExternal)) {
       rejectPhaseFRuntimeAuthorityEdge(edge, "unapproved_external_target", specifier);
     }
     if (sourceClass === "protected-ai" && !protectedExternalAllowed(edge)) {
@@ -2799,7 +2800,21 @@ if (phaseFMinimalCandidate) {
     path as (typeof phaseFExecutablePaths)[number],
   ) || path === "scripts/phase-f-bounded-exercise.ts" ||
     path === "scripts/verify-ai-architecture.ts" ||
+    path === "scripts/verify-ai-foundation-candidate.ts" ||
+    path === ".github/workflows/ci.yml" ||
+    path === "drizzle/0021_phase_f_k1_run_cost_ceiling.sql" ||
+    path === "drizzle/meta/0021_snapshot.json" ||
+    path === "drizzle/meta/_journal.json" ||
+    path === "src/db/schema/ai.ts" ||
+    path === "src/db/schema/ai.integration.test.ts" ||
+    path === "src/ai/config/model-config-service.ts" ||
+    path === "src/ai/config/model-config-service.integration.test.ts" ||
+    path === "src/ai/config/model-config-resolver.ts" ||
+    path === "src/ai/config/model-config-resolver.test.ts" ||
+    path === "src/ai/internal/claimed-run-authority.ts" ||
     /^src\/ai\/phase-f-(?:bounded-experiment|m6-one-case-diagnostic)(?:\.postgres)?\.integration\.test\.ts$/u.test(path) ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_K1_FOUR_CALL_PRODUCT_USD0_50_SINGULAR_COST_AUTHORITY_IMPLEMENTATION_V2_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_K1_FOUR_CALL_PRODUCT_USD0_50_SINGULAR_COST_AUTHORITY_IMPLEMENTATION_V2_0.md.sha256" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_M6_ONE_CASE_DIAGNOSTIC_PRODUCT_RUNNER_IMPLEMENTATION_V1_0.md" ||
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_M6_ONE_CASE_DIAGNOSTIC_PRODUCT_RUNNER_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "src/ai/runs/pricing-policy.ts" ||

@@ -31,7 +31,7 @@ const rowSchema = z.object({
   maxInputTokens: z.number().int().min(1).max(16_000),
   maxOutputTokens: z.number().int().min(1).max(4_000),
   maxAttempts: z.number().int().min(1).max(3),
-  runCostLimitMicrousd: z.number().int().min(0).max(20_000),
+  runCostLimitMicrousd: z.number().int().min(0).max(500_000),
   promptId: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
   promptVersion: z.number().int().positive(),
   promptHash: z.string().regex(/^[0-9a-f]{64}$/),

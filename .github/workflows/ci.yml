@@ -132,13 +132,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Apply fresh PostgreSQL migrations through 0020
+      - name: Apply fresh PostgreSQL migrations through 0021
         env:
           APP_ENV: test
           DATABASE_DRIVER: postgres
           DATABASE_URL: postgres://cwt_ci@127.0.0.1:55432/cwt_ci
         run: |
           test -f drizzle/0020_phase1b_ai_foundation.sql
+          test -f drizzle/0021_phase_f_k1_run_cost_ceiling.sql
           pnpm db:migrate
 
       - name: Run the full test suite with PostgreSQL suites enabled

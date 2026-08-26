@@ -35,7 +35,7 @@ export const aiModelConfig = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(3),
     runCostLimitMicrousd: bigint("run_cost_limit_microusd", { mode: "number" })
       .notNull()
-      .default(20000),
+      .default(500000),
     promptId: text("prompt_id").notNull(),
     promptVersion: integer("prompt_version").notNull(),
     promptHash: text("prompt_hash").notNull(),
@@ -89,7 +89,7 @@ export const aiModelConfig = pgTable(
     ),
     check(
       "ai_model_config_limits_check",
-      sql`${table.maxInputTokens} between 1 and 16000 and ${table.maxOutputTokens} between 1 and 4000 and ${table.maxAttempts} between 1 and 3 and ${table.runCostLimitMicrousd} between 0 and 20000`,
+      sql`${table.maxInputTokens} between 1 and 16000 and ${table.maxOutputTokens} between 1 and 4000 and ${table.maxAttempts} between 1 and 3 and ${table.runCostLimitMicrousd} between 0 and 500000`,
     ),
     check(
       "ai_model_config_prompt_id_check",
@@ -385,7 +385,7 @@ export const aiRuns = pgTable(
     ),
     check(
       "ai_runs_environment_budget_policy_check",
-      sql`${table.budgetTimezone} = 'Asia/Shanghai' and ${table.budgetCurrency} = 'USD' and ${table.textConcurrencyLimit} = 2 and ((${table.executionEnvironment} = 'staging' and ${table.budgetPolicyVersion} = 'stage4a-staging-v1' and ${table.runCostLimitMicrousd} between 1 and 20000 and ${table.dailyHardLimitMicrousd} = 5000000 and ${table.monthlyWarningLimitMicrousd} = 50000000 and ${table.monthlyHardLimitMicrousd} = 100000000) or (${table.executionEnvironment} in ('local', 'test') and ${table.budgetPolicyVersion} = 'nonbillable-v1' and ${table.runCostLimitMicrousd} between 0 and 20000 and ${table.dailyHardLimitMicrousd} = 0 and ${table.monthlyWarningLimitMicrousd} = 0 and ${table.monthlyHardLimitMicrousd} = 0 and ${table.estimatedMaxCostMicrousd} = 0 and ${table.actualCostMicrousd} = 0 and ${table.budgetAccountedCostMicrousd} = 0 and ${table.budgetReservedCostMicrousd} = 0))`,
+      sql`${table.budgetTimezone} = 'Asia/Shanghai' and ${table.budgetCurrency} = 'USD' and ${table.textConcurrencyLimit} = 2 and ((${table.executionEnvironment} = 'staging' and ${table.budgetPolicyVersion} = 'stage4a-staging-v1' and ${table.runCostLimitMicrousd} between 1 and 500000 and ${table.dailyHardLimitMicrousd} = 5000000 and ${table.monthlyWarningLimitMicrousd} = 50000000 and ${table.monthlyHardLimitMicrousd} = 100000000) or (${table.executionEnvironment} in ('local', 'test') and ${table.budgetPolicyVersion} = 'nonbillable-v1' and ${table.runCostLimitMicrousd} between 0 and 500000 and ${table.dailyHardLimitMicrousd} = 0 and ${table.monthlyWarningLimitMicrousd} = 0 and ${table.monthlyHardLimitMicrousd} = 0 and ${table.estimatedMaxCostMicrousd} = 0 and ${table.actualCostMicrousd} = 0 and ${table.budgetAccountedCostMicrousd} = 0 and ${table.budgetReservedCostMicrousd} = 0))`,
     ),
     check(
       "ai_runs_budget_period_check",

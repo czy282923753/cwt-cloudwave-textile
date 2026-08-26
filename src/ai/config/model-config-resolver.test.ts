@@ -149,4 +149,12 @@ describe("single fail-closed model-config resolution", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("provider_unsupported");
   });
+
+  it("accepts the singular 500000 ceiling and rejects 500001", () => {
+    const accepted = resolve(read({ enabledDefaultRows: [{ ...row, runCostLimitMicrousd: 500_000 }] }));
+    expect(accepted.ok).toBe(true);
+    if (accepted.ok) expect(accepted.value.model.runCostLimitMicrousd).toBe(500_000);
+    const rejected = resolve(read({ enabledDefaultRows: [{ ...row, runCostLimitMicrousd: 500_001 }] }));
+    expect(rejected).toMatchObject({ ok: false, error: { code: "config_repository_invalid" } });
+  });
 });

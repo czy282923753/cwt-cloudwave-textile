@@ -905,82 +905,87 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       budgetReservedCostMicrousd: 0,
     });
 
-    const overrun = await insertPrepared(preparedRun(fixture, {
-      idempotencyKey: randomUUID(),
-      fingerprint: hash("8"),
-      maxAttempts: 1,
-      runCostLimitMicrousd: 20_000,
-    }), "staging", {
-      estimatedMax: 20_000,
-      inputRate: 20_000_000_000,
-      outputRate: 20_000_000_000,
-    });
-    if (overrun.kind !== "inserted") throw new Error("Expected overrun run.");
-    const overrunClaim = await repository.claimOrRecover({
-      executionEnvironment: "staging",
-      workerId: "overrun-worker",
-    });
-    if (overrunClaim.kind !== "claimed") throw new Error("Expected overrun claim.");
-    const [overrunProcessing] = await db().select().from(aiRuns).where(eq(aiRuns.id, overrun.row.id));
-    if (overrunProcessing === undefined || overrunProcessing.leaseOwner === null ||
-      overrunProcessing.leaseToken === null || overrunProcessing.leaseExpiresAt === null) {
-      throw new Error("Overrun lease was incomplete.");
+    for (const [boundary, fingerprintCharacter] of [[50_001, "8"], [500_000, "9"], [500_001, "a"]] as const) {
+      const inputCost = Math.floor(boundary / 2);
+      const outputCost = boundary - inputCost;
+      const run = await insertPrepared(preparedRun(fixture, {
+        idempotencyKey: randomUUID(),
+        fingerprint: hash(fingerprintCharacter),
+        maxAttempts: 1,
+        runCostLimitMicrousd: 500_000,
+      }), "staging", {
+        estimatedMax: 20_000,
+        inputRate: inputCost * 1_000_000,
+        outputRate: outputCost * 1_000_000,
+      });
+      if (run.kind !== "inserted") throw new Error(`Expected ${boundary} boundary run.`);
+      const claim = await repository.claimOrRecover({
+        executionEnvironment: "staging",
+        workerId: `cost-boundary-${boundary}`,
+      });
+      if (claim.kind !== "claimed") throw new Error(`Expected ${boundary} boundary claim.`);
+      const [processing] = await db().select().from(aiRuns).where(eq(aiRuns.id, run.row.id));
+      if (processing === undefined || processing.leaseOwner === null || processing.leaseToken === null ||
+        processing.leaseExpiresAt === null) {
+        throw new Error(`${boundary} boundary lease was incomplete.`);
+      }
+      const marker = await repository.authorizeProviderDispatch({
+        runId: processing.id,
+        executionEnvironment: "staging",
+        leaseOwner: processing.leaseOwner,
+        leaseToken: processing.leaseToken,
+        leaseExpiresAt: processing.leaseExpiresAt,
+        stateVersion: processing.stateVersion,
+        pricingCurrent: true,
+      });
+      if (marker.kind !== "authorized") throw new Error(`${boundary} boundary marker failed.`);
+      const evidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+        version: 3,
+        dispatchState: "dispatched",
+        protectedResult: {
+          version: 1,
+          resultKind: "draft_assistance_candidate",
+          dispositionKind: "human_review",
+          schemaId: "cwt.product-description-draft.v1",
+          schemaVersion: 1,
+          policyVersion: "stage4a-v1",
+          value: { syntheticCandidate: true },
+          canonicalJson: '{"syntheticCandidate":true}',
+          hash: hash("c"),
+        },
+        error: null,
+        responseStatus: "success",
+        retryClass: "not_retryable",
+        returnedModel: "synthetic-text-alpha-v1",
+        completion: { kind: "complete" },
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        providerHttpStatus: 200,
+        providerErrorCode: null,
+        providerRequestId: `synthetic-cost-boundary-${boundary}`,
+        providerSystemFingerprint: null,
+        durationMs: 2,
+      });
+      if (!evidence.ok) throw new Error(`${boundary} boundary evidence failed.`);
+      const expectedStatus = boundary <= 500_000 ? "draft_ready" : "failed";
+      expect(await repository.settle({
+        runId: processing.id,
+        executionEnvironment: "staging",
+        leaseOwner: processing.leaseOwner,
+        leaseToken: processing.leaseToken,
+        leaseExpiresAt: marker.leaseExpiresAt,
+        stateVersion: marker.stateVersion,
+        evidence: evidence.value,
+      })).toMatchObject({ kind: "settled", status: expectedStatus });
+      const [final] = await db().select().from(aiRuns).where(eq(aiRuns.id, run.row.id));
+      expect(final).toMatchObject({
+        status: expectedStatus,
+        failureCode: boundary <= 500_000 ? null : "run_cost_limit_exceeded",
+        candidateJson: boundary <= 500_000 ? { syntheticCandidate: true } : null,
+        candidateHash: boundary <= 500_000 ? hash("c") : null,
+        actualCostMicrousd: boundary,
+        budgetAccountedCostMicrousd: boundary,
+        actualCostComplete: true,
+      });
     }
-    const overrunMarker = await repository.authorizeProviderDispatch({
-      runId: overrunProcessing.id,
-      executionEnvironment: "staging",
-      leaseOwner: overrunProcessing.leaseOwner,
-      leaseToken: overrunProcessing.leaseToken,
-      leaseExpiresAt: overrunProcessing.leaseExpiresAt,
-      stateVersion: overrunProcessing.stateVersion,
-      pricingCurrent: true,
-    });
-    if (overrunMarker.kind !== "authorized") throw new Error("Overrun marker failed.");
-    const overrunEvidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
-      version: 3,
-      dispatchState: "dispatched",
-      protectedResult: {
-        version: 1,
-        resultKind: "draft_assistance_candidate",
-        dispositionKind: "human_review",
-        schemaId: "cwt.product-description-draft.v1",
-        schemaVersion: 1,
-        policyVersion: "stage4a-v1",
-        value: { syntheticCandidate: true },
-        canonicalJson: '{"syntheticCandidate":true}',
-        hash: hash("c"),
-      },
-      error: null,
-      responseStatus: "success",
-      retryClass: "not_retryable",
-      returnedModel: "synthetic-text-alpha-v1",
-      completion: { kind: "complete" },
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-      providerHttpStatus: 200,
-      providerErrorCode: null,
-      providerRequestId: "synthetic-overrun",
-      providerSystemFingerprint: null,
-      durationMs: 2,
-    });
-    if (!overrunEvidence.ok) throw new Error("Overrun evidence failed.");
-    expect(await repository.settle({
-      runId: overrunProcessing.id,
-      executionEnvironment: "staging",
-      leaseOwner: overrunProcessing.leaseOwner,
-      leaseToken: overrunProcessing.leaseToken,
-      leaseExpiresAt: overrunMarker.leaseExpiresAt,
-      stateVersion: overrunMarker.stateVersion,
-      evidence: overrunEvidence.value,
-    })).toMatchObject({ kind: "settled", status: "failed" });
-    const [overrunFinal] = await db().select().from(aiRuns).where(eq(aiRuns.id, overrun.row.id));
-    expect(overrunFinal).toMatchObject({
-      status: "failed",
-      failureCode: "run_cost_limit_exceeded",
-      candidateJson: null,
-      candidateHash: null,
-      actualCostMicrousd: 40_000,
-      budgetAccountedCostMicrousd: 40_000,
-      actualCostComplete: true,
-    });
   });
 });

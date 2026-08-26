@@ -240,6 +240,14 @@ describe.skipIf(postgresUrl === undefined)("Phase C model configuration service"
     expect(audits).toHaveLength(1);
   });
 
+  it("accepts 500000 and rejects 500001 as the singular configured maximum", async () => {
+    const admin = await seedActor();
+    const accepted = await createAiModelConfigServiceV1(db(), dependencies()).create({ actor: admin, useCase: "product_description_draft", ...substantive, runCostLimitMicrousd: 500_000 });
+    expect(accepted.ok).toBe(true);
+    const rejected = await createAiModelConfigServiceV1(db(), dependencies()).create({ actor: admin, useCase: "seo_content_draft", ...substantive, promptId: "seo-content-draft", runCostLimitMicrousd: 500_001 });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "config_invalid" } });
+  });
+
   it("rejects spoofed, reviewer, inactive, and unknown actors before every config mutation", async () => {
     const admin = await seedActor();
     const created = await createConfig(admin);

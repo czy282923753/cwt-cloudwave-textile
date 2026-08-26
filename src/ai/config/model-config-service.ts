@@ -138,7 +138,7 @@ function validateSubstantive(input: {
     input.value.maxOutputTokens < 1 || input.value.maxOutputTokens > 4_000 ||
     !Number.isInteger(input.value.maxAttempts) || input.value.maxAttempts < 1 ||
     input.value.maxAttempts > 3 || !Number.isSafeInteger(input.value.runCostLimitMicrousd) ||
-    input.value.runCostLimitMicrousd < 1 || input.value.runCostLimitMicrousd > 20_000 ||
+    input.value.runCostLimitMicrousd < 1 || input.value.runCostLimitMicrousd > 500_000 ||
     !promptId.safeParse(input.value.promptId).success ||
     !Number.isInteger(input.value.promptVersion) || input.value.promptVersion < 1 ||
     !hash.safeParse(input.value.promptHash).success) return aiFailure("config_invalid");

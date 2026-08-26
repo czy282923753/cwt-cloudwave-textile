@@ -116,6 +116,14 @@ describe("Stage 4A AI foundation schema", () => {
         .values(baseRun)
         .returning({ id: aiRuns.id });
       expect(run?.id).toBeTruthy();
+      const [defaultConfig] = await connection.db.select().from(aiModelConfig).where(eq(aiModelConfig.id, modelConfig!.id));
+      expect(defaultConfig?.runCostLimitMicrousd).toBe(500_000);
+      await expect(connection.db.insert(aiRuns).values({
+        ...baseRun,
+        idempotencyKey: randomUUID(),
+        requestFingerprint: hash("9"),
+        runCostLimitMicrousd: 500_001,
+      })).rejects.toThrow();
 
       await expect(
         connection.db.insert(aiModelConfig).values({
