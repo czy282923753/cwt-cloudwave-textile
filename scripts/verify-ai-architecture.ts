@@ -25,11 +25,11 @@ const acceptedPhaseECommit = "41dfc135f5f124e68aaac416c049c2e387e38d57";
 const acceptedPhaseETree = "f85182ad8d4519d58e1d829967cfc889b8f1e830";
 const phaseFExecutablePaths = [
   "scripts/phase-f-bounded-bootstrap.ts",
-  "scripts/phase-f-bounded-exercise.ts",
+  "scripts/phase-f-m6-one-case-diagnostic.ts",
 ] as const;
 const phaseFExecutableHashes = new Map([
   ["scripts/phase-f-bounded-bootstrap.ts", "21b15c2fe90488664e087fd0bcf7f7b077ec1d4dce99f36e74a5c55dea95b3ee"],
-  ["scripts/phase-f-bounded-exercise.ts", "dc72feb2920501240b8137fa5ab129e8be42dfd3f321b053cdaac7a3ef329ed6"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "c514c3e5d81074911dae1b9b21580f9cf8ab0b1065eb24b490d9b9124fe78ffe"],
 ]);
 const repositoryRoot = realpathSync(process.cwd());
 const profileBytes = readFileSync(resolve(repositoryRoot, profilePath));
@@ -1679,16 +1679,16 @@ const approvedPhaseFPrivilegedImports = [
   ["scripts/phase-f-bounded-bootstrap.ts", "@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
   ["scripts/phase-f-bounded-bootstrap.ts", "@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
   ["scripts/phase-f-bounded-bootstrap.ts", "@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/applications/draft-assistance/composition", "src/ai/applications/draft-assistance/composition.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/applications/draft-assistance/context", "src/ai/applications/draft-assistance/context.ts", "type-only"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/applications/draft-assistance/contracts", "src/ai/applications/draft-assistance/contracts.ts", "type-only"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/core/contracts", "src/ai/core/contracts.ts", "type-only"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/errors", "src/ai/errors.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/internal/worker-entry", "src/ai/internal/worker-entry.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/providers/registry", "src/ai/providers/registry.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
-  ["scripts/phase-f-bounded-exercise.ts", "@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/applications/draft-assistance/composition", "src/ai/applications/draft-assistance/composition.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/applications/draft-assistance/context", "src/ai/applications/draft-assistance/context.ts", "type-only"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/applications/draft-assistance/contracts", "src/ai/applications/draft-assistance/contracts.ts", "type-only"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/core/contracts", "src/ai/core/contracts.ts", "type-only"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/errors", "src/ai/errors.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/internal/worker-entry", "src/ai/internal/worker-entry.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/providers/registry", "src/ai/providers/registry.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/ai/prompts/loader", "src/ai/prompts/loader.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/integrations/ai/providers/deepseek-pricing", "src/integrations/ai/providers/deepseek-pricing.ts", "runtime"],
+  ["scripts/phase-f-m6-one-case-diagnostic.ts", "@/integrations/ai/providers/deepseek-text-adapter", "src/integrations/ai/providers/deepseek-text-adapter.ts", "runtime"],
 ] as const;
 
 function phaseFRuntimeAuthoritySource(path: string): boolean {
@@ -2797,8 +2797,11 @@ if (phaseFMinimalCandidate) {
   }
   const allowed = (path: string): boolean => phaseFExecutablePaths.includes(
     path as (typeof phaseFExecutablePaths)[number],
-  ) || path === "scripts/verify-ai-architecture.ts" ||
-    /^src\/ai\/phase-f-bounded-experiment(?:\.postgres)?\.integration\.test\.ts$/u.test(path) ||
+  ) || path === "scripts/phase-f-bounded-exercise.ts" ||
+    path === "scripts/verify-ai-architecture.ts" ||
+    /^src\/ai\/phase-f-(?:bounded-experiment|m6-one-case-diagnostic)(?:\.postgres)?\.integration\.test\.ts$/u.test(path) ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_M6_ONE_CASE_DIAGNOSTIC_PRODUCT_RUNNER_IMPLEMENTATION_V1_0.md" ||
+    path === "docs/PHASE_1B_STAGE4A_PHASE_F_M6_ONE_CASE_DIAGNOSTIC_PRODUCT_RUNNER_IMPLEMENTATION_V1_0.md.sha256" ||
     path === "src/ai/runs/pricing-policy.ts" ||
     path === "src/ai/runs/pricing-policy.test.ts" ||
     path === "src/ai/runs/repository.ts" ||
@@ -3301,37 +3304,37 @@ if (JSON.stringify(finalTreeClosureMutationResults.map((result) => result.id)) !
 const phaseFRuntimeAuthorityMutationCases = [
   {
     id: "phase-f-runtime-imports-test-only",
-    from: "scripts/phase-f-bounded-exercise.ts",
+    from: "scripts/phase-f-m6-one-case-diagnostic.ts",
     target: "src/ai/testing/accepted-draft-atomicity-harness.ts",
     specifier: "@/ai/testing/accepted-draft-atomicity-harness",
   },
   {
     id: "phase-f-runtime-imports-evidence-only",
-    from: "scripts/phase-f-bounded-exercise.ts",
+    from: "scripts/phase-f-m6-one-case-diagnostic.ts",
     target: immutableHistoricalProbePath,
     specifier: `../../${immutableHistoricalProbePath}`,
   },
   {
     id: "phase-f-runtime-imports-unapproved-protected",
-    from: "scripts/phase-f-bounded-exercise.ts",
+    from: "scripts/phase-f-m6-one-case-diagnostic.ts",
     target: "src/ai/canonical-json.ts",
     specifier: "@/ai/canonical-json",
   },
   {
     id: "phase-f-runtime-imports-extra-server-authority",
-    from: "scripts/phase-f-bounded-exercise.ts",
+    from: "scripts/phase-f-m6-one-case-diagnostic.ts",
     target: "src/server/ai/phase-d-provider-composition.ts",
     specifier: "@/server/ai/phase-d-provider-composition",
   },
   {
     id: "phase-f-runtime-imports-public-browser",
-    from: "scripts/phase-f-bounded-exercise.ts",
+    from: "scripts/phase-f-m6-one-case-diagnostic.ts",
     target: "src/app/page.tsx",
     specifier: "@/app/page",
   },
   {
     id: "phase-f-runtime-imports-project-tooling",
-    from: "scripts/phase-f-bounded-exercise.ts",
+    from: "scripts/phase-f-m6-one-case-diagnostic.ts",
     target: "scripts/process-ai-runs.ts",
     specifier: "./process-ai-runs",
   },
