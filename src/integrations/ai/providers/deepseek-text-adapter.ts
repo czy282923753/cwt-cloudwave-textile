@@ -5,6 +5,7 @@ import { aiFailure, aiSuccess, type AiServiceResult } from "@/ai/errors";
 import type {
   NormalizedCompletionV1,
   NormalizedProviderResponseStatus,
+  NormalizedTokenUsageV2,
   PreparedTextDispatchV1,
   ProviderNeutralFailureCode,
   ProviderNeutralTextRequestV1,
@@ -212,11 +213,6 @@ type ResponseSchemaDiagnosticCode =
   | "cwt_response_identity_shape"
   | "cwt_response_choice_shape"
   | "cwt_response_message_shape"
-  | "cwt_response_usage_shape"
-  | "cwt_response_usage_scalar"
-  | "cwt_response_usage_cache_split"
-  | "cwt_response_usage_total"
-  | "cwt_response_completion_details"
   | "cwt_response_finish_reason";
 
 function normalizeSuccess(input: {
@@ -235,7 +231,7 @@ function normalizeSuccess(input: {
   });
   if (!isPlainObject(input.value) || !exactKeys(input.value,
     ["id", "object", "created", "model", "system_fingerprint", "choices", "usage"],
-    ["id", "model", "choices", "usage"])) return invalid("cwt_response_top_level_shape");
+    ["id", "model", "choices"])) return invalid("cwt_response_top_level_shape");
   const id = input.value.id;
   const returnedModel = input.value.model;
   if (!safeIdentifier(id) || !safeIdentifier(returnedModel, 128)) {
@@ -269,34 +265,25 @@ function normalizeSuccess(input: {
     return invalid("cwt_response_message_shape", returnedModel);
   }
   const usage = input.value.usage;
-  if (!isPlainObject(usage) || !exactKeys(usage, [
-    "prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
-    "prompt_cache_miss_tokens", "completion_tokens_details",
-  ], [
-    "prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
-    "prompt_cache_miss_tokens",
-  ])) return invalid("cwt_response_usage_shape", returnedModel);
-  const promptTokens = usage.prompt_tokens;
-  const completionTokens = usage.completion_tokens;
-  const totalTokens = usage.total_tokens;
-  const cacheHit = usage.prompt_cache_hit_tokens;
-  const cacheMiss = usage.prompt_cache_miss_tokens;
-  if (!safeToken(promptTokens) || !safeToken(completionTokens) || !safeToken(totalTokens) ||
-    !safeToken(cacheHit) || !safeToken(cacheMiss) || promptTokens > MAX_INPUT_TOKENS ||
-    completionTokens > input.requestedMaxOutputTokens || completionTokens > MAX_OUTPUT_TOKENS) {
-    return invalid("cwt_response_usage_scalar", returnedModel);
-  }
-  if (cacheHit + cacheMiss !== promptTokens) {
-    return invalid("cwt_response_usage_cache_split", returnedModel);
-  }
-  if (promptTokens + completionTokens !== totalTokens) {
-    return invalid("cwt_response_usage_total", returnedModel);
-  }
-  const details = usage.completion_tokens_details;
-  if (details !== undefined && (!isPlainObject(details) ||
-    !exactKeys(details, ["reasoning_tokens"], []) ||
-    details.reasoning_tokens !== undefined && details.reasoning_tokens !== 0)) {
-    return invalid("cwt_response_completion_details", returnedModel);
+  let normalizedUsage: NormalizedTokenUsageV2 | undefined;
+  if (isPlainObject(usage)) {
+    const promptTokens = usage.prompt_tokens;
+    const completionTokens = usage.completion_tokens;
+    const totalTokens = usage.total_tokens;
+    if (safeToken(promptTokens) && safeToken(completionTokens) && safeToken(totalTokens) &&
+      promptTokens + completionTokens === totalTokens) {
+      const coreUsage: NormalizedTokenUsageV2 = {
+        inputTokens: promptTokens,
+        outputTokens: completionTokens,
+        totalTokens,
+      };
+      const cacheHit = usage.prompt_cache_hit_tokens;
+      const cacheMiss = usage.prompt_cache_miss_tokens;
+      normalizedUsage = safeToken(cacheHit) && safeToken(cacheMiss) &&
+        cacheHit + cacheMiss === promptTokens
+        ? { ...coreUsage, cacheHitInputTokens: cacheHit, cacheMissInputTokens: cacheMiss }
+        : coreUsage;
+    }
   }
   if (choice.finish_reason === "insufficient_system_resource") {
     return failure({
@@ -330,13 +317,7 @@ function normalizeSuccess(input: {
     returnedModel,
     completion,
     outputText: message.content,
-    usage: {
-      inputTokens: promptTokens,
-      outputTokens: completionTokens,
-      totalTokens,
-      cacheHitInputTokens: cacheHit,
-      cacheMissInputTokens: cacheMiss,
-    },
+    ...(normalizedUsage === undefined ? {} : { usage: normalizedUsage }),
     providerRequestId: id,
     ...(systemFingerprint === undefined || systemFingerprint === null
       ? {} : { providerSystemFingerprint: systemFingerprint }),

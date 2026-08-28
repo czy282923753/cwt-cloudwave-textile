@@ -905,6 +905,96 @@ describe.skipIf(postgresUrl === undefined)("Phase C ai_runs PostgreSQL repositor
       budgetReservedCostMicrousd: 0,
     });
 
+    const protectedWithoutUsage = await insertPrepared(preparedRun(fixture, {
+      idempotencyKey: randomUUID(),
+      fingerprint: hash("7"),
+      maxAttempts: 1,
+      runCostLimitMicrousd: 20_000,
+    }), "staging", { estimatedMax: 20_000 });
+    if (protectedWithoutUsage.kind !== "inserted") throw new Error("Expected protected no-usage run.");
+    const protectedClaim = await repository.claimOrRecover({
+      executionEnvironment: "staging",
+      workerId: "protected-no-usage-worker",
+    });
+    if (protectedClaim.kind !== "claimed") throw new Error("Expected protected no-usage claim.");
+    const [protectedProcessing] = await db().select().from(aiRuns)
+      .where(eq(aiRuns.id, protectedWithoutUsage.row.id));
+    if (protectedProcessing === undefined || protectedProcessing.leaseOwner === null ||
+      protectedProcessing.leaseToken === null || protectedProcessing.leaseExpiresAt === null) {
+      throw new Error("Protected no-usage lease was incomplete.");
+    }
+    const protectedMarker = await repository.authorizeProviderDispatch({
+      runId: protectedProcessing.id,
+      executionEnvironment: "staging",
+      leaseOwner: protectedProcessing.leaseOwner,
+      leaseToken: protectedProcessing.leaseToken,
+      leaseExpiresAt: protectedProcessing.leaseExpiresAt,
+      stateVersion: protectedProcessing.stateVersion,
+      pricingCurrent: true,
+    });
+    if (protectedMarker.kind !== "authorized") throw new Error("Protected no-usage marker failed.");
+    const protectedEvidence = normalizeAttemptEvidenceV3<ProtectedApplicationResultEnvelopeV1>({
+      version: 3,
+      dispatchState: "dispatched",
+      protectedResult: {
+        version: 1,
+        resultKind: "draft_assistance_candidate",
+        dispositionKind: "human_review",
+        schemaId: "cwt.product-description-draft.v1",
+        schemaVersion: 1,
+        policyVersion: "stage4a-v1",
+        value: { syntheticCandidate: true },
+        canonicalJson: '{"syntheticCandidate":true}',
+        hash: hash("7"),
+      },
+      error: null,
+      responseStatus: "success",
+      retryClass: "not_retryable",
+      returnedModel: "synthetic-text-alpha-v1",
+      completion: { kind: "complete" },
+      usage: null,
+      providerHttpStatus: 200,
+      providerErrorCode: null,
+      providerRequestId: "synthetic-protected-no-usage",
+      providerSystemFingerprint: null,
+      durationMs: 2,
+    });
+    if (!protectedEvidence.ok) throw new Error("Protected no-usage evidence failed.");
+    expect(await repository.settle({
+      runId: protectedProcessing.id,
+      executionEnvironment: "staging",
+      leaseOwner: protectedProcessing.leaseOwner,
+      leaseToken: protectedProcessing.leaseToken,
+      leaseExpiresAt: protectedMarker.leaseExpiresAt,
+      stateVersion: protectedMarker.stateVersion,
+      evidence: protectedEvidence.value,
+    })).toMatchObject({ kind: "settled", status: "draft_ready" });
+    const [protectedFinal] = await db().select().from(aiRuns)
+      .where(eq(aiRuns.id, protectedWithoutUsage.row.id));
+    expect(protectedFinal).toMatchObject({
+      status: "draft_ready",
+      retryState: "none",
+      actualCostMicrousd: 0,
+      actualCostComplete: false,
+      budgetAccountedCostMicrousd: 20_000,
+      budgetReservedCostMicrousd: 0,
+      candidateJson: { syntheticCandidate: true },
+      candidateHash: hash("7"),
+      humanDisposition: "not_evaluated",
+      appliedTargetVersion: null,
+      appliedRevisionId: null,
+      appliedRevisionVersion: null,
+    });
+    const [protectedProduct] = await db().select().from(products)
+      .where(eq(products.id, fixture.productId));
+    const [protectedLocalization] = await db().select().from(productLocalizations)
+      .where(eq(productLocalizations.productId, fixture.productId));
+    expect(protectedProduct).toMatchObject({ status: "draft", publishedAt: null });
+    expect(protectedLocalization).toMatchObject({
+      fullDescription: null,
+      editorDocumentVersion: 1,
+    });
+
     for (const [boundary, fingerprintCharacter] of [[50_001, "8"], [500_000, "9"], [500_001, "a"]] as const) {
       const inputCost = Math.floor(boundary / 2);
       const outputCost = boundary - inputCost;

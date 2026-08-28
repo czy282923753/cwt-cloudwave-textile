@@ -186,7 +186,6 @@ function mutationCaseId(mutation: string): string {
     case "extra_service_tier":
     case "unknown_top_level":
     case "reasoning_content":
-    case "usage_totals":
     case "tool_calls":
     case "second_choice":
     case "unknown_finish_reason":
@@ -203,8 +202,6 @@ function mutationDiagnosticCode(mutation: string): string {
     case "reasoning_content":
     case "tool_calls":
       return "cwt_response_message_shape";
-    case "usage_totals":
-      return "cwt_response_usage_cache_split";
     case "second_choice":
       return "cwt_response_choice_shape";
     case "unknown_finish_reason":
@@ -241,11 +238,13 @@ const configurationCases = fixture.cases.configurationFailures.map((testCase) =>
   testCase,
 }));
 const httpCases = fixture.cases.httpFailures.map((testCase) => ({ id: httpCaseId(testCase), testCase }));
-const invalidResponseCases = fixture.cases.invalidResponseMutations.map((mutation) => ({
-  id: mutationCaseId(mutation),
-  mutation,
-  providerErrorCode: mutationDiagnosticCode(mutation),
-}));
+const invalidResponseCases = fixture.cases.invalidResponseMutations
+  .filter((mutation) => mutation !== "usage_totals")
+  .map((mutation) => ({
+    id: mutationCaseId(mutation),
+    mutation,
+    providerErrorCode: mutationDiagnosticCode(mutation),
+  }));
 const bodyCases = fixture.cases.bodyFailures.map((testCase) => ({ id: bodyCaseId(testCase), testCase }));
 const finishCases = fixture.cases.finishReasons.map((testCase) => ({ id: finishCaseId(testCase), testCase }));
 
@@ -265,7 +264,6 @@ const expectedCaseIds = {
     "invalid-response:extra_service_tier",
     "invalid-response:unknown_top_level",
     "invalid-response:reasoning_content",
-    "invalid-response:usage_totals",
     "invalid-response:tool_calls",
     "invalid-response:second_choice",
     "invalid-response:unknown_finish_reason",
@@ -372,7 +370,6 @@ function invalidResponse(mutation: string): Readonly<Record<string, unknown>> {
   const choice = choices[0];
   requireFixture(choice !== undefined, "success response choice is absent");
   const message = choice.message as Readonly<Record<string, unknown>>;
-  const usage = response.usage as Readonly<Record<string, unknown>>;
   switch (mutation) {
     case "extra_service_tier": return { ...response, service_tier: "default" };
     case "unknown_top_level": return { ...response, unknown: true };
@@ -380,7 +377,6 @@ function invalidResponse(mutation: string): Readonly<Record<string, unknown>> {
       ...response,
       choices: [{ ...choice, message: { ...message, reasoning_content: "private" } }],
     };
-    case "usage_totals": return { ...response, usage: { ...usage, prompt_cache_hit_tokens: 5 } };
     case "tool_calls": return {
       ...response,
       choices: [{ ...choice, message: { ...message, tool_calls: [{ id: "synthetic_tool" }] } }],
@@ -458,13 +454,13 @@ describe("DeepSeek Phase D synthetic contract V1", () => {
     };
     expect(observedGroups).toEqual(expectedCaseIds);
     const allIds = Object.values(observedGroups).flat();
-    expect(allIds).toHaveLength(39);
-    expect(new Set(allIds).size).toBe(39);
+    expect(allIds).toHaveLength(38);
+    expect(new Set(allIds).size).toBe(38);
     expect(Object.fromEntries(Object.entries(observedGroups).map(([group, ids]) => [group, ids.length])))
       .toEqual({
         configuration: 5,
         http: 12,
-        invalidResponse: 7,
+        invalidResponse: 6,
         body: 6,
         partialBody: 1,
         timeout: 1,
@@ -581,56 +577,9 @@ describe("DeepSeek Phase D synthetic contract V1", () => {
     expectExactRequestTuple(seams);
   });
 
-  it.each([
-    {
-      id: "identity-shape",
-      providerErrorCode: "cwt_response_identity_shape",
-      mutate: (response: Readonly<Record<string, unknown>>) => ({ ...response, id: "" }),
-    },
-    {
-      id: "usage-shape",
-      providerErrorCode: "cwt_response_usage_shape",
-      mutate: (response: Readonly<Record<string, unknown>>) => ({
-        ...response,
-        usage: {
-          ...(response.usage as Readonly<Record<string, unknown>>),
-          prompt_cache_miss_tokens: undefined,
-        },
-      }),
-    },
-    {
-      id: "usage-scalar",
-      providerErrorCode: "cwt_response_usage_scalar",
-      mutate: (response: Readonly<Record<string, unknown>>) => ({
-        ...response,
-        usage: { ...(response.usage as Readonly<Record<string, unknown>>), prompt_tokens: -1 },
-      }),
-    },
-    {
-      id: "usage-total",
-      providerErrorCode: "cwt_response_usage_total",
-      mutate: (response: Readonly<Record<string, unknown>>) => ({
-        ...response,
-        usage: { ...(response.usage as Readonly<Record<string, unknown>>), total_tokens: 15 },
-      }),
-    },
-    {
-      id: "completion-details",
-      providerErrorCode: "cwt_response_completion_details",
-      mutate: (response: Readonly<Record<string, unknown>>) => ({
-        ...response,
-        usage: {
-          ...(response.usage as Readonly<Record<string, unknown>>),
-          completion_tokens_details: { reasoning_tokens: 1 },
-        },
-      }),
-    },
-  ])("classifies the additional fixed $id predicate without returning usage", async ({
-    providerErrorCode,
-    mutate,
-  }) => {
+  it("classifies the additional fixed identity predicate without returning usage", async () => {
     const seams = createExplicitSeams(
-      () => jsonResponse(mutate(fixture.cases.success.response)),
+      () => jsonResponse({ ...fixture.cases.success.response, id: "" }),
       syntheticCredential,
     );
     const prepared = prepare(seams);
@@ -641,10 +590,74 @@ describe("DeepSeek Phase D synthetic contract V1", () => {
       responseStatus: "invalid_response",
       failureCode: "invalid_response_schema",
       retryClass: "not_retryable",
-      providerErrorCode,
+      providerErrorCode: "cwt_response_identity_shape",
     });
     expect(result).not.toHaveProperty("usage");
     expect(result).not.toHaveProperty("outputText");
+    expectExactRequestTuple(seams);
+  });
+
+  it.each([
+    {
+      id: "three-core-only",
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+      expected: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+    },
+    {
+      id: "additive-metadata",
+      usage: {
+        ...(fixture.cases.success.response.usage as Readonly<Record<string, unknown>>),
+        completion_tokens_details: { reasoning_tokens: 99, ignored_detail: "not-retained" },
+        additive_usage_marker: "not-retained",
+      },
+      expected: fixture.cases.success.expected.usage,
+    },
+    { id: "non-object", usage: "untrusted-usage", expected: undefined },
+    { id: "bad-core", usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 15 }, expected: undefined },
+    {
+      id: "one-sided-cache",
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14, prompt_cache_hit_tokens: 6 },
+      expected: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+    },
+    {
+      id: "inconsistent-cache",
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 4,
+        total_tokens: 14,
+        prompt_cache_hit_tokens: 6,
+        prompt_cache_miss_tokens: 5,
+      },
+      expected: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+    },
+  ])("normalizes optional usage case $id without metadata authority", async ({ usage, expected }) => {
+    const seams = createExplicitSeams(
+      () => jsonResponse({ ...fixture.cases.success.response, usage }),
+      syntheticCredential,
+    );
+    const prepared = prepare(seams);
+    if (!prepared.ok) throw new Error("Synthetic optional-usage case preparation failed");
+    const result = await prepared.value.execute({ signal: new AbortController().signal });
+    expect(result).toMatchObject({ kind: "success", outputText: fixture.cases.success.expected.outputText });
+    if (expected === undefined) expect(result).not.toHaveProperty("usage");
+    else expect(result).toHaveProperty("usage", expected);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("completion_tokens_details");
+    expect(serialized).not.toContain("additive_usage_marker");
+    expect(serialized).not.toContain("not-retained");
+    expectExactRequestTuple(seams);
+  });
+
+  it("accepts an otherwise valid response when usage is absent", async () => {
+    const withoutUsage = Object.fromEntries(
+      Object.entries(fixture.cases.success.response).filter(([key]) => key !== "usage"),
+    );
+    const seams = createExplicitSeams(() => jsonResponse(withoutUsage), syntheticCredential);
+    const prepared = prepare(seams);
+    if (!prepared.ok) throw new Error("Synthetic absent-usage case preparation failed");
+    const result = await prepared.value.execute({ signal: new AbortController().signal });
+    expect(result).toMatchObject({ kind: "success", outputText: fixture.cases.success.expected.outputText });
+    expect(result).not.toHaveProperty("usage");
     expectExactRequestTuple(seams);
   });
 

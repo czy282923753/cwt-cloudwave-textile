@@ -477,7 +477,14 @@ describe("sanitized DeepSeek adapter diagnostic propagation", () => {
     cacheMissInputTokens: 4,
   } as const;
 
-  function response(content: string): ReadonlyJsonObject {
+  function response(content: string, usage: ReadonlyJsonObject | null = {
+    prompt_tokens: safeUsage.inputTokens,
+    completion_tokens: safeUsage.outputTokens,
+    total_tokens: safeUsage.totalTokens,
+    prompt_cache_hit_tokens: safeUsage.cacheHitInputTokens,
+    prompt_cache_miss_tokens: safeUsage.cacheMissInputTokens,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  }): ReadonlyJsonObject {
     return {
       id: "synthetic_response_01",
       object: "chat.completion",
@@ -495,14 +502,7 @@ describe("sanitized DeepSeek adapter diagnostic propagation", () => {
           tool_calls: null,
         },
       }],
-      usage: {
-        prompt_tokens: safeUsage.inputTokens,
-        completion_tokens: safeUsage.outputTokens,
-        total_tokens: safeUsage.totalTokens,
-        prompt_cache_hit_tokens: safeUsage.cacheHitInputTokens,
-        prompt_cache_miss_tokens: safeUsage.cacheMissInputTokens,
-        completion_tokens_details: { reasoning_tokens: 0 },
-      },
+      usage,
     };
   }
 
@@ -676,6 +676,17 @@ describe("sanitized DeepSeek adapter diagnostic propagation", () => {
         error: { code: "output_schema_invalid" },
       },
     });
+    const invalidWithoutUsage = await execute({ response: response("[]", null), mode: "accept" });
+    expect(invalidWithoutUsage).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "invalid_response",
+        usage: null,
+        providerErrorCode: null,
+        protectedResult: null,
+        error: { code: "output_invalid_json" },
+      },
+    });
   });
 
   it("keeps a fully valid fake response on the protected draft-ready evidence path", async () => {
@@ -685,6 +696,20 @@ describe("sanitized DeepSeek adapter diagnostic propagation", () => {
       evidence: {
         responseStatus: "success",
         usage: safeUsage,
+        providerErrorCode: null,
+        error: null,
+        protectedResult: {
+          resultKind: "draft_candidate",
+          dispositionKind: "draft_human_review",
+        },
+      },
+    });
+    const withoutUsage = await execute({ response: response("{}", null), mode: "accept" });
+    expect(withoutUsage).toMatchObject({
+      kind: "attempt_evidence",
+      evidence: {
+        responseStatus: "success",
+        usage: null,
         providerErrorCode: null,
         error: null,
         protectedResult: {
