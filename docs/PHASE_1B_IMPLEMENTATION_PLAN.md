@@ -1,12 +1,14 @@
 # CWT Phase 1B implementation plan
 
-Status: **Stage 4A Phase A–C accepted; Phase D accepted with Owner-accepted residual risk / frozen; Phase E pre-entry needs Owner decision; other Stages and external actions remain separately gated**
+Status: **Stage 4 accepted and frozen locally; Stage 5 local preparation is eligible; Production and external actions remain separately gated**
 Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
 Plan date: **2026-08-05**
 
 Stage 0 approval: [Owner Decisions](./PHASE_1B_OWNER_DECISIONS.md), [Product Import Template V1](./PRODUCT_IMPORT_TEMPLATE_V1.md), [Email Template Contract](./EMAIL_TEMPLATE_CONTRACT.md), and accepted ADR-0013 through ADR-0017. Post-Stage-3 AI architecture is supplemented by accepted ADR-0018, the owner-confirmed [Stage 4A Pre-Development Final Review](./PHASE_1B_STAGE4A_PRE_DEVELOPMENT_FINAL_REVIEW.md), and the Stage 4A Pre-Development Implementation Plan. The later [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) authorizes bounded P1-02A development while preserving every architecture and external-action boundary.
 
 > **Current Stage 4A addendum — 2026-08-17:** accepted checkpoints are Phase A `717cbac284350ec23f786ee239a354085ee0d827`, Phase B `cc5715f4a9eb07293bf932cfbd822bfa6bf14a45`, Phase C `9006b638ed51f981f7477829086244627c488d6b`, and Phase D freeze `de51dff2b519f1ecacfb73e067c9d68361939c29`. Phase D remains `ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK`; it is not reopened. The [Phase E Pre-Entry Exact Design / Owner Decision V1.0](./PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md) is `NEEDS_OWNER_DECISION` for exact Production Prompt v1 prose and named Product/Content/SEO reviewers. Phase E implementation and Phase F external validation have not started.
+
+> **Current Stage 4 closure addendum — 2026-08-28:** the preceding paragraph is retained as evidence-time history. Phase A through Phase F are now integrated in Product `29c5c8117b98ccada938cd22f552cc4d306a41bc`; Control `06217e29b4f750d9b52e9d77dff046b7a5667d8a` and Provisioning `6c4c9a126e6fc80c327f217bacf3fbb72621b354` are independently accepted; the X16 bounded four-call diagnostic is accepted; and the [Stage 4 Overall Fresh Acceptance and Closure Review](./PHASE_1B_STAGE4_OVERALL_FRESH_ACCEPTANCE_AND_CLOSURE_REVIEW_V1_0.md) is PASS. The [Stage 4 Acceptance and Freeze](./PHASE_1B_STAGE4_ACCEPTANCE_AND_FREEZE.md) is the current local checkpoint authority. Production readiness remains No.
 
 ## 1. Recommendation
 
@@ -412,7 +414,7 @@ Primary modules:
 - Block editor integrations;
 - existing Product/Content/Asset/Revision services.
 
-Schema/Migration: `0020` only.
+Schema/Migration: `0020` AI foundation plus additive `0021` Phase F K1 cost ceiling; no historical Migration, Snapshot, or Journal rewrite.
 
 Security/release invariants:
 
@@ -435,7 +437,7 @@ Provider disposition: DeepSeek is selected but disabled-first, `DF-01`–`DF-06`
 
 Phase A current state: **ACCEPTED / PASS** for exact Integration HEAD `717cbac284350ec23f786ee239a354085ee0d827`. The exact `0020` Candidate is preserved through the non-fast-forward integration merge; the independent Completion Review reports zero Blocker/High/Medium/Low findings; Low `L-01` is closed by the Erratum; and non-blocking External Validation `EV-01` remains deferred. See the [Phase A Completion / Integration Report](./PHASE_1B_STAGE4A_PHASE_A_COMPLETION_INTEGRATION_REPORT_V1_0.md), [Independent Completion Review](./PHASE_1B_STAGE4A_PHASE_A_INDEPENDENT_COMPLETION_REVIEW_V1_0.md), and [Phase A Acceptance and Phase B Entry record](./PHASE_1B_STAGE4A_PHASE_A_ACCEPTANCE_AND_PHASE_B_ENTRY_V1_0.md). Phase B is eligible to begin only through a separate Provider-neutral Foundation design/Complex Task Analysis task; it is not started or implemented by the entry baseline. The complete Stage 4A checkpoint still requires later Owner acceptance.
 
-Current superseding Stage 4A phase state: Phase B and Phase C are accepted at the exact checkpoints recorded above; Phase D is accepted/frozen with Owner-accepted residual risk. Phase E remains pre-entry and is not implementation-authorized until the missing Production Prompt/reviewer authority is supplied, incorporated into an exact Candidate, and passed by a different fresh independent full Design/security review. The preceding Phase A paragraph is retained as its evidence-time history, not current phase status.
+Current superseding Stage 4A phase state: Phase A through Phase F are accepted in the exact integrated Product/Control/Provisioning identities recorded by the Stage 4 freeze. The X16 external diagnostic completed four Provider dispatches with three protected Draft candidates and one fail-closed policy rejection; no candidate was applied and no Publish or Index occurred. Stage 4 is accepted/frozen locally. The preceding phase-status paragraphs remain evidence-time history rather than current status.
 
 Complexity: Very High.
 
@@ -443,7 +445,7 @@ Rollback boundary: feature flag off leaves manual editor and existing Drafts int
 
 ### Stage 5 — Email templates, two-message Outbox, and attribution closure
 
-Inputs: approved email copy/variables and Staging safety policy; reviewed `0021`.
+Inputs: approved email copy/variables and Staging safety policy; the next unused forward Migration number. Stage 4 already owns `0021`, so Stage 5 preparation must bind `0022` unless an earlier new Migration is accepted first.
 
 Outputs:
 
@@ -458,7 +460,7 @@ Primary modules:
 - settings/revision services and admin template pages;
 - Inquiry form/API/CRM admin and analytics mapper.
 
-Schema/Migration: `0021`; no template/queue table.
+Schema/Migration: next unused forward number, expected `0022`; no template/queue table and no renumbering or rewrite of Stage 4 `0021`.
 
 Security/release invariants:
 
@@ -580,10 +582,10 @@ Rollback boundary: import batches remain traceable; unpublished/noindex records 
 | [ADR-0014 — Staging Identity and Preview Retirement](./adr/ADR-0014-staging-identity-and-preview-retirement.md) | Accepted 2026-08-05; not implemented | `staging` replaces `preview`; no permanent alias; protected/noindex/recipient-overridden isolation. |
 | [ADR-0015 — Versioned Structured Block Document](./adr/ADR-0015-versioned-structured-block-document.md) | Accepted 2026-08-05; not implemented | One Block writer, deterministic Paragraph backfill, existing Revision, bounded legacy-field exit. |
 | [ADR-0016 — Product Import Durable Authority](./adr/ADR-0016-product-import-durable-authority.md) | Accepted 2026-08-05; not implemented | Two import orchestration tables; existing Upload/Finalize/Product/Asset/Revision authorities. |
-| [ADR-0017 — AI Run Work and Provenance Authority](./adr/ADR-0017-ai-run-work-and-provenance-authority.md) | Accepted 2026-08-05; not implemented | One Run/work authority; cloud-only, Draft-only, no private Inquiry or public-state capability. |
-| [ADR-0018 — Provider-Agnostic AI Service and Model Configuration](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md) | Accepted and Stage 4A design-frozen 2026-08-10; P1-02A development authorized; Phase A accepted / PASS and Phase B entry prepared | One AI Service Layer; configurable Provider/model/use case/Prompt; canonical run lifecycle; Draft/role/data/Staging/quality boundaries; DeepSeek text default; no current fallback, RAG, vision, or Customer Service. |
+| [ADR-0017 — AI Run Work and Provenance Authority](./adr/ADR-0017-ai-run-work-and-provenance-authority.md) | Accepted and implemented by the locally frozen Stage 4 checkpoint | One Run/work authority; cloud-only, Draft-only, no private Inquiry or public-state capability. |
+| [ADR-0018 — Provider-Agnostic AI Service and Model Configuration](./adr/ADR-0018-provider-agnostic-ai-service-and-model-configuration.md) | Accepted, implemented, externally diagnosed in bounded X16, and locally frozen with Stage 4 | One AI Service Layer; configurable Provider/model/use case/Prompt; canonical run lifecycle; Draft/role/data/Staging/quality boundaries; DeepSeek text default; no current fallback, RAG, vision, or Customer Service. |
 
-Acceptance of an ADR approves architecture and planning only. The separate Stage 4A Owner record now authorizes bounded P1-02A code and `0020` Migration work. Other forward Migrations, Provider configuration/calls, credentials, formal data, deployment, Publish, and Index still require later explicit authorization.
+Acceptance of an ADR approves architecture and planning only. Stage 4 P1-02A implementation and its bounded X16 external diagnostic are now accepted/frozen under their later Owner decisions and evidence. Any further Provider call, Production credential, formal data, deployment, Publish, or Index still requires separate explicit authorization.
 
 ## 11. Stage-gated owner selections
 
