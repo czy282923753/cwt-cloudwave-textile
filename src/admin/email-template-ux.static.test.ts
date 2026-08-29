@@ -47,6 +47,8 @@ describe("S5-F5 Email Template Admin composition", () => {
     expect(page.match(/function TemplatePreview\b/g)).toHaveLength(1);
     expect(page).toContain("grid-cols-[minmax(0,1fr)]");
     expect(page).toContain("[overflow-wrap:anywhere]");
+    expect(page).toContain('className="mt-2 break-all font-mono text-xs text-slate-400"');
+    expect(page).not.toContain('className="mt-2 break-all font-mono text-xs text-slate-500"');
     expect(page).not.toMatch(/overflow-x-hidden|overflow-hidden|text-ellipsis|truncate/);
     expect(browserEvidence).toContain("expect(accessibility.violations).toEqual([])");
     expect(browserEvidence).not.toContain("accessibility.violations.filter");

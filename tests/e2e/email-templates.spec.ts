@@ -45,6 +45,63 @@ async function expectUnfilteredAxePass(page: Page): Promise<void> {
   expect(accessibility.violations).toEqual([]);
 }
 
+async function expectHistoryShaContrast(page: Page): Promise<void> {
+  const results = await page.locator("article ol li p.font-mono.text-xs").evaluateAll((elements) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("Canvas color normalization is unavailable.");
+    const rgb = (value: string): readonly [number, number, number] => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = "#000000";
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const channels = context.getImageData(0, 0, 1, 1).data;
+      return [channels[0]!, channels[1]!, channels[2]!];
+    };
+    const luminance = (color: readonly [number, number, number]): number => {
+      const channels = color.map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.04045
+          ? normalized / 12.92
+          : ((normalized + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+    };
+    const opaqueBackground = (element: Element): string => {
+      let current: Element | null = element;
+      while (current) {
+        const background = getComputedStyle(current).backgroundColor;
+        if (background !== "rgba(0, 0, 0, 0)" && background !== "transparent") return background;
+        current = current.parentElement;
+      }
+      throw new Error("History SHA has no opaque background.");
+    };
+    return elements.map((element) => {
+      const style = getComputedStyle(element);
+      const foreground = style.color;
+      const background = opaqueBackground(element);
+      const lighter = Math.max(luminance(rgb(foreground)), luminance(rgb(background)));
+      const darker = Math.min(luminance(rgb(foreground)), luminance(rgb(background)));
+      const bounds = element.getBoundingClientRect();
+      return {
+        text: element.textContent?.trim() ?? "",
+        foreground,
+        background,
+        contrast: (lighter + 0.05) / (darker + 0.05),
+        visible: bounds.width > 0 && bounds.height > 0,
+      };
+    });
+  });
+  expect(results.length).toBeGreaterThanOrEqual(4);
+  for (const result of results) {
+    expect(result.text).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.visible).toBe(true);
+    expect(result.contrast, `${result.foreground} on ${result.background}`).toBeGreaterThanOrEqual(4.5);
+  }
+}
+
 async function expectPreviewContainment(page: Page, expectedDeviceWidth: number): Promise<void> {
   const metrics = await page.evaluate(() => {
     const visualViewport = window.visualViewport;
@@ -211,6 +268,11 @@ test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, and r
   await runAdminActionAndExpect(page, customerEditor.getByRole("button", { name: "Save Draft" }));
   await runAdminActionAndExpect(page, customer.getByRole("button", { name: "Submit for review" }));
   await expect(customer.getByText(/awaiting independent review/)).toBeVisible();
+  await expectHistoryShaContrast(page);
+  await expectUniquePreviewLandmarks(page);
+  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_V1_RENDERED);
+  await expectPreviewContainment(page, 1280);
+  await expectUnfilteredAxePass(page);
 
   const matrix = [
     ["admin@example.test", true, true, true, true],
@@ -251,9 +313,12 @@ test("@mobile Email Template Admin is keyboard-focusable, accessible, and has no
   const focusTarget = page.getByRole("button", { name: "Test Active with Synthetic data" }).first();
   await focusTarget.focus();
   await expect(focusTarget).toBeFocused();
+  await expect(page.getByText("Revision 3 · applied · LIVE", { exact: true })).toBeVisible();
+  await expect(page.getByText(/awaiting independent review/)).toBeVisible();
   await expectUniquePreviewLandmarks(page);
   const internalPreview = page.getByRole("region", { name: INTERNAL_PREVIEW_NAME, exact: true });
-  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_FALLBACK_BODY);
+  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_V1_RENDERED);
+  await expectHistoryShaContrast(page);
   await expectPreviewContainment(page, 412);
   await expectUnfilteredAxePass(page);
 });

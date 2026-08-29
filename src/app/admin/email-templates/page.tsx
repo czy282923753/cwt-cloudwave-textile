@@ -216,7 +216,7 @@ function TemplatePanel({
                     <time className="text-xs text-slate-400">{entry.createdAt.toLocaleString("en-GB")}</time>
                   </div>
                   <p className="mt-2 break-words text-sm text-slate-300">{entry.changeSummary ?? "No summary"}</p>
-                  <p className="mt-2 break-all font-mono text-xs text-slate-500">{entry.template.canonicalSha256}</p>
+                  <p className="mt-2 break-all font-mono text-xs text-slate-400">{entry.template.canonicalSha256}</p>
                   <div className="mt-4 flex min-w-0 flex-wrap gap-3">
                     <Link className="rounded-lg border border-white/20 px-3 py-2 text-sm" href={`/admin/email-templates/?kind=${kind}&revisionId=${entry.revisionId}`}>Preview this Revision</Link>
                     {canApply && entry.status === "in_review" ? (
