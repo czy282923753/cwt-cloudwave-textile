@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { z } from "zod";
 
@@ -45,6 +45,52 @@ function claimableAt(now: Date) {
   );
 }
 
+function claimableAttemptCounters() {
+  return and(
+    eq(notificationOutbox.attempts, notificationOutbox.attemptCount),
+    lt(notificationOutbox.attempts, OUTBOX_MAX_ATTEMPTS),
+    lt(notificationOutbox.attemptCount, OUTBOX_MAX_ATTEMPTS),
+  );
+}
+
+function exhaustedAt(now: Date) {
+  return or(
+    inArray(notificationOutbox.status, ["pending", "failed"]),
+    and(
+      eq(notificationOutbox.status, "processing"),
+      lte(notificationOutbox.leaseExpiresAt, now),
+    ),
+  );
+}
+
+async function terminalizeExhaustedNotificationOutboxJobs<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  now: Date,
+  jobId?: string,
+): Promise<readonly string[]> {
+  const rows = await db.update(notificationOutbox).set({
+    status: "dead",
+    nextAttemptAt: now,
+    lastErrorCode: "outbox_attempts_exhausted",
+    lastError: "Notification delivery attempt limit was exhausted.",
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+    processedAt: now,
+  }).where(and(
+    ...(jobId ? [eq(notificationOutbox.id, z.uuid().parse(jobId))] : []),
+    eq(notificationOutbox.aggregateType, "inquiry"),
+    inArray(notificationOutbox.kind, NOTIFICATION_OUTBOX_KINDS),
+    eq(notificationOutbox.attempts, notificationOutbox.attemptCount),
+    gte(notificationOutbox.attempts, OUTBOX_MAX_ATTEMPTS),
+    gte(notificationOutbox.attemptCount, OUTBOX_MAX_ATTEMPTS),
+    exhaustedAt(now),
+  )).returning({ id: notificationOutbox.id });
+  return Object.freeze(rows.map((row) => row.id));
+}
+
 export async function listDueNotificationOutboxJobIds<
   TQueryResult extends PgQueryResultHKT,
 >(
@@ -58,6 +104,7 @@ export async function listDueNotificationOutboxJobIds<
     .where(and(
       eq(notificationOutbox.aggregateType, "inquiry"),
       inArray(notificationOutbox.kind, NOTIFICATION_OUTBOX_KINDS),
+      claimableAttemptCounters(),
       claimableAt(now),
     ))
     .orderBy(asc(notificationOutbox.createdAt), asc(notificationOutbox.id))
@@ -90,7 +137,7 @@ export async function claimNotificationOutboxJob<
       eq(notificationOutbox.id, z.uuid().parse(jobId)),
       eq(notificationOutbox.aggregateType, "inquiry"),
       inArray(notificationOutbox.kind, NOTIFICATION_OUTBOX_KINDS),
-      eq(notificationOutbox.attempts, notificationOutbox.attemptCount),
+      claimableAttemptCounters(),
       claimableAt(now),
     ))
     .returning({
@@ -102,7 +149,6 @@ export async function claimNotificationOutboxJob<
       attempts: notificationOutbox.attempts,
       attemptCount: notificationOutbox.attemptCount,
       deliveryKey: notificationOutbox.deliveryKey,
-      createdAt: notificationOutbox.createdAt,
       leaseExpiresAt: notificationOutbox.leaseExpiresAt,
     });
   return rows[0] ?? null;
@@ -187,14 +233,16 @@ export async function deliverNotificationOutboxJob<
   jobId: string,
   options: {
     readonly workerId?: string;
-    readonly now?: Date;
+    readonly clock?: () => Date;
     readonly policy?: EmailEnvelopePolicy;
   } = {},
 ): Promise<boolean> {
   const workerId = options.workerId ?? `worker-${randomUUID()}`;
-  const now = options.now ?? new Date();
+  const clock = options.clock ?? (() => new Date());
+  const claimAt = clock();
   const policy = options.policy ?? emailEnvelopePolicyFromEnvironment();
-  const job = await claimNotificationOutboxJob(db, jobId, workerId, now);
+  await terminalizeExhaustedNotificationOutboxJobs(db, claimAt, jobId);
+  const job = await claimNotificationOutboxJob(db, jobId, workerId, claimAt);
   if (!job) return false;
   try {
     if (job.attempts !== job.attemptCount) {
@@ -256,7 +304,7 @@ export async function deliverNotificationOutboxJob<
     });
     const outcome = await dispatchTrustedEmail(transport, policy, envelope);
     if (outcome.outcome !== "success") {
-      const failedAt = options.now ?? new Date();
+      const failedAt = clock();
       await recordFailedAttempt(db, {
         jobId: job.id,
         workerId,
@@ -266,7 +314,7 @@ export async function deliverNotificationOutboxJob<
       });
       return false;
     }
-    const completedAt = options.now ?? new Date();
+    const completedAt = clock();
     const sent = await db.update(notificationOutbox).set({
       status: "sent",
       processedAt: completedAt,
@@ -284,7 +332,7 @@ export async function deliverNotificationOutboxJob<
     )).returning({ id: notificationOutbox.id });
     return Boolean(sent[0]);
   } catch {
-    const failedAt = options.now ?? new Date();
+    const failedAt = clock();
     await recordFailedAttempt(db, {
       jobId: job.id,
       workerId,
@@ -304,16 +352,18 @@ export async function deliverPendingNotificationOutbox<
   options: {
     readonly limit?: number;
     readonly workerId?: string;
-    readonly now?: Date;
+    readonly clock?: () => Date;
     readonly policy?: EmailEnvelopePolicy;
   } = {},
 ): Promise<{ attempted: number; sent: number }> {
-  const now = options.now ?? new Date();
-  const ids = await listDueNotificationOutboxJobIds(db, now, options.limit ?? 25);
+  const clock = options.clock ?? (() => new Date());
+  const discoveryAt = clock();
+  await terminalizeExhaustedNotificationOutboxJobs(db, discoveryAt);
+  const ids = await listDueNotificationOutboxJobIds(db, discoveryAt, options.limit ?? 25);
   let sent = 0;
   for (const id of ids) {
     if (await deliverNotificationOutboxJob(db, transport, id, {
-      now,
+      clock,
       ...(options.workerId ? { workerId: options.workerId } : {}),
       ...(options.policy ? { policy: options.policy } : {}),
     })) sent += 1;

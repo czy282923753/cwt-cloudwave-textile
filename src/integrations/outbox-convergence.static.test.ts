@@ -59,7 +59,8 @@ describe("S5-F4 request-path and authority convergence", () => {
     expect(service).toContain("createNotificationOutboxPayloadV1");
     expect(service).not.toContain("legacyInquiryNotificationPayloadSchema");
     expect(payload).toContain("legacyInquiryNotificationPayloadSchema.parse");
-    expect(payload).toContain("NOTIFICATION_OUTBOX_V1_CUTOVER_AT");
+    expect(payload).not.toContain("CUTOVER_AT");
+    expect(payload).not.toContain("createdAt");
     expect(payload).toContain("schema_version: z.literal(1)");
   });
 });

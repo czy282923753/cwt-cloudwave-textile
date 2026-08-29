@@ -27,7 +27,9 @@ import {
 import {
   claimNotificationOutboxJob,
   deliverNotificationOutboxJob,
+  deliverPendingNotificationOutbox,
   listDueNotificationOutboxJobIds,
+  OUTBOX_MAX_ATTEMPTS,
 } from "./notification-outbox";
 
 const policy: EmailEnvelopePolicy = Object.freeze({
@@ -59,6 +61,17 @@ async function setupInquiry(suffix: string) {
   const jobs = await connection.db.select().from(notificationOutbox)
     .where(eq(notificationOutbox.aggregateId, inquiry.inquiryId));
   return { connection, inquiry, jobs };
+}
+
+function sequenceClock(...instants: readonly string[]) {
+  let index = 0;
+  const clock = () => {
+    const instant = instants[index];
+    if (!instant) throw new Error(`Synthetic clock exhausted at call ${index + 1}.`);
+    index += 1;
+    return new Date(instant);
+  };
+  return { clock, calls: () => index };
 }
 
 describe("two-kind Notification Outbox lease and dispatch authority", () => {
@@ -99,7 +112,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
       await expect(deliverNotificationOutboxJob(connection.db, transport, job.id, {
         policy,
         workerId: `worker-${job.kind}`,
-        now: new Date("2026-08-30T01:00:00.000Z"),
+        clock: () => new Date("2026-08-30T01:00:00.000Z"),
       })).resolves.toBe(true);
     }
     expect(transport.captured).toHaveLength(2);
@@ -186,7 +199,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, transport, internal.id, {
       policy,
       workerId: "source-render-worker",
-      now: new Date("2026-08-30T01:30:00.000Z"),
+      clock: () => new Date("2026-08-30T01:30:00.000Z"),
     })).resolves.toBe(true);
     const body = transport.captured[0]!.textBody;
     expect(body).toContain("Private attachment count: 1");
@@ -211,13 +224,13 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, failing, internal.id, {
       policy,
       workerId: "worker-failure",
-      now: new Date("2026-08-30T02:00:00.000Z"),
+      clock: () => new Date("2026-08-30T02:00:00.000Z"),
     })).resolves.toBe(false);
     const successful = new InMemoryCaptureEmailTransport();
     await expect(deliverNotificationOutboxJob(connection.db, successful, customer.id, {
       policy,
       workerId: "worker-success",
-      now: new Date("2026-08-30T02:00:00.000Z"),
+      clock: () => new Date("2026-08-30T02:00:00.000Z"),
     })).resolves.toBe(true);
     const rows = await connection.db.select().from(notificationOutbox);
     expect(rows.find((row) => row.id === internal.id)).toMatchObject({
@@ -232,6 +245,277 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await connection.close();
   });
 
+  it("enforces equal counters and attempt zero through five without a sixth transport", async () => {
+    const { connection, jobs } = await setupInquiry("attempt-ceiling");
+    const internal = jobs.find((job) => job.kind === "inquiry_notification")!;
+    const customer = jobs.find((job) => job.kind === "inquiry_customer_confirmation")!;
+
+    for (let attempt = 0; attempt < OUTBOX_MAX_ATTEMPTS; attempt += 1) {
+      await connection.db.update(notificationOutbox).set({
+        status: "pending",
+        attempts: attempt,
+        attemptCount: attempt,
+        nextAttemptAt: new Date(0),
+        lockedAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        processedAt: null,
+      }).where(eq(notificationOutbox.id, internal.id));
+      const now = new Date(`2026-08-30T02:1${attempt}:00.000Z`);
+      expect(await listDueNotificationOutboxJobIds(connection.db, now)).toContain(internal.id);
+      const claimed = await claimNotificationOutboxJob(
+        connection.db,
+        internal.id,
+        `matrix-worker-${attempt}`,
+        now,
+      );
+      expect(claimed).toMatchObject({ attempts: attempt + 1, attemptCount: attempt + 1 });
+    }
+
+    await connection.db.update(notificationOutbox).set({
+      status: "pending",
+      attempts: OUTBOX_MAX_ATTEMPTS,
+      attemptCount: OUTBOX_MAX_ATTEMPTS,
+      nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+      lockedAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      processedAt: null,
+    }).where(eq(notificationOutbox.id, internal.id));
+    expect(await listDueNotificationOutboxJobIds(
+      connection.db,
+      new Date("2026-08-30T02:20:00.000Z"),
+    )).not.toContain(internal.id);
+    const exhaustedTransport = new InMemoryCaptureEmailTransport();
+    await expect(deliverNotificationOutboxJob(connection.db, exhaustedTransport, internal.id, {
+      policy,
+      workerId: "must-not-attempt-six",
+      clock: () => new Date("2026-08-30T02:20:00.000Z"),
+    })).resolves.toBe(false);
+    expect(exhaustedTransport.captured).toHaveLength(0);
+    const [dead] = await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, internal.id));
+    expect(dead).toMatchObject({
+      status: "dead",
+      attempts: OUTBOX_MAX_ATTEMPTS,
+      attemptCount: OUTBOX_MAX_ATTEMPTS,
+      lastErrorCode: "outbox_attempts_exhausted",
+      lastError: "Notification delivery attempt limit was exhausted.",
+      lockedAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+    });
+    expect((await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, customer.id)))[0]?.status).toBe("pending");
+
+    for (const [status, attempt] of [
+      ["failed", OUTBOX_MAX_ATTEMPTS],
+      ["pending", OUTBOX_MAX_ATTEMPTS + 1],
+    ] as const) {
+      await connection.db.update(notificationOutbox).set({
+        status,
+        attempts: attempt,
+        attemptCount: attempt,
+        nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+        lastErrorCode: null,
+        lastError: null,
+        processedAt: null,
+      }).where(eq(notificationOutbox.id, internal.id));
+      await expect(deliverNotificationOutboxJob(connection.db, exhaustedTransport, internal.id, {
+        policy,
+        workerId: `${status}-${attempt}-terminalizer`,
+        clock: () => new Date("2026-08-30T02:20:30.000Z"),
+      })).resolves.toBe(false);
+      expect((await connection.db.select().from(notificationOutbox)
+        .where(eq(notificationOutbox.id, internal.id)))[0]).toMatchObject({
+        status: "dead",
+        attempts: attempt,
+        attemptCount: attempt,
+        lastErrorCode: "outbox_attempts_exhausted",
+      });
+      expect(exhaustedTransport.captured).toHaveLength(0);
+    }
+
+    await connection.db.update(notificationOutbox).set({
+      status: "failed",
+      attempts: 4,
+      attemptCount: 5,
+      nextAttemptAt: new Date(0),
+      lastErrorCode: null,
+      lastError: null,
+      processedAt: null,
+    }).where(eq(notificationOutbox.id, internal.id));
+    const mismatchBefore = (await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, internal.id)))[0];
+    await expect(deliverNotificationOutboxJob(connection.db, exhaustedTransport, internal.id, {
+      policy,
+      workerId: "mismatch-worker",
+      clock: () => new Date("2026-08-30T02:21:00.000Z"),
+    })).resolves.toBe(false);
+    expect((await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, internal.id)))[0]).toEqual(mismatchBefore);
+    expect(exhaustedTransport.captured).toHaveLength(0);
+    await connection.close();
+  });
+
+  it("terminalizes only an expired fifth lease and preserves the live fifth worker", async () => {
+    const { connection, jobs } = await setupInquiry("expired-fifth");
+    const internal = jobs.find((job) => job.kind === "inquiry_notification")!;
+    const now = new Date("2026-08-30T02:40:00.000Z");
+    await connection.db.update(notificationOutbox).set({
+      status: "processing",
+      attempts: OUTBOX_MAX_ATTEMPTS,
+      attemptCount: OUTBOX_MAX_ATTEMPTS,
+      lockedAt: new Date(now.getTime() - 1_000),
+      lockedBy: "live-fifth-worker",
+      leaseExpiresAt: new Date(now.getTime() + 1_000),
+    }).where(eq(notificationOutbox.id, internal.id));
+    const transport = new InMemoryCaptureEmailTransport();
+    await expect(deliverNotificationOutboxJob(connection.db, transport, internal.id, {
+      policy,
+      workerId: "competing-worker",
+      clock: () => new Date(now),
+    })).resolves.toBe(false);
+    expect((await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, internal.id)))[0]).toMatchObject({
+      status: "processing",
+      attempts: 5,
+      attemptCount: 5,
+      lockedBy: "live-fifth-worker",
+    });
+
+    const expiredAt = new Date(now.getTime() + 2_000);
+    await connection.db.update(notificationOutbox).set({
+      nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+    }).where(eq(notificationOutbox.id, jobs.find((job) =>
+      job.kind === "inquiry_customer_confirmation")!.id));
+    const results = await Promise.all([
+      deliverNotificationOutboxJob(connection.db, transport, internal.id, {
+        policy,
+        workerId: "direct-terminalizer",
+        clock: () => new Date(expiredAt),
+      }),
+      deliverPendingNotificationOutbox(connection.db, transport, {
+        policy,
+        workerId: "batch-terminalizer",
+        clock: () => new Date(expiredAt),
+      }),
+    ]);
+    expect(results[0]).toBe(false);
+    expect(transport.captured).toHaveLength(0);
+    expect((await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, internal.id)))[0]).toMatchObject({
+      status: "dead",
+      attempts: 5,
+      attemptCount: 5,
+      lastErrorCode: "outbox_attempts_exhausted",
+      lockedAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+    });
+    await connection.close();
+  });
+
+  it("uses fresh discovery, per-claim, and per-settlement clock instants", async () => {
+    const { connection, jobs } = await setupInquiry("fresh-clock-batch");
+    await connection.db.update(notificationOutbox).set({ nextAttemptAt: new Date(0) });
+    const clock = sequenceClock(
+      "2026-08-30T03:00:00.000Z",
+      "2026-08-30T03:00:10.000Z",
+      "2026-08-30T03:00:20.000Z",
+      "2026-08-30T03:00:30.000Z",
+      "2026-08-30T03:00:40.000Z",
+    );
+    const observedLeases: Date[] = [];
+    const transport: CaptureEmailTransport = {
+      kind: "capture_only",
+      capture: async () => {
+        const [processing] = await connection.db.select().from(notificationOutbox)
+          .where(eq(notificationOutbox.status, "processing"));
+        if (!processing?.leaseExpiresAt) throw new Error("Synthetic lease was not recorded.");
+        observedLeases.push(processing.leaseExpiresAt);
+        return { outcome: "success" };
+      },
+    };
+    await expect(deliverPendingNotificationOutbox(connection.db, transport, {
+      policy,
+      workerId: "fresh-clock-worker",
+      clock: clock.clock,
+    })).resolves.toEqual({ attempted: 2, sent: 2 });
+    expect(clock.calls()).toBe(5);
+    expect(observedLeases).toEqual([
+      new Date("2026-08-30T03:01:10.000Z"),
+      new Date("2026-08-30T03:01:30.000Z"),
+    ]);
+    const settled = await connection.db.select().from(notificationOutbox);
+    expect(settled.map((row) => row.processedAt?.toISOString()).sort()).toEqual([
+      "2026-08-30T03:00:20.000Z",
+      "2026-08-30T03:00:40.000Z",
+    ]);
+    expect(new Set(settled.map((row) => row.id))).toEqual(new Set(jobs.map((job) => job.id)));
+    await connection.close();
+  });
+
+  it.each(["success", "failure", "exception"] as const)(
+    "rejects a %s outcome after fresh-time lease expiry",
+    async (outcome) => {
+      const { connection, jobs } = await setupInquiry(`late-${outcome}`);
+      const job = jobs[0]!;
+      await connection.db.update(notificationOutbox).set({ nextAttemptAt: new Date(0) })
+        .where(eq(notificationOutbox.id, job.id));
+      const transport: CaptureEmailTransport = {
+        kind: "capture_only",
+        capture: async () => {
+          if (outcome === "exception") throw new Error("Synthetic late transport detail");
+          return outcome === "success"
+            ? { outcome: "success" }
+            : { outcome: "failure", errorClass: "Synthetic_late_failure" };
+        },
+      };
+      const clock = sequenceClock(
+        "2026-08-30T03:30:00.000Z",
+        "2026-08-30T03:32:00.000Z",
+      );
+      await expect(deliverNotificationOutboxJob(connection.db, transport, job.id, {
+        policy,
+        workerId: `late-${outcome}-worker`,
+        clock: clock.clock,
+      })).resolves.toBe(false);
+      expect(clock.calls()).toBe(2);
+      expect((await connection.db.select().from(notificationOutbox)
+        .where(eq(notificationOutbox.id, job.id)))[0]).toMatchObject({
+        status: "processing",
+        attempts: 1,
+        attemptCount: 1,
+        processedAt: null,
+      });
+      await connection.close();
+    },
+  );
+
+  it("derives retry backoff from the fresh failure time", async () => {
+    const { connection, jobs } = await setupInquiry("fresh-backoff");
+    const job = jobs[0]!;
+    await connection.db.update(notificationOutbox).set({ nextAttemptAt: new Date(0) })
+      .where(eq(notificationOutbox.id, job.id));
+    const clock = sequenceClock(
+      "2026-08-30T03:40:00.000Z",
+      "2026-08-30T03:40:30.000Z",
+    );
+    await expect(deliverNotificationOutboxJob(
+      connection.db,
+      new InMemoryCaptureEmailTransport({ outcome: "failure", errorClass: "Synthetic" }),
+      job.id,
+      { policy, workerId: "fresh-backoff-worker", clock: clock.clock },
+    )).resolves.toBe(false);
+    expect((await connection.db.select().from(notificationOutbox)
+      .where(eq(notificationOutbox.id, job.id)))[0]).toMatchObject({
+      status: "failed",
+      nextAttemptAt: new Date("2026-08-30T03:41:30.000Z"),
+    });
+    await connection.close();
+  });
+
   it("records uncertain first attempt as bounded Failed with deterministic backoff", async () => {
     const { connection, jobs } = await setupInquiry("uncertain");
     const job = jobs[0]!;
@@ -243,7 +527,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, uncertain, job.id, {
       policy,
       workerId: "uncertain-worker",
-      now: attemptedAt,
+      clock: () => new Date(attemptedAt),
     })).resolves.toBe(false);
     const [row] = await connection.db.select().from(notificationOutbox)
       .where(eq(notificationOutbox.id, job.id));
@@ -295,7 +579,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, fenceLosingTransport, job.id, {
       policy,
       workerId: "first-worker",
-      now: new Date("2026-08-30T03:00:00.000Z"),
+      clock: () => new Date("2026-08-30T03:00:00.000Z"),
     })).resolves.toBe(false);
     await connection.db.update(notificationOutbox).set({ leaseExpiresAt: new Date(0) })
       .where(eq(notificationOutbox.id, job.id));
@@ -303,7 +587,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, recovery, job.id, {
       policy,
       workerId: "recovery-worker",
-      now: new Date("2026-08-30T03:02:00.000Z"),
+      clock: () => new Date("2026-08-30T03:02:00.000Z"),
     })).resolves.toBe(true);
     expect([capturedIds[0], recovery.captured[0]?.messageId]).toEqual([
       recovery.captured[0]?.messageId,
@@ -364,7 +648,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await deliverNotificationOutboxJob(connection.db, oldTransport, oldCustomer.id, {
       policy,
       workerId: "old-snapshot-worker",
-      now: new Date("2026-08-30T04:00:00.000Z"),
+      clock: () => new Date("2026-08-30T04:00:00.000Z"),
     });
     const newCustomerJob = (await connection.db.select().from(notificationOutbox).where(eq(
       notificationOutbox.aggregateId,
@@ -374,7 +658,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await deliverNotificationOutboxJob(connection.db, newTransport, newCustomerJob.id, {
       policy,
       workerId: "new-snapshot-worker",
-      now: new Date("2026-08-30T04:00:00.000Z"),
+      clock: () => new Date("2026-08-30T04:00:00.000Z"),
     });
     expect(oldTransport.captured[0]?.subject).toMatch(/^We received your CloudWave Textile inquiry/);
     expect(newTransport.captured[0]?.subject).toMatch(/^CUSTOM ACTIVE/);
@@ -383,11 +667,11 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await connection.close();
   });
 
-  it("delivers only a strict active pre-cutover legacy internal row", async () => {
+  it("delivers an exact active legacy internal row regardless of its timestamp", async () => {
     const { connection, inquiry, jobs } = await setupInquiry("legacy");
     const internal = jobs.find((job) => job.kind === "inquiry_notification")!;
     await connection.db.update(notificationOutbox).set({
-      createdAt: new Date("2026-08-29T23:59:59.000Z"),
+      createdAt: new Date("2036-08-30T00:00:00.000Z"),
       payload: {
         inquiryId: inquiry.inquiryId,
         name: "Synthetic Outbox Buyer",
@@ -402,30 +686,30 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, transport, internal.id, {
       policy,
       workerId: "legacy-worker",
-      now: new Date("2026-08-30T05:00:00.000Z"),
+      clock: () => new Date("2036-08-30T00:01:00.000Z"),
     })).resolves.toBe(true);
     expect(transport.captured).toHaveLength(1);
     expect(transport.captured[0]?.subject).toMatch(/^New CWT inquiry/);
     await connection.close();
   });
 
-  it("rejects direct-DB polluted post-cutover payload without transport", async () => {
+  it("rejects a direct-DB polluted legacy-shaped payload without transport", async () => {
     const { connection, inquiry, jobs } = await setupInquiry("polluted");
     const internal = jobs.find((job) => job.kind === "inquiry_notification")!;
     await connection.db.update(notificationOutbox).set({
-      createdAt: new Date("2026-08-30T00:00:00.000Z"),
       payload: {
         inquiryId: inquiry.inquiryId,
         name: "Polluted Buyer",
         email: "polluted@example.test",
         attachmentCount: 0,
+        schema_version: 1,
       },
     }).where(eq(notificationOutbox.id, internal.id));
     const transport = new InMemoryCaptureEmailTransport();
     await expect(deliverNotificationOutboxJob(connection.db, transport, internal.id, {
       policy,
       workerId: "pollution-worker",
-      now: new Date("2026-08-30T05:00:00.000Z"),
+      clock: () => new Date("2026-08-30T05:00:00.000Z"),
     })).resolves.toBe(false);
     expect(transport.captured).toHaveLength(0);
     const [row] = await connection.db.select().from(notificationOutbox)

@@ -5,7 +5,6 @@ import type { ResolvedEmailTemplate } from "@/email-templates/service";
 
 import {
   createNotificationOutboxPayloadV1,
-  NOTIFICATION_OUTBOX_V1_CUTOVER_AT,
   notificationOutboxPayloadV1Schema,
   parseNotificationOutboxPayload,
   templateFromNotificationSnapshot,
@@ -79,7 +78,6 @@ describe("strict PII-minimized Notification Outbox payload", () => {
     expect(() => parseNotificationOutboxPayload({
       kind: "inquiry_customer_confirmation",
       payload,
-      createdAt: new Date(),
       status: "pending",
     })).toThrow(/kind.*match/i);
     expect(() => notificationOutboxPayloadV1Schema.parse({
@@ -100,12 +98,11 @@ describe("strict PII-minimized Notification Outbox payload", () => {
           canonical_sha256: "0".repeat(64),
         },
       },
-      createdAt: new Date(),
       status: "pending",
     })).toThrow(/hash/i);
   });
 
-  it("accepts legacy only for active pre-cutover internal rows and never as a new writer", () => {
+  it("accepts only exact active legacy internal rows without calendar authority", () => {
     const legacy = {
       inquiryId,
       name: "Synthetic Legacy Buyer",
@@ -115,16 +112,17 @@ describe("strict PII-minimized Notification Outbox payload", () => {
       description: "Synthetic legacy body.",
       attachmentCount: 0,
     };
-    expect(parseNotificationOutboxPayload({
-      kind: "inquiry_notification",
-      payload: legacy,
-      createdAt: new Date(NOTIFICATION_OUTBOX_V1_CUTOVER_AT.getTime() - 1),
-      status: "failed",
-    }).format).toBe("legacy_internal");
+    for (const status of ["pending", "processing", "failed"] as const) {
+      expect(parseNotificationOutboxPayload({
+        kind: "inquiry_notification",
+        payload: legacy,
+        status,
+      }).format).toBe("legacy_internal");
+    }
     for (const rejected of [
-      { kind: "inquiry_customer_confirmation", createdAt: new Date(0), status: "pending" },
-      { kind: "inquiry_notification", createdAt: NOTIFICATION_OUTBOX_V1_CUTOVER_AT, status: "pending" },
-      { kind: "inquiry_notification", createdAt: new Date(0), status: "sent" },
+      { kind: "inquiry_customer_confirmation", status: "pending" },
+      { kind: "inquiry_notification", status: "sent" },
+      { kind: "inquiry_notification", status: "dead" },
     ]) {
       expect(() => parseNotificationOutboxPayload({ ...rejected, payload: legacy }))
         .toThrow(/supported version/i);
@@ -132,9 +130,19 @@ describe("strict PII-minimized Notification Outbox payload", () => {
     expect(() => parseNotificationOutboxPayload({
       kind: "inquiry_notification",
       payload: { ...legacy, unknown: true },
-      createdAt: new Date(0),
       status: "pending",
     })).toThrow();
+    for (const polluted of [
+      { ...legacy, schema_version: 1 },
+      { ...legacy, schema_version: 2 },
+      { schema_version: 2, inquiry_id: inquiryId },
+    ]) {
+      expect(() => parseNotificationOutboxPayload({
+        kind: "inquiry_notification",
+        payload: polluted,
+        status: "pending",
+      })).toThrow();
+    }
     expect(createNotificationOutboxPayloadV1({
       inquiryId,
       kind: "inquiry_notification",

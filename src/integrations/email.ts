@@ -106,11 +106,17 @@ function safeBody(textBody: string): string {
   return value;
 }
 
-export function exactlyOneLeadingPrefix(subject: string, marker: "TEST" | "STAGING"): string {
+export function canonicalReservedSubjectPrefixes(
+  subject: string,
+  required: readonly ("STAGING" | "TEST")[],
+): string {
+  if (required.length === 0) return subject;
   const normalized = subject.trimStart();
-  const exact = marker === "TEST" ? /^(?:\[TEST\]\s*)+/ : /^(?:\[STAGING\]\s*)+/;
-  const unprefixed = normalized.replace(exact, "").trimStart();
-  return unprefixed.length === 0 ? `[${marker}]` : `[${marker}] ${unprefixed}`;
+  const unprefixed = normalized
+    .replace(/^(?:(?:\[TEST\]|\[STAGING\])\s*)+/, "")
+    .trimStart();
+  const prefix = required.map((marker) => `[${marker}]`).join(" ");
+  return unprefixed.length === 0 ? prefix : `${prefix} ${unprefixed}`;
 }
 
 export function deliveryKeyMessageId(deliveryKey: string): string {
@@ -152,13 +158,15 @@ export function buildTrustedEmailEnvelope(input: {
   let cc = (input.logicalCc ?? []).map((value) => safeAddressSchema.parse(value));
   let bcc = (input.logicalBcc ?? []).map((value) => safeAddressSchema.parse(value));
   let subject = safeSubject(input.subject);
-  if (input.isTestSend) subject = exactlyOneLeadingPrefix(subject, "TEST");
+  const requiredSubjectPrefixes: ("STAGING" | "TEST")[] = [];
   if (input.policy.environment === "staging") {
     to = TEMPLATE_TEST_RECIPIENT;
     cc = cc.length === 0 ? [] : [TEMPLATE_TEST_RECIPIENT];
     bcc = bcc.length === 0 ? [] : [TEMPLATE_TEST_RECIPIENT];
-    subject = exactlyOneLeadingPrefix(subject, "STAGING");
+    requiredSubjectPrefixes.push("STAGING");
   }
+  if (input.isTestSend) requiredSubjectPrefixes.push("TEST");
+  subject = canonicalReservedSubjectPrefixes(subject, requiredSubjectPrefixes);
   return Object.freeze({
     from: TRUSTED_EMAIL_FROM,
     replyTo: TRUSTED_EMAIL_REPLY_TO,

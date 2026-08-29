@@ -37,10 +37,26 @@ import type { EmailEnvelopePolicy } from "../src/integrations/email";
 import {
   claimNotificationOutboxJob,
   deliverNotificationOutboxJob,
+  deliverPendingNotificationOutbox,
+  listDueNotificationOutboxJobIds,
+  OUTBOX_MAX_ATTEMPTS,
 } from "../src/integrations/notification-outbox";
 import { parseNotificationOutboxPayload } from "../src/integrations/notification-outbox-payload";
 
 const databasePrefix = "cwt_s5f1_synthetic_";
+
+function sequenceClock(...instants: readonly string[]) {
+  let index = 0;
+  return {
+    clock: () => {
+      const instant = instants[index];
+      if (!instant) throw new Error(`Synthetic PostgreSQL clock exhausted at ${index + 1}.`);
+      index += 1;
+      return new Date(instant);
+    },
+    calls: () => index,
+  };
+}
 
 type Journal = {
   version: string;
@@ -553,7 +569,7 @@ async function verifyOutboxConvergence(
     assert.equal(await deliverNotificationOutboxJob(connection.db, capture, job.id, {
       policy,
       workerId: `postgres-delivery-${job.kind}`,
-      now: new Date("2026-08-30T06:02:00.000Z"),
+      clock: () => new Date("2026-08-30T06:02:00.000Z"),
     }), true);
   }
   assert.equal(capture.captured.length, 2);
@@ -579,6 +595,474 @@ async function verifyOutboxConvergence(
     claim: "job-ID two-kind simultaneous claim and same-row fencing",
     render: "both kinds captured with stable Message-ID and no private-file load",
     queryPlan: "notification_outbox_delivery_idx",
+  };
+}
+
+async function verifyOutboxRemediation(
+  connection: Extract<DatabaseConnection, { kind: "postgres" }>,
+): Promise<Record<string, unknown>> {
+  const policy: EmailEnvelopePolicy = {
+    environment: "test",
+    applicationOrigin: "http://localhost:3000",
+    emailDriver: "log",
+    emailFrom: "",
+    internalRecipient: "info@cwtextile.com",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: "",
+    smtpPassword: "",
+    databaseDriver: "postgres",
+    monitoringDriver: "log",
+  };
+
+  async function createProbe(suffix: string) {
+    const created = await createInquiry(connection.db, {
+      idempotencyKey: `postgres-f4-r1-${suffix}-0001`,
+      name: `Synthetic PostgreSQL ${suffix} Buyer`,
+      email: `postgres-f4-r1-${suffix}@example.test`,
+      description: `Synthetic PostgreSQL ${suffix} evidence.`,
+      sourcePagePath: "/get-quote/",
+    });
+    const jobs = await connection.db.select().from(schema.notificationOutbox)
+      .where(eq(schema.notificationOutbox.aggregateId, created.inquiryId));
+    const internal = jobs.find((job) => job.kind === "inquiry_notification");
+    const customer = jobs.find((job) => job.kind === "inquiry_customer_confirmation");
+    assert.ok(internal && customer);
+    return { created, internal, customer };
+  }
+
+  function legacyPayload(inquiryId: string) {
+    return {
+      inquiryId,
+      name: "Synthetic PostgreSQL Legacy Buyer",
+      email: "postgres-legacy@example.test",
+      countryCode: "CN",
+      whatsapp: null,
+      description: "Synthetic strict historical payload.",
+      attachmentCount: 0,
+    };
+  }
+
+  const legacyCapture = new InMemoryCaptureEmailTransport();
+  for (const [suffix, createdAt, deliveryAt] of [
+    ["legacy-before", "2026-08-29T23:59:59.999Z", "2026-08-30T00:01:00.000Z"],
+    ["legacy-at", "2026-08-30T00:00:00.000Z", "2026-08-30T00:02:00.000Z"],
+    ["legacy-after", "2036-08-30T00:00:00.000Z", "2036-08-30T00:01:00.000Z"],
+  ] as const) {
+    const probe = await createProbe(suffix);
+    await connection.db.update(schema.notificationOutbox).set({
+      payload: legacyPayload(probe.created.inquiryId),
+      createdAt: new Date(createdAt),
+      nextAttemptAt: new Date(0),
+    }).where(eq(schema.notificationOutbox.id, probe.internal.id));
+    assert.equal(await deliverNotificationOutboxJob(
+      connection.db,
+      legacyCapture,
+      probe.internal.id,
+      {
+        policy,
+        workerId: `postgres-${suffix}-worker`,
+        clock: () => new Date(deliveryAt),
+      },
+    ), true);
+  }
+  assert.equal(legacyCapture.captured.length, 3);
+
+  const rejectedCapture = new InMemoryCaptureEmailTransport();
+  const customerLegacy = await createProbe("legacy-customer-rejected");
+  await connection.db.update(schema.notificationOutbox).set({
+    payload: legacyPayload(customerLegacy.created.inquiryId),
+    nextAttemptAt: new Date(0),
+  }).where(eq(schema.notificationOutbox.id, customerLegacy.customer.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    rejectedCapture,
+    customerLegacy.customer.id,
+    { policy, clock: () => new Date("2036-08-30T01:00:00.000Z") },
+  ), false);
+
+  const pollutedLegacy = await createProbe("legacy-polluted-rejected");
+  await connection.db.update(schema.notificationOutbox).set({
+    payload: { ...legacyPayload(pollutedLegacy.created.inquiryId), schema_version: 1 },
+    nextAttemptAt: new Date(0),
+  }).where(eq(schema.notificationOutbox.id, pollutedLegacy.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    rejectedCapture,
+    pollutedLegacy.internal.id,
+    { policy, clock: () => new Date("2036-08-30T01:01:00.000Z") },
+  ), false);
+
+  const unsupportedVersion = await createProbe("legacy-version-rejected");
+  await connection.db.update(schema.notificationOutbox).set({
+    payload: { schema_version: 2, inquiry_id: unsupportedVersion.created.inquiryId },
+    nextAttemptAt: new Date(0),
+  }).where(eq(schema.notificationOutbox.id, unsupportedVersion.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    rejectedCapture,
+    unsupportedVersion.internal.id,
+    { policy, clock: () => new Date("2036-08-30T01:02:00.000Z") },
+  ), false);
+
+  const terminalLegacy = await createProbe("legacy-terminal-rejected");
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "sent",
+    payload: legacyPayload(terminalLegacy.created.inquiryId),
+    nextAttemptAt: new Date(0),
+  }).where(eq(schema.notificationOutbox.id, terminalLegacy.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    rejectedCapture,
+    terminalLegacy.internal.id,
+    { policy, clock: () => new Date("2036-08-30T01:03:00.000Z") },
+  ), false);
+  assert.equal(rejectedCapture.captured.length, 0);
+
+  await connection.db.update(schema.notificationOutbox).set({
+    nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+  });
+  const attemptsProbe = await createProbe("attempt-matrix");
+  await connection.db.update(schema.notificationOutbox).set({
+    nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.customer.id));
+  for (let attempt = 0; attempt < OUTBOX_MAX_ATTEMPTS; attempt += 1) {
+    const now = new Date(`2036-08-30T02:0${attempt}:00.000Z`);
+    await connection.db.update(schema.notificationOutbox).set({
+      status: "pending",
+      attempts: attempt,
+      attemptCount: attempt,
+      nextAttemptAt: new Date(0),
+      lockedAt: null,
+      lockedBy: null,
+      leaseExpiresAt: null,
+      processedAt: null,
+    }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+    assert.ok((await listDueNotificationOutboxJobIds(connection.db, now))
+      .includes(attemptsProbe.internal.id));
+    const claimed = await claimNotificationOutboxJob(
+      connection.db,
+      attemptsProbe.internal.id,
+      `postgres-attempt-${attempt}`,
+      now,
+    );
+    assert.equal(claimed?.attempts, attempt + 1);
+    assert.equal(claimed?.attemptCount, attempt + 1);
+  }
+
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "pending",
+    attempts: 4,
+    attemptCount: 4,
+    nextAttemptAt: new Date(0),
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  const fifthSuccess = new InMemoryCaptureEmailTransport();
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    fifthSuccess,
+    attemptsProbe.internal.id,
+    {
+      policy,
+      workerId: "postgres-fifth-success",
+      clock: () => new Date("2036-08-30T02:10:00.000Z"),
+    },
+  ), true);
+  const [sentAtFive] = await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.deepEqual(
+    { status: sentAtFive?.status, attempts: sentAtFive?.attempts, count: sentAtFive?.attemptCount },
+    { status: "sent", attempts: 5, count: 5 },
+  );
+
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "pending",
+    attempts: OUTBOX_MAX_ATTEMPTS,
+    attemptCount: OUTBOX_MAX_ATTEMPTS,
+    nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+    processedAt: null,
+    lastErrorCode: null,
+    lastError: null,
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  const exhaustedCapture = new InMemoryCaptureEmailTransport();
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    exhaustedCapture,
+    attemptsProbe.internal.id,
+    { policy, clock: () => new Date("2036-08-30T02:20:00.000Z") },
+  ), false);
+  const [pendingExhausted] = await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.deepEqual({
+    status: pendingExhausted?.status,
+    attempts: pendingExhausted?.attempts,
+    count: pendingExhausted?.attemptCount,
+    code: pendingExhausted?.lastErrorCode,
+    lock: pendingExhausted?.lockedBy,
+  }, {
+    status: "dead",
+    attempts: 5,
+    count: 5,
+    code: "outbox_attempts_exhausted",
+    lock: null,
+  });
+  assert.equal(exhaustedCapture.captured.length, 0);
+
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "failed",
+    attempts: OUTBOX_MAX_ATTEMPTS,
+    attemptCount: OUTBOX_MAX_ATTEMPTS,
+    nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+    processedAt: null,
+    lastErrorCode: null,
+    lastError: null,
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    exhaustedCapture,
+    attemptsProbe.internal.id,
+    { policy, clock: () => new Date("2036-08-30T02:20:30.000Z") },
+  ), false);
+  assert.equal((await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id)))[0]
+    ?.lastErrorCode, "outbox_attempts_exhausted");
+  assert.equal(exhaustedCapture.captured.length, 0);
+
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "pending",
+    attempts: 4,
+    attemptCount: 4,
+    nextAttemptAt: new Date(0),
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+    processedAt: null,
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    new InMemoryCaptureEmailTransport({ outcome: "failure", errorClass: "Synthetic" }),
+    attemptsProbe.internal.id,
+    { policy, clock: () => new Date("2036-08-30T02:21:00.000Z") },
+  ), false);
+  assert.equal((await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id)))[0]?.status, "dead");
+
+  const liveFifthAt = new Date("2036-08-30T02:30:00.000Z");
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "processing",
+    attempts: 5,
+    attemptCount: 5,
+    lockedAt: new Date(liveFifthAt.getTime() - 1_000),
+    lockedBy: "postgres-live-fifth",
+    leaseExpiresAt: new Date(liveFifthAt.getTime() + 1_000),
+    processedAt: null,
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    exhaustedCapture,
+    attemptsProbe.internal.id,
+    { policy, clock: () => new Date(liveFifthAt) },
+  ), false);
+  assert.deepEqual((await connection.db.select({
+    status: schema.notificationOutbox.status,
+    lockedBy: schema.notificationOutbox.lockedBy,
+  }).from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id)))[0], {
+    status: "processing",
+    lockedBy: "postgres-live-fifth",
+  });
+
+  const expiredAt = new Date(liveFifthAt.getTime() + 2_000);
+  const concurrentTerminalization = await Promise.all([
+    deliverNotificationOutboxJob(
+      connection.db,
+      exhaustedCapture,
+      attemptsProbe.internal.id,
+      { policy, workerId: "postgres-direct-terminalizer", clock: () => new Date(expiredAt) },
+    ),
+    deliverPendingNotificationOutbox(connection.db, exhaustedCapture, {
+      policy,
+      workerId: "postgres-batch-terminalizer",
+      clock: () => new Date(expiredAt),
+    }),
+  ]);
+  assert.equal(concurrentTerminalization[0], false);
+  assert.equal(exhaustedCapture.captured.length, 0);
+  const [expiredDead] = await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.deepEqual({
+    status: expiredDead?.status,
+    attempts: expiredDead?.attempts,
+    count: expiredDead?.attemptCount,
+    lockedBy: expiredDead?.lockedBy,
+    lease: expiredDead?.leaseExpiresAt,
+  }, { status: "dead", attempts: 5, count: 5, lockedBy: null, lease: null });
+  assert.equal((await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.customer.id)))[0]?.status, "pending");
+
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "failed",
+    attempts: 4,
+    attemptCount: 5,
+    nextAttemptAt: new Date(0),
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+    processedAt: null,
+  }).where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    exhaustedCapture,
+    attemptsProbe.internal.id,
+    { policy, clock: () => new Date("2036-08-30T02:40:00.000Z") },
+  ), false);
+  assert.deepEqual((await connection.db.select({
+    status: schema.notificationOutbox.status,
+    attempts: schema.notificationOutbox.attempts,
+    attemptCount: schema.notificationOutbox.attemptCount,
+  }).from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, attemptsProbe.internal.id)))[0], {
+    status: "failed",
+    attempts: 4,
+    attemptCount: 5,
+  });
+
+  await connection.db.update(schema.notificationOutbox).set({
+    nextAttemptAt: new Date("2099-01-01T00:00:00.000Z"),
+  });
+  const batchProbe = await createProbe("fresh-clock-batch");
+  await connection.db.update(schema.notificationOutbox).set({ nextAttemptAt: new Date(0) })
+    .where(eq(schema.notificationOutbox.aggregateId, batchProbe.created.inquiryId));
+  const batchClock = sequenceClock(
+    "2036-08-30T03:00:00.000Z",
+    "2036-08-30T03:00:10.000Z",
+    "2036-08-30T03:00:20.000Z",
+    "2036-08-30T03:00:30.000Z",
+    "2036-08-30T03:00:40.000Z",
+  );
+  const observedLeases: string[] = [];
+  const batchTransport = {
+    kind: "capture_only" as const,
+    capture: async () => {
+      const [processing] = await connection.db.select({
+        leaseExpiresAt: schema.notificationOutbox.leaseExpiresAt,
+      }).from(schema.notificationOutbox).where(and(
+        eq(schema.notificationOutbox.status, "processing"),
+        eq(schema.notificationOutbox.lockedBy, "postgres-fresh-clock-worker"),
+      )).limit(1);
+      assert.ok(processing?.leaseExpiresAt);
+      observedLeases.push(processing.leaseExpiresAt.toISOString());
+      return { outcome: "success" as const };
+    },
+  };
+  assert.deepEqual(await deliverPendingNotificationOutbox(
+    connection.db,
+    batchTransport,
+    {
+      policy,
+      workerId: "postgres-fresh-clock-worker",
+      clock: batchClock.clock,
+    },
+  ), { attempted: 2, sent: 2 });
+  assert.equal(batchClock.calls(), 5);
+  assert.deepEqual(observedLeases, [
+    "2036-08-30T03:01:10.000Z",
+    "2036-08-30T03:01:30.000Z",
+  ]);
+  const batchRows = await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.aggregateId, batchProbe.created.inquiryId));
+  assert.deepEqual(batchRows.map((row) => row.processedAt?.toISOString()).sort(), [
+    "2036-08-30T03:00:20.000Z",
+    "2036-08-30T03:00:40.000Z",
+  ]);
+
+  const lateResults: Record<string, string> = {};
+  for (const outcome of ["success", "failure", "exception"] as const) {
+    const probe = await createProbe(`late-${outcome}`);
+    await connection.db.update(schema.notificationOutbox).set({
+      nextAttemptAt: new Date(0),
+    }).where(eq(schema.notificationOutbox.id, probe.internal.id));
+    const lateClock = sequenceClock(
+      "2036-08-30T03:30:00.000Z",
+      "2036-08-30T03:32:00.000Z",
+    );
+    const lateTransport = {
+      kind: "capture_only" as const,
+      capture: async () => {
+        if (outcome === "exception") throw new Error("Synthetic PostgreSQL late detail");
+        return outcome === "success"
+          ? { outcome: "success" as const }
+          : { outcome: "failure" as const, errorClass: "Synthetic_late_failure" };
+      },
+    };
+    assert.equal(await deliverNotificationOutboxJob(
+      connection.db,
+      lateTransport,
+      probe.internal.id,
+      { policy, workerId: `postgres-late-${outcome}`, clock: lateClock.clock },
+    ), false);
+    assert.equal(lateClock.calls(), 2);
+    const [lateRow] = await connection.db.select().from(schema.notificationOutbox)
+      .where(eq(schema.notificationOutbox.id, probe.internal.id));
+    assert.deepEqual({
+      status: lateRow?.status,
+      attempts: lateRow?.attempts,
+      count: lateRow?.attemptCount,
+      processedAt: lateRow?.processedAt,
+    }, { status: "processing", attempts: 1, count: 1, processedAt: null });
+    lateResults[outcome] = "fenced after fresh-time lease expiry";
+  }
+
+  const backoffProbe = await createProbe("fresh-backoff");
+  await connection.db.update(schema.notificationOutbox).set({ nextAttemptAt: new Date(0) })
+    .where(eq(schema.notificationOutbox.id, backoffProbe.internal.id));
+  const backoffClock = sequenceClock(
+    "2036-08-30T04:00:00.000Z",
+    "2036-08-30T04:00:30.000Z",
+  );
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    new InMemoryCaptureEmailTransport({ outcome: "failure", errorClass: "Synthetic" }),
+    backoffProbe.internal.id,
+    { policy, workerId: "postgres-fresh-backoff", clock: backoffClock.clock },
+  ), false);
+  assert.equal((await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, backoffProbe.internal.id)))[0]
+    ?.nextAttemptAt.toISOString(), "2036-08-30T04:01:30.000Z");
+
+  const currentTimeProbe = await createProbe("current-time-default");
+  await connection.db.update(schema.notificationOutbox).set({ nextAttemptAt: new Date(0) })
+    .where(eq(schema.notificationOutbox.id, currentTimeProbe.internal.id));
+  assert.equal(await deliverNotificationOutboxJob(
+    connection.db,
+    new InMemoryCaptureEmailTransport(),
+    currentTimeProbe.internal.id,
+    { policy, workerId: "postgres-current-time-default" },
+  ), true);
+  assert.ok((await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.id, currentTimeProbe.internal.id)))[0]?.processedAt);
+
+  return {
+    legacyCompatibility:
+      "strict internal legacy rows before/at/after deleted date delivered; customer/terminal/polluted/version rows rejected",
+    attempts:
+      "0..5 matrix, fifth success/failure, pending and expired-fifth Dead, concurrent direct/batch terminalization, zero sixth capture",
+    counterMismatch: "failed closed without repair or transport",
+    sibling: "customer job remained pending and unchanged",
+    freshClock: {
+      calls: batchClock.calls(),
+      leases: observedLeases,
+      settlements: batchRows.map((row) => row.processedAt?.toISOString()).sort(),
+      lateResults,
+      backoff: "2036-08-30T04:01:30.000Z",
+      defaultClock: "current-time delivery settled successfully",
+    },
   };
 }
 
@@ -889,6 +1373,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
 
     const templateAuthority = await verifyTemplateAuthority(connection);
     const outboxConvergence = await verifyOutboxConvergence(connection, client);
+    const outboxRemediation = await verifyOutboxRemediation(connection);
 
     return {
       columns: columns.map((row) => row.column_name),
@@ -904,6 +1389,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       indexPlan: "inquiries_source_entity_idx",
       templateAuthority,
       outboxConvergence,
+      outboxRemediation,
     };
   } finally {
     await client.end();

@@ -67,14 +67,6 @@ export type LegacyInquiryNotificationPayload = z.infer<
   typeof legacyInquiryNotificationPayloadSchema
 >;
 
-/**
- * Code cutover boundary for the read-only legacy parser. New code never writes
- * the legacy shape, and rows at or after this instant cannot invoke it.
- */
-export const NOTIFICATION_OUTBOX_V1_CUTOVER_AT = new Date(
-  "2026-08-30T00:00:00.000Z",
-);
-
 export type ParsedNotificationOutboxPayload =
   | Readonly<{ format: "v1"; value: NotificationOutboxPayloadV1 }>
   | Readonly<{ format: "legacy_internal"; value: LegacyInquiryNotificationPayload }>;
@@ -97,7 +89,6 @@ function validateSnapshotTemplate(
 export function parseNotificationOutboxPayload(input: {
   readonly kind: string;
   readonly payload: unknown;
-  readonly createdAt: Date;
   readonly status: string;
 }): ParsedNotificationOutboxPayload {
   if (input.kind !== "inquiry_notification" &&
@@ -114,8 +105,7 @@ export function parseNotificationOutboxPayload(input: {
   }
   if (
     input.kind !== "inquiry_notification" ||
-    !["pending", "processing", "failed"].includes(input.status) ||
-    input.createdAt.getTime() >= NOTIFICATION_OUTBOX_V1_CUTOVER_AT.getTime()
+    !["pending", "processing", "failed"].includes(input.status)
   ) {
     throw new Error("Notification Outbox payload is not a supported version.");
   }

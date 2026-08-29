@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   assertProductionEmailPolicy,
   buildTrustedEmailEnvelope,
+  canonicalReservedSubjectPrefixes,
   createEmailTransport,
   dispatchTrustedEmail,
-  exactlyOneLeadingPrefix,
   InMemoryCaptureEmailTransport,
   TEMPLATE_TEST_RECIPIENT,
   type EmailEnvelopePolicy,
@@ -35,20 +35,43 @@ function policy(
 
 describe("central trusted email envelope and transport policy", () => {
   it.each([
-    ["   [TEST] [TEST] Subject", "[TEST] Subject"],
-    ["[TEST] [TEST]", "[TEST]"],
-    ["[test] Subject", "[TEST] [test] Subject"],
-  ] as const)("normalizes exact uppercase markers in %j", (subject, expected) => {
-    expect(exactlyOneLeadingPrefix(subject, "TEST")).toBe(expected);
+    ["   [TEST] [STAGING] [TEST] Subject", ["TEST"], "[TEST] Subject"],
+    ["[STAGING] [TEST] [STAGING] Subject", ["STAGING"], "[STAGING] Subject"],
+    ["[TEST] [STAGING] [TEST]", ["STAGING", "TEST"], "[STAGING] [TEST]"],
+    ["[STAGING] [TEST] Subject", ["STAGING", "TEST"], "[STAGING] [TEST] Subject"],
+    ["[test] [Staging] Subject", ["TEST"], "[TEST] [test] [Staging] Subject"],
+  ] as const)("normalizes the complete exact reserved-marker set in %j", (
+    subject,
+    required,
+    expected,
+  ) => {
+    expect(canonicalReservedSubjectPrefixes(subject, required)).toBe(expected);
   });
 
-  it("replaces every Staging recipient field completely and prefixes in [STAGING] [TEST] order", () => {
+  it("leaves an ordinary subject unchanged when no policy prefix is required", () => {
+    const subject = "   [TEST] [STAGING] Authored subject";
+    expect(buildTrustedEmailEnvelope({
+      policy: policy("test"),
+      logicalTo: "synthetic@example.test",
+      subject,
+      textBody: "Synthetic body.",
+      deliveryKey: "ordinary:subject",
+    }).subject).toBe(subject);
+  });
+
+  it.each([
+    ["[TEST] [STAGING] Synthetic", "[STAGING] [TEST] Synthetic"],
+    ["[STAGING] [TEST] Synthetic", "[STAGING] [TEST] Synthetic"],
+    ["[STAGING] [STAGING] [TEST] Synthetic", "[STAGING] [TEST] Synthetic"],
+    ["   [TEST] [STAGING] [TEST]", "[STAGING] [TEST]"],
+    ["[test] [Staging] Synthetic", "[STAGING] [TEST] [test] [Staging] Synthetic"],
+  ])("replaces every Staging recipient and canonically prefixes %j", (subject, expected) => {
     const envelope = buildTrustedEmailEnvelope({
       policy: policy("staging"),
       logicalTo: "logical-to@example.test",
       logicalCc: ["logical-cc-a@example.test", "logical-cc-b@example.test"],
       logicalBcc: ["logical-bcc@example.test"],
-      subject: "[TEST] [TEST] Synthetic",
+      subject,
       textBody: "Synthetic body.",
       deliveryKey: "staging:test:key",
       isTestSend: true,
@@ -57,9 +80,29 @@ describe("central trusted email envelope and transport policy", () => {
       to: TEMPLATE_TEST_RECIPIENT,
       cc: [TEMPLATE_TEST_RECIPIENT],
       bcc: [TEMPLATE_TEST_RECIPIENT],
-      subject: "[STAGING] [TEST] Synthetic",
+      subject: expected,
     });
     expect(JSON.stringify(envelope)).not.toContain("logical-");
+    const rebuilt = buildTrustedEmailEnvelope({
+      policy: policy("staging"),
+      logicalTo: "logical-to@example.test",
+      subject: envelope.subject,
+      textBody: envelope.textBody,
+      deliveryKey: "staging:test:key",
+      isTestSend: true,
+    });
+    expect(rebuilt.subject).toBe(expected);
+  });
+
+  it("applies exactly one Staging-only marker through the ordinary envelope path", () => {
+    const envelope = buildTrustedEmailEnvelope({
+      policy: policy("staging"),
+      logicalTo: "logical-to@example.test",
+      subject: " [TEST] [STAGING] [TEST] Synthetic",
+      textBody: "Synthetic body.",
+      deliveryKey: "staging:ordinary:key",
+    });
+    expect(envelope.subject).toBe("[STAGING] Synthetic");
   });
 
   it.each([

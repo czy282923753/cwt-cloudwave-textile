@@ -33,8 +33,11 @@ describe("capture-only Email Template test send", () => {
   it.each([
     ["   [TEST] [TEST] Synthetic {{inquiry_reference}}", "[TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
     ["[TEST] [TEST] Synthetic {{inquiry_reference}}", "[TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
+    ["[STAGING] [TEST] [STAGING] Synthetic {{inquiry_reference}}", "[TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
+    ["[TEST] [STAGING] [TEST] Synthetic {{inquiry_reference}}", "[TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
     ["[test] Synthetic {{inquiry_reference}}", "[TEST] [test] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
-    ["[TEST] [TEST]", "[TEST]"],
+    ["[Staging] Synthetic {{inquiry_reference}}", "[TEST] [Staging] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
+    ["[TEST] [STAGING] [TEST]", "[TEST]"],
   ])("normalizes the test-send subject %j to exactly one uppercase marker", async (subjectSource, expected) => {
     const test = await setup(subjectSource);
     const transport = new InMemoryCaptureEmailTransport();
@@ -45,6 +48,23 @@ describe("capture-only Email Template test send", () => {
     }, transport);
     expect(transport.captured[0]?.subject).toBe(expected);
     expect(transport.captured[0]?.subject.match(/\[TEST\]/g)).toHaveLength(1);
+    await test.connection.close();
+  });
+
+  it.each([
+    "[TEST] [STAGING] Synthetic {{inquiry_reference}}",
+    "[STAGING] [TEST] Synthetic {{inquiry_reference}}",
+    "[STAGING] [STAGING] [TEST] Synthetic {{inquiry_reference}}",
+  ])("uses canonical Staging test-send prefix order for %j", async (subjectSource) => {
+    const test = await setup(subjectSource);
+    const transport = new InMemoryCaptureEmailTransport();
+    await sendSyntheticEmailTemplateTest(test.connection.db, test.admin, {
+      templateKind: "inquiry_customer_confirmation",
+      revisionId: test.draft.revisionId,
+      environment: "staging",
+    }, transport);
+    expect(transport.captured[0]?.subject)
+      .toBe("[STAGING] [TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA");
     await test.connection.close();
   });
 
