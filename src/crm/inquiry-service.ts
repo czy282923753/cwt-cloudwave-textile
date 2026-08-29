@@ -5,6 +5,7 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { writeAuditLog } from "@/audit/service";
 import type { GovernedMutationOptions } from "@/audit/governed-mutation";
 import type { Actor } from "@/catalog/product-service";
+import { env } from "@/config/env";
 import {
   assets,
   contacts,
@@ -24,6 +25,9 @@ import { reserveInquiryUploadTokensInTransaction } from "@/uploads/upload-intent
 
 import { requireInquiryRecordAccess } from "./authorization";
 import { normalizeOptionalCountryCode } from "./country-codes";
+import {
+  sanitizeInquiryAttribution,
+} from "./inquiry-attribution";
 
 type InquiryStatus = typeof inquiries.$inferSelect.status;
 
@@ -84,6 +88,10 @@ export interface CreateInquiryInput {
   lastNonDirectSource?: string | null;
   lastNonDirectMedium?: string | null;
   lastNonDirectCampaign?: string | null;
+  submitReferrer?: string | null;
+  submitUtmSource?: string | null;
+  submitUtmMedium?: string | null;
+  submitUtmCampaign?: string | null;
   attributionConfidence?: typeof inquiries.$inferInsert.attributionConfidence;
   analyticsConsentState?: typeof inquiries.$inferInsert.analyticsConsentState;
   sessionId?: string | null;
@@ -95,6 +103,18 @@ export interface InquirySubmissionResult {
   inquiryId: string;
   publicReference: string;
   replayed: boolean;
+  analyticsAttribution: Readonly<{
+    sourcePagePath: string;
+    landingPagePath: string | null;
+    referrer: string | null;
+    utmSource: string | null;
+    utmMedium: string | null;
+    utmCampaign: string | null;
+    lastNonDirectSource: string | null;
+    lastNonDirectMedium: string | null;
+    lastNonDirectCampaign: string | null;
+    attributionConfidence: "high" | "medium" | "low" | "unavailable";
+  }>;
 }
 
 export class InquiryIdempotencyConflictError extends Error {
@@ -106,7 +126,7 @@ export class InquiryIdempotencyConflictError extends Error {
   }
 }
 
-export const INQUIRY_REQUEST_FINGERPRINT_VERSION = 1;
+export const INQUIRY_REQUEST_FINGERPRINT_VERSION = 2;
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.normalize("NFC").trim() ?? "";
@@ -122,7 +142,7 @@ function digestAttachmentToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
-function canonicalInquiryInput(input: CreateInquiryInput) {
+function canonicalCoreInquiryInput(input: CreateInquiryInput) {
   const uploadTokens = [...(input.uploadTokens ?? [])];
   const assetIds = [...new Set(input.assetIds ?? [])].sort();
   if (uploadTokens.length > 0 && assetIds.length > 0) {
@@ -134,10 +154,6 @@ function canonicalInquiryInput(input: CreateInquiryInput) {
   const name = input.name.normalize("NFC").trim();
   const email = normalizeContactEmail(input.email.normalize("NFC"));
   const description = normalizeMessage(input.description);
-  const sourcePagePath = normalizePath(input.sourcePagePath);
-  const landingPagePath = input.landingPagePath
-    ? normalizePath(input.landingPagePath)
-    : null;
   const sessionId = normalizeOptionalText(input.sessionId)?.toLowerCase() ?? null;
   const attachmentIdentity = uploadTokens.length
     ? uploadTokens.map(digestAttachmentToken).sort().map((digest) => `token:${digest}`)
@@ -148,8 +164,21 @@ function canonicalInquiryInput(input: CreateInquiryInput) {
     countryCode: normalizeOptionalCountryCode(input.countryCode),
     whatsapp: normalizeOptionalText(input.whatsapp),
     description,
-    sourcePagePath,
-    landingPagePath,
+    sessionId,
+    uploadTokens,
+    assetIds,
+    attachmentIdentity,
+  };
+}
+
+function canonicalInquiryInputV1(input: CreateInquiryInput) {
+  const core = canonicalCoreInquiryInput(input);
+  return {
+    ...core,
+    sourcePagePath: normalizePath(input.sourcePagePath),
+    landingPagePath: input.landingPagePath
+      ? normalizePath(input.landingPagePath)
+      : null,
     referrer: normalizeOptionalText(input.referrer),
     utmSource: normalizeOptionalText(input.utmSource),
     utmMedium: normalizeOptionalText(input.utmMedium),
@@ -158,15 +187,25 @@ function canonicalInquiryInput(input: CreateInquiryInput) {
     lastNonDirectMedium: normalizeOptionalText(input.lastNonDirectMedium),
     lastNonDirectCampaign: normalizeOptionalText(input.lastNonDirectCampaign),
     attributionConfidence: input.attributionConfidence ?? "unavailable",
-    sessionId,
-    uploadTokens,
-    assetIds,
-    attachmentIdentity,
   };
 }
 
-export function createInquiryRequestFingerprint(input: CreateInquiryInput): string {
-  const canonical = canonicalInquiryInput(input);
+function canonicalInquiryInputV2(input: CreateInquiryInput) {
+  const core = canonicalCoreInquiryInput(input);
+  const attribution = sanitizeInquiryAttribution(input, {
+    siteOrigin: env.NEXT_PUBLIC_SITE_URL,
+  });
+  return { ...core, ...attribution };
+}
+
+function digestFingerprint(version: number, orderedPayload: readonly unknown[]): string {
+  return createHash("sha256")
+    .update(`${version}\n${JSON.stringify(orderedPayload)}`, "utf8")
+    .digest("hex");
+}
+
+export function createInquiryRequestFingerprintV1(input: CreateInquiryInput): string {
+  const canonical = canonicalInquiryInputV1(input);
   const orderedPayload = [
     ["name", canonical.name],
     ["email", canonical.email],
@@ -185,9 +224,60 @@ export function createInquiryRequestFingerprint(input: CreateInquiryInput): stri
     ["attributionConfidence", canonical.attributionConfidence],
     ["attachments", canonical.attachmentIdentity],
   ] as const;
-  return createHash("sha256")
-    .update(`${INQUIRY_REQUEST_FINGERPRINT_VERSION}\n${JSON.stringify(orderedPayload)}`, "utf8")
-    .digest("hex");
+  return digestFingerprint(1, orderedPayload);
+}
+
+function createInquiryRequestFingerprintV2FromCanonical(
+  canonical: ReturnType<typeof canonicalInquiryInputV2>,
+): string {
+  const orderedPayload = [
+    ["name", canonical.name],
+    ["email", canonical.email],
+    ["countryCode", canonical.countryCode],
+    ["whatsapp", canonical.whatsapp],
+    ["description", canonical.description],
+    ["sourcePagePath", canonical.sourcePagePath],
+    ["landingPagePath", canonical.landingPagePath],
+    ["referrer", canonical.referrer],
+    ["utmSource", canonical.utmSource],
+    ["utmMedium", canonical.utmMedium],
+    ["utmCampaign", canonical.utmCampaign],
+    ["lastNonDirectSource", canonical.lastNonDirectSource],
+    ["lastNonDirectMedium", canonical.lastNonDirectMedium],
+    ["lastNonDirectCampaign", canonical.lastNonDirectCampaign],
+    ["attributionConfidence", canonical.attributionConfidence],
+    ["submitReferrer", canonical.submitReferrer],
+    ["submitUtmSource", canonical.submitUtmSource],
+    ["submitUtmMedium", canonical.submitUtmMedium],
+    ["submitUtmCampaign", canonical.submitUtmCampaign],
+    ["attachments", canonical.attachmentIdentity],
+  ] as const;
+  return digestFingerprint(2, orderedPayload);
+}
+
+export function createInquiryRequestFingerprintV2(input: CreateInquiryInput): string {
+  return createInquiryRequestFingerprintV2FromCanonical(canonicalInquiryInputV2(input));
+}
+
+export function createInquiryRequestFingerprint(input: CreateInquiryInput): string {
+  return createInquiryRequestFingerprintV2(input);
+}
+
+function publicAnalyticsAttribution(
+  canonical: InquirySubmissionResult["analyticsAttribution"],
+): InquirySubmissionResult["analyticsAttribution"] {
+  return {
+    sourcePagePath: canonical.sourcePagePath,
+    landingPagePath: canonical.landingPagePath,
+    referrer: canonical.referrer,
+    utmSource: canonical.utmSource,
+    utmMedium: canonical.utmMedium,
+    utmCampaign: canonical.utmCampaign,
+    lastNonDirectSource: canonical.lastNonDirectSource,
+    lastNonDirectMedium: canonical.lastNonDirectMedium,
+    lastNonDirectCampaign: canonical.lastNonDirectCampaign,
+    attributionConfidence: canonical.attributionConfidence,
+  };
 }
 
 export async function findInquiryReferenceByIdempotencyKey<
@@ -220,10 +310,9 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   input: CreateInquiryInput,
   options: GovernedMutationOptions = {},
 ): Promise<InquirySubmissionResult> {
-  const canonical = canonicalInquiryInput(input);
-  const { name, email, description } = canonical;
+  const core = canonicalCoreInquiryInput(input);
+  const { name, email, description } = core;
   const idempotencyKey = input.idempotencyKey.trim();
-  const requestFingerprint = createInquiryRequestFingerprint(input);
   if (!name || !email) throw new Error("Name and Email are required.");
   if (!idempotencyKey || idempotencyKey.length > 200) {
     throw new Error("A valid Idempotency Key is required.");
@@ -231,21 +320,37 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   const assertMatchingRequest = (
     existing: NonNullable<Awaited<ReturnType<typeof findInquiryReferenceByIdempotencyKey>>>,
   ): InquirySubmissionResult => {
-    if (
-      existing.requestFingerprintVersion !== INQUIRY_REQUEST_FINGERPRINT_VERSION ||
-      existing.requestFingerprint !== requestFingerprint
-    ) {
+    if (!existing.requestFingerprint?.match(/^[0-9a-f]{64}$/)) {
+      throw new InquiryIdempotencyConflictError();
+    }
+    let expectedFingerprint: string;
+    let replayAttribution: InquirySubmissionResult["analyticsAttribution"];
+    if (existing.requestFingerprintVersion === 1) {
+      const replayCanonical = canonicalInquiryInputV1(input);
+      expectedFingerprint = createInquiryRequestFingerprintV1(input);
+      replayAttribution = replayCanonical;
+    } else if (existing.requestFingerprintVersion === 2) {
+      const replayCanonical = canonicalInquiryInputV2(input);
+      expectedFingerprint = createInquiryRequestFingerprintV2FromCanonical(replayCanonical);
+      replayAttribution = replayCanonical;
+    } else {
+      throw new InquiryIdempotencyConflictError();
+    }
+    if (existing.requestFingerprint !== expectedFingerprint) {
       throw new InquiryIdempotencyConflictError();
     }
     return {
       inquiryId: existing.id,
       publicReference: existing.publicReference,
       replayed: true,
+      analyticsAttribution: publicAnalyticsAttribution(replayAttribution),
     };
   };
   const existing = await findInquiryReferenceByIdempotencyKey(db, idempotencyKey);
   if (existing) return assertMatchingRequest(existing);
-  if (!description && canonical.assetIds.length === 0 && canonical.uploadTokens.length === 0) {
+  const canonical = canonicalInquiryInputV2(input);
+  const requestFingerprint = createInquiryRequestFingerprintV2FromCanonical(canonical);
+  if (!description && core.assetIds.length === 0 && core.uploadTokens.length === 0) {
     throw new Error("Provide a description or upload at least one image.");
   }
 
@@ -351,6 +456,12 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         lastNonDirectSource: canonical.lastNonDirectSource,
         lastNonDirectMedium: canonical.lastNonDirectMedium,
         lastNonDirectCampaign: canonical.lastNonDirectCampaign,
+        submitReferrer: canonical.submitReferrer,
+        submitUtmSource: canonical.submitUtmSource,
+        submitUtmMedium: canonical.submitUtmMedium,
+        submitUtmCampaign: canonical.submitUtmCampaign,
+        sourceEntityType: null,
+        sourceEntityId: null,
         attributionConfidence: canonical.attributionConfidence,
         analyticsConsentState: input.analyticsConsentState ?? "unknown",
         sessionId: canonical.sessionId,
@@ -415,9 +526,17 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         status: "new",
         attachmentCount: assetIds.length,
         sourcePagePath: canonical.sourcePagePath,
+        ...(canonical.omissions.length > 0
+          ? { attributionOmissions: canonical.omissions }
+          : {}),
       },
     });
-      return { inquiryId, publicReference, replayed: false };
+      return {
+        inquiryId,
+        publicReference,
+        replayed: false,
+        analyticsAttribution: publicAnalyticsAttribution(canonical),
+      };
     });
   } catch (error) {
     const racedInquiry = await findInquiryReferenceByIdempotencyKey(db, idempotencyKey);

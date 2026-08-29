@@ -21,6 +21,8 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:readiness": "node scripts/check-playwright-readiness.mjs",
+    "test:e2e:ensure-browser": "playwright install chromium",
     "generate:ai-prompts": "tsx scripts/generate-ai-prompt-bundle.ts --scope production && tsx scripts/generate-ai-prompt-bundle.ts --scope synthetic-test",
     "check:ai-prompts": "node --import=tsx scripts/verify-ai-prompt-bundle.ts --include-synthetic-test && node --import=tsx --test scripts/verify-ai-prompt-bundle.test.ts scripts/verify-ai-prompt-history.test.ts",
     "check:ai-architecture": "node --import=tsx scripts/verify-ai-architecture.ts",

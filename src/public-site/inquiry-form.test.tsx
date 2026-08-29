@@ -6,28 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InquiryForm } from "./inquiry-form";
 
-const captureAttribution = vi.fn(() => ({
-  anonymousSessionId: "anonymous-session-1",
-  landingPagePath: "/get-quote/",
-  referrerOrigin: "",
-  utmSource: "test",
-  utmMedium: "integration",
-  utmCampaign: "frozen-attempt",
-  lastNonDirectSource: "test",
-  lastNonDirectMedium: "integration",
-  lastNonDirectCampaign: "frozen-attempt",
-  attributionConfidence: "high" as const,
-  consentState: "denied" as const,
-}));
-const trackPublicEvent = vi.fn();
-
 vi.mock("next/navigation", () => ({
   usePathname: () => "/get-quote/",
-}));
-
-vi.mock("./tracking", () => ({
-  captureAttribution: () => captureAttribution(),
-  trackPublicEvent: (...arguments_: unknown[]) => trackPublicEvent(...arguments_),
 }));
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -47,17 +27,27 @@ async function completeRequiredFields(user: ReturnType<typeof userEvent.setup>):
 
 describe("Inquiry Form frozen retry identity", () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    window.localStorage.setItem("cwt_anonymous_session", "anonymous-session-1");
+    window.localStorage.setItem("cwt_analytics_consent", "denied");
+    window.history.replaceState(
+      {},
+      "",
+      "/get-quote/?utm_source=test&utm_medium=integration&utm_campaign=frozen-attempt",
+    );
     vi.spyOn(globalThis.crypto, "randomUUID")
       .mockReturnValueOnce("10000000-0000-4000-8000-000000000001")
-      .mockReturnValueOnce("10000000-0000-4000-8000-000000000002");
+      .mockReturnValueOnce("10000000-0000-4000-8000-000000000002")
+      .mockReturnValueOnce("10000000-0000-4000-8000-000000000003");
   });
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    captureAttribution.mockClear();
-    trackPublicEvent.mockClear();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it("offers code-valued English country options, uppercases valid codes, and blocks invalid text", async () => {
@@ -202,7 +192,114 @@ describe("Inquiry Form frozen retry identity", () => {
     expect(JSON.parse(inquiryBodies[0]!)).toMatchObject({
       idempotencyKey: "10000000-0000-4000-8000-000000000001",
       uploadTokens: ["private-upload-token-one"],
+      submitUtmSource: "test",
+      submitUtmMedium: "integration",
+      submitUtmCampaign: "frozen-attempt",
     });
+  });
+
+  it("uses one real tracking observation for initial success and omits Submit/session data from analytics", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("cwt_analytics_consent", "granted");
+    const consentReads = vi.spyOn(Storage.prototype, "getItem");
+    const inquiryBodies: Array<Record<string, unknown>> = [];
+    const analyticsBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/inquiries/") {
+        inquiryBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return jsonResponse({ ok: true, reference: "CWT-TRACKED-SUCCESS" }, 201);
+      }
+      if (url === "/api/conversion-events/") {
+        analyticsBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return jsonResponse({ ok: true }, 201);
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    }));
+
+    render(<InquiryForm />);
+    await completeRequiredFields(user);
+    await user.type(
+      screen.getByLabelText("Describe what you need", { exact: true }),
+      "One-observation initial success.",
+    );
+    await user.click(screen.getByRole("button", { name: "Find Your Fabric Solution" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Requirement received");
+    await waitFor(() => expect(analyticsBodies).toHaveLength(1));
+    expect(inquiryBodies).toHaveLength(1);
+    expect(inquiryBodies[0]).toMatchObject({
+      submitUtmSource: "test",
+      submitUtmMedium: "integration",
+      submitUtmCampaign: "frozen-attempt",
+    });
+    expect(analyticsBodies[0]).not.toHaveProperty("submitUtmSource");
+    expect(analyticsBodies[0]).not.toHaveProperty("submitUtmMedium");
+    expect(analyticsBodies[0]).not.toHaveProperty("submitUtmCampaign");
+    expect(analyticsBodies[0]).not.toHaveProperty("anonymousSessionId");
+    expect(consentReads.mock.calls.filter(([key]) => key === "cwt_analytics_consent"))
+      .toHaveLength(1);
+  });
+
+  it("reuses the real frozen tracking object across uncertain retry and one success event", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem("cwt_analytics_consent", "granted");
+    const consentReads = vi.spyOn(Storage.prototype, "getItem");
+    const inquiryBodies: string[] = [];
+    const inquiryHeaders: Array<HeadersInit | undefined> = [];
+    const analyticsBodies: Array<Record<string, unknown>> = [];
+    let inquiryRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/inquiries/") {
+        inquiryRequests += 1;
+        inquiryBodies.push(String(init?.body));
+        inquiryHeaders.push(init?.headers);
+        if (inquiryRequests === 1) throw new TypeError("Synthetic response loss");
+        return jsonResponse({ ok: true, reference: "CWT-FROZEN-TRACKING", replayed: true });
+      }
+      if (url === "/api/conversion-events/") {
+        analyticsBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return jsonResponse({ ok: true }, 201);
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    }));
+
+    render(<InquiryForm />);
+    await completeRequiredFields(user);
+    await user.type(
+      screen.getByLabelText("Describe what you need", { exact: true }),
+      "Frozen tracking retry.",
+    );
+    await user.click(screen.getByRole("button", { name: "Find Your Fabric Solution" }));
+    expect(await screen.findByText("Submission outcome uncertain")).toBeVisible();
+
+    window.localStorage.setItem("cwt_analytics_consent", "denied");
+    window.history.replaceState(
+      {},
+      "",
+      "/get-quote/?utm_source=changed&utm_medium=changed&utm_campaign=changed",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry same submission" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Requirement received");
+    await waitFor(() => expect(analyticsBodies).toHaveLength(1));
+
+    expect(inquiryBodies).toHaveLength(2);
+    expect(inquiryBodies[1]).toBe(inquiryBodies[0]);
+    const firstHeaders = new Headers(inquiryHeaders[0]);
+    const secondHeaders = new Headers(inquiryHeaders[1]);
+    expect(secondHeaders.get("idempotency-key")).toBe(firstHeaders.get("idempotency-key"));
+    expect(secondHeaders.get("x-cwt-upload-session"))
+      .toBe(firstHeaders.get("x-cwt-upload-session"));
+    expect(JSON.parse(inquiryBodies[0]!)).toMatchObject({
+      submitUtmSource: "test",
+      submitUtmMedium: "integration",
+      submitUtmCampaign: "frozen-attempt",
+      uploadTokens: [],
+    });
+    expect(analyticsBodies[0]).not.toHaveProperty("submitUtmSource");
+    expect(analyticsBodies[0]).not.toHaveProperty("anonymousSessionId");
+    expect(consentReads.mock.calls.filter(([key]) => key === "cwt_analytics_consent"))
+      .toHaveLength(1);
   });
 
   it("treats a 409 as definitive and creates a new key and upload only after explicit restart", async () => {

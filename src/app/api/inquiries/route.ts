@@ -21,7 +21,6 @@ import {
 import { databaseConnection } from "@/db/client";
 import type { AppDatabase } from "@/db/types";
 import { createEmailNotifier } from "@/integrations/email";
-import { normalizePath } from "@/seo/path";
 import { publicUploadRateLimiter as limiter } from "@/uploads/rate-limit";
 import {
   assertRequestLength,
@@ -37,14 +36,18 @@ const inputSchema = z
     description: z.string().trim().max(5_000).nullable().optional(),
     uploadTokens: z.array(z.string().min(32).max(100)).max(env.MAX_FILES_PER_UPLOAD),
     sourcePagePath: z.string().max(500),
-    landingPagePath: z.string().max(500).nullable().optional(),
-    referrer: z.string().max(500).nullable().optional(),
-    utmSource: z.string().max(100).nullable().optional(),
-    utmMedium: z.string().max(100).nullable().optional(),
-    utmCampaign: z.string().max(100).nullable().optional(),
-    lastNonDirectSource: z.string().max(200).nullable().optional(),
-    lastNonDirectMedium: z.string().max(100).nullable().optional(),
-    lastNonDirectCampaign: z.string().max(100).nullable().optional(),
+    landingPagePath: z.string().nullable().optional(),
+    referrer: z.string().nullable().optional(),
+    utmSource: z.string().nullable().optional(),
+    utmMedium: z.string().nullable().optional(),
+    utmCampaign: z.string().nullable().optional(),
+    lastNonDirectSource: z.string().nullable().optional(),
+    lastNonDirectMedium: z.string().nullable().optional(),
+    lastNonDirectCampaign: z.string().nullable().optional(),
+    submitReferrer: z.string().nullable().optional(),
+    submitUtmSource: z.string().nullable().optional(),
+    submitUtmMedium: z.string().nullable().optional(),
+    submitUtmCampaign: z.string().nullable().optional(),
     attributionConfidence: z.enum(["high", "medium", "low", "unavailable"]),
     anonymousSessionId: z.uuid(),
     idempotencyKey: z.string().min(16).max(200),
@@ -93,10 +96,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    const sourcePagePath = normalizePath(input.sourcePagePath);
-    const landingPagePath = input.landingPagePath
-      ? normalizePath(input.landingPagePath)
-      : null;
     const submission = await withDatabase((db) =>
       createInquiry(db, createEmailNotifier(), {
         name: input.name,
@@ -105,15 +104,19 @@ export async function POST(request: Request): Promise<NextResponse> {
         whatsapp: input.whatsapp || null,
         description: input.description || null,
         uploadTokens: input.uploadTokens,
-        sourcePagePath,
-        landingPagePath,
-        referrer: input.referrer || null,
-        utmSource: input.utmSource || null,
-        utmMedium: input.utmMedium || null,
-        utmCampaign: input.utmCampaign || null,
-        lastNonDirectSource: input.lastNonDirectSource || null,
-        lastNonDirectMedium: input.lastNonDirectMedium || null,
-        lastNonDirectCampaign: input.lastNonDirectCampaign || null,
+        sourcePagePath: input.sourcePagePath,
+        landingPagePath: input.landingPagePath ?? null,
+        referrer: input.referrer ?? null,
+        utmSource: input.utmSource ?? null,
+        utmMedium: input.utmMedium ?? null,
+        utmCampaign: input.utmCampaign ?? null,
+        lastNonDirectSource: input.lastNonDirectSource ?? null,
+        lastNonDirectMedium: input.lastNonDirectMedium ?? null,
+        lastNonDirectCampaign: input.lastNonDirectCampaign ?? null,
+        submitReferrer: input.submitReferrer ?? null,
+        submitUtmSource: input.submitUtmSource ?? null,
+        submitUtmMedium: input.submitUtmMedium ?? null,
+        submitUtmCampaign: input.submitUtmCampaign ?? null,
         attributionConfidence: input.attributionConfidence,
         analyticsConsentState: persistedConsent?.status ?? "unknown",
         sessionId: input.anonymousSessionId,
@@ -122,6 +125,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }),
     );
     if (!submission.replayed && persistedConsent?.status === "granted" && consentSessionId) {
+      const attribution = submission.analyticsAttribution;
       try {
         if (input.uploadTokens.length > 0) {
           await withDatabase((db) =>
@@ -129,7 +133,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               eventId: `image_upload:${submission.publicReference}`,
               eventName: "image_upload_completed",
               consentSessionId,
-              routePath: sourcePagePath,
+              routePath: attribution.sourcePagePath,
               safeProperties: { file_count: input.uploadTokens.length },
             }),
           );
@@ -139,18 +143,18 @@ export async function POST(request: Request): Promise<NextResponse> {
             eventId: `inquiry_created:${submission.publicReference}`,
             eventName: "inquiry_created",
             consentSessionId,
-            routePath: sourcePagePath,
+            routePath: attribution.sourcePagePath,
             externalReference: submission.publicReference,
-            landingPagePath,
-            referrerOrigin: input.referrer || null,
-            utmSource: input.utmSource || null,
-            utmMedium: input.utmMedium || null,
-            utmCampaign: input.utmCampaign || null,
-            lastNonDirectSource: input.lastNonDirectSource || null,
-            lastNonDirectMedium: input.lastNonDirectMedium || null,
-            lastNonDirectCampaign: input.lastNonDirectCampaign || null,
-            attributionConfidence: input.attributionConfidence,
-            submitSourcePagePath: sourcePagePath,
+            landingPagePath: attribution.landingPagePath,
+            referrerOrigin: attribution.referrer,
+            utmSource: attribution.utmSource,
+            utmMedium: attribution.utmMedium,
+            utmCampaign: attribution.utmCampaign,
+            lastNonDirectSource: attribution.lastNonDirectSource,
+            lastNonDirectMedium: attribution.lastNonDirectMedium,
+            lastNonDirectCampaign: attribution.lastNonDirectCampaign,
+            attributionConfidence: attribution.attributionConfidence,
+            submitSourcePagePath: attribution.sourcePagePath,
           }),
         );
       } catch {

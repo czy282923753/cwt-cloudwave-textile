@@ -100,6 +100,12 @@ export const inquiries = pgTable(
     lastNonDirectSource: text("last_non_direct_source"),
     lastNonDirectMedium: text("last_non_direct_medium"),
     lastNonDirectCampaign: text("last_non_direct_campaign"),
+    submitReferrer: text("submit_referrer"),
+    submitUtmSource: text("submit_utm_source"),
+    submitUtmMedium: text("submit_utm_medium"),
+    submitUtmCampaign: text("submit_utm_campaign"),
+    sourceEntityType: text("source_entity_type"),
+    sourceEntityId: uuid("source_entity_id"),
     attributionConfidence: attributionConfidenceEnum("attribution_confidence")
       .notNull()
       .default("unavailable"),
@@ -117,6 +123,10 @@ export const inquiries = pgTable(
     index("inquiries_status_created_idx").on(table.status, table.createdAt),
     index("inquiries_owner_status_idx").on(table.ownerUserId, table.status),
     index("inquiries_contact_idx").on(table.contactId),
+    index("inquiries_source_entity_idx").on(
+      table.sourceEntityType,
+      table.sourceEntityId,
+    ),
     uniqueIndex("inquiries_idempotency_key_unique").on(table.idempotencyKey),
     uniqueIndex("inquiries_public_reference_unique").on(table.publicReference),
     check(
@@ -130,6 +140,17 @@ export const inquiries = pgTable(
         and
         ${table.requestFingerprint} ~ '^[0-9a-f]{64}$'
         and ${table.requestFingerprintVersion} >= 1
+      )`,
+    ),
+    check(
+      "inquiries_source_entity_pair_check",
+      sql`(
+        ${table.sourceEntityType} is null
+        and ${table.sourceEntityId} is null
+      ) or (
+        ${table.sourceEntityType} is not null
+        and ${table.sourceEntityType} in ('product', 'application', 'content')
+        and ${table.sourceEntityId} is not null
       )`,
     ),
   ],

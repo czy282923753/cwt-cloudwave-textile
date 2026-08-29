@@ -20,7 +20,7 @@ function sessionId(): string {
   return created;
 }
 
-export function captureAttribution(): {
+export interface CapturedAttribution {
   anonymousSessionId: string;
   landingPagePath: string;
   referrerOrigin: string;
@@ -30,9 +30,15 @@ export function captureAttribution(): {
   lastNonDirectSource: string;
   lastNonDirectMedium: string;
   lastNonDirectCampaign: string;
+  submitReferrerOrigin: string;
+  submitUtmSource: string;
+  submitUtmMedium: string;
+  submitUtmCampaign: string;
   attributionConfidence: "high" | "medium" | "low" | "unavailable";
   consentState: "unknown" | "granted" | "denied";
-} {
+}
+
+export function captureAttribution(): CapturedAttribution {
   const landingKey = "cwt_landing_page";
   const currentPath = window.location.pathname;
   const landingPagePath = window.sessionStorage.getItem(landingKey) ?? currentPath;
@@ -86,6 +92,10 @@ export function captureAttribution(): {
     lastNonDirectSource: window.sessionStorage.getItem(lastSourceKey) ?? "",
     lastNonDirectMedium: window.sessionStorage.getItem(lastMediumKey) ?? "",
     lastNonDirectCampaign: window.sessionStorage.getItem(lastCampaignKey) ?? "",
+    submitReferrerOrigin: referrerOrigin,
+    submitUtmSource: currentSource,
+    submitUtmMedium: currentMedium,
+    submitUtmCampaign: currentCampaign,
     attributionConfidence: firstSource
       ? "high"
       : firstReferrer
@@ -106,8 +116,9 @@ export function trackPublicEvent(
     entityType: "product" | "application" | "fabric_entry" | "content";
     entityPath: string;
   }>,
+  capturedAttribution?: CapturedAttribution,
 ): void {
-  const attribution = captureAttribution();
+  const attribution = capturedAttribution ?? captureAttribution();
   if (attribution.consentState !== "granted") return;
   void fetch("/api/conversion-events/", {
     method: "POST",

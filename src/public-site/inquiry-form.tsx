@@ -10,7 +10,11 @@ import {
   normalizeOptionalCountryCode,
 } from "@/crm/country-codes";
 
-import { captureAttribution, trackPublicEvent } from "./tracking";
+import {
+  captureAttribution,
+  trackPublicEvent,
+  type CapturedAttribution,
+} from "./tracking";
 
 const INQUIRY_SUBMIT_TIMEOUT_MS = 20_000;
 const MAX_VISIBLE_FILE_NAME_LENGTH = 72;
@@ -56,7 +60,7 @@ interface InquiryRequestPayload {
   countryCode: string | null;
   whatsapp: string | null;
   description: string | null;
-  uploadTokens: string[];
+  uploadTokens: readonly string[];
   sourcePagePath: string;
   landingPagePath: string | null;
   referrer: string | null;
@@ -66,6 +70,10 @@ interface InquiryRequestPayload {
   lastNonDirectSource: string | null;
   lastNonDirectMedium: string | null;
   lastNonDirectCampaign: string | null;
+  submitReferrer: string | null;
+  submitUtmSource: string | null;
+  submitUtmMedium: string | null;
+  submitUtmCampaign: string | null;
   attributionConfidence: "high" | "medium" | "low" | "unavailable";
   anonymousSessionId: string;
   idempotencyKey: string;
@@ -73,8 +81,9 @@ interface InquiryRequestPayload {
 }
 
 interface FrozenInquiryAttempt {
-  payload: InquiryRequestPayload;
-  attachmentNames: string[];
+  readonly payload: Readonly<InquiryRequestPayload>;
+  readonly attachmentNames: readonly string[];
+  readonly attribution: Readonly<CapturedAttribution>;
 }
 
 type InquiryFormState =
@@ -233,9 +242,13 @@ export function InquiryForm({
     }
 
     frozenAttempt.current = null;
-    trackPublicEvent("quote_submit_success", pathname, {
-      placement: compact ? "compact_form" : "quote_page",
-    });
+    trackPublicEvent(
+      "quote_submit_success",
+      pathname,
+      { placement: compact ? "compact_form" : "quote_page" },
+      undefined,
+      attempt.attribution,
+    );
     setState({ kind: "success", reference: result.reference });
   }
 
@@ -303,15 +316,14 @@ export function InquiryForm({
         uploadTokens.push(intent.token);
       }
 
-      const attempt: FrozenInquiryAttempt = {
-        attachmentNames: files.map((file) => safeVisibleFileName(file.name)),
-        payload: {
+      const capturedAttribution = Object.freeze({ ...attribution });
+      const payload = Object.freeze({
           name: draft.name,
           email: draft.email,
           countryCode,
           whatsapp: draft.whatsapp || null,
           description: draft.description || null,
-          uploadTokens,
+          uploadTokens: Object.freeze([...uploadTokens]),
           sourcePagePath: pathname,
           landingPagePath: attribution.landingPagePath || null,
           referrer: attribution.referrerOrigin || null,
@@ -321,12 +333,22 @@ export function InquiryForm({
           lastNonDirectSource: attribution.lastNonDirectSource || null,
           lastNonDirectMedium: attribution.lastNonDirectMedium || null,
           lastNonDirectCampaign: attribution.lastNonDirectCampaign || null,
+          submitReferrer: attribution.submitReferrerOrigin || null,
+          submitUtmSource: attribution.submitUtmSource || null,
+          submitUtmMedium: attribution.submitUtmMedium || null,
+          submitUtmCampaign: attribution.submitUtmCampaign || null,
           attributionConfidence: attribution.attributionConfidence,
           anonymousSessionId: attribution.anonymousSessionId,
           idempotencyKey,
           website: draft.website || null,
-        },
-      };
+      });
+      const attempt: FrozenInquiryAttempt = Object.freeze({
+        attachmentNames: Object.freeze(
+          files.map((file) => safeVisibleFileName(file.name)),
+        ),
+        attribution: capturedAttribution,
+        payload,
+      });
       frozenAttempt.current = attempt;
       setState({ kind: "submitting", attempt });
       await sendFrozenAttempt(attempt);
