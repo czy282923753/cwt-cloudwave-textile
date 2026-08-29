@@ -156,9 +156,19 @@ describe("Inquiry attribution Choice A sanitizer", () => {
       "/get-quote/?private=1",
       "/get-quote/#private",
       "https://cwtextile.com/get-quote/",
+      "//products/synthetic-fabric/",
+      "/products//synthetic-fabric/",
+      "/products///synthetic-fabric/",
+      "/products/synthetic-fabric//",
+      "///",
       "/api/storage/private-object/",
       "/api/inquiry-assets/private-id/",
       "/admin/inquiries/",
+      "/products/%2Fsynthetic-fabric/",
+      "/products/／synthetic-fabric/",
+      "/products/\\synthetic-fabric/",
+      "/products/synthetic_fabric/",
+      "/products/\u0000synthetic-fabric/",
       "/产品/",
     ]) {
       expect(() => normalizeRequiredSourcePagePath(path), path).toThrow(
@@ -176,6 +186,13 @@ describe("Inquiry attribution Choice A sanitizer", () => {
       utmSource: "safe-source",
       omissions: [{ field: "landing_page_path", reason: "private_path" }],
     });
+    expect(normalizeRequiredSourcePagePath("/PRODUCTS/Synthetic-Fabric")).toBe(
+      "/products/synthetic-fabric/",
+    );
+    expect(sanitizeInquiryAttribution({
+      sourcePagePath: "/get-quote/",
+      landingPagePath: "/products//synthetic-fabric/",
+    }).landingPagePath).toBe("/products/synthetic-fabric/");
   });
 
   it.each([

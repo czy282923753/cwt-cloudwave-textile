@@ -167,7 +167,8 @@ export function normalizeRequiredSourcePagePath(value: string): string {
     CONTROL_CHARACTER.test(normalized.value) ||
     normalized.value.includes("?") ||
     normalized.value.includes("#") ||
-    normalized.value.includes("://")
+    normalized.value.includes("://") ||
+    normalized.value.includes("//")
   ) {
     throw new Error("A valid source page path is required.");
   }

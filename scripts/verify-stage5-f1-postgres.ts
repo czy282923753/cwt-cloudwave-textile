@@ -139,6 +139,11 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
     for (const [suffix, sourcePagePath] of [
       ["query", "/products/synthetic-fabric/?private=1"],
       ["fragment", "/applications/activewear/#private"],
+      ["leading-slash-run", "//products/synthetic-fabric/"],
+      ["internal-slash-run", "/products//synthetic-fabric/"],
+      ["long-internal-slash-run", "/products///synthetic-fabric/"],
+      ["trailing-slash-run", "/products/synthetic-fabric//"],
+      ["root-only-slash-run", "///"],
     ] as const) {
       await assert.rejects(createInquiry(connection.db, new SilentNotifier(), {
         idempotencyKey: `postgres-required-path-${suffix}-0001`,
@@ -261,7 +266,8 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       equalConcurrency: "one create plus one replay",
       differentConcurrency: "one create plus one conflict",
       auditRollback: "six-table counts unchanged",
-      requiredPathBoundary: "raw v2 query and fragment rejected with six-table counts unchanged",
+      requiredPathBoundary:
+        "raw v2 query, fragment and repeated-slash runs rejected with six-table counts unchanged",
       indexPlan: "inquiries_source_entity_idx",
     };
   } finally {
@@ -279,7 +285,7 @@ async function verifyUpgrade(url: string): Promise<Record<string, unknown>> {
     name: "Synthetic Upgrade Buyer",
     email: "postgres-upgrade@example.test",
     description: "Synthetic v1 Upgrade replay.",
-    sourcePagePath: "/GET-QUOTE?historical=true",
+    sourcePagePath: "/GET-QUOTE//?historical=true",
     referrer: "https://first.example",
     utmSource: "legacy-source",
     attributionConfidence: "high",

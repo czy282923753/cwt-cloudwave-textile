@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { createHash } from "node:crypto";
+import nodeCrypto, { createHash } from "node:crypto";
+import { syncBuiltinESMExports } from "node:module";
 import { eq } from "drizzle-orm";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -79,6 +80,10 @@ async function completeForm(user: ReturnType<typeof userEvent.setup>): Promise<v
 
 async function runActualInquiryComposition(uncertainRetry: boolean): Promise<void> {
   const connection = await createTestDatabase();
+  vi.spyOn(nodeCrypto, "randomBytes").mockImplementation(
+    ((size: number) => Buffer.alloc(size, 0xcd)) as typeof nodeCrypto.randomBytes,
+  );
+  syncBuiltinESMExports();
   globalThis.cwtDatabaseConnection = connection;
   vi.resetModules();
   const [{ POST: inquiryPost }, { POST: conversionPost }] = await Promise.all([
@@ -161,6 +166,11 @@ async function runActualInquiryComposition(uncertainRetry: boolean): Promise<voi
     const conversions = await connection.db.select().from(conversionEvents);
     const inquiryCreated = conversions.find((row) => row.eventName === "inquiry_created");
     const quoteSuccess = conversions.find((row) => row.eventName === "quote_submit_success");
+    expect(inquiryCreated, JSON.stringify({
+      publicReference: inquiry?.publicReference,
+      conversions,
+      output,
+    })).toBeDefined();
     expect(inquiry).toMatchObject({
       utmSource: null,
       utmMedium: "safe-first-medium",
@@ -171,11 +181,13 @@ async function runActualInquiryComposition(uncertainRetry: boolean): Promise<voi
       attributionConfidence: "low",
     });
     expect(inquiryCreated).toMatchObject({
+      routePath: "/get-quote/",
       utmSource: null,
       utmMedium: "safe-first-medium",
       lastNonDirectSource: null,
       lastNonDirectMedium: "safe-last-medium",
       attributionConfidence: "low",
+      submitSourcePagePath: null,
     });
     expect(quoteSuccess).toMatchObject({
       anonymousSessionId: consentSessionId,
@@ -203,9 +215,19 @@ async function runActualInquiryComposition(uncertainRetry: boolean): Promise<voi
     expect(conversions.filter((row) => row.eventName === "quote_submit_success")).toHaveLength(1);
 
     const providerPayloads = conversions.map(toPublicAnalyticsPayload);
+    const inquiryProvider = providerPayloads.find(
+      (payload) => payload.eventName === "inquiry_created",
+    );
     const quoteProvider = providerPayloads.find(
       (payload) => payload.eventName === "quote_submit_success",
     );
+    expect(inquiryProvider).toMatchObject({
+      routePath: "/get-quote/",
+      utmSource: null,
+      utmMedium: "safe-first-medium",
+      utmCampaign: "safe-first-campaign",
+      submitSourcePagePath: null,
+    });
     expect(quoteProvider).toMatchObject({
       landingPagePath: null,
       submitSourcePagePath: null,
@@ -235,6 +257,9 @@ async function runActualInquiryComposition(uncertainRetry: boolean): Promise<voi
       quoteSuccess,
       quoteProvider,
     })).not.toContain(inquirySessionId);
+    expect(JSON.stringify({ inquiryCreated, inquiryProvider })).not.toContain(
+      "safe-submit-medium",
+    );
   } finally {
     await connection.close();
     globalThis.cwtDatabaseConnection = undefined;
@@ -247,6 +272,7 @@ afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.restoreAllMocks();
+  syncBuiltinESMExports();
   vi.unstubAllGlobals();
   vi.resetModules();
 });

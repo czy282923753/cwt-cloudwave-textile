@@ -182,7 +182,7 @@ describe("S5-F1 request identity replacement", () => {
       name: "Legacy Buyer",
       email: "legacy-dispatch@example.test",
       description: "Synthetic historical request.",
-      sourcePagePath: "/GET-QUOTE?historical=true",
+      sourcePagePath: "/GET-QUOTE//?historical=true",
       referrer: "https://first.example",
       utmSource: "first-source",
       attributionConfidence: "high",
@@ -395,6 +395,39 @@ describe("S5-F1 request identity replacement", () => {
       ] as const) {
         expect(await tableCount(connection.db, table), table[Symbol.for("drizzle:Name") as never])
           .toBe(0);
+      }
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it("rejects every raw v2 repeated-slash position before any six-table mutation", async () => {
+    const connection = await createTestDatabase();
+    try {
+      for (const [index, sourcePagePath] of [
+        "//products/synthetic-fabric/",
+        "/products//synthetic-fabric/",
+        "/products///synthetic-fabric/",
+        "/products/synthetic-fabric//",
+        "///",
+      ].entries()) {
+        await expect(createInquiry(connection.db, notifier, {
+          idempotencyKey: `raw-repeated-slash-${index}-0001`,
+          name: "Repeated Slash Buyer",
+          email: `repeated-slash-${index}@example.test`,
+          description: "Synthetic malformed required path.",
+          sourcePagePath,
+        })).rejects.toThrow("A valid source page path is required.");
+      }
+      for (const table of [
+        contacts,
+        inquiries,
+        inquiryAssets,
+        inquiryStatusHistory,
+        notificationOutbox,
+        auditLogs,
+      ] as const) {
+        expect(await tableCount(connection.db, table)).toBe(0);
       }
     } finally {
       await connection.close();
