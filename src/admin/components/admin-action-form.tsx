@@ -26,6 +26,7 @@ type AdminActionFormProps = Omit<
   action: AdminMutation;
   beforeSubmit?: (form: HTMLFormElement) => boolean;
   children: ReactNode;
+  pendingMessage?: string;
   successMessage?: string;
 };
 
@@ -33,6 +34,7 @@ export function AdminActionForm({
   action,
   beforeSubmit,
   children,
+  pendingMessage = "Saving…",
   successMessage = "Changes saved.",
   ...formProps
 }: Readonly<AdminActionFormProps>) {
@@ -98,8 +100,13 @@ export function AdminActionForm({
       <fieldset className="contents" disabled={pending}>
         {children}
       </fieldset>
-      <div aria-live="polite" className="mt-3 text-sm" role="status">
-        {pending ? "Saving…" : result?.success ? result.message : null}
+      <div
+        aria-live="polite"
+        className="mt-3 text-sm"
+        data-operation-status={result?.success ? result.operationStatus : undefined}
+        role="status"
+      >
+        {pending ? pendingMessage : result?.success ? result.message : null}
       </div>
       {result && !result.success ? (
         <div

@@ -13,6 +13,7 @@ const resources = [
   { name: "contents", list: "/admin/contents", editorialResource: "content" },
   { name: "home-page", list: "/admin/site/home", editorialResource: "static_page" },
   { name: "about-cwt", list: "/admin/site/about", editorialResource: "static_page" },
+  { name: "email-templates", list: "/admin/email-templates", editorialResource: "email_template" },
   { name: "authors", list: "/admin/authors" },
   { name: "company-facts", list: "/admin/company-facts" },
   { name: "seo", list: "/admin/seo" },
@@ -26,7 +27,7 @@ export function RefineAdminProvider({
   canImportProducts,
 }: Readonly<{
   children: React.ReactNode;
-  editorialResources: readonly ("product" | "content" | "static_page")[];
+  editorialResources: readonly ("product" | "content" | "static_page" | "email_template")[];
   canImportProducts: boolean;
 }>) {
   const allowed = new Set(editorialResources);

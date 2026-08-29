@@ -49,6 +49,28 @@ describe("AdminActionForm", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("announces a truthful capture outcome and accepts a purpose-specific pending message", async () => {
+    let resolveResult!: (result: AdminActionResult) => void;
+    invokeAdminAction.mockImplementation(() => new Promise<AdminActionResult>((resolve) => {
+      resolveResult = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<AdminActionForm action={action} pendingMessage="Running one capture-only test…"><button type="submit">Test template</button></AdminActionForm>);
+    await user.click(screen.getByRole("button", { name: "Test template" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Running one capture-only test");
+    resolveResult({
+      success: true,
+      message: "Capture-only test outcome is uncertain; no retry was attempted.",
+      intent: "none",
+      refresh: false,
+      operationStatus: "uncertain",
+    });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("outcome is uncertain"));
+    expect(screen.getByRole("status")).toHaveAttribute("data-operation-status", "uncertain");
+    expect(refresh).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("focuses and announces a safe permission or conflict summary", async () => {
     invokeAdminAction.mockResolvedValue({
       success: false,

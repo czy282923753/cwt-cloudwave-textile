@@ -18,6 +18,7 @@ const areas: ReadonlyArray<readonly [string, string, Permission, EditorialResour
   ["Contents", "/admin/contents/", "content.read", "content"],
   ["Home Page Settings", "/admin/site/home/", "content.read", "static_page"],
   ["About CWT Settings", "/admin/site/about/", "content.read", "static_page"],
+  ["Email Templates", "/admin/email-templates/", "content.read", "email_template"],
   ["Authors", "/admin/authors/", "content.read"],
   ["Company Facts", "/admin/company-facts/", "company_facts.manage"],
   ["SEO Routes", "/admin/seo/", "seo.manage"],

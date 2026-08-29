@@ -16,6 +16,8 @@ export interface AdminMutationOutcome {
   entityId?: string;
   redirectTo?: string;
   refresh?: boolean;
+  message?: string;
+  operationStatus?: "success" | "failure" | "uncertain";
 }
 
 export type AdminActionResult =
@@ -26,6 +28,7 @@ export type AdminActionResult =
       intent: "refresh" | "redirect" | "none";
       redirectTo?: string;
       refresh: boolean;
+      operationStatus?: "success" | "failure" | "uncertain";
     }
   | {
       success: false;
@@ -58,6 +61,7 @@ export function adminActionSuccess(
     ...(outcome.redirectTo ? { redirectTo: outcome.redirectTo } : {}),
     intent: outcome.redirectTo ? "redirect" : refresh ? "refresh" : "none",
     refresh,
+    ...(outcome.operationStatus ? { operationStatus: outcome.operationStatus } : {}),
   };
 }
 

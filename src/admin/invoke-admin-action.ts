@@ -16,7 +16,7 @@ export async function invokeAdminAction(
 ): Promise<AdminActionResult> {
   try {
     const outcome = await action(form);
-    return adminActionSuccess(successMessage, outcome);
+    return adminActionSuccess(outcome.message ?? successMessage, outcome);
   } catch (error) {
     return adminActionFailure(error);
   }

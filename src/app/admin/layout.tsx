@@ -17,7 +17,7 @@ export default async function AdminLayout({
   const user = await resolveCurrentUser();
   if (!user) redirect("/operations-login");
   requirePermission(user.role, "admin.access");
-  const editorialResources = (["product", "content", "static_page"] as const).filter(
+  const editorialResources = (["product", "content", "static_page", "email_template"] as const).filter(
     (resource) => canAccessEditorialResource(user.role, resource, "manage"),
   );
   return (

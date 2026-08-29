@@ -50,6 +50,14 @@ export interface EmailTemplateHistoryEntry {
   readonly template: EmailTemplateRevisionV1;
 }
 
+export interface EmailTemplateAdminProjection {
+  readonly kind: EmailTemplateKind;
+  readonly active: ResolvedEmailTemplate;
+  readonly history: readonly EmailTemplateHistoryEntry[];
+  readonly draft: EmailTemplateHistoryEntry | null;
+  readonly inReview: EmailTemplateHistoryEntry | null;
+}
+
 export type TemplateFallbackReason = "active_absent" | "active_invalid";
 
 export interface ResolvedEmailTemplate {
@@ -250,7 +258,9 @@ export async function saveEmailTemplateDraft<TQueryResult extends PgQueryResultH
   options: GovernedMutationOptions = {},
 ): Promise<EmailTemplateDraftSaveResult> {
   requireEditorialResourceAccess(actor.role, "email_template", "write");
-  if (!input.changeSummary.trim()) throw new Error("Template Draft requires a change summary.");
+  const changeSummary = input.changeSummary.trim();
+  if (!changeSummary) throw new Error("Template Draft requires a change summary.");
+  if (changeSummary.length > 500) throw new Error("Template Draft change summary exceeds 500 characters.");
   return runGovernedMutation(db, async ({ transaction, audit }) => {
     const setting = await ensureTemplateSetting(transaction, actor, input.templateKind);
     const latestRows = await transaction.select({
@@ -280,7 +290,7 @@ export async function saveEmailTemplateDraft<TQueryResult extends PgQueryResultH
       });
       const updated = await transaction.update(editorialRevisions).set({
         snapshot: template,
-        changeSummary: input.changeSummary.trim(),
+        changeSummary,
       }).where(and(
         eq(editorialRevisions.id, latest.id),
         eq(editorialRevisions.status, "draft"),
@@ -321,7 +331,7 @@ export async function saveEmailTemplateDraft<TQueryResult extends PgQueryResultH
       versionNumber,
       status: "draft",
       snapshot: template,
-      changeSummary: input.changeSummary.trim(),
+      changeSummary,
       createdByUserId: actor.userId,
     }).returning({ id: editorialRevisions.id });
     const revisionId = inserted[0]?.id;
@@ -641,6 +651,27 @@ export async function listEmailTemplateHistory<TQueryResult extends PgQueryResul
     changeSummary: row.changeSummary,
     template: Object.freeze(parseEmailTemplateRevision(row.snapshot)),
   })));
+}
+
+export async function getEmailTemplateAdminProjection<
+  TQueryResult extends PgQueryResultHKT,
+>(
+  db: AppDatabase<TQueryResult>,
+  role: Actor["role"],
+  kind: EmailTemplateKind,
+): Promise<EmailTemplateAdminProjection> {
+  requireEditorialResourceAccess(role, "email_template", "manage");
+  const [active, history] = await Promise.all([
+    resolveActiveEmailTemplate(db, kind),
+    listEmailTemplateHistory(db, role, kind),
+  ]);
+  return Object.freeze({
+    kind,
+    active,
+    history,
+    draft: history.find((entry) => entry.status === "draft") ?? null,
+    inReview: history.find((entry) => entry.status === "in_review") ?? null,
+  });
 }
 
 function syntheticContext(kind: EmailTemplateKind): EmailTemplateRenderContext {

@@ -9,6 +9,7 @@ import { createTestDatabase } from "@/test/database";
 
 import {
   applyEmailTemplateRevision,
+  getEmailTemplateAdminProjection,
   listEmailTemplateHistory,
   previewSyntheticEmailTemplate,
   resolveActiveEmailTemplate,
@@ -335,6 +336,39 @@ describe("email template Settings/Revision authority", () => {
     expect(preview.contextId).toBe("SYNTHETIC_EMAIL_TEMPLATE_V1");
     expect(preview.rendered.textBody).toContain("Conspicuously Synthetic");
     expect(preview.rendered.textBody).not.toMatch(/object key|signed url/i);
+    await test.connection.close();
+  });
+
+  it("composes one immutable Admin projection and bounds the change summary in the Domain Service", async () => {
+    const test = await setup();
+    const editor = test.actor("content_editor");
+    await expect(saveEmailTemplateDraft(test.connection.db, editor, {
+      ...draftInput("Synthetic overlong summary"),
+      changeSummary: "x".repeat(501),
+    })).rejects.toThrow(/exceeds 500/);
+    const draft = await saveEmailTemplateDraft(
+      test.connection.db,
+      editor,
+      draftInput("Synthetic Admin projection"),
+    );
+    const projection = await getEmailTemplateAdminProjection(
+      test.connection.db,
+      editor.role,
+      "inquiry_customer_confirmation",
+    );
+    expect(projection).toMatchObject({
+      kind: "inquiry_customer_confirmation",
+      active: { provenance: { source: "code_fallback", fallbackReason: null } },
+      draft: { revisionId: draft.revisionId, revisionVersion: 1, status: "draft" },
+      inReview: null,
+    });
+    expect(projection.history.map((entry) => entry.revisionVersion)).toEqual([1]);
+    expect(Object.isFrozen(projection)).toBe(true);
+    await expect(getEmailTemplateAdminProjection(
+      test.connection.db,
+      "sales",
+      "inquiry_customer_confirmation",
+    )).rejects.toThrow(/permission/i);
     await test.connection.close();
   });
 
