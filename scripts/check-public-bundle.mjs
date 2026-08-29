@@ -56,6 +56,11 @@ const baseForbidden = [
   '"targetSnapshotHash"',
   '"runId"',
   '"candidateHash"',
+  "sourceEntityType",
+  "sourceEntityId",
+  "source_entity_type",
+  "source_entity_id",
+  "inquiry-source-resolution",
 ];
 
 async function readProductionPromptAuthority() {
