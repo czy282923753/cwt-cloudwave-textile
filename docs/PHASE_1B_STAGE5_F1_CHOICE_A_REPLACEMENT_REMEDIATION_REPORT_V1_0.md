@@ -1,11 +1,11 @@
 # CWT Phase 1B Stage 5 S5-F1 Choice A Replacement Remediation Report V1.0
 
-Date: 2026-08-29 (Asia/Shanghai)  
-Task: Choice A replacement correction attempt 1 for H-01 and M-01 only  
-Branch: `refs/heads/codex/phase-1b-stage5-f1-choice-a-replacement-v1`  
-Immutable failed review Candidate: `0ae5cd5bbd3efff3c26c7996d3300b7d9322da57`  
-Code/test checkpoint: `901c7715ba7e62222298bb1d7837d6585a85d0b0`  
-Checkpoint sole parent: `0ae5cd5bbd3efff3c26c7996d3300b7d9322da57`  
+Date: 2026-08-29 (Asia/Shanghai)
+Task: Choice A replacement correction attempt 1 for H-01 and M-01 only
+Branch: `refs/heads/codex/phase-1b-stage5-f1-choice-a-replacement-v1`
+Immutable failed review Candidate: `0ae5cd5bbd3efff3c26c7996d3300b7d9322da57`
+Code/test checkpoint: `901c7715ba7e62222298bb1d7837d6585a85d0b0`
+Checkpoint sole parent: `0ae5cd5bbd3efff3c26c7996d3300b7d9322da57`
 Status represented by this document: Implementer correction completion only; not independent acceptance, Owner acceptance, or authority for S5-F2.
 
 ## 1. Executive result
