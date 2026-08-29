@@ -1,8 +1,8 @@
 # CWT Phase 1B Stage 5 — S5-F4 Two-Kind Outbox Convergence Implementation Report V1.0
 
-Date: 2026-08-30  
-Role: bounded S5-F4 Implementer  
-Status: COMPLETED FOR INDEPENDENT REVIEW; NOT ACCEPTED  
+Date: 2026-08-30
+Role: bounded S5-F4 Implementer
+Status: COMPLETED FOR INDEPENDENT REVIEW; NOT ACCEPTED
 Branch: `codex/phase-1b-stage5-f4-two-kind-outbox-v1`
 
 ## 1. Authority, baseline, and rollback
