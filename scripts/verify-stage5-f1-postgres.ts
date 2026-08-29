@@ -4,6 +4,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 
 import {
@@ -111,6 +112,146 @@ async function countRows(client: Sql, table: string): Promise<number> {
   return Number(rows[0]?.value ?? 0);
 }
 
+async function createSyntheticSourceFixtures(
+  connection: Extract<DatabaseConnection, { kind: "postgres" }>,
+) {
+  const [reviewer] = await connection.db.insert(schema.users).values({
+    email: "stage5-f2a-postgres-reviewer@example.test",
+    displayName: "Synthetic Stage 5 F2A Reviewer",
+    role: "reviewer_publisher",
+    passwordHash: "synthetic-test-only",
+  }).returning({ id: schema.users.id });
+  const [taxonomy] = await connection.db.insert(schema.taxonomyTerms).values({
+    internalKey: "synthetic-stage5-f2a-primary",
+    dimension: "material_fiber",
+  }).returning({ id: schema.taxonomyTerms.id });
+  const [image] = await connection.db.insert(schema.assets).values({
+    originalFileName: "synthetic-stage5-f2a.jpg",
+    storageProvider: "test",
+    storagePartition: "public",
+    objectKey: "synthetic/stage5-f2a.jpg",
+    access: "public",
+    category: "product",
+    status: "ready",
+    scanStatus: "passed",
+    declaredMimeType: "image/jpeg",
+    detectedMimeType: "image/jpeg",
+    byteSize: 128,
+    sha256: "synthetic-stage5-f2a-postgres-image",
+  }).returning({ id: schema.assets.id });
+  assert.ok(reviewer && taxonomy && image);
+  const product = await connection.db.transaction(async (transaction) => {
+    const [created] = await transaction.insert(schema.products).values({
+      status: "draft",
+      realProductBasis: "physical_sample",
+      realProductConfirmedByUserId: reviewer.id,
+      realProductConfirmedAt: new Date(),
+      publishedAt: new Date(),
+    }).returning({ id: schema.products.id });
+    assert.ok(created);
+    await transaction.insert(schema.productTaxonomyTerms).values({
+      productId: created.id,
+      taxonomyTermId: taxonomy.id,
+      isPrimary: true,
+    });
+    return created;
+  });
+  await connection.db.insert(schema.productLocalizations).values({
+    productId: product.id,
+    locale: "en",
+    name: "Synthetic Stage 5 F2A Product",
+  });
+  await connection.db.insert(schema.productAssets).values({
+    productId: product.id,
+    assetId: image.id,
+    role: "hero",
+  });
+  await connection.db.update(schema.products).set({ status: "published" })
+    .where(eq(schema.products.id, product.id));
+  const productPath = "/products/synthetic-stage5-f2a/";
+  await connection.db.insert(schema.routes).values({
+    locale: "en",
+    path: productPath,
+    entityType: "product",
+    entityId: product.id,
+  });
+
+  const [application] = await connection.db.insert(schema.applications).values({
+    internalKey: "synthetic-stage5-f2a-application",
+    status: "published",
+    publishedAt: new Date(),
+  }).returning({ id: schema.applications.id });
+  assert.ok(application);
+  await connection.db.insert(schema.applicationLocalizations).values({
+    applicationId: application.id,
+    locale: "en",
+    name: "Synthetic Stage 5 F2A Application",
+    body: "Synthetic published Application body.",
+  });
+  const applicationPath = "/applications/synthetic-stage5-f2a/";
+  const [applicationRoute] = await connection.db.insert(schema.routes).values({
+    locale: "en",
+    path: applicationPath,
+    entityType: "application",
+    entityId: application.id,
+  }).returning({ id: schema.routes.id });
+  assert.ok(applicationRoute);
+  await connection.db.insert(schema.seoMetadata).values({
+    routeId: applicationRoute.id,
+    title: "Synthetic Stage 5 F2A Application",
+    canonicalPath: applicationPath,
+    indexStatus: "noindex",
+  });
+
+  const [author] = await connection.db.insert(schema.authors).values({
+    internalKey: "synthetic-stage5-f2a-author",
+    displayName: "Synthetic Stage 5 F2A Author",
+    isOrganization: true,
+  }).returning({ id: schema.authors.id });
+  assert.ok(author);
+  const [content] = await connection.db.insert(schema.contents).values({
+    channel: "fabric_knowledge",
+    type: "article",
+    status: "published",
+    authorId: author.id,
+    publishedAt: new Date(),
+  }).returning({ id: schema.contents.id });
+  assert.ok(content);
+  await connection.db.insert(schema.contentLocalizations).values({
+    contentId: content.id,
+    locale: "en",
+    title: "Synthetic Stage 5 F2A Content",
+    body: "Synthetic published Content body.",
+    structuredBlocks: {
+      version: 1,
+      blocks: [{ id: "synthetic", type: "paragraph", text: "Synthetic PostgreSQL source." }],
+    },
+  });
+  const contentPath = "/fabric-knowledge/synthetic-stage5-f2a/";
+  const [contentRoute] = await connection.db.insert(schema.routes).values({
+    locale: "en",
+    path: contentPath,
+    entityType: "content",
+    entityId: content.id,
+  }).returning({ id: schema.routes.id });
+  assert.ok(contentRoute);
+  await connection.db.insert(schema.seoMetadata).values({
+    routeId: contentRoute.id,
+    title: "Synthetic Stage 5 F2A Content",
+    canonicalPath: contentPath,
+    indexStatus: "noindex",
+  });
+
+  return {
+    productId: product.id,
+    productPath,
+    applicationId: application.id,
+    applicationPath,
+    contentId: content.id,
+    contentPath,
+  };
+}
+
 async function verifyFresh(url: string): Promise<Record<string, unknown>> {
   const connection = appConnection(url);
   const client = postgres(url, { max: 6, prepare: false });
@@ -163,12 +304,32 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
     ]);
     assert.deepEqual(hardBoundaryAfter, hardBoundaryBefore);
 
+    const sourceFixtures = await createSyntheticSourceFixtures(connection);
+    for (const [type, id, path] of [
+      ["product", sourceFixtures.productId, sourceFixtures.productPath],
+      ["application", sourceFixtures.applicationId, sourceFixtures.applicationPath],
+      ["content", sourceFixtures.contentId, sourceFixtures.contentPath],
+    ] as const) {
+      const created = await createInquiry(connection.db, new SilentNotifier(), {
+        idempotencyKey: `postgres-source-${type}-0001`,
+        name: `Synthetic PostgreSQL ${type} Source Buyer`,
+        email: `postgres-source-${type}@example.test`,
+        description: `Synthetic ${type} source persistence.`,
+        sourcePagePath: path,
+      });
+      const [row] = await connection.db.select({
+        sourceEntityType: schema.inquiries.sourceEntityType,
+        sourceEntityId: schema.inquiries.sourceEntityId,
+      }).from(schema.inquiries).where(eq(schema.inquiries.id, created.inquiryId));
+      assert.deepEqual(row, { sourceEntityType: type, sourceEntityId: id });
+    }
+
     const equalInput: CreateInquiryInput = {
       idempotencyKey: "postgres-equal-0001",
       name: "Synthetic PostgreSQL Equal Buyer",
       email: "postgres-equal@example.test",
       description: "Synthetic equal concurrency.",
-      sourcePagePath: "/get-quote/",
+      sourcePagePath: sourceFixtures.productPath,
       submitUtmCampaign: "campaign-1234567",
     };
     const equal = await Promise.all([
@@ -180,6 +341,29 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
     ]);
     assert.equal(new Set(equal.map((result) => result.inquiryId)).size, 1);
     assert.equal(equal.filter((result) => result.replayed).length, 1);
+    const [concurrentSource] = await connection.db.select({
+      sourceEntityType: schema.inquiries.sourceEntityType,
+      sourceEntityId: schema.inquiries.sourceEntityId,
+    }).from(schema.inquiries).where(eq(schema.inquiries.id, equal[0]!.inquiryId));
+    assert.deepEqual(concurrentSource, {
+      sourceEntityType: "product",
+      sourceEntityId: sourceFixtures.productId,
+    });
+    await connection.db.update(schema.products).set({ status: "archived" })
+      .where(eq(schema.products.id, sourceFixtures.productId));
+    const immutableReplay = await createInquiry(
+      connection.db,
+      new SilentNotifier(),
+      equalInput,
+    );
+    assert.equal(immutableReplay.replayed, true);
+    const [immutableSource] = await connection.db.select({
+      sourceEntityType: schema.inquiries.sourceEntityType,
+      sourceEntityId: schema.inquiries.sourceEntityId,
+    }).from(schema.inquiries).where(eq(schema.inquiries.id, equal[0]!.inquiryId));
+    assert.deepEqual(immutableSource, concurrentSource);
+    await connection.db.update(schema.products).set({ status: "published" })
+      .where(eq(schema.products.id, sourceFixtures.productId));
 
     const differentInput: CreateInquiryInput = {
       ...equalInput,
@@ -265,9 +449,11 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       columns: columns.map((row) => row.column_name),
       equalConcurrency: "one create plus one replay",
       differentConcurrency: "one create plus one conflict",
-      auditRollback: "six-table counts unchanged",
+      auditRollback: "six-table counts unchanged, including eligible source pair",
       requiredPathBoundary:
         "raw v2 query, fragment and repeated-slash runs rejected with six-table counts unchanged",
+      sourceResolution:
+        "eligible Product, Application and Content pairs persisted; concurrent and later-ineligible replay immutable",
       indexPlan: "inquiries_source_entity_idx",
     };
   } finally {

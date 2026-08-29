@@ -28,6 +28,7 @@ import { normalizeOptionalCountryCode } from "./country-codes";
 import {
   sanitizeInquiryAttribution,
 } from "./inquiry-attribution";
+import { resolveInquirySourceEntity } from "./inquiry-source-resolution";
 
 type InquiryStatus = typeof inquiries.$inferSelect.status;
 
@@ -362,6 +363,10 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
       idempotencyKey,
     );
     if (concurrentExisting) return assertMatchingRequest(concurrentExisting);
+    const sourceEntity = await resolveInquirySourceEntity(
+      transaction,
+      canonical.sourcePagePath,
+    );
     const reserved = canonical.uploadTokens.length
       ? await reserveInquiryUploadTokensInTransaction(
           transaction,
@@ -460,8 +465,8 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
         submitUtmSource: canonical.submitUtmSource,
         submitUtmMedium: canonical.submitUtmMedium,
         submitUtmCampaign: canonical.submitUtmCampaign,
-        sourceEntityType: null,
-        sourceEntityId: null,
+        sourceEntityType: sourceEntity?.type ?? null,
+        sourceEntityId: sourceEntity?.id ?? null,
         attributionConfidence: canonical.attributionConfidence,
         analyticsConsentState: input.analyticsConsentState ?? "unknown",
         sessionId: canonical.sessionId,

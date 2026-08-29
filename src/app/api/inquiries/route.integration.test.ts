@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toPublicAnalyticsPayload } from "@/analytics/public-payload";
 import {
   analyticsConsents,
+  applicationLocalizations,
+  applications,
   assets,
   auditLogs,
   contacts,
@@ -14,6 +16,8 @@ import {
   inquiryAssets,
   inquiryStatusHistory,
   notificationOutbox,
+  routes,
+  seoMetadata,
   uploadIntents,
 } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
@@ -89,6 +93,89 @@ afterEach(() => {
 });
 
 describe("actual public Inquiry handler with actual Domain and disposable database", () => {
+  it("persists server-resolved source evidence without exposing it to public or analytics sinks", async () => {
+    const connection = await createTestDatabase();
+    const consentSessionId = "72000000-0000-4000-8000-000000000099";
+    const sourcePath = "/applications/synthetic-handler-source/";
+    const output: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      await connection.db.insert(analyticsConsents).values({
+        consentSessionId,
+        status: "granted",
+        consentVersion: 1,
+        grantedAt: new Date(),
+      });
+      const [application] = await connection.db.insert(applications).values({
+        internalKey: "synthetic-handler-source",
+        status: "published",
+        publishedAt: new Date(),
+      }).returning({ id: applications.id });
+      if (!application) throw new Error("Synthetic source Application was not created.");
+      await connection.db.insert(applicationLocalizations).values({
+        applicationId: application.id,
+        locale: "en",
+        name: "Synthetic Handler Source",
+        body: "Synthetic public Application body.",
+      });
+      const [route] = await connection.db.insert(routes).values({
+        locale: "en",
+        path: sourcePath,
+        entityType: "application",
+        entityId: application.id,
+      }).returning({ id: routes.id });
+      if (!route) throw new Error("Synthetic source Route was not created.");
+      await connection.db.insert(seoMetadata).values({
+        routeId: route.id,
+        title: "Synthetic Handler Source",
+        canonicalPath: sourcePath,
+        indexStatus: "noindex",
+      });
+
+      const POST = await loadActualHandler(connection);
+      const spoofedResponse = await POST(publicRequest({
+        sourcePagePath: sourcePath,
+        sourceEntityType: "product",
+        sourceEntityId: crypto.randomUUID(),
+        routeId: crypto.randomUUID(),
+      }, consentSessionId));
+      expect(spoofedResponse.status).toBe(400);
+      expect(await connection.db.select().from(inquiries)).toHaveLength(0);
+
+      const response = await POST(publicRequest({ sourcePagePath: sourcePath }, consentSessionId));
+      expect(response.status).toBe(201);
+      const publicBody = await response.json() as Record<string, unknown>;
+      expect(Object.keys(publicBody).sort()).toEqual(["ok", "reference", "replayed"]);
+
+      const [inquiry] = await connection.db.select().from(inquiries);
+      expect(inquiry).toMatchObject({
+        sourcePagePath: sourcePath,
+        sourceEntityType: "application",
+        sourceEntityId: application.id,
+      });
+      const [audit] = await connection.db.select().from(auditLogs);
+      const [outbox] = await connection.db.select().from(notificationOutbox);
+      const [analytics] = await connection.db.select().from(conversionEvents)
+        .where(eq(conversionEvents.eventName, "inquiry_created"));
+      const provider = toPublicAnalyticsPayload(analytics!);
+      const externalSinks = JSON.stringify({ audit, outbox, analytics, provider, publicBody, output });
+      expect(externalSinks).not.toContain(application.id);
+      expect(externalSinks).not.toContain("sourceEntityType");
+      expect(externalSinks).not.toContain("sourceEntityId");
+      expect(externalSinks).not.toContain("source_entity_type");
+      expect(externalSinks).not.toContain("source_entity_id");
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("records one public analytics event for a canonical reference containing decimal runs", async () => {
     const connection = await createTestDatabase();
     const consentSessionId = "72000000-0000-4000-8000-000000000010";
