@@ -643,6 +643,23 @@ describe("public bundle checker", () => {
     expect(combinedOutput(result)).toMatch(/RefineAdminProvider/);
   });
 
+  it.each([
+    "email_template_active_v1",
+    "SYNTHETIC_EMAIL_TEMPLATE_V1",
+  ])("rejects Template Domain marker %s from a public chunk", async (marker) => {
+    const result = runChecker(
+      await createBuildFixture({
+        chunkFiles: {
+          "static/chunks/app/public.js": `const templateLeak = '${marker}';`,
+        },
+      }),
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/admin-only dependencies leaked/i);
+    expect(combinedOutput(result)).toContain(marker);
+  });
+
   it("checks active module forbidden paths for the current chunk namespace", async () => {
     const result = runChecker(
       await createBuildFixture({

@@ -4,7 +4,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import postgres, { type Sql } from "postgres";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 
 import {
@@ -21,6 +21,19 @@ import * as schema from "../src/db/schema";
 import { migrateDatabase } from "../src/db/migrate";
 import type { DatabaseConnection } from "../src/db/client";
 import type { EmailNotifier } from "../src/integrations/email";
+import {
+  applyEmailTemplateRevision,
+  listEmailTemplateHistory,
+  previewSyntheticEmailTemplate,
+  resolveActiveEmailTemplate,
+  rollbackEmailTemplate,
+  saveEmailTemplateDraft,
+  submitEmailTemplateDraftForReview,
+} from "../src/email-templates/service";
+import {
+  InMemoryCaptureEmailTransport,
+  sendSyntheticEmailTemplateTest,
+} from "../src/email-templates/test-send";
 
 const databasePrefix = "cwt_s5f1_synthetic_";
 
@@ -254,6 +267,172 @@ async function createSyntheticSourceFixtures(
     applicationRouteId: applicationRoute.id,
     contentId: content.id,
     contentPath,
+  };
+}
+
+async function verifyTemplateAuthority(
+  connection: Extract<DatabaseConnection, { kind: "postgres" }>,
+): Promise<Record<string, unknown>> {
+  const actors = await connection.db.insert(schema.users).values([
+    {
+      email: "stage5-f3-postgres-editor@example.test",
+      displayName: "Synthetic Stage 5 F3 Editor",
+      role: "content_editor",
+      passwordHash: "synthetic-test-only",
+    },
+    {
+      email: "stage5-f3-postgres-reviewer@example.test",
+      displayName: "Synthetic Stage 5 F3 Reviewer",
+      role: "reviewer_publisher",
+      passwordHash: "synthetic-test-only",
+    },
+    {
+      email: "stage5-f3-postgres-admin@example.test",
+      displayName: "Synthetic Stage 5 F3 Admin",
+      role: "admin",
+      passwordHash: "synthetic-test-only",
+    },
+  ]).returning({ id: schema.users.id, role: schema.users.role });
+  const actor = <TRole extends "content_editor" | "reviewer_publisher" | "admin">(
+    role: TRole,
+  ) => ({ userId: actors.find((row) => row.role === role)!.id, role });
+  const editor = actor("content_editor");
+  const reviewer = actor("reviewer_publisher");
+  const admin = actor("admin");
+  const input = (subjectSource: string) => ({
+    templateKind: "inquiry_customer_confirmation" as const,
+    subjectSource,
+    textBodySource:
+      "Synthetic PostgreSQL body {{customer_name}} {{inquiry_reference}} {{submitted_at}} {{company_name}} {{reply_to_email}}",
+    changeSummary: "Synthetic PostgreSQL template proof",
+    expectedDraftVersion: 0,
+  });
+
+  const concurrent = await Promise.allSettled([
+    saveEmailTemplateDraft(connection.db, editor, input("Synthetic PostgreSQL concurrent A")),
+    saveEmailTemplateDraft(connection.db, editor, input("Synthetic PostgreSQL concurrent B")),
+  ]);
+  assert.equal(concurrent.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(concurrent.filter((result) => result.status === "rejected").length, 1);
+  const firstResult = concurrent.find((result) => result.status === "fulfilled");
+  assert.ok(firstResult?.status === "fulfilled");
+  const first = firstResult.value;
+  await submitEmailTemplateDraftForReview(connection.db, editor, {
+    revisionId: first.revisionId,
+    expectedDraftVersion: first.draftVersion,
+  });
+  await applyEmailTemplateRevision(connection.db, reviewer, first.revisionId);
+
+  const second = await saveEmailTemplateDraft(
+    connection.db,
+    editor,
+    input("Synthetic PostgreSQL Active V2"),
+  );
+  await submitEmailTemplateDraftForReview(connection.db, editor, {
+    revisionId: second.revisionId,
+    expectedDraftVersion: second.draftVersion,
+  });
+  await applyEmailTemplateRevision(connection.db, reviewer, second.revisionId);
+  const activeV2 = await resolveActiveEmailTemplate(
+    connection.db,
+    "inquiry_customer_confirmation",
+  );
+  assert.equal(activeV2.provenance.revisionId, second.revisionId);
+  assert.equal(activeV2.template.subjectSource, "Synthetic PostgreSQL Active V2");
+
+  const third = await saveEmailTemplateDraft(
+    connection.db,
+    editor,
+    input("Synthetic PostgreSQL Audit rollback V3"),
+  );
+  await submitEmailTemplateDraftForReview(connection.db, editor, {
+    revisionId: third.revisionId,
+    expectedDraftVersion: third.draftVersion,
+  });
+  await assert.rejects(applyEmailTemplateRevision(
+    connection.db,
+    reviewer,
+    third.revisionId,
+    { auditWriter: async () => { throw new Error("Synthetic required Template Audit failure"); } },
+  ), /Synthetic required Template Audit failure/);
+  const [rolledBackRevision] = await connection.db.select({
+    status: schema.editorialRevisions.status,
+  }).from(schema.editorialRevisions).where(eq(schema.editorialRevisions.id, third.revisionId));
+  assert.equal(rolledBackRevision?.status, "in_review");
+  assert.equal((await resolveActiveEmailTemplate(
+    connection.db,
+    "inquiry_customer_confirmation",
+  )).provenance.revisionId, second.revisionId);
+
+  const rollback = await rollbackEmailTemplate(connection.db, reviewer, {
+    templateKind: "inquiry_customer_confirmation",
+    sourceRevisionId: first.revisionId,
+  });
+  assert.equal(rollback.provenance.revisionVersion, 4);
+  assert.notEqual(rollback.provenance.revisionId, first.revisionId);
+  const history = await listEmailTemplateHistory(
+    connection.db,
+    reviewer.role,
+    "inquiry_customer_confirmation",
+  );
+  assert.deepEqual(history.map((entry) => entry.revisionVersion), [4, 3, 2, 1]);
+  assert.equal(history[0]?.template.rollbackSourceRevisionId, first.revisionId);
+  const settingRows = await connection.db.select().from(schema.systemSettings).where(
+    eq(schema.systemSettings.key, "email_template.inquiry_customer_confirmation"),
+  );
+  assert.equal(settingRows.length, 1);
+  assert.equal(settingRows[0]?.isSensitive, false);
+  assert.equal(
+    (settingRows[0]?.value as { revisionId?: string }).revisionId,
+    rollback.provenance.revisionId,
+  );
+
+  const preview = await previewSyntheticEmailTemplate(
+    connection.db,
+    editor,
+    "inquiry_customer_confirmation",
+  );
+  assert.equal(preview.contextId, "SYNTHETIC_EMAIL_TEMPLATE_V1");
+  const capture = new InMemoryCaptureEmailTransport();
+  const testSend = await sendSyntheticEmailTemplateTest(connection.db, admin, {
+    templateKind: "inquiry_customer_confirmation",
+    environment: "test",
+  }, capture);
+  assert.equal(testSend.outcome, "success");
+  assert.equal(capture.captured.length, 1);
+  assert.equal(capture.captured[0]?.to, "test@cwtextile.com");
+  assert.equal(capture.captured[0]?.subject.match(/\[TEST\]/g)?.length, 1);
+
+  await assert.rejects(saveEmailTemplateDraft(
+    connection.db,
+    editor,
+    {
+      templateKind: "inquiry_notification",
+      subjectSource: "Synthetic required Audit rollback",
+      textBodySource: "Synthetic {{inquiry_reference}} {{operations_url}}",
+      changeSummary: "Synthetic required Audit rollback",
+      expectedDraftVersion: 0,
+    },
+    { auditWriter: async () => { throw new Error("Synthetic Draft Audit failure"); } },
+  ), /Synthetic Draft Audit failure/);
+  const internalSettings = await connection.db.select().from(schema.systemSettings).where(
+    eq(schema.systemSettings.key, "email_template.inquiry_notification"),
+  );
+  assert.equal(internalSettings.length, 0);
+
+  const templateAudits = await connection.db.select().from(schema.auditLogs).where(and(
+    eq(schema.auditLogs.entityType, "editorial_revision"),
+  ));
+  const serializedAudits = JSON.stringify(templateAudits);
+  assert.doesNotMatch(serializedAudits, /Synthetic PostgreSQL body|test@cwtextile\.com/);
+  return {
+    draftConcurrency: "one current Draft and one conflict under concurrent first save",
+    versions: history.map((entry) => entry.revisionVersion),
+    soleActivePointer: rollback.provenance.revisionId,
+    auditRollback: "failed Apply left Active V2 and Revision V3 in_review",
+    rollback: "historical V1 copied to new applied V4",
+    preview: preview.contextId,
+    testSend: "one capture-only call, fixed recipient, one TEST prefix",
   };
 }
 
@@ -563,6 +742,8 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       assert.equal(rejected, true, `Constraint accepted ${invalid.label}`);
     }
 
+    const templateAuthority = await verifyTemplateAuthority(connection);
+
     return {
       columns: columns.map((row) => row.column_name),
       equalConcurrency: "one create plus one replay",
@@ -575,6 +756,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       crmReadProjection:
         "Admin and assigned Sales pass; unassigned Sales and Analyst fail; current label/link changes without snapshot rewrite; private current Route produces no link or source UUID",
       indexPlan: "inquiries_source_entity_idx",
+      templateAuthority,
     };
   } finally {
     await client.end();

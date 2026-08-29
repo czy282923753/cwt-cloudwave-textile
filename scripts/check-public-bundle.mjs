@@ -62,6 +62,9 @@ const baseForbidden = [
   "source_entity_id",
   "inquiry-source-resolution",
   "inquiry-read-projection",
+  "email_template_active_v1",
+  "SYNTHETIC_EMAIL_TEMPLATE_V1",
+  "/src/email-templates/",
 ];
 
 async function readProductionPromptAuthority() {

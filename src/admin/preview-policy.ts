@@ -7,7 +7,7 @@ import {
   type UserRole,
 } from "@/auth/permissions";
 
-export type EditorialResourceKind = "product" | "content" | "static_page";
+export type EditorialResourceKind = "product" | "content" | "static_page" | "email_template";
 export type EditorialResourceAction = "manage" | "write" | "preview" | "review" | "apply";
 
 const resourcePermissions: Readonly<Record<
@@ -35,12 +35,20 @@ const resourcePermissions: Readonly<Record<
     review: "content.review",
     apply: "content.publish",
   },
+  email_template: {
+    manage: "content.read",
+    write: "content.write",
+    preview: "content.read",
+    review: "content.review",
+    apply: "content.publish",
+  },
 };
 
 const resourceRoles: Readonly<Record<EditorialResourceKind, ReadonlySet<UserRole>>> = {
   product: new Set(["admin", "product_editor", "reviewer_publisher"]),
   content: new Set(["admin", "content_editor", "reviewer_publisher"]),
   static_page: new Set(["admin", "content_editor", "reviewer_publisher"]),
+  email_template: new Set(["admin", "content_editor", "reviewer_publisher"]),
 };
 
 export function canAccessEditorialResource(
