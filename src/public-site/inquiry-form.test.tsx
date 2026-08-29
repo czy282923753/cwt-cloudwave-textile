@@ -236,6 +236,19 @@ describe("Inquiry Form frozen retry identity", () => {
     expect(analyticsBodies[0]).not.toHaveProperty("submitUtmMedium");
     expect(analyticsBodies[0]).not.toHaveProperty("submitUtmCampaign");
     expect(analyticsBodies[0]).not.toHaveProperty("anonymousSessionId");
+    for (const field of [
+      "landingPagePath",
+      "referrerOrigin",
+      "utmSource",
+      "utmMedium",
+      "utmCampaign",
+      "lastNonDirectSource",
+      "lastNonDirectMedium",
+      "lastNonDirectCampaign",
+      "attributionConfidence",
+    ]) {
+      expect(analyticsBodies[0]).not.toHaveProperty(field);
+    }
     expect(consentReads.mock.calls.filter(([key]) => key === "cwt_analytics_consent"))
       .toHaveLength(1);
   });
@@ -298,6 +311,19 @@ describe("Inquiry Form frozen retry identity", () => {
     });
     expect(analyticsBodies[0]).not.toHaveProperty("submitUtmSource");
     expect(analyticsBodies[0]).not.toHaveProperty("anonymousSessionId");
+    for (const field of [
+      "landingPagePath",
+      "referrerOrigin",
+      "utmSource",
+      "utmMedium",
+      "utmCampaign",
+      "lastNonDirectSource",
+      "lastNonDirectMedium",
+      "lastNonDirectCampaign",
+      "attributionConfidence",
+    ]) {
+      expect(analyticsBodies[0]).not.toHaveProperty(field);
+    }
     expect(consentReads.mock.calls.filter(([key]) => key === "cwt_analytics_consent"))
       .toHaveLength(1);
   });

@@ -192,6 +192,11 @@ describe("actual public Inquiry handler with actual Domain and disposable databa
 
   it.each([
     ["private required path", { sourcePagePath: "/api/inquiry-assets/private-id/" }],
+    ["storage required path", { sourcePagePath: "/api/storage/private/object/" }],
+    ["admin required path", { sourcePagePath: "/admin/inquiries/" }],
+    ["origin required path", { sourcePagePath: "https://cwtextile.com/get-quote/" }],
+    ["required path query", { sourcePagePath: "/products/synthetic-fabric/?private=1" }],
+    ["required path fragment", { sourcePagePath: "/applications/activewear/#private" }],
     ["malformed optional type", { submitUtmCampaign: { nested: "not-a-string" } }],
     ["invalid required core", { name: "" }],
   ])("keeps %s as a generic zero-mutation hard failure", async (_label, overrides) => {
@@ -216,6 +221,40 @@ describe("actual public Inquiry handler with actual Domain and disposable databa
         const rows = await connection.db.select({ value: count() }).from(table);
         expect(Number(rows[0]?.value ?? 0)).toBe(0);
       }
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it.each([
+    "/",
+    "/products/",
+    "/products/synthetic-fabric/",
+    "/fabric-types/synthetic-weave/",
+    "/applications/activewear/",
+    "/fabric-library/",
+    "/resources/",
+    "/fabric-knowledge/",
+    "/fabric-knowledge/synthetic-guide/",
+    "/china-sourcing-guide/",
+    "/china-sourcing-guide/synthetic-topic/",
+    "/china-textile-guide/",
+    "/china-textile-guide/synthetic-topic/",
+    "/authors/synthetic-author/",
+    "/about/",
+    "/get-quote/",
+    "/markets/synthetic-market/",
+  ])("accepts representative required public path %s through the actual handler", async (path) => {
+    const connection = await createTestDatabase();
+    try {
+      const POST = await loadActualHandler(connection);
+      const response = await POST(publicRequest({
+        idempotencyKey: crypto.randomUUID(),
+        sourcePagePath: path,
+      }));
+      expect(response.status).toBe(201);
+      const [inquiry] = await connection.db.select().from(inquiries);
+      expect(inquiry?.sourcePagePath).toBe(path);
     } finally {
       await connection.close();
     }

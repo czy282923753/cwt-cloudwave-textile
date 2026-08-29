@@ -163,6 +163,14 @@ function normalizePublicPath(
 export function normalizeRequiredSourcePagePath(value: string): string {
   const normalized = normalizeObservedString(value);
   if (!normalized.value) throw new Error("A valid source page path is required.");
+  if (
+    CONTROL_CHARACTER.test(normalized.value) ||
+    normalized.value.includes("?") ||
+    normalized.value.includes("#") ||
+    normalized.value.includes("://")
+  ) {
+    throw new Error("A valid source page path is required.");
+  }
   let canonical: string;
   try {
     canonical = normalizePath(normalized.value);

@@ -462,7 +462,7 @@ describe("minimal inquiry and CRM workflow", () => {
       whatsapp: " +1 555 0100 ",
       description: "Need\r\na fabric match.",
       assetIds,
-      sourcePagePath: "/GET-QUOTE?ignored=true",
+      sourcePagePath: "/GET-QUOTE/",
       landingPagePath: "",
       referrer: " ",
       attributionConfidence: "unavailable" as const,

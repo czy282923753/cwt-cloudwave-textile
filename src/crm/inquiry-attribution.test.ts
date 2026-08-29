@@ -151,11 +151,11 @@ describe("Inquiry attribution Choice A sanitizer", () => {
 
   it("keeps required source paths hard-fail and optional paths field-local", () => {
     expect(normalizeRequiredSourcePagePath("/GET-QUOTE/")).toBe("/get-quote/");
-    expect(normalizeRequiredSourcePagePath("/GET-QUOTE?ignored=true")).toBe(
-      "/get-quote/",
-    );
     for (const path of [
       "get-quote",
+      "/get-quote/?private=1",
+      "/get-quote/#private",
+      "https://cwtextile.com/get-quote/",
       "/api/storage/private-object/",
       "/api/inquiry-assets/private-id/",
       "/admin/inquiries/",
@@ -176,6 +176,28 @@ describe("Inquiry attribution Choice A sanitizer", () => {
       utmSource: "safe-source",
       omissions: [{ field: "landing_page_path", reason: "private_path" }],
     });
+  });
+
+  it.each([
+    "/",
+    "/products/",
+    "/products/synthetic-fabric/",
+    "/fabric-types/synthetic-weave/",
+    "/applications/activewear/",
+    "/fabric-library/",
+    "/resources/",
+    "/fabric-knowledge/",
+    "/fabric-knowledge/synthetic-guide/",
+    "/china-sourcing-guide/",
+    "/china-sourcing-guide/synthetic-topic/",
+    "/china-textile-guide/",
+    "/china-textile-guide/synthetic-topic/",
+    "/authors/synthetic-author/",
+    "/about/",
+    "/get-quote/",
+    "/markets/synthetic-market/",
+  ])("accepts representative frozen or future public route %s", (path) => {
+    expect(normalizeRequiredSourcePagePath(path)).toBe(path);
   });
 
   it("documents bounded residual-risk cases without claiming absolute PII detection", () => {

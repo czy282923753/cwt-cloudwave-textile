@@ -120,6 +120,19 @@ export function trackPublicEvent(
 ): void {
   const attribution = capturedAttribution ?? captureAttribution();
   if (attribution.consentState !== "granted") return;
+  const attributionBody = eventName === "quote_submit_success"
+    ? {}
+    : {
+        landingPagePath: attribution.landingPagePath,
+        referrerOrigin: attribution.referrerOrigin,
+        utmSource: attribution.utmSource || undefined,
+        utmMedium: attribution.utmMedium || undefined,
+        utmCampaign: attribution.utmCampaign || undefined,
+        lastNonDirectSource: attribution.lastNonDirectSource || undefined,
+        lastNonDirectMedium: attribution.lastNonDirectMedium || undefined,
+        lastNonDirectCampaign: attribution.lastNonDirectCampaign || undefined,
+        attributionConfidence: attribution.attributionConfidence,
+      };
   void fetch("/api/conversion-events/", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -128,17 +141,9 @@ export function trackPublicEvent(
       eventId: `evt_${crypto.randomUUID().replaceAll("-", "")}`,
       eventName,
       routePath,
-      landingPagePath: attribution.landingPagePath,
-      referrerOrigin: attribution.referrerOrigin,
-      utmSource: attribution.utmSource || undefined,
-      utmMedium: attribution.utmMedium || undefined,
-      utmCampaign: attribution.utmCampaign || undefined,
-      lastNonDirectSource: attribution.lastNonDirectSource || undefined,
-      lastNonDirectMedium: attribution.lastNonDirectMedium || undefined,
-      lastNonDirectCampaign: attribution.lastNonDirectCampaign || undefined,
-      attributionConfidence: attribution.attributionConfidence,
       safeProperties,
       ...entity,
+      ...attributionBody,
     }),
   });
 }
