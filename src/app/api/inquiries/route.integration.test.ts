@@ -400,6 +400,112 @@ describe("actual public Inquiry handler with actual Domain and disposable databa
     }
   });
 
+  it("records inquiry-created when colliding image-upload analytics is independently rejected", async () => {
+    const connection = await createTestDatabase();
+    const consentSessionId = "72000000-0000-4000-8000-000000000011";
+    const token = "private-upload-token-colliding-00001";
+    const anonymousSessionId = "71000000-0000-4000-8000-000000000001";
+    const publicReference = "CWT-12345678901234567890";
+    const output: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      await connection.db.insert(analyticsConsents).values({
+        consentSessionId,
+        status: "granted",
+        consentVersion: 1,
+        grantedAt: new Date(),
+      });
+      const [asset] = await connection.db.insert(assets).values({
+        originalFileName: "synthetic-private-colliding-sample.jpg",
+        storageProvider: "test",
+        storagePartition: "private",
+        objectKey: "inquiry/synthetic-private-colliding-sample.jpg",
+        access: "private",
+        category: "inquiry",
+        status: "ready",
+        scanStatus: "passed",
+        declaredMimeType: "image/jpeg",
+        detectedMimeType: "image/jpeg",
+        byteSize: 32,
+        sha256: "synthetic-private-colliding-sample-sha256",
+      }).returning({ id: assets.id });
+      await connection.db.insert(uploadIntents).values({
+        tokenHash: createHash("sha256").update(token).digest("hex"),
+        anonymousSessionId,
+        declaredFileName: "synthetic-private-colliding-sample.jpg",
+        declaredMimeType: "image/jpeg",
+        declaredByteSize: 32,
+        status: "passed",
+        assetId: asset!.id,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const POST = await loadActualHandler(
+        connection,
+        Buffer.from(publicReference.slice(4), "hex"),
+      );
+      const overrides = {
+        idempotencyKey: "actual-handler-colliding-upload-replay-0001",
+        uploadTokens: [token],
+      };
+      const first = await POST(publicRequest(overrides, consentSessionId));
+      const replay = await POST(publicRequest(overrides, consentSessionId));
+      expect(first.status).toBe(201);
+      expect(replay.status).toBe(200);
+      await expect(first.json()).resolves.toMatchObject({
+        reference: publicReference,
+        replayed: false,
+      });
+      await expect(replay.json()).resolves.toMatchObject({
+        reference: publicReference,
+        replayed: true,
+      });
+
+      const inquiryRows = await connection.db.select().from(inquiries);
+      const attachmentRows = await connection.db.select().from(inquiryAssets);
+      const intentRows = await connection.db.select().from(uploadIntents);
+      const events = await connection.db.select().from(conversionEvents);
+      expect(inquiryRows).toHaveLength(1);
+      expect(attachmentRows).toHaveLength(1);
+      expect(intentRows).toHaveLength(1);
+      expect(intentRows[0]).toMatchObject({ status: "consumed", isConsumed: true });
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        eventId: `inquiry_created:${publicReference}`,
+        eventName: "inquiry_created",
+        externalReference: publicReference,
+      });
+      expect(events.find((event) => event.eventName === "image_upload_completed"))
+        .toBeUndefined();
+
+      const provider = toPublicAnalyticsPayload(events[0]!);
+      expect(provider).toMatchObject({
+        eventId: `inquiry_created:${publicReference}`,
+        externalReference: publicReference,
+      });
+      const providerText = JSON.stringify(provider);
+      expect(providerText).not.toContain(consentSessionId);
+      expect(providerText).not.toContain(inquiryRows[0]!.id);
+      expect(providerText).not.toContain(inquiryRows[0]!.contactId);
+      expect(providerText).not.toContain(asset!.id);
+      expect(providerText).not.toContain(token);
+      expect(providerText).not.toContain("actual-handler@example.test");
+      expect(Object.keys(provider)).not.toEqual(
+        expect.arrayContaining(["entityId", "inquiryId", "contactId", "assetId"]),
+      );
+
+      const analyticsRejections = output.filter((line) => line.includes("[analytics-rejected]"));
+      expect(analyticsRejections).toHaveLength(1);
+      expect(analyticsRejections[0]).not.toContain(publicReference);
+      expect(analyticsRejections[0]).not.toContain(token);
+      expect(analyticsRejections[0]).not.toContain("actual-handler@example.test");
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("keeps image-upload analytics and replay deduplication intact without Submit attribution", async () => {
     const connection = await createTestDatabase();
     const consentSessionId = crypto.randomUUID();

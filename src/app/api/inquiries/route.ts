@@ -126,8 +126,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     if (!submission.replayed && persistedConsent?.status === "granted" && consentSessionId) {
       const attribution = submission.analyticsAttribution;
-      try {
-        if (input.uploadTokens.length > 0) {
+      if (input.uploadTokens.length > 0) {
+        try {
           await withDatabase((db) =>
             recordConversionEvent(db, {
               eventId: `image_upload:${submission.publicReference}`,
@@ -137,7 +137,11 @@ export async function POST(request: Request): Promise<NextResponse> {
               safeProperties: { file_count: input.uploadTokens.length },
             }),
           );
+        } catch {
+          process.stderr.write(`[analytics-rejected] request ${requestId}; details omitted.\n`);
         }
+      }
+      try {
         await withDatabase((db) =>
           recordConversionEvent(db, {
             eventId: `inquiry_created:${submission.publicReference}`,
