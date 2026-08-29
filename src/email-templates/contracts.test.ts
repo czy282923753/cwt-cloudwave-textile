@@ -107,6 +107,28 @@ describe("email template V1 contracts", () => {
       revisionId: null,
       revisionVersion: null,
     }).success).toBe(false);
+    expect(emailTemplateActiveV1Schema.safeParse({
+      ...active,
+      source: "revision",
+      revisionId: "00000000-0000-4000-8000-000000000001",
+      revisionVersion: null,
+    }).success).toBe(false);
+    expect(emailTemplateActiveV1Schema.safeParse({
+      ...active,
+      source: "revision",
+      revisionId: null,
+      revisionVersion: 1,
+    }).success).toBe(false);
+    expect(emailTemplateActiveV1Schema.safeParse({
+      ...active,
+      revisionId: "00000000-0000-4000-8000-000000000001",
+      revisionVersion: null,
+    }).success).toBe(false);
+    expect(emailTemplateActiveV1Schema.safeParse({
+      ...active,
+      revisionId: null,
+      revisionVersion: 1,
+    }).success).toBe(false);
     expect(() => parseEmailTemplateActive({ ...active, canonicalSha256: "f".repeat(64) }))
       .toThrow(/canonical hash/i);
   });

@@ -693,10 +693,14 @@ export async function previewSyntheticEmailTemplate<
   requireEditorialResourceAccess(actor.role, "email_template", "preview");
   let resolved: ResolvedEmailTemplate;
   if (revisionId) {
-    const settingRows = await db.select({ id: systemSettings.id })
+    const settingRows = await db.select({
+      id: systemSettings.id,
+      isSensitive: systemSettings.isSensitive,
+    })
       .from(systemSettings).where(eq(systemSettings.key, settingKeyForTemplateKind(kind))).limit(1);
     const setting = settingRows[0];
     if (!setting) throw new Error("Selected Email Template Revision is not available.");
+    if (setting.isSensitive) throw new Error("Sensitive Email Template Setting is forbidden.");
     const revisionRows = await db.select().from(editorialRevisions).where(and(
       eq(editorialRevisions.id, revisionId),
       eq(editorialRevisions.entityType, "email_template"),

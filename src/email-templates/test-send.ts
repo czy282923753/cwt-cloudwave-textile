@@ -55,8 +55,9 @@ type TestSendAuditWriter<TQueryResult extends PgQueryResultHKT> = (
 ) => Promise<string>;
 
 function exactlyOneTestPrefix(subject: string): string {
-  const unprefixed = subject.replace(/^(?:\[TEST\]\s*)+/, "").trimStart();
-  return `[TEST] ${unprefixed}`.trimEnd();
+  const normalized = subject.trimStart();
+  const unprefixed = normalized.replace(/^(?:\[TEST\]\s*)+/, "").trimStart();
+  return unprefixed.length === 0 ? "[TEST]" : `[TEST] ${unprefixed}`;
 }
 
 function safeErrorClass(error: unknown): string {

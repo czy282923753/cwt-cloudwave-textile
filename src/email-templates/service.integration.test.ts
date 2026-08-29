@@ -108,6 +108,57 @@ describe("email template Settings/Revision authority", () => {
     await test.connection.close();
   });
 
+  it("rejects each partial Active provenance shape as direct Setting pollution", async () => {
+    const test = await setup();
+    await saveEmailTemplateDraft(
+      test.connection.db,
+      test.actor("content_editor"),
+      draftInput("Synthetic provenance seed"),
+    );
+    const setting = (await test.connection.db.select().from(systemSettings).where(
+      eq(systemSettings.key, "email_template.inquiry_customer_confirmation"),
+    ))[0]!;
+    const active = setting.value as Readonly<Record<string, unknown>>;
+    const pollutedValues = [
+      {
+        ...active,
+        source: "revision",
+        revisionId: "00000000-0000-4000-8000-000000000099",
+        revisionVersion: null,
+      },
+      {
+        ...active,
+        source: "code_fallback",
+        revisionId: null,
+        revisionVersion: 99,
+      },
+    ];
+    for (const value of pollutedValues) {
+      await test.connection.db.update(systemSettings).set({ value }).where(eq(systemSettings.id, setting.id));
+      const signals: unknown[] = [];
+      const resolved = await resolveActiveEmailTemplate(
+        test.connection.db,
+        "inquiry_customer_confirmation",
+        { onConfigurationSignal: (signal) => { signals.push(signal); } },
+      );
+      expect(resolved.provenance).toMatchObject({
+        source: "code_fallback",
+        revisionId: null,
+        revisionVersion: null,
+        fallbackReason: "active_invalid",
+      });
+      expect(resolved.template.subjectSource).toBe(
+        "We received your CloudWave Textile inquiry {{inquiry_reference}}",
+      );
+      expect(signals).toEqual([{
+        code: "email_template_active_invalid",
+        settingKey: "email_template.inquiry_customer_confirmation",
+        templateKind: "inquiry_customer_confirmation",
+      }]);
+    }
+    await test.connection.close();
+  });
+
   it("serializes Drafts, rejects stale work, applies one sole live projection, and rolls back by copy", async () => {
     const test = await setup();
     const editor = test.actor("content_editor");
@@ -284,6 +335,25 @@ describe("email template Settings/Revision authority", () => {
     expect(preview.contextId).toBe("SYNTHETIC_EMAIL_TEMPLATE_V1");
     expect(preview.rendered.textBody).toContain("Conspicuously Synthetic");
     expect(preview.rendered.textBody).not.toMatch(/object key|signed url/i);
+    await test.connection.close();
+  });
+
+  it("rejects a polluted sensitive Setting before selected-Revision Preview rendering", async () => {
+    const test = await setup();
+    const draft = await saveEmailTemplateDraft(
+      test.connection.db,
+      test.actor("content_editor"),
+      draftInput("Synthetic sensitive Setting probe"),
+    );
+    await test.connection.db.update(systemSettings).set({ isSensitive: true }).where(
+      eq(systemSettings.key, "email_template.inquiry_customer_confirmation"),
+    );
+    await expect(previewSyntheticEmailTemplate(
+      test.connection.db,
+      test.actor("content_editor"),
+      "inquiry_customer_confirmation",
+      draft.revisionId,
+    )).rejects.toThrow(/Sensitive Email Template Setting is forbidden/);
     await test.connection.close();
   });
 });

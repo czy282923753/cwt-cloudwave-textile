@@ -1118,44 +1118,29 @@ if (nextNode !== undefined) {
     !Array.isArray(tsconfig.include) || !tsconfig.include.includes(nextContract.tsconfigIncludeRequired)) {
     fail("tsconfig does not include next-env.d.ts");
   }
-  const requiredGeneratedFiles = new Map([
-    [".next/types/cache-life.d.ts", "d1986184a09a52db8228cb2bb2a61a8c05c9354e5b93cec8e2628d8579c892d7"],
-    [".next/types/routes.d.ts", "e838150498c7e8464a1a0d7e25d7dfc79aa6f77358a8d83ac0aa7b28c5904fb4"],
-    [".next/types/validator.ts", "8ed142360153811ab434bbd2f2486b0052d9d5bbdcf067d206fc8d7eb15f28df"],
-  ]);
-  if (excludedStatus[".next/"] !== "present-not-walked" || !lstatSync(nextRoot).isDirectory()) {
-    fail(".next is not a physical directory");
-  }
-  const observedGeneratedFiles: string[] = [];
-  function walkGenerated(directory: string): void {
-    for (const name of readdirSync(directory).sort()) {
-      const path = resolve(directory, name);
-      const stat = lstatSync(path);
-      const relativePath = posixPath(relative(repositoryRoot, path));
-      if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) {
-        fail(`invalid generated-root node ${relativePath}`);
-      }
-      if (stat.isDirectory()) walkGenerated(path);
-      else {
-        const physicalIdentity = `${stat.dev}:${stat.ino}`;
-        const existingOwner = inodeOwners.get(physicalIdentity) ?? validatedExcludedInodeOwners.get(physicalIdentity);
-        if (existingOwner !== undefined) fail(`generated-root physical alias: ${existingOwner} and ${relativePath}`);
-        validatedExcludedInodeOwners.set(physicalIdentity, relativePath);
-        observedGeneratedFiles.push(relativePath);
-      }
+}
+if (excludedStatus[".next/"] === "present-not-walked" &&
+  (!lstatSync(nextRoot).isDirectory() || lstatSync(nextRoot).isSymbolicLink())) {
+  fail(".next is not a physical directory");
+}
+if (nextNode !== undefined) {
+  for (const line of nextContract.presentUtf8Lines) {
+    const specifier = /^import "(\.\/\.next\/[^"\r\n]+)";$/u.exec(line)?.[1];
+    if (specifier === undefined) continue;
+    const target = resolve(repositoryRoot, specifier);
+    if (!existsSync(target)) continue;
+    const stat = lstatSync(target);
+    const canonicalPath = posixPath(relative(repositoryRoot, realpathSync(target)));
+    if (!stat.isFile() || stat.isSymbolicLink() || canonicalPath !== specifier.slice(2)) {
+      fail(`invalid framework-generated control target ${specifier}`);
     }
-  }
-  walkGenerated(nextRoot);
-  if (JSON.stringify(observedGeneratedFiles) !== JSON.stringify([...requiredGeneratedFiles.keys()])) {
-    fail(".next generated-root file set mismatch");
-  }
-  for (const [path, expectedHash] of requiredGeneratedFiles) {
-    if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
-      fail(`.next generated-root hash mismatch for ${path}`);
+    const physicalIdentity = `${stat.dev}:${stat.ino}`;
+    const existingOwner = inodeOwners.get(physicalIdentity) ?? validatedExcludedInodeOwners.get(physicalIdentity);
+    if (existingOwner !== undefined) {
+      fail(`framework-generated control target physical alias: ${existingOwner} and ${canonicalPath}`);
     }
+    validatedExcludedInodeOwners.set(physicalIdentity, canonicalPath);
   }
-} else if (excludedStatus[".next/"] !== "absent") {
-  fail("source-clean lifecycle has .next without next-env.d.ts");
 }
 
 const rootPath = "src/server/ai/phase-d-provider-composition.ts";
@@ -1585,6 +1570,19 @@ function scanStaticLanguage(input: {
     importMetaPlacementCount,
     allowedStaticFormCounts,
   };
+}
+
+function enforceProtectedStaticLanguageBoundary(path: string, scan: StaticLanguageScan): void {
+  const position = scan.ordinaryGlobalUrlValues[0];
+  if (position !== undefined) {
+    rejectGraph("denied_capability_origin", JSON.stringify({
+      path,
+      rule: "protected-ai-ordinary-global-url-denied",
+      nodeKind: "NewExpression",
+      position,
+      reason: "ordinary_global_url_outside_static_resource_graph",
+    }));
+  }
 }
 
 const resolvableExtensions = [
@@ -2137,6 +2135,9 @@ for (const node of executableNodes) {
     denyAmbientRuntimeCapabilities: node.classId === "protected-ai" ||
       node.classId === "phase-d-outer-composition",
   });
+  if (node.classId === "protected-ai" || node.classId === "phase-d-outer-composition") {
+    enforceProtectedStaticLanguageBoundary(node.path, scan);
+  }
   staticLanguageByPath.set(node.path, scan);
   scan.ordinaryGlobalUrlValues.forEach((position) => ordinaryGlobalUrlValues.push({ path: node.path, position }));
   scan.staticResourceCandidates.forEach((position) => staticResourceCandidates.push({ path: node.path, position }));
@@ -2147,10 +2148,9 @@ for (const node of executableNodes) {
     graphEdges.push(edge);
   }
 }
-if (ordinaryGlobalUrlValues.length !== 21 || staticResourceCandidates.length !== 0 ||
+if (staticResourceCandidates.length !== 0 ||
   graphEdges.some((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported")) {
-  fail(`actual Production static-language baseline differs from V5.0: ${JSON.stringify({
-    ordinaryGlobalUrlValues,
+  fail(`actual Production static-language authority failed: ${JSON.stringify({
     staticResourceCandidates,
     unresolved: graphEdges.filter((edge) => edge.resolutionKind === "unresolved" || edge.resolutionKind === "unsupported"),
   })}`);
@@ -2617,6 +2617,45 @@ function scanVirtualSource(path: string, text: string): StaticLanguageScan {
     denyAmbientRuntimeCapabilities: ["protected-ai", "phase-d-outer-composition"].includes(classForPath(path)),
   });
 }
+
+const protectedStaticBoundaryMutationCases = [
+  {
+    id: "protected-ai-ordinary-global-url",
+    sourcePath: "src/ai/canonical-json.ts",
+    source: 'void new URL("https://unauthorized.example.test/resource");\n',
+    expectedCode: "denied_capability_origin",
+  },
+  {
+    id: "protected-ai-dynamic-resource-url",
+    sourcePath: "src/ai/context/protected-data.ts",
+    source: 'declare const resource: string;\nvoid new URL(resource, import.meta.url);\n',
+    expectedCode: "unsupported_acquisition_syntax",
+  },
+  {
+    id: "protected-ai-ambient-fetch",
+    sourcePath: "src/ai/canonical-json.ts",
+    source: 'void fetch("https://unauthorized.example.test/resource");\n',
+    expectedCode: "denied_capability_origin",
+  },
+] as const;
+
+const protectedStaticBoundaryMutationResults = protectedStaticBoundaryMutationCases.map((probe) => {
+  let observed: ArchitectureGraphFailure | undefined;
+  try {
+    const scan = scanVirtualSource(probe.sourcePath, probe.source);
+    enforceProtectedStaticLanguageBoundary(probe.sourcePath, scan);
+    for (const acquisition of scan.acquisitions) {
+      enforceCapabilityEdge(resolveAcquisition(probe.sourcePath, acquisition), classForPath(probe.sourcePath), false);
+    }
+  } catch (error) {
+    if (error instanceof ArchitectureGraphFailure) observed = error;
+    else throw error;
+  }
+  if (observed?.code !== probe.expectedCode) {
+    fail(`protected static-boundary mutation ${probe.id} expected ${probe.expectedCode}, got ${observed?.code ?? "pass"}`);
+  }
+  return { id: probe.id, result: "fail-closed" as const, reason: observed.code };
+});
 
 const graphFaultResults: {
   readonly id: string;
@@ -3524,7 +3563,7 @@ const aggregateResult = Object.freeze({
         fixtureHashes: preservedSyntheticFixtureHashes,
         mutationResults: syntheticMutationResults,
       })),
-      generatedRootState: nextNode === undefined ? "absent" : "official-next-generated-file-present",
+      generatedRootState: "ignored-build-output-not-authority",
     },
     typescriptSymbolCapabilityOrigin: {
       deniedOriginCount: 0,
@@ -3532,6 +3571,7 @@ const aggregateResult = Object.freeze({
       graphSha256,
       graphFaultSetSha256: sha256(canonical(graphFaultResults)),
       graphPositiveSetSha256: sha256(canonical(graphPositiveResults)),
+      protectedStaticBoundaryMutationResults,
     },
     databaseAndReadAuthority: {
       positiveTypeConfigCount: positiveTypeConfigs.length,

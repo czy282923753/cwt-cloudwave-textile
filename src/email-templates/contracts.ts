@@ -83,26 +83,29 @@ export const emailTemplateRevisionV1Schema = z.object({
   rollbackSourceRevisionId: z.uuid().nullable(),
 }).strict();
 
-export const emailTemplateActiveV1Schema = z.object({
+const emailTemplateActiveFields = {
   schema: z.literal("email_template_active_v1"),
   templateKind: z.enum(EMAIL_TEMPLATE_KINDS),
   contractVersion: z.literal(1),
-  source: z.enum(["revision", "code_fallback"]),
-  revisionId: z.uuid().nullable(),
-  revisionVersion: z.number().int().positive().nullable(),
   subjectSource: subjectSourceSchema,
   textBodySource: textBodySourceSchema,
   canonicalSha256: sha256Schema,
-}).strict().superRefine((value, context) => {
-  const revisionBacked = value.source === "revision";
-  if (revisionBacked !== (value.revisionId !== null && value.revisionVersion !== null)) {
-    context.addIssue({
-      code: "custom",
-      message: "Revision provenance must be complete only for revision-backed Active templates.",
-      path: ["revisionId"],
-    });
-  }
-});
+} as const;
+
+export const emailTemplateActiveV1Schema = z.discriminatedUnion("source", [
+  z.object({
+    ...emailTemplateActiveFields,
+    source: z.literal("revision"),
+    revisionId: z.uuid(),
+    revisionVersion: z.number().int().positive(),
+  }).strict(),
+  z.object({
+    ...emailTemplateActiveFields,
+    source: z.literal("code_fallback"),
+    revisionId: z.null(),
+    revisionVersion: z.null(),
+  }).strict(),
+]);
 
 export type EmailTemplateSource = z.infer<typeof emailTemplateSourceSchema>;
 export type EmailTemplateRevisionV1 = z.infer<typeof emailTemplateRevisionV1Schema>;

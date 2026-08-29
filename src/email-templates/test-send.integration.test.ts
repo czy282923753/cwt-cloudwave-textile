@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { auditLogs, users } from "@/db/schema";
+import { auditLogs, systemSettings, users } from "@/db/schema";
 import { createTestDatabase } from "@/test/database";
 
 import { saveEmailTemplateDraft } from "./service";
@@ -11,7 +11,7 @@ import {
   TEMPLATE_TEST_RECIPIENT,
 } from "./test-send";
 
-async function setup() {
+async function setup(subjectSource = "[TEST] [TEST] Synthetic {{inquiry_reference}}") {
   const connection = await createTestDatabase();
   const rows = await connection.db.insert(users).values([
     { email: `template-admin-${crypto.randomUUID()}@example.test`, displayName: "Synthetic Admin", role: "admin", passwordHash: "test" },
@@ -21,7 +21,7 @@ async function setup() {
   const editor = { userId: rows.find((row) => row.role === "content_editor")!.id, role: "content_editor" as const };
   const draft = await saveEmailTemplateDraft(connection.db, editor, {
     templateKind: "inquiry_customer_confirmation",
-    subjectSource: "[TEST] [TEST] Synthetic {{inquiry_reference}}",
+    subjectSource,
     textBodySource: "Synthetic body for {{customer_name}} at {{submitted_at}} from {{company_name}} via {{reply_to_email}}.",
     changeSummary: "Synthetic test-send Draft",
     expectedDraftVersion: 0,
@@ -30,6 +30,24 @@ async function setup() {
 }
 
 describe("capture-only Email Template test send", () => {
+  it.each([
+    ["   [TEST] [TEST] Synthetic {{inquiry_reference}}", "[TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
+    ["[TEST] [TEST] Synthetic {{inquiry_reference}}", "[TEST] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
+    ["[test] Synthetic {{inquiry_reference}}", "[TEST] [test] Synthetic CWT-AAAAAAAAAAAAAAAAAAAA"],
+    ["[TEST] [TEST]", "[TEST]"],
+  ])("normalizes the test-send subject %j to exactly one uppercase marker", async (subjectSource, expected) => {
+    const test = await setup(subjectSource);
+    const transport = new InMemoryCaptureEmailTransport();
+    await sendSyntheticEmailTemplateTest(test.connection.db, test.admin, {
+      templateKind: "inquiry_customer_confirmation",
+      revisionId: test.draft.revisionId,
+      environment: "test",
+    }, transport);
+    expect(transport.captured[0]?.subject).toBe(expected);
+    expect(transport.captured[0]?.subject.match(/\[TEST\]/g)).toHaveLength(1);
+    await test.connection.close();
+  });
+
   it("uses renderer/envelope parity, forced recipient, one prefix, and sanitized attempt/outcome Audit", async () => {
     const test = await setup();
     const transport = new InMemoryCaptureEmailTransport();
@@ -139,6 +157,21 @@ describe("capture-only Email Template test send", () => {
       revisionId: test.draft.revisionId,
       environment: "test",
     }, transport)).rejects.toThrow(/Only Admin/i);
+    expect(transport.captured).toHaveLength(0);
+    await test.connection.close();
+  });
+
+  it("inherits selected-Revision rejection for a polluted sensitive Setting", async () => {
+    const test = await setup();
+    await test.connection.db.update(systemSettings).set({ isSensitive: true }).where(
+      eq(systemSettings.key, "email_template.inquiry_customer_confirmation"),
+    );
+    const transport = new InMemoryCaptureEmailTransport();
+    await expect(sendSyntheticEmailTemplateTest(test.connection.db, test.admin, {
+      templateKind: "inquiry_customer_confirmation",
+      revisionId: test.draft.revisionId,
+      environment: "test",
+    }, transport)).rejects.toThrow(/Sensitive Email Template Setting is forbidden/);
     expect(transport.captured).toHaveLength(0);
     await test.connection.close();
   });
