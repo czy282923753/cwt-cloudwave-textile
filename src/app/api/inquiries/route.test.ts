@@ -32,9 +32,6 @@ vi.mock("@/uploads/request-guard", () => ({
 vi.mock("@/uploads/rate-limit", () => ({
   publicUploadRateLimiter: { consume: () => Promise.resolve(true) },
 }));
-vi.mock("@/integrations/email", () => ({
-  createEmailNotifier: () => ({ notifyInquiry: () => Promise.resolve() }),
-}));
 vi.mock("@/config/env", () => ({
   env: {
     MAX_FILES_PER_UPLOAD: 5,
@@ -92,7 +89,7 @@ describe("public Inquiry Idempotency responses", () => {
 
     expect(response.status).toBe(201);
     expect(mocks.createInquiry).toHaveBeenCalledTimes(1);
-    expect(mocks.createInquiry.mock.calls[0]?.[2]).toMatchObject({
+    expect(mocks.createInquiry.mock.calls[0]?.[1]).toMatchObject({
       countryCode: expected,
     });
   });

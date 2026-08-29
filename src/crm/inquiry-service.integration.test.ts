@@ -13,9 +13,7 @@ import {
   uploadIntents,
   users,
 } from "@/db/schema";
-import type { EmailNotifier, InquiryNotification } from "@/integrations/email";
 import { createTestDatabase } from "@/test/database";
-import { deliverPendingInquiryNotifications } from "@/integrations/notification-outbox";
 
 import {
   addCustomerActivity,
@@ -28,24 +26,10 @@ import {
 } from "./inquiry-service";
 import { authorizeInquiryAssetRecord, requireInquiryRecordAccess } from "./authorization";
 
-class TestNotifier implements EmailNotifier {
-  readonly notifications: InquiryNotification[] = [];
-  async notifyInquiry(input: InquiryNotification): Promise<void> {
-    this.notifications.push(input);
-  }
-}
-
-class FailingNotifier implements EmailNotifier {
-  async notifyInquiry(): Promise<void> {
-    throw new Error("Synthetic notification outage");
-  }
-}
-
 describe("minimal inquiry and CRM workflow", () => {
   it("accepts text-only and image-only inquiries and exactly matches Contacts by email", async () => {
     const connection = await createTestDatabase();
-    const notifier = new TestNotifier();
-    const { inquiryId: firstInquiryId } = await createInquiry(connection.db, notifier, {
+    const { inquiryId: firstInquiryId } = await createInquiry(connection.db, {
       idempotencyKey: "text-inquiry-0001",
       name: "Test Buyer",
       email: "BUYER@EXAMPLE.TEST ",
@@ -72,7 +56,7 @@ describe("minimal inquiry and CRM workflow", () => {
       .returning({ id: assets.id });
     const assetId = assetRows[0]?.id;
     if (!assetId) throw new Error("Missing private asset.");
-    const { inquiryId: secondInquiryId } = await createInquiry(connection.db, notifier, {
+    const { inquiryId: secondInquiryId } = await createInquiry(connection.db, {
       idempotencyKey: "image-inquiry-0001",
       name: "Test Buyer Updated",
       email: "buyer@example.test",
@@ -98,7 +82,8 @@ describe("minimal inquiry and CRM workflow", () => {
     expect(Number(contactCount[0]?.count)).toBe(1);
     expect(Number(inquiryCount[0]?.count)).toBe(2);
     expect(Number(attachmentCount[0]?.count)).toBe(1);
-    expect(notifier.notifications).toHaveLength(2);
+    expect(Number((await connection.db.select({ value: count() })
+      .from(notificationOutbox))[0]?.value)).toBe(4);
     const contactRows = await connection.db.select().from(contacts);
     expect(contactRows[0]).toMatchObject({
       name: "Test Buyer",
@@ -114,7 +99,6 @@ describe("minimal inquiry and CRM workflow", () => {
 
   it("normalizes valid country codes and preserves immutable repeat-Inquiry snapshots without overwriting Contact master data", async () => {
     const connection = await createTestDatabase();
-    const notifier = new TestNotifier();
     const firstInput = {
       idempotencyKey: "country-inquiry-0001",
       name: "Country Buyer",
@@ -124,12 +108,12 @@ describe("minimal inquiry and CRM workflow", () => {
       sourcePagePath: "/get-quote/",
     };
 
-    const first = await createInquiry(connection.db, notifier, firstInput);
-    const replay = await createInquiry(connection.db, notifier, {
+    const first = await createInquiry(connection.db, firstInput);
+    const replay = await createInquiry(connection.db, {
       ...firstInput,
       countryCode: "CN",
     });
-    const second = await createInquiry(connection.db, notifier, {
+    const second = await createInquiry(connection.db, {
       ...firstInput,
       idempotencyKey: "country-inquiry-0002",
       name: "Country Buyer Updated",
@@ -165,19 +149,17 @@ describe("minimal inquiry and CRM workflow", () => {
     const outboxRows = await connection.db
       .select({ aggregateId: notificationOutbox.aggregateId, payload: notificationOutbox.payload })
       .from(notificationOutbox);
-    expect(outboxRows.find((row) => row.aggregateId === first.inquiryId)?.payload)
-      .toMatchObject({ countryCode: "CN" });
-    expect(outboxRows.find((row) => row.aggregateId === second.inquiryId)?.payload)
-      .toMatchObject({ countryCode: "US" });
-    expect(notifier.notifications.map((notification) => notification.countryCode))
-      .toEqual(["CN", "US"]);
+    expect(outboxRows.filter((row) => row.aggregateId === first.inquiryId)).toHaveLength(2);
+    expect(outboxRows.filter((row) => row.aggregateId === second.inquiryId)).toHaveLength(2);
+    expect(outboxRows.every((row) =>
+      (row.payload as { schema_version?: number }).schema_version === 1,
+    )).toBe(true);
     await connection.close();
   });
 
   it("allows an empty optional country and rejects invalid country text at the Domain Service boundary", async () => {
     const connection = await createTestDatabase();
-    const notifier = new TestNotifier();
-    const empty = await createInquiry(connection.db, notifier, {
+    const empty = await createInquiry(connection.db, {
       idempotencyKey: "empty-country-inquiry-0001",
       name: "No Country Buyer",
       email: "no-country@example.test",
@@ -194,7 +176,7 @@ describe("minimal inquiry and CRM workflow", () => {
 
     for (const [index, countryCode] of ["ZZ", "China", "C"].entries()) {
       await expect(
-        createInquiry(connection.db, notifier, {
+        createInquiry(connection.db, {
           idempotencyKey: `invalid-country-inquiry-000${index + 1}`,
           name: "Invalid Country Buyer",
           email: `invalid-country-${index}@example.test`,
@@ -209,14 +191,13 @@ describe("minimal inquiry and CRM workflow", () => {
     expect(Number((await connection.db.select({ value: count() }).from(contacts))[0]?.value))
       .toBe(1);
     expect(Number((await connection.db.select({ value: count() }).from(notificationOutbox))[0]?.value))
-      .toBe(1);
+      .toBe(2);
     await connection.close();
   });
 
   it("records governed status history, activities, and first response time", async () => {
     const connection = await createTestDatabase();
-    const notifier = new TestNotifier();
-    const { inquiryId } = await createInquiry(connection.db, notifier, {
+    const { inquiryId } = await createInquiry(connection.db, {
       idempotencyKey: "crm-inquiry-0001",
       name: "Test Buyer",
       email: "crm@example.test",
@@ -325,7 +306,7 @@ describe("minimal inquiry and CRM workflow", () => {
       .returning({ id: assets.id });
     const authorizationAssetId = assetRows[0]?.id;
     if (!authorizationAssetId) throw new Error("Missing authorization Asset.");
-    const { inquiryId } = await createInquiry(connection.db, new TestNotifier(), {
+    const { inquiryId } = await createInquiry(connection.db, {
       idempotencyKey: "authorization-inquiry-0001",
       name: "Authorization Buyer",
       email: "authorization@example.test",
@@ -389,7 +370,7 @@ describe("minimal inquiry and CRM workflow", () => {
     await connection.close();
   });
 
-  it("deduplicates retries and keeps notification failure asynchronous", async () => {
+  it("deduplicates retries and leaves exactly two committed jobs for asynchronous delivery", async () => {
     const connection = await createTestDatabase();
     const input = {
       idempotencyKey: "idempotent-notification-0001",
@@ -399,23 +380,51 @@ describe("minimal inquiry and CRM workflow", () => {
       assetIds: [] as const,
       sourcePagePath: "/get-quote/",
     };
-    const first = await createInquiry(connection.db, new FailingNotifier(), input);
-    const second = await createInquiry(connection.db, new FailingNotifier(), input);
+    const first = await createInquiry(connection.db, input);
+    const second = await createInquiry(connection.db, input);
     expect(second).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
     const inquiryCount = await connection.db.select({ value: count() }).from(inquiries);
     expect(Number(inquiryCount[0]?.value)).toBe(1);
     const outboxRows = await connection.db.select().from(notificationOutbox);
-    expect(outboxRows).toHaveLength(1);
-    expect(outboxRows[0]).toMatchObject({ status: "failed", attempts: 1 });
-    await connection.db
-      .update(notificationOutbox)
-      .set({ nextAttemptAt: new Date(0) })
-      .where(eq(notificationOutbox.aggregateId, first.inquiryId));
-    const notifier = new TestNotifier();
-    await expect(
-      deliverPendingInquiryNotifications(connection.db, notifier),
-    ).resolves.toEqual({ attempted: 1, sent: 1 });
-    expect(notifier.notifications).toHaveLength(1);
+    expect(outboxRows).toHaveLength(2);
+    expect(outboxRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "inquiry_notification", status: "pending", attempts: 0 }),
+      expect.objectContaining({ kind: "inquiry_customer_confirmation", status: "pending", attempts: 0 }),
+    ]));
+    await connection.close();
+  });
+
+  it("rolls back the complete Inquiry transaction when the second Outbox insert fails", async () => {
+    const connection = await createTestDatabase();
+    const seen: string[] = [];
+    await expect(createInquiry(connection.db, {
+      idempotencyKey: "second-outbox-failure-0001",
+      name: "Synthetic Atomicity Buyer",
+      email: "atomicity@example.test",
+      description: "Synthetic second-job rollback evidence.",
+      sourcePagePath: "/get-quote/",
+    }, {
+      beforeOutboxInsert: (kind) => {
+        seen.push(kind);
+        if (kind === "inquiry_customer_confirmation") {
+          throw new Error("Synthetic second Outbox insert failure");
+        }
+      },
+    })).rejects.toThrow(/second Outbox insert failure/);
+    expect(seen).toEqual([
+      "inquiry_notification",
+      "inquiry_customer_confirmation",
+    ]);
+    for (const table of [
+      contacts,
+      inquiries,
+      inquiryStatusHistory,
+      notificationOutbox,
+      auditLogs,
+    ] as const) {
+      expect(Number((await connection.db.select({ value: count() }).from(table))[0]?.value))
+        .toBe(0);
+    }
     await connection.close();
   });
 
@@ -468,8 +477,8 @@ describe("minimal inquiry and CRM workflow", () => {
       attributionConfidence: "unavailable" as const,
       sessionId: "11111111-1111-4111-8111-111111111111",
     };
-    const first = await createInquiry(connection.db, new TestNotifier(), baseInput);
-    const replay = await createInquiry(connection.db, new TestNotifier(), {
+    const first = await createInquiry(connection.db, baseInput);
+    const replay = await createInquiry(connection.db, {
       ...baseInput,
       name: "Canonical Buyer",
       email: "canonical@example.test",
@@ -485,7 +494,7 @@ describe("minimal inquiry and CRM workflow", () => {
     expect(replay).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
 
     await expect(
-      createInquiry(connection.db, new TestNotifier(), {
+      createInquiry(connection.db, {
         ...baseInput,
         description: "A materially different request.",
       }),
@@ -495,7 +504,7 @@ describe("minimal inquiry and CRM workflow", () => {
     expect(Number((await connection.db.select({ value: count() }).from(contacts))[0]?.value)).toBe(1);
     expect(Number((await connection.db.select({ value: count() }).from(inquiryAssets))[0]?.value)).toBe(2);
     expect(Number((await connection.db.select({ value: count() }).from(inquiryStatusHistory))[0]?.value)).toBe(1);
-    expect(Number((await connection.db.select({ value: count() }).from(notificationOutbox))[0]?.value)).toBe(1);
+    expect(Number((await connection.db.select({ value: count() }).from(notificationOutbox))[0]?.value)).toBe(2);
     const createdAudits = await connection.db
       .select({ id: auditLogs.id })
       .from(auditLogs)
@@ -528,7 +537,7 @@ describe("minimal inquiry and CRM workflow", () => {
       sourcePagePath: "/get-quote/",
     });
     await expect(
-      createInquiry(connection.db, new TestNotifier(), {
+      createInquiry(connection.db, {
         idempotencyKey: "legacy-inquiry-0001",
         name: "Legacy Buyer",
         email: "legacy@example.test",
@@ -580,8 +589,8 @@ describe("minimal inquiry and CRM workflow", () => {
       sourcePagePath: "/get-quote/",
       sessionId,
     };
-    const first = await createInquiry(connection.db, new TestNotifier(), input);
-    const replay = await createInquiry(connection.db, new TestNotifier(), {
+    const first = await createInquiry(connection.db, input);
+    const replay = await createInquiry(connection.db, {
       ...input,
       uploadTokens: [...tokens].reverse(),
     });
@@ -622,7 +631,7 @@ describe("minimal inquiry and CRM workflow", () => {
       expiresAt: new Date(Date.now() + 60_000),
     });
     await expect(
-      createInquiry(connection.db, new TestNotifier(), {
+      createInquiry(connection.db, {
         ...input,
         uploadTokens: [conflictingToken],
       }),

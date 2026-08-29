@@ -1,12 +1,12 @@
 import { databaseConnection } from "@/db/client";
-import { createEmailNotifier } from "@/integrations/email";
-import { deliverPendingInquiryNotifications } from "@/integrations/notification-outbox";
+import { createEmailTransport } from "@/integrations/email";
+import { deliverPendingNotificationOutbox } from "@/integrations/notification-outbox";
 
-const notifier = createEmailNotifier();
+const transport = createEmailTransport();
 const result =
   databaseConnection.kind === "pglite"
-    ? await deliverPendingInquiryNotifications(databaseConnection.db, notifier)
-    : await deliverPendingInquiryNotifications(databaseConnection.db, notifier);
+    ? await deliverPendingNotificationOutbox(databaseConnection.db, transport)
+    : await deliverPendingNotificationOutbox(databaseConnection.db, transport);
 
 process.stdout.write(
   `Notification outbox processed: ${result.attempted} attempted, ${result.sent} sent.\n`,

@@ -20,7 +20,6 @@ import {
 import * as schema from "../src/db/schema";
 import { migrateDatabase } from "../src/db/migrate";
 import type { DatabaseConnection } from "../src/db/client";
-import type { EmailNotifier } from "../src/integrations/email";
 import {
   applyEmailTemplateRevision,
   listEmailTemplateHistory,
@@ -34,12 +33,14 @@ import {
   InMemoryCaptureEmailTransport,
   sendSyntheticEmailTemplateTest,
 } from "../src/email-templates/test-send";
+import type { EmailEnvelopePolicy } from "../src/integrations/email";
+import {
+  claimNotificationOutboxJob,
+  deliverNotificationOutboxJob,
+} from "../src/integrations/notification-outbox";
+import { parseNotificationOutboxPayload } from "../src/integrations/notification-outbox-payload";
 
 const databasePrefix = "cwt_s5f1_synthetic_";
-
-class SilentNotifier implements EmailNotifier {
-  async notifyInquiry(): Promise<void> {}
-}
 
 type Journal = {
   version: string;
@@ -436,6 +437,151 @@ async function verifyTemplateAuthority(
   };
 }
 
+async function verifyOutboxConvergence(
+  connection: Extract<DatabaseConnection, { kind: "postgres" }>,
+  client: Sql,
+): Promise<Record<string, unknown>> {
+  const policy: EmailEnvelopePolicy = {
+    environment: "test",
+    applicationOrigin: "http://localhost:3000",
+    emailDriver: "log",
+    emailFrom: "",
+    internalRecipient: "info@cwtextile.com",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: "",
+    smtpPassword: "",
+    databaseDriver: "postgres",
+    monitoringDriver: "log",
+  };
+  const beforeFailure = await Promise.all([
+    countRows(client, "contacts"),
+    countRows(client, "inquiries"),
+    countRows(client, "inquiry_status_history"),
+    countRows(client, "notification_outbox"),
+    countRows(client, "audit_logs"),
+  ]);
+  await assert.rejects(createInquiry(connection.db, {
+    idempotencyKey: "postgres-f4-second-job-failure-0001",
+    name: "Synthetic PostgreSQL F4 Atomic Buyer",
+    email: "postgres-f4-atomic@example.test",
+    description: "Synthetic second-job rollback.",
+    sourcePagePath: "/get-quote/",
+  }, {
+    beforeOutboxInsert: (kind) => {
+      if (kind === "inquiry_customer_confirmation") {
+        throw new Error("Synthetic PostgreSQL second Outbox failure");
+      }
+    },
+  }), /second Outbox failure/);
+  const afterFailure = await Promise.all([
+    countRows(client, "contacts"),
+    countRows(client, "inquiries"),
+    countRows(client, "inquiry_status_history"),
+    countRows(client, "notification_outbox"),
+    countRows(client, "audit_logs"),
+  ]);
+  assert.deepEqual(afterFailure, beforeFailure);
+
+  const created = await createInquiry(connection.db, {
+    idempotencyKey: "postgres-f4-two-kind-0001",
+    name: "Synthetic PostgreSQL F4 Buyer",
+    email: "postgres-f4-buyer@example.test",
+    countryCode: "CN",
+    whatsapp: "+86 000 0000",
+    description: "Synthetic immutable F4 render data.",
+    sourcePagePath: "/get-quote/",
+  });
+  const replay = await createInquiry(connection.db, {
+    idempotencyKey: "postgres-f4-two-kind-0001",
+    name: "Synthetic PostgreSQL F4 Buyer",
+    email: "postgres-f4-buyer@example.test",
+    countryCode: "cn",
+    whatsapp: "+86 000 0000",
+    description: "Synthetic immutable F4 render data.",
+    sourcePagePath: "/get-quote/",
+  });
+  assert.equal(replay.replayed, true);
+  const jobs = await connection.db.select().from(schema.notificationOutbox)
+    .where(eq(schema.notificationOutbox.aggregateId, created.inquiryId));
+  assert.equal(jobs.length, 2);
+  assert.deepEqual(new Set(jobs.map((job) => job.kind)), new Set([
+    "inquiry_notification",
+    "inquiry_customer_confirmation",
+  ]));
+  for (const job of jobs) {
+    const parsed = parseNotificationOutboxPayload(job);
+    assert.equal(parsed.format, "v1");
+    const serialized = JSON.stringify(job.payload);
+    assert.doesNotMatch(serialized, /postgres-f4-buyer@example\.test|\+86 000|immutable F4 render data/);
+  }
+  const claimTime = new Date("2026-08-30T06:00:00.000Z");
+  const claimed = await Promise.all(jobs.map((job) =>
+    claimNotificationOutboxJob(
+      connection.db,
+      job.id,
+      `postgres-worker-${job.kind}`,
+      claimTime,
+    ),
+  ));
+  assert.equal(claimed.every(Boolean), true);
+  assert.equal(claimed.every((job) => job?.attempts === job?.attemptCount), true);
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "pending",
+    attempts: 0,
+    attemptCount: 0,
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+  }).where(eq(schema.notificationOutbox.id, jobs[0]!.id));
+  const sameRow = await Promise.all([
+    claimNotificationOutboxJob(connection.db, jobs[0]!.id, "losing-worker-a", claimTime),
+    claimNotificationOutboxJob(connection.db, jobs[0]!.id, "losing-worker-b", claimTime),
+  ]);
+  assert.equal(sameRow.filter(Boolean).length, 1);
+  await connection.db.update(schema.notificationOutbox).set({
+    status: "pending",
+    attempts: 0,
+    attemptCount: 0,
+    lockedAt: null,
+    lockedBy: null,
+    leaseExpiresAt: null,
+  }).where(eq(schema.notificationOutbox.aggregateId, created.inquiryId));
+  const capture = new InMemoryCaptureEmailTransport();
+  for (const job of jobs) {
+    assert.equal(await deliverNotificationOutboxJob(connection.db, capture, job.id, {
+      policy,
+      workerId: `postgres-delivery-${job.kind}`,
+      now: new Date("2026-08-30T06:02:00.000Z"),
+    }), true);
+  }
+  assert.equal(capture.captured.length, 2);
+  assert.deepEqual(new Set(capture.captured.map((envelope) => envelope.to)), new Set([
+    "info@cwtextile.com",
+    "postgres-f4-buyer@example.test",
+  ]));
+  assert.equal(capture.captured.every((envelope) =>
+    envelope.messageId.includes("inquiry-") && !envelope.textBody.includes("objectKey")), true);
+
+  await client`set enable_seqscan = off`;
+  const plan = await client<{ "QUERY PLAN": string }[]>`
+    explain select id from notification_outbox
+    where status in ('pending', 'failed') and next_attempt_at <= now()
+    order by created_at limit 25
+  `;
+  await client`reset enable_seqscan`;
+  assert.match(plan.map((row) => row["QUERY PLAN"]).join("\n"), /notification_outbox_delivery_idx/);
+  return {
+    atomicity: "second-job failure left five table counts unchanged",
+    twoKindRows: jobs.map((job) => ({ kind: job.kind, deliveryKey: job.deliveryKey })),
+    replay: "exact replay created no additional job",
+    claim: "job-ID two-kind simultaneous claim and same-row fencing",
+    render: "both kinds captured with stable Message-ID and no private-file load",
+    queryPlan: "notification_outbox_delivery_idx",
+  };
+}
+
 async function verifyFresh(url: string): Promise<Record<string, unknown>> {
   const connection = appConnection(url);
   const client = postgres(url, { max: 6, prepare: false });
@@ -470,7 +616,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       ["trailing-slash-run", "/products/synthetic-fabric//"],
       ["root-only-slash-run", "///"],
     ] as const) {
-      await assert.rejects(createInquiry(connection.db, new SilentNotifier(), {
+      await assert.rejects(createInquiry(connection.db, {
         idempotencyKey: `postgres-required-path-${suffix}-0001`,
         name: "Synthetic PostgreSQL Required Path Buyer",
         email: `postgres-required-path-${suffix}@example.test`,
@@ -495,7 +641,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       ["application", sourceFixtures.applicationId, sourceFixtures.applicationPath],
       ["content", sourceFixtures.contentId, sourceFixtures.contentPath],
     ] as const) {
-      const created = await createInquiry(connection.db, new SilentNotifier(), {
+      const created = await createInquiry(connection.db, {
         idempotencyKey: `postgres-source-${type}-0001`,
         name: `Synthetic PostgreSQL ${type} Source Buyer`,
         email: `postgres-source-${type}@example.test`,
@@ -630,8 +776,8 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       submitUtmCampaign: "campaign-1234567",
     };
     const equal = await Promise.all([
-      createInquiry(connection.db, new SilentNotifier(), equalInput),
-      createInquiry(connection.db, new SilentNotifier(), {
+      createInquiry(connection.db, equalInput),
+      createInquiry(connection.db, {
         ...equalInput,
         submitUtmCampaign: "phone:138:0013:8000",
       }),
@@ -650,7 +796,6 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       .where(eq(schema.products.id, sourceFixtures.productId));
     const immutableReplay = await createInquiry(
       connection.db,
-      new SilentNotifier(),
       equalInput,
     );
     assert.equal(immutableReplay.replayed, true);
@@ -669,8 +814,8 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       submitUtmCampaign: "spring-launch",
     };
     const different = await Promise.allSettled([
-      createInquiry(connection.db, new SilentNotifier(), differentInput),
-      createInquiry(connection.db, new SilentNotifier(), {
+      createInquiry(connection.db, differentInput),
+      createInquiry(connection.db, {
         ...differentInput,
         submitUtmCampaign: "autumn-launch",
       }),
@@ -688,7 +833,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
       countRows(client, "notification_outbox"),
       countRows(client, "audit_logs"),
     ]);
-    await assert.rejects(createInquiry(connection.db, new SilentNotifier(), {
+    await assert.rejects(createInquiry(connection.db, {
       ...equalInput,
       idempotencyKey: "postgres-audit-rollback-0001",
       email: "postgres-audit-rollback@example.test",
@@ -743,6 +888,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
     }
 
     const templateAuthority = await verifyTemplateAuthority(connection);
+    const outboxConvergence = await verifyOutboxConvergence(connection, client);
 
     return {
       columns: columns.map((row) => row.column_name),
@@ -757,6 +903,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
         "Admin and assigned Sales pass; unassigned Sales and Analyst fail; current label/link changes without snapshot rewrite; private current Route produces no link or source UUID",
       indexPlan: "inquiries_source_entity_idx",
       templateAuthority,
+      outboxConvergence,
     };
   } finally {
     await client.end();
@@ -915,7 +1062,7 @@ async function verifyUpgrade(url: string): Promise<Record<string, unknown>> {
 
     await migrateDatabase(connection);
     await migrateDatabase(connection);
-    const replay = await createInquiry(connection.db, new SilentNotifier(), {
+    const replay = await createInquiry(connection.db, {
       ...v1Input,
       submitReferrer: "https://submit.example/",
       submitUtmSource: "ignored-by-v1",
@@ -953,8 +1100,8 @@ async function verifyUpgrade(url: string): Promise<Record<string, unknown>> {
       sourcePagePath: "/get-quote/",
       submitUtmCampaign: "campaign-1234567",
     };
-    const v2 = await createInquiry(connection.db, new SilentNotifier(), v2Input);
-    const v2Replay = await createInquiry(connection.db, new SilentNotifier(), {
+    const v2 = await createInquiry(connection.db, v2Input);
+    const v2Replay = await createInquiry(connection.db, {
       ...v2Input,
       submitUtmCampaign: "phone:138:0013:8000",
     });

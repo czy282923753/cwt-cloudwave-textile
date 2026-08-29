@@ -28,7 +28,6 @@ import {
   users,
 } from "../src/db/schema";
 import { migratePostgresWithEnumCompatibility } from "../src/db/postgres-enum-migration-compatibility";
-import type { EmailNotifier, InquiryNotification } from "../src/integrations/email";
 import { changeEntityRoute, createRedirect } from "../src/seo/redirects";
 
 type Evidence = {
@@ -38,13 +37,6 @@ type Evidence = {
 };
 
 const databasePrefix = `cwt_joint_remediation_${process.pid}`;
-
-class ValidationNotifier implements EmailNotifier {
-  async notifyInquiry(input: InquiryNotification, deliveryKey?: string): Promise<void> {
-    void input;
-    void deliveryKey;
-  }
-}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -385,7 +377,6 @@ async function validateInquiryIdempotency(databaseUrlValue: string): Promise<Evi
   const firstDb = drizzle(firstClient, { schema });
   const secondDb = drizzle(secondClient, { schema });
   const inspectionDb = drizzle(inspectionClient, { schema });
-  const notifier = new ValidationNotifier();
   try {
     const assetRows = await inspectionDb
       .insert(assets)
@@ -417,8 +408,8 @@ async function validateInquiryIdempotency(databaseUrlValue: string): Promise<Evi
       attributionConfidence: "high" as const,
     };
     const sameResults = await Promise.all([
-      createInquiry(firstDb, notifier, input),
-      createInquiry(secondDb, notifier, input),
+      createInquiry(firstDb, input),
+      createInquiry(secondDb, input),
     ]);
     assert(
       sameResults[0].inquiryId === sameResults[1].inquiryId &&
@@ -458,11 +449,11 @@ async function validateInquiryIdempotency(databaseUrlValue: string): Promise<Evi
       email: "stage2c-joint-conflict@example.test",
     };
     const conflictingResults = await Promise.allSettled([
-      createInquiry(firstDb, notifier, {
+      createInquiry(firstDb, {
         ...conflictingInput,
         description: "Conflicting payload A",
       }),
-      createInquiry(secondDb, notifier, {
+      createInquiry(secondDb, {
         ...conflictingInput,
         description: "Conflicting payload B",
       }),

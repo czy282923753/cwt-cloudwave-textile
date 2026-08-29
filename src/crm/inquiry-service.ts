@@ -18,8 +18,11 @@ import {
   users,
 } from "@/db/schema";
 import type { AppDatabase } from "@/db/types";
-import type { EmailNotifier } from "@/integrations/email";
-import { deliverInquiryNotification } from "@/integrations/notification-outbox";
+import { resolveActiveEmailTemplate } from "@/email-templates/service";
+import {
+  createNotificationOutboxPayloadV1,
+  type NotificationOutboxKind,
+} from "@/integrations/notification-outbox-payload";
 import { normalizePath } from "@/seo/path";
 import { reserveInquiryUploadTokensInTransaction } from "@/uploads/upload-intent-service";
 
@@ -28,7 +31,10 @@ import { normalizeOptionalCountryCode } from "./country-codes";
 import {
   sanitizeInquiryAttribution,
 } from "./inquiry-attribution";
-import { resolveInquirySourceEntity } from "./inquiry-source-resolution";
+import {
+  resolveInquirySourceEntity,
+  resolveInquirySourcePresentation,
+} from "./inquiry-source-resolution";
 
 type InquiryStatus = typeof inquiries.$inferSelect.status;
 
@@ -122,6 +128,13 @@ export interface InquirySubmissionResult {
     lastNonDirectCampaign: string | null;
     attributionConfidence: "high" | "medium" | "low" | "unavailable";
   }>;
+}
+
+export interface CreateInquiryOptions extends GovernedMutationOptions {
+  /** Focused transaction-failure injection; production callers leave this absent. */
+  readonly beforeOutboxInsert?: (
+    kind: NotificationOutboxKind,
+  ) => void | Promise<void>;
 }
 
 export class InquiryIdempotencyConflictError extends Error {
@@ -313,9 +326,8 @@ export async function findInquiryReferenceByIdempotencyKey<
 
 export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
   db: AppDatabase<TQueryResult>,
-  notifier: EmailNotifier,
   input: CreateInquiryInput,
-  options: GovernedMutationOptions = {},
+  options: CreateInquiryOptions = {},
 ): Promise<InquirySubmissionResult> {
   const core = canonicalCoreInquiryInput(input);
   const { name, email, description } = core;
@@ -361,9 +373,8 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
     throw new Error("Provide a description or upload at least one image.");
   }
 
-  let result: InquirySubmissionResult;
   try {
-    result = await db.transaction(async (transaction) => {
+    return await db.transaction(async (transaction) => {
     const concurrentExisting = await findInquiryReferenceByIdempotencyKey(
       transaction,
       idempotencyKey,
@@ -373,6 +384,17 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
       transaction,
       canonical.sourcePagePath,
     );
+    const sourcePresentation = sourceEntity
+      ? await resolveInquirySourcePresentation(transaction, sourceEntity)
+      : null;
+    const normalizedSourceLabel = sourcePresentation?.href === canonical.sourcePagePath
+      ? sourcePresentation.label.normalize("NFC").trim()
+      : "";
+    const sourceEntityLabelSnapshot = normalizedSourceLabel &&
+      normalizedSourceLabel.length <= 500 &&
+      !/[\u0000-\u001f\u007f]/.test(normalizedSourceLabel)
+      ? normalizedSourceLabel
+      : null;
     const reserved = canonical.uploadTokens.length
       ? await reserveInquiryUploadTokensInTransaction(
           transaction,
@@ -513,21 +535,32 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
       toStatus: "new",
       reason: "Public inquiry received",
     });
-    await transaction.insert(notificationOutbox).values({
-      kind: "inquiry_notification",
-      aggregateType: "inquiry",
-      aggregateId: inquiryId,
-      deliveryKey: `inquiry_notification:${inquiryId}`,
-      payload: {
-        inquiryId,
-        name,
-        email,
-        countryCode: canonical.countryCode,
-        whatsapp: canonical.whatsapp,
-        description,
-        attachmentCount: assetIds.length,
-      },
-    });
+    const internalTemplate = await resolveActiveEmailTemplate(
+      transaction,
+      "inquiry_notification",
+    );
+    const customerTemplate = await resolveActiveEmailTemplate(
+      transaction,
+      "inquiry_customer_confirmation",
+    );
+    for (const [kind, resolved] of [
+      ["inquiry_notification", internalTemplate],
+      ["inquiry_customer_confirmation", customerTemplate],
+    ] as const) {
+      await options.beforeOutboxInsert?.(kind);
+      await transaction.insert(notificationOutbox).values({
+        kind,
+        aggregateType: "inquiry",
+        aggregateId: inquiryId,
+        deliveryKey: `${kind}:${inquiryId}`,
+        payload: createNotificationOutboxPayloadV1({
+          inquiryId,
+          kind,
+          resolved,
+          sourceEntityLabelSnapshot,
+        }),
+      });
+    }
     await (options.auditWriter ?? writeAuditLog)(transaction, {
       action: "inquiry.created",
       entityType: "inquiry",
@@ -554,17 +587,6 @@ export async function createInquiry<TQueryResult extends PgQueryResultHKT>(
     if (!racedInquiry) throw error;
     return assertMatchingRequest(racedInquiry);
   }
-
-  if (!result.replayed) {
-    try {
-      await deliverInquiryNotification(db, notifier, result.inquiryId);
-    } catch {
-      process.stderr.write(
-        `[inquiry-notification-deferred] Inquiry ${result.publicReference}; details omitted.\n`,
-      );
-    }
-  }
-  return result;
 }
 
 export async function changeInquiryStatus<TQueryResult extends PgQueryResultHKT>(

@@ -161,16 +161,20 @@ describe("actual public Inquiry handler with actual Domain and disposable databa
         sourceEntityId: application.id,
       });
       const [audit] = await connection.db.select().from(auditLogs);
-      const [outbox] = await connection.db.select().from(notificationOutbox);
+      const outbox = await connection.db.select().from(notificationOutbox);
       const [analytics] = await connection.db.select().from(conversionEvents)
         .where(eq(conversionEvents.eventName, "inquiry_created"));
       const provider = toPublicAnalyticsPayload(analytics!);
-      const externalSinks = JSON.stringify({ audit, outbox, analytics, provider, publicBody, output });
+      const externalSinks = JSON.stringify({ audit, analytics, provider, publicBody, output });
       expect(externalSinks).not.toContain(application.id);
       expect(externalSinks).not.toContain("sourceEntityType");
       expect(externalSinks).not.toContain("sourceEntityId");
       expect(externalSinks).not.toContain("source_entity_type");
       expect(externalSinks).not.toContain("source_entity_id");
+      expect(outbox).toHaveLength(2);
+      expect(JSON.stringify(outbox)).not.toContain(application.id);
+      expect(outbox.find((row) => row.kind === "inquiry_notification")?.payload)
+        .toMatchObject({ source_entity_label_snapshot: "Synthetic Handler Source" });
     } finally {
       await connection.close();
     }
@@ -273,7 +277,7 @@ describe("actual public Inquiry handler with actual Domain and disposable databa
           { field: "submit_utm_campaign", reason: "digit_budget" },
         ],
       });
-      const [outbox] = await connection.db.select().from(notificationOutbox);
+      const outbox = await connection.db.select().from(notificationOutbox);
       const [analytics] = await connection.db.select().from(conversionEvents)
         .where(eq(conversionEvents.eventName, "inquiry_created"));
       expect(analytics).toMatchObject({
@@ -475,7 +479,7 @@ describe("actual public Inquiry handler with actual Domain and disposable databa
       expect(await connection.db.select().from(conversionEvents)).toHaveLength(0);
       expect(await connection.db.select().from(contacts)).toHaveLength(1);
       expect(await connection.db.select().from(inquiries)).toHaveLength(1);
-      expect(await connection.db.select().from(notificationOutbox)).toHaveLength(1);
+      expect(await connection.db.select().from(notificationOutbox)).toHaveLength(2);
       expect(await connection.db.select().from(auditLogs)).toHaveLength(1);
       const forbiddenSinks = JSON.stringify({ inquiry, audit, outbox, publicBody, output });
       if (testCase.raw.trim()) expect(forbiddenSinks).not.toContain(testCase.raw);

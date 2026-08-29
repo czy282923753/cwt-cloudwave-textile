@@ -3,6 +3,14 @@ import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import { writeAuditLog, type AuditInput } from "@/audit/service";
 import type { Actor } from "@/catalog/product-service";
 import type { AppDatabase } from "@/db/types";
+import {
+  buildTrustedEmailEnvelope,
+  dispatchTrustedEmail,
+  TEMPLATE_TEST_RECIPIENT,
+  type CaptureEmailTransport,
+  type CaptureTransportOutcome,
+  type TrustedEmailEnvelope,
+} from "@/integrations/email";
 
 import type { EmailTemplateKind } from "./contracts";
 import {
@@ -10,39 +18,13 @@ import {
   SYNTHETIC_TEMPLATE_CONTEXT_ID,
 } from "./service";
 
-export const TEMPLATE_TEST_RECIPIENT = "test@cwtextile.com";
-
-export type CaptureTransportOutcome =
-  | Readonly<{ outcome: "success" }>
-  | Readonly<{ outcome: "failure"; errorClass: string }>
-  | Readonly<{ outcome: "uncertain"; errorClass: string }>;
-
-export interface TemplateTestEnvelope {
-  readonly from: "CloudWave Textile Sales <sales@cwtextile.com>";
-  readonly replyTo: "info@cwtextile.com";
-  readonly to: typeof TEMPLATE_TEST_RECIPIENT;
-  readonly cc: readonly [];
-  readonly bcc: readonly [];
-  readonly subject: string;
-  readonly textBody: string;
-}
-
-export interface CaptureEmailTransport {
-  readonly kind: "capture_only";
-  capture(envelope: TemplateTestEnvelope): Promise<CaptureTransportOutcome>;
-}
-
-export class InMemoryCaptureEmailTransport implements CaptureEmailTransport {
-  readonly kind = "capture_only" as const;
-  readonly captured: TemplateTestEnvelope[] = [];
-
-  constructor(private readonly result: CaptureTransportOutcome = { outcome: "success" }) {}
-
-  async capture(envelope: TemplateTestEnvelope): Promise<CaptureTransportOutcome> {
-    this.captured.push(Object.freeze({ ...envelope }));
-    return this.result;
-  }
-}
+export {
+  InMemoryCaptureEmailTransport,
+  TEMPLATE_TEST_RECIPIENT,
+  type CaptureEmailTransport,
+  type CaptureTransportOutcome,
+} from "@/integrations/email";
+export type TemplateTestEnvelope = TrustedEmailEnvelope;
 
 export type TemplateTestSendResult = CaptureTransportOutcome & Readonly<{
   attempted: true;
@@ -53,26 +35,6 @@ type TestSendAuditWriter<TQueryResult extends PgQueryResultHKT> = (
   db: AppDatabase<TQueryResult>,
   input: AuditInput,
 ) => Promise<string>;
-
-function exactlyOneTestPrefix(subject: string): string {
-  const normalized = subject.trimStart();
-  const unprefixed = normalized.replace(/^(?:\[TEST\]\s*)+/, "").trimStart();
-  return unprefixed.length === 0 ? "[TEST]" : `[TEST] ${unprefixed}`;
-}
-
-function safeErrorClass(error: unknown): string {
-  if (!(error instanceof Error)) return "transport_exception";
-  const value = error.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 80);
-  return value || "transport_exception";
-}
-
-function safeOutcome(result: CaptureTransportOutcome): CaptureTransportOutcome {
-  if (result.outcome === "success") return Object.freeze({ outcome: "success" });
-  return Object.freeze({
-    outcome: result.outcome,
-    errorClass: result.errorClass.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 80) || "unspecified",
-  });
-}
 
 export async function sendSyntheticEmailTemplateTest<
   TQueryResult extends PgQueryResultHKT,
@@ -118,21 +80,29 @@ export async function sendSyntheticEmailTemplateTest<
     afterSummary: commonSummary,
   });
 
-  const envelope = Object.freeze({
-    from: "CloudWave Textile Sales <sales@cwtextile.com>" as const,
-    replyTo: "info@cwtextile.com" as const,
-    to: TEMPLATE_TEST_RECIPIENT,
-    cc: Object.freeze([]) as readonly [],
-    bcc: Object.freeze([]) as readonly [],
-    subject: exactlyOneTestPrefix(preview.rendered.subject),
-    textBody: preview.rendered.textBody,
+  const policy = Object.freeze({
+    environment: input.environment,
+    applicationOrigin: "http://localhost:3000",
+    emailDriver: "log" as const,
+    emailFrom: "",
+    internalRecipient: TEMPLATE_TEST_RECIPIENT,
+    smtpHost: "",
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: "",
+    smtpPassword: "",
+    databaseDriver: "pglite" as const,
+    monitoringDriver: "log" as const,
   });
-  let actual: CaptureTransportOutcome;
-  try {
-    actual = safeOutcome(await transport.capture(envelope));
-  } catch (error) {
-    actual = Object.freeze({ outcome: "uncertain", errorClass: safeErrorClass(error) });
-  }
+  const envelope = buildTrustedEmailEnvelope({
+    policy,
+    logicalTo: TEMPLATE_TEST_RECIPIENT,
+    subject: preview.rendered.subject,
+    textBody: preview.rendered.textBody,
+    deliveryKey: `email_template_test:${input.templateKind}:${revisionId ?? "code_fallback"}`,
+    isTestSend: true,
+  });
+  const actual = await dispatchTrustedEmail(transport, policy, envelope);
   let outcomeAuditRecorded = true;
   try {
     await outcomeAudit(db, {

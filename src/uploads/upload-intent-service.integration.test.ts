@@ -43,9 +43,8 @@ describe("private Inquiry Upload Intent", () => {
       anonymousSessionId: sessionId,
       bytes,
     });
-    const notifier = { notifyInquiry: async () => undefined };
     await expect(
-      createInquiry(connection.db, notifier, {
+      createInquiry(connection.db, {
         name: "Intent Buyer",
         email: "intent@example.test",
         uploadTokens: [intent.token],
@@ -54,7 +53,7 @@ describe("private Inquiry Upload Intent", () => {
         idempotencyKey: "intent-wrong-session-0001",
       }),
     ).rejects.toThrow(/invalid, expired, or already used/);
-    const created = await createInquiry(connection.db, notifier, {
+    const created = await createInquiry(connection.db, {
       name: "Intent Buyer",
       email: "intent@example.test",
       uploadTokens: [intent.token],
@@ -70,7 +69,7 @@ describe("private Inquiry Upload Intent", () => {
       consumedByInquiryId: created.inquiryId,
     });
     await expect(
-      createInquiry(connection.db, notifier, {
+      createInquiry(connection.db, {
         name: "Another Buyer",
         email: "another@example.test",
         uploadTokens: [intent.token],

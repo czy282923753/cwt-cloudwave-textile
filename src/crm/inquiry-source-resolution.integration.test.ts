@@ -27,16 +27,9 @@ import {
   uploadIntents,
   users,
 } from "@/db/schema";
-import type { EmailNotifier } from "@/integrations/email";
 import { createTestDatabase } from "@/test/database";
 
 import { createInquiry, InquiryIdempotencyConflictError } from "./inquiry-service";
-
-class SilentNotifier implements EmailNotifier {
-  async notifyInquiry(): Promise<void> {}
-}
-
-const notifier = new SilentNotifier();
 
 type TestConnection = Awaited<ReturnType<typeof createTestDatabase>>;
 
@@ -196,7 +189,7 @@ async function submit(
   sourcePagePath: string,
   extra: Record<string, unknown> = {},
 ) {
-  const result = await createInquiry(connection.db, notifier, {
+  const result = await createInquiry(connection.db, {
     idempotencyKey: key,
     name: `Synthetic Source Buyer ${key}`,
     email: `${key}@example.test`,
@@ -419,10 +412,10 @@ describe("S5-F2A server source resolution and immutable persistence", () => {
         description: "Synthetic immutable populated source.",
         sourcePagePath: fixture.productPath,
       };
-      const first = await createInquiry(connection.db, notifier, populatedInput);
+      const first = await createInquiry(connection.db, populatedInput);
       await connection.db.update(products).set({ status: "archived" })
         .where(eq(products.id, fixture.productId));
-      const replay = await createInquiry(connection.db, notifier, populatedInput);
+      const replay = await createInquiry(connection.db, populatedInput);
       expect(replay).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
       expect((await connection.db.select({
         sourceEntityType: inquiries.sourceEntityType,
@@ -439,14 +432,14 @@ describe("S5-F2A server source resolution and immutable persistence", () => {
         description: "Synthetic immutable null source.",
         sourcePagePath: "/products/synthetic-later-route/",
       };
-      const initiallyNull = await createInquiry(connection.db, notifier, nullInput);
+      const initiallyNull = await createInquiry(connection.db, nullInput);
       await connection.db.update(products).set({ status: "published" })
         .where(eq(products.id, fixture.productId));
       await connection.db.update(routes).set({
         path: nullInput.sourcePagePath,
         isCurrent: true,
       }).where(eq(routes.entityId, fixture.productId));
-      const nullReplay = await createInquiry(connection.db, notifier, nullInput);
+      const nullReplay = await createInquiry(connection.db, nullInput);
       expect(nullReplay).toMatchObject({ inquiryId: initiallyNull.inquiryId, replayed: true });
       expect((await connection.db.select({
         sourceEntityType: inquiries.sourceEntityType,
@@ -464,14 +457,14 @@ describe("S5-F2A server source resolution and immutable persistence", () => {
         sourcePagePath: nullInput.sourcePagePath,
       };
       const concurrent = await Promise.all([
-        createInquiry(connection.db, notifier, concurrentInput),
-        createInquiry(connection.db, notifier, concurrentInput),
+        createInquiry(connection.db, concurrentInput),
+        createInquiry(connection.db, concurrentInput),
       ]);
       expect(new Set(concurrent.map((item) => item.inquiryId)).size).toBe(1);
       expect(concurrent.filter((item) => item.replayed)).toHaveLength(1);
       expect((await connection.db.select({ value: count() }).from(inquiries)
         .where(eq(inquiries.idempotencyKey, concurrentInput.idempotencyKey)))[0]?.value).toBe(1);
-      await expect(createInquiry(connection.db, notifier, {
+      await expect(createInquiry(connection.db, {
         ...concurrentInput,
         description: "Synthetic conflicting source replay.",
       })).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
@@ -529,7 +522,7 @@ describe("S5-F2A server source resolution and immutable persistence", () => {
       const beforeCounts = await Promise.all(requiredTables.map(async (table) =>
         Number((await connection.db.select({ value: count() }).from(table))[0]?.value),
       ));
-      await expect(createInquiry(connection.db, notifier, {
+      await expect(createInquiry(connection.db, {
         idempotencyKey: "source-audit-rollback",
         name: "Synthetic Audit Rollback Buyer",
         email: "source-audit-rollback@example.test",

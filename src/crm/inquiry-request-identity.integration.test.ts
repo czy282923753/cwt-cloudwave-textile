@@ -10,7 +10,6 @@ import {
   inquiryStatusHistory,
   notificationOutbox,
 } from "@/db/schema";
-import type { EmailNotifier } from "@/integrations/email";
 import { createTestDatabase } from "@/test/database";
 
 import {
@@ -21,12 +20,6 @@ import {
   INQUIRY_REQUEST_FINGERPRINT_VERSION,
   type CreateInquiryInput,
 } from "./inquiry-service";
-
-class SilentNotifier implements EmailNotifier {
-  async notifyInquiry(): Promise<void> {}
-}
-
-const notifier = new SilentNotifier();
 
 const goldenV1Input: CreateInquiryInput = {
   idempotencyKey: "golden-v1",
@@ -71,7 +64,7 @@ describe("S5-F1 request identity replacement", () => {
     const connection = await createTestDatabase();
     const unsafe = "launch-2026-08-29_phone:138:0013:8000";
     try {
-      const result = await createInquiry(connection.db, notifier, {
+      const result = await createInquiry(connection.db, {
         idempotencyKey: "choice-a-privacy-0001",
         name: "Choice A Buyer",
         email: "choice-a@example.test",
@@ -147,13 +140,13 @@ describe("S5-F1 request identity replacement", () => {
       submitUtmCampaign: "campaign-1234567",
     };
     try {
-      const first = await createInquiry(connection.db, notifier, base);
-      const replay = await createInquiry(connection.db, notifier, {
+      const first = await createInquiry(connection.db, base);
+      const replay = await createInquiry(connection.db, {
         ...base,
         submitUtmCampaign: "phone:138:0013:8000",
       });
       expect(replay).toMatchObject({ inquiryId: first.inquiryId, replayed: true });
-      await expect(createInquiry(connection.db, notifier, {
+      await expect(createInquiry(connection.db, {
         ...base,
         submitUtmCampaign: "spring-launch",
       })).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
@@ -164,8 +157,8 @@ describe("S5-F1 request identity replacement", () => {
         email: "safe-difference@example.test",
         submitUtmCampaign: "spring-launch",
       };
-      await createInquiry(connection.db, notifier, safeBase);
-      await expect(createInquiry(connection.db, notifier, {
+      await createInquiry(connection.db, safeBase);
+      await expect(createInquiry(connection.db, {
         ...safeBase,
         submitUtmCampaign: "autumn-launch",
       })).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
@@ -208,7 +201,7 @@ describe("S5-F1 request identity replacement", () => {
         attributionConfidence: "high",
       }).returning({ id: inquiries.id });
 
-      const replay = await createInquiry(connection.db, notifier, {
+      const replay = await createInquiry(connection.db, {
         ...input,
         submitReferrer: "https://submit.example/",
         submitUtmSource: "ignored-by-v1",
@@ -270,7 +263,7 @@ describe("S5-F1 request identity replacement", () => {
       await insertRow("unsupported", "f".repeat(64), 9);
       await insertRow("unequal", "e".repeat(64), 2);
       for (const suffix of ["null", "unsupported", "unequal"]) {
-        await expect(createInquiry(connection.db, notifier, {
+        await expect(createInquiry(connection.db, {
           ...base,
           idempotencyKey: `${base.idempotencyKey}-${suffix}`,
         })).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
@@ -282,7 +275,7 @@ describe("S5-F1 request identity replacement", () => {
       await insertRow("malformed", "not-a-digest", 2);
       await insertRow("uppercase", "A".repeat(64), 2);
       for (const suffix of ["malformed", "uppercase"]) {
-        await expect(createInquiry(connection.db, notifier, {
+        await expect(createInquiry(connection.db, {
           ...base,
           idempotencyKey: `${base.idempotencyKey}-${suffix}`,
         })).rejects.toBeInstanceOf(InquiryIdempotencyConflictError);
@@ -328,8 +321,8 @@ describe("S5-F1 request identity replacement", () => {
     };
     try {
       const equalResults = await Promise.all([
-        createInquiry(connection.db, notifier, equal),
-        createInquiry(connection.db, notifier, {
+        createInquiry(connection.db, equal),
+        createInquiry(connection.db, {
           ...equal,
           submitUtmCampaign: "phone:138:0013:8000",
         }),
@@ -344,8 +337,8 @@ describe("S5-F1 request identity replacement", () => {
         submitUtmCampaign: "spring-launch",
       };
       const settled = await Promise.allSettled([
-        createInquiry(connection.db, notifier, different),
-        createInquiry(connection.db, notifier, {
+        createInquiry(connection.db, different),
+        createInquiry(connection.db, {
           ...different,
           submitUtmCampaign: "autumn-launch",
         }),
@@ -372,10 +365,10 @@ describe("S5-F1 request identity replacement", () => {
       sourcePagePath: "/api/inquiry-assets/private-id/",
     };
     try {
-      await expect(createInquiry(connection.db, notifier, base)).rejects.toThrow(
+      await expect(createInquiry(connection.db, base)).rejects.toThrow(
         "A valid source page path is required.",
       );
-      await expect(createInquiry(connection.db, notifier, {
+      await expect(createInquiry(connection.db, {
         ...base,
         idempotencyKey: "audit-failure-0001",
         sourcePagePath: "/get-quote/",
@@ -411,7 +404,7 @@ describe("S5-F1 request identity replacement", () => {
         "/products/synthetic-fabric//",
         "///",
       ].entries()) {
-        await expect(createInquiry(connection.db, notifier, {
+        await expect(createInquiry(connection.db, {
           idempotencyKey: `raw-repeated-slash-${index}-0001`,
           name: "Repeated Slash Buyer",
           email: `repeated-slash-${index}@example.test`,

@@ -20,7 +20,6 @@ import {
 } from "@/crm/country-codes";
 import { databaseConnection } from "@/db/client";
 import type { AppDatabase } from "@/db/types";
-import { createEmailNotifier } from "@/integrations/email";
 import { publicUploadRateLimiter as limiter } from "@/uploads/rate-limit";
 import {
   assertRequestLength,
@@ -97,7 +96,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
     const submission = await withDatabase((db) =>
-      createInquiry(db, createEmailNotifier(), {
+      createInquiry(db, {
         name: input.name,
         email: input.email,
         countryCode,
