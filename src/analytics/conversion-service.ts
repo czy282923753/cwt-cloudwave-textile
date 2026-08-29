@@ -41,6 +41,7 @@ const phoneLike = /(?:\+?\d[\d\s().-]{6,}\d)/;
 const urlLike = /(?:https?:\/\/|\/api\/(?:storage|inquiry-assets)\/)/i;
 const uuidLike = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i;
 const fileLike = /(?:^|[\/\\])[^/\\]+\.(?:jpe?g|png|webp|avif|pdf|docx?|xlsx?|zip)(?:$|[?#])/i;
+const canonicalPublicInquiryReference = /^CWT-[0-9A-F]{20}$/;
 
 function containsCustomerOrPrivateData(value: string): boolean {
   return (
@@ -101,13 +102,19 @@ function optionalReferrer(value: string | null | undefined): string | null {
   return parsed.origin;
 }
 
-function optionalExternalReference(value: string | null | undefined): string | null {
-  const normalized = value?.trim() || null;
-  if (!normalized) return null;
-  if (!/^CWT-[A-F0-9]{20}$/.test(normalized)) {
-    throw new Error("External analytics reference is invalid.");
+function canonicalInquiryCreatedReference(
+  input: ConversionInput,
+): string | null {
+  const externalReference = input.externalReference;
+  if (
+    input.eventName === "inquiry_created" &&
+    typeof externalReference === "string" &&
+    canonicalPublicInquiryReference.test(externalReference) &&
+    input.eventId === `inquiry_created:${externalReference}`
+  ) {
+    return externalReference;
   }
-  return normalized;
+  return null;
 }
 
 export function assertAllowedEventProperties(
@@ -190,12 +197,22 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
   const safeProperties = input.safeProperties ?? {};
   assertAllowedEventProperties(input.eventName, safeProperties);
   const eventId = input.eventId.trim();
+  const externalReference = canonicalInquiryCreatedReference(input);
+  const canonicalInquiryCreatedIdentity = externalReference !== null;
+  if (
+    (input.eventName === "inquiry_created" ||
+      input.externalReference != null ||
+      eventId.startsWith("inquiry_created:")) &&
+    !canonicalInquiryCreatedIdentity
+  ) {
+    throw new Error("Inquiry-created analytics identity is invalid.");
+  }
   if (
     !eventId ||
     eventId.length > 128 ||
     !/^[a-z0-9:_-]+$/i.test(eventId) ||
     emailLike.test(eventId) ||
-    phoneLike.test(eventId) ||
+    (phoneLike.test(eventId) && !canonicalInquiryCreatedIdentity) ||
     uuidLike.test(eventId)
   ) {
     throw new Error("Event ID is invalid.");
@@ -271,7 +288,7 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
       consentState: "granted",
       entityType: truncate(input.entityType, 50),
       entityId: resolvedEntityId,
-      externalReference: optionalExternalReference(input.externalReference),
+      externalReference,
       landingPagePath: optionalPath("Landing Page", input.landingPagePath),
       submitSourcePagePath: optionalPath("Submit Source", input.submitSourcePagePath),
       referrerOrigin: optionalReferrer(input.referrerOrigin),
@@ -308,6 +325,7 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
       eventName: conversionEvents.eventName,
       sessionId: conversionEvents.anonymousSessionId,
       routePath: conversionEvents.routePath,
+      externalReference: conversionEvents.externalReference,
     })
     .from(conversionEvents)
     .where(eq(conversionEvents.eventId, eventId))
@@ -317,7 +335,8 @@ export async function recordConversionEvent<TQueryResult extends PgQueryResultHK
     replay &&
     (replay.eventName !== input.eventName ||
       replay.sessionId !== consent.consentSessionId ||
-      replay.routePath !== (optionalPath("Route Path", input.routePath) ?? "/"))
+      replay.routePath !== (optionalPath("Route Path", input.routePath) ?? "/") ||
+      replay.externalReference !== externalReference)
   ) {
     throw new Error("Event ID replay payload does not match the original event.");
   }

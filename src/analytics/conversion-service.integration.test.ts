@@ -40,6 +40,35 @@ function baseInput(eventId: string) {
   };
 }
 
+function inquiryCreatedInput(publicReference: string) {
+  return {
+    eventId: `inquiry_created:${publicReference}`,
+    eventName: "inquiry_created" as const,
+    consentSessionId,
+    routePath: "/get-quote/",
+    externalReference: publicReference,
+    safeProperties: {},
+  };
+}
+
+function countPhoneLikeHexSuffixes(length: number): bigint {
+  let states = Array.from({ length: 8 }, () => 0n);
+  states[0] = 1n;
+  let rejected = 0n;
+  for (let position = 0; position < length; position += 1) {
+    const next = Array.from({ length: 8 }, () => 0n);
+    rejected *= 16n;
+    for (let runLength = 0; runLength < states.length; runLength += 1) {
+      const count = states[runLength]!;
+      next[0] = next[0]! + count * 6n;
+      if (runLength === 7) rejected += count * 10n;
+      else next[runLength + 1] = next[runLength + 1]! + count * 10n;
+    }
+    states = next;
+  }
+  return rejected;
+}
+
 describe("Conversion Events privacy boundary", () => {
   it("stores allowlisted behavior only after server-persisted Granted consent", async () => {
     const connection = await createTestDatabase();
@@ -60,7 +89,10 @@ describe("Conversion Events privacy boundary", () => {
     for (const [index, status] of ["unknown", "denied", "revoked"] .entries()) {
       await persistConsent(connection, status as "unknown" | "denied" | "revoked");
       await expect(
-        recordConversionEvent(connection.db, baseInput(`server-consent-${index}-0001`)),
+        recordConversionEvent(
+          connection.db,
+          inquiryCreatedInput(`CWT-1234567890123456789${index}`),
+        ),
       ).resolves.toBeNull();
     }
     expect(await connection.db.select().from(conversionEvents)).toHaveLength(0);
@@ -94,10 +126,11 @@ describe("Conversion Events privacy boundary", () => {
   it("contains no Inquiry foreign key and exports no internal identifiers", async () => {
     const connection = await createTestDatabase();
     await persistConsent(connection, "granted");
+    const publicReference = "CWT-0123456789ABCDEF0123";
     await recordConversionEvent(connection.db, {
-      ...baseInput("inquiry-created-public-ref-0001"),
+      ...baseInput(`inquiry_created:${publicReference}`),
       eventName: "inquiry_created",
-      externalReference: "CWT-0123456789ABCDEF0123",
+      externalReference: publicReference,
       safeProperties: {},
     });
     const columns = await connection.db.execute<{ column_name: string }>(sql`
@@ -113,6 +146,77 @@ describe("Conversion Events privacy boundary", () => {
     expect(Object.keys(payload)).not.toEqual(
       expect.arrayContaining(["entityId", "inquiryId", "contactId", "assetId"]),
     );
+    await connection.close();
+  });
+
+  it("accepts the exact canonical inquiry identity across the hex grammar, including phone-like runs", async () => {
+    const connection = await createTestDatabase();
+    await persistConsent(connection, "granted");
+    const references = new Set([
+      "CWT-12345678901234567890",
+      "CWT-AAAAAAAA12345678BBBB",
+      "CWT-00000000ABCDEF123456",
+    ]);
+    for (let position = 0; position < 20; position += 1) {
+      for (const symbol of "0123456789ABCDEF") {
+        const suffix = Array.from({ length: 20 }, () => "A");
+        suffix[position] = symbol;
+        references.add(`CWT-${suffix.join("")}`);
+      }
+    }
+    for (const publicReference of references) {
+      await expect(
+        recordConversionEvent(connection.db, inquiryCreatedInput(publicReference)),
+      ).resolves.toEqual(expect.any(String));
+    }
+    expect(await connection.db.select().from(conversionEvents)).toHaveLength(references.size);
+    expect(countPhoneLikeHexSuffixes(20)).toBe(153275237190860800000000n);
+    await connection.close();
+  });
+
+  it("requires the exact inquiry-created Event ID and canonical external-reference pair", async () => {
+    const connection = await createTestDatabase();
+    await persistConsent(connection, "granted");
+    const canonical = "CWT-12345678901234567890";
+    const malformedInputs = [
+      { ...inquiryCreatedInput(canonical), eventId: `inquiry_created:CWT-AAAAAAAAAAAAAAAAAAAA` },
+      { ...inquiryCreatedInput(canonical), externalReference: null },
+      { ...inquiryCreatedInput(canonical), eventName: "quote_cta_click" as const },
+      inquiryCreatedInput("XWT-12345678901234567890"),
+      inquiryCreatedInput("CWT-1234567890123456789"),
+      inquiryCreatedInput("CWT-123456789012345678901"),
+      inquiryCreatedInput("CWT-abcdefabcdefabcdefab"),
+      inquiryCreatedInput("prefix-CWT-12345678901234567890"),
+      inquiryCreatedInput("CWT-12345678901234567890-suffix"),
+      inquiryCreatedInput("CWT-1234567890123456789Z"),
+      { ...inquiryCreatedInput(canonical), eventId: ` ${inquiryCreatedInput(canonical).eventId}` },
+      { ...inquiryCreatedInput(canonical), eventId: `${inquiryCreatedInput(canonical).eventId} ` },
+      { ...inquiryCreatedInput(canonical), externalReference: ` ${canonical}` },
+      { ...inquiryCreatedInput(canonical), externalReference: `${canonical} ` },
+      { ...baseInput("customer-phone-13800138000"), externalReference: null },
+      { ...baseInput("buyer@example.test"), externalReference: null },
+      { ...baseInput("11111111-1111-4111-8111-111111111111"), externalReference: null },
+    ];
+    for (const input of malformedInputs) {
+      await expect(recordConversionEvent(connection.db, input)).rejects.toThrow();
+    }
+    expect(await connection.db.select().from(conversionEvents)).toHaveLength(0);
+    await connection.close();
+  });
+
+  it("deduplicates deterministic inquiry-created replay and rejects a changed pair", async () => {
+    const connection = await createTestDatabase();
+    await persistConsent(connection, "granted");
+    const input = inquiryCreatedInput("CWT-12345678901234567890");
+    const first = await recordConversionEvent(connection.db, input);
+    expect(await recordConversionEvent(connection.db, input)).toBe(first);
+    await expect(
+      recordConversionEvent(connection.db, {
+        ...input,
+        externalReference: "CWT-AAAAAAAAAAAAAAAAAAAA",
+      }),
+    ).rejects.toThrow(/identity/);
+    expect(await connection.db.select().from(conversionEvents)).toHaveLength(1);
     await connection.close();
   });
 

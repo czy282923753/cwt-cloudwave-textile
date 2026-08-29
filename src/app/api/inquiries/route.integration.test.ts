@@ -68,9 +68,12 @@ function publicRequest(
 
 async function loadActualHandler(
   connection: Awaited<ReturnType<typeof createTestDatabase>>,
+  inquiryReferenceBytes = Buffer.alloc(10, 0xab),
 ) {
   vi.spyOn(nodeCrypto, "randomBytes").mockImplementation(
-    ((size: number) => Buffer.alloc(size, 0xab)) as typeof nodeCrypto.randomBytes,
+    ((size: number) => size === 10
+      ? Buffer.from(inquiryReferenceBytes)
+      : Buffer.alloc(size, 0xab)) as typeof nodeCrypto.randomBytes,
   );
   syncBuiltinESMExports();
   globalThis.cwtDatabaseConnection = connection;
@@ -86,6 +89,61 @@ afterEach(() => {
 });
 
 describe("actual public Inquiry handler with actual Domain and disposable database", () => {
+  it("records one public analytics event for a canonical reference containing decimal runs", async () => {
+    const connection = await createTestDatabase();
+    const consentSessionId = "72000000-0000-4000-8000-000000000010";
+    const publicReference = "CWT-12345678901234567890";
+    try {
+      await connection.db.insert(analyticsConsents).values({
+        consentSessionId,
+        status: "granted",
+        consentVersion: 1,
+        grantedAt: new Date(),
+      });
+      const POST = await loadActualHandler(
+        connection,
+        Buffer.from(publicReference.slice(4), "hex"),
+      );
+      const first = await POST(publicRequest({}, consentSessionId));
+      const replay = await POST(publicRequest({}, consentSessionId));
+      expect(first.status).toBe(201);
+      expect(replay.status).toBe(200);
+      await expect(first.json()).resolves.toMatchObject({
+        ok: true,
+        reference: publicReference,
+        replayed: false,
+      });
+      await expect(replay.json()).resolves.toMatchObject({
+        ok: true,
+        reference: publicReference,
+        replayed: true,
+      });
+      const events = await connection.db.select().from(conversionEvents);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        eventId: `inquiry_created:${publicReference}`,
+        eventName: "inquiry_created",
+        externalReference: publicReference,
+      });
+      const provider = toPublicAnalyticsPayload(events[0]!);
+      expect(provider).toMatchObject({
+        eventId: `inquiry_created:${publicReference}`,
+        eventName: "inquiry_created",
+        externalReference: publicReference,
+      });
+      expect(Object.keys(provider)).not.toEqual(
+        expect.arrayContaining(["entityId", "inquiryId", "contactId", "assetId"]),
+      );
+      expect(JSON.stringify(provider)).not.toContain(consentSessionId);
+      const [inquiry] = await connection.db.select().from(inquiries);
+      expect(JSON.stringify(provider)).not.toContain(inquiry!.id);
+      expect(JSON.stringify(provider)).not.toContain(inquiry!.contactId);
+      expect(JSON.stringify(provider)).not.toContain("actual-handler@example.test");
+    } finally {
+      await connection.close();
+    }
+  });
+
   it("returns ordinary success while only the unsafe field becomes null in every sink", async () => {
     const connection = await createTestDatabase();
     const consentSessionId = "72000000-0000-4000-8000-000000000001";
