@@ -61,6 +61,7 @@ const baseForbidden = [
   "source_entity_type",
   "source_entity_id",
   "inquiry-source-resolution",
+  "inquiry-read-projection",
 ];
 
 async function readProductionPromptAuthority() {

@@ -45,6 +45,12 @@ const statusTransitions: Readonly<Record<InquiryStatus, ReadonlySet<InquiryStatu
   archived: new Set(["reviewing"]),
 };
 
+export function allowedInquiryStatusTransitions(
+  fromStatus: InquiryStatus,
+): readonly InquiryStatus[] {
+  return [...statusTransitions[fromStatus]];
+}
+
 export function normalizeContactEmail(email: string): string {
   return email.trim().toLowerCase();
 }

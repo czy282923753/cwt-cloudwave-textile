@@ -1295,17 +1295,75 @@ test("@desktop a changed Published Product slug returns a real 301 to the slash 
   expect((await page.request.get(newPath)).status()).toBe(200);
 });
 
-test("@desktop inquiry submission flows into governed CRM activity", async ({ page }) => {
-  const email = `e2e-crm-${Date.now()}@example.test`;
-  await page.goto("/get-quote/");
-  await page.getByLabel("Name", { exact: true }).fill("E2E CRM Buyer");
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Describe what you need", { exact: true }).fill("E2E CRM workflow validation.");
-  await page.getByRole("button", { name: "Find Your Fabric Solution", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Requirement received");
+test("@all Inquiry CRM shows immutable attribution, safe current source, outcomes, and governed activity", async ({ page }, testInfo) => {
+  const suffix = `${testInfo.project.name}-${Date.now()}`;
+  const email = `e2e-crm-${suffix}@example.test`;
+  const anonymousSessionId = crypto.randomUUID();
+  const idempotencyKey = crypto.randomUUID();
+  const body = JSON.stringify({
+    name: "E2E Synthetic CRM Buyer",
+    email,
+    description: "E2E Synthetic CRM read-projection validation.",
+    uploadTokens: [],
+    sourcePagePath: "/applications/test-fixture-sportswear/",
+    landingPagePath: "/products/synthetic-first-touch/",
+    referrer: "https://synthetic-first.example/",
+    utmSource: "synthetic-first-source",
+    utmMedium: "organic",
+    utmCampaign: "synthetic-first-campaign",
+    lastNonDirectSource: "synthetic-partner",
+    lastNonDirectMedium: "referral",
+    lastNonDirectCampaign: "synthetic-last-campaign",
+    submitReferrer: "https://synthetic-submit.example/",
+    submitUtmSource: "synthetic-submit-source",
+    submitUtmMedium: "email",
+    submitUtmCampaign: "synthetic-submit-campaign",
+    attributionConfidence: "high",
+    anonymousSessionId,
+    idempotencyKey,
+    website: null,
+  });
+  const response = await page.request.post("/api/inquiries/", {
+    headers: {
+      origin: "http://127.0.0.1:3100",
+      "content-type": "application/json",
+      "content-length": String(Buffer.byteLength(body)),
+      "idempotency-key": idempotencyKey,
+      "x-cwt-upload-session": anonymousSessionId,
+    },
+    data: body,
+  });
+  expect(response.status()).toBe(201);
   await loginAsLocalAdmin(page);
   await page.goto("/admin/inquiries/");
   await openLinkedRecord(page, page.getByRole("link", { name: new RegExp(email) }));
+  await expect(page.getByRole("heading", { name: "Historical attribution snapshot" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "First Touch" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Last Non-Direct" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Submit Touch" })).toBeVisible();
+  await expect(page.getByText("/applications/test-fixture-sportswear/", { exact: true })).toBeVisible();
+  const sourceLink = page.getByRole("link", { name: /TEST FIXTURE Sportswear/ });
+  await expect(sourceLink).toHaveAttribute("href", "/applications/test-fixture-sportswear/");
+  await sourceLink.focus();
+  await expect(sourceLink).toBeFocused();
+  const sourceEvidence = page.getByRole("region", { name: "Source entity evidence" });
+  expect(await sourceEvidence.textContent()).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27}/i);
+  await expect(page.getByRole("heading", { name: "CRM outcome" })).toBeVisible();
+  await expect(page.getByLabel("Next status")).toHaveValue("");
+  await expect(page.getByLabel("Next status").locator("option")).toHaveText([
+    "Select a next status",
+    "reviewing",
+    "spam",
+    "archived",
+  ]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerWidth),
+  );
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations.filter((violation) =>
+    ["critical", "serious"].includes(violation.impact ?? ""),
+  )).toEqual([]);
+  if (testInfo.project.name === "mobile-chromium") return;
   await page.getByLabel("Owner").selectOption({ label: "Local CWT Administrator · admin" });
   await submitServerAction(page, page.getByRole("button", { name: "Save assignment" }));
   await page.getByRole("heading", { name: "Change status" }).locator("..").getByRole("combobox").selectOption("reviewing");

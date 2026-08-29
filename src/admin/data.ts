@@ -6,7 +6,10 @@ import type { Actor } from "@/catalog/product-service";
 import type { UserRole } from "@/auth/permissions";
 import { requireEditorialResourceAccess } from "@/admin/preview-policy";
 import { publicProductEligibilityConditions } from "@/catalog/product-eligibility";
-import { requireInquiryRecordAccess } from "@/crm/authorization";
+import {
+  getInquiryCrmReadProjection,
+  listInquiryCrmSummaries,
+} from "@/crm/inquiry-read-projection";
 import {
   applicationLocalizations,
   applications,
@@ -25,10 +28,6 @@ import {
   fabricLibraryEntryProducts,
   featureFlags,
   contacts,
-  customerActivities,
-  inquiries,
-  inquiryAssets,
-  inquiryStatusHistory,
   organizations,
   productApplications,
   productAssets,
@@ -995,116 +994,16 @@ export async function listAdminFeatureFlags() {
     : queryFeatureFlags(databaseConnection.db);
 }
 
-async function queryInquiries<TQueryResult extends PgQueryResultHKT>(
-  db: AppDatabase<TQueryResult>,
-  actor: Actor,
-) {
-  return db
-    .select({
-      id: inquiries.id,
-      contactName: contacts.name,
-      email: contacts.email,
-      status: inquiries.status,
-      priority: inquiries.priority,
-      qualificationStatus: inquiries.qualificationStatus,
-      ownerName: users.displayName,
-      sourcePagePath: inquiries.sourcePagePath,
-      createdAt: inquiries.createdAt,
-    })
-    .from(inquiries)
-    .innerJoin(contacts, eq(contacts.id, inquiries.contactId))
-    .leftJoin(users, eq(users.id, inquiries.ownerUserId))
-    .where(actor.role === "admin" ? undefined : eq(inquiries.ownerUserId, actor.userId))
-    .orderBy(desc(inquiries.createdAt));
-}
-
 export async function listAdminInquiries(actor: Actor) {
   return databaseConnection.kind === "pglite"
-    ? queryInquiries(databaseConnection.db, actor)
-    : queryInquiries(databaseConnection.db, actor);
-}
-
-async function queryInquiryDetail<TQueryResult extends PgQueryResultHKT>(
-  db: AppDatabase<TQueryResult>,
-  actor: Actor,
-  inquiryId: string,
-) {
-  await requireInquiryRecordAccess(db, actor, inquiryId, "read");
-  const rows = await db
-    .select({
-      id: inquiries.id,
-      contactId: contacts.id,
-      contactName: contacts.name,
-      email: contacts.email,
-      countryCode: contacts.countryCode,
-      whatsapp: contacts.whatsapp,
-      submittedName: inquiries.submittedName,
-      submittedEmail: inquiries.submittedEmail,
-      submittedCountryCode: inquiries.submittedCountryCode,
-      submittedWhatsapp: inquiries.submittedWhatsapp,
-      description: inquiries.description,
-      status: inquiries.status,
-      priority: inquiries.priority,
-      qualificationStatus: inquiries.qualificationStatus,
-      ownerUserId: inquiries.ownerUserId,
-      lostReason: inquiries.lostReason,
-      sourcePagePath: inquiries.sourcePagePath,
-      landingPagePath: inquiries.landingPagePath,
-      referrer: inquiries.referrer,
-      utmSource: inquiries.utmSource,
-      utmMedium: inquiries.utmMedium,
-      utmCampaign: inquiries.utmCampaign,
-      lastNonDirectSource: inquiries.lastNonDirectSource,
-      lastNonDirectMedium: inquiries.lastNonDirectMedium,
-      lastNonDirectCampaign: inquiries.lastNonDirectCampaign,
-      attributionConfidence: inquiries.attributionConfidence,
-      createdAt: inquiries.createdAt,
-      firstResponseAt: inquiries.firstResponseAt,
-    })
-    .from(inquiries)
-    .innerJoin(contacts, eq(contacts.id, inquiries.contactId))
-    .where(eq(inquiries.id, inquiryId))
-    .limit(1);
-  const inquiry = rows[0];
-  if (!inquiry) return null;
-  const [activities, history, files] = await Promise.all([
-    db
-      .select({
-        id: customerActivities.id,
-        type: customerActivities.type,
-        direction: customerActivities.direction,
-        content: customerActivities.content,
-        operator: users.displayName,
-        occurredAt: customerActivities.occurredAt,
-      })
-      .from(customerActivities)
-      .leftJoin(users, eq(users.id, customerActivities.createdByUserId))
-      .where(eq(customerActivities.inquiryId, inquiryId))
-      .orderBy(desc(customerActivities.occurredAt)),
-    db
-      .select({
-        id: inquiryStatusHistory.id,
-        fromStatus: inquiryStatusHistory.fromStatus,
-        toStatus: inquiryStatusHistory.toStatus,
-        reason: inquiryStatusHistory.reason,
-        changedAt: inquiryStatusHistory.changedAt,
-      })
-      .from(inquiryStatusHistory)
-      .where(eq(inquiryStatusHistory.inquiryId, inquiryId))
-      .orderBy(desc(inquiryStatusHistory.changedAt)),
-    db
-      .select({ id: assets.id, fileName: assets.originalFileName })
-      .from(inquiryAssets)
-      .innerJoin(assets, eq(assets.id, inquiryAssets.assetId))
-      .where(eq(inquiryAssets.inquiryId, inquiryId)),
-  ]);
-  return { ...inquiry, activities, history, files };
+    ? listInquiryCrmSummaries(databaseConnection.db, actor)
+    : listInquiryCrmSummaries(databaseConnection.db, actor);
 }
 
 export async function getAdminInquiry(actor: Actor, inquiryId: string) {
   return databaseConnection.kind === "pglite"
-    ? queryInquiryDetail(databaseConnection.db, actor, inquiryId)
-    : queryInquiryDetail(databaseConnection.db, actor, inquiryId);
+    ? getInquiryCrmReadProjection(databaseConnection.db, actor, inquiryId)
+    : getInquiryCrmReadProjection(databaseConnection.db, actor, inquiryId);
 }
 
 async function queryCrmOwners<TQueryResult extends PgQueryResultHKT>(
