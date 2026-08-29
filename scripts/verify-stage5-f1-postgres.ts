@@ -13,6 +13,10 @@ import {
   InquiryIdempotencyConflictError,
   type CreateInquiryInput,
 } from "../src/crm/inquiry-service";
+import {
+  getInquiryCrmReadProjection,
+  listInquiryCrmSummaries,
+} from "../src/crm/inquiry-read-projection";
 import * as schema from "../src/db/schema";
 import { migrateDatabase } from "../src/db/migrate";
 import type { DatabaseConnection } from "../src/db/client";
@@ -247,6 +251,7 @@ async function createSyntheticSourceFixtures(
     productPath,
     applicationId: application.id,
     applicationPath,
+    applicationRouteId: applicationRoute.id,
     contentId: content.id,
     contentPath,
   };
@@ -305,6 +310,7 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
     assert.deepEqual(hardBoundaryAfter, hardBoundaryBefore);
 
     const sourceFixtures = await createSyntheticSourceFixtures(connection);
+    const createdSourceInquiries = new Map<string, string>();
     for (const [type, id, path] of [
       ["product", sourceFixtures.productId, sourceFixtures.productPath],
       ["application", sourceFixtures.applicationId, sourceFixtures.applicationPath],
@@ -322,7 +328,119 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
         sourceEntityId: schema.inquiries.sourceEntityId,
       }).from(schema.inquiries).where(eq(schema.inquiries.id, created.inquiryId));
       assert.deepEqual(row, { sourceEntityType: type, sourceEntityId: id });
+      createdSourceInquiries.set(type, created.inquiryId);
     }
+
+    const crmUsers = await connection.db.insert(schema.users).values([
+      {
+        email: "stage5-f2b-postgres-admin@example.test",
+        displayName: "Synthetic Stage 5 F2B Admin",
+        role: "admin",
+        passwordHash: "synthetic-test-only",
+      },
+      {
+        email: "stage5-f2b-postgres-owner@example.test",
+        displayName: "Synthetic Stage 5 F2B Owner",
+        role: "sales",
+        passwordHash: "synthetic-test-only",
+      },
+      {
+        email: "stage5-f2b-postgres-other@example.test",
+        displayName: "Synthetic Stage 5 F2B Other",
+        role: "sales",
+        passwordHash: "synthetic-test-only",
+      },
+      {
+        email: "stage5-f2b-postgres-analyst@example.test",
+        displayName: "Synthetic Stage 5 F2B Analyst",
+        role: "analyst",
+        passwordHash: "synthetic-test-only",
+      },
+    ]).returning({ id: schema.users.id, email: schema.users.email });
+    const crmUserId = (email: string) => crmUsers.find((user) => user.email === email)!.id;
+    const adminActor = {
+      userId: crmUserId("stage5-f2b-postgres-admin@example.test"),
+      role: "admin" as const,
+    };
+    const ownerActor = {
+      userId: crmUserId("stage5-f2b-postgres-owner@example.test"),
+      role: "sales" as const,
+    };
+    const otherActor = {
+      userId: crmUserId("stage5-f2b-postgres-other@example.test"),
+      role: "sales" as const,
+    };
+    const analystActor = {
+      userId: crmUserId("stage5-f2b-postgres-analyst@example.test"),
+      role: "analyst" as const,
+    };
+    const applicationInquiryId = createdSourceInquiries.get("application");
+    assert.ok(applicationInquiryId);
+    await connection.db.update(schema.inquiries)
+      .set({ ownerUserId: ownerActor.userId })
+      .where(eq(schema.inquiries.id, applicationInquiryId));
+    const adminProjection = await getInquiryCrmReadProjection(
+      connection.db,
+      adminActor,
+      applicationInquiryId,
+    );
+    const ownerProjection = await getInquiryCrmReadProjection(
+      connection.db,
+      ownerActor,
+      applicationInquiryId,
+    );
+    assert.equal(
+      adminProjection?.attribution.sourceEntityEvidence?.currentPublicSource?.href,
+      sourceFixtures.applicationPath,
+    );
+    assert.deepEqual(ownerProjection, adminProjection);
+    const serializedProjection = JSON.stringify(adminProjection);
+    assert.doesNotMatch(serializedProjection, new RegExp(sourceFixtures.applicationId, "i"));
+    assert.doesNotMatch(serializedProjection, /sourceEntityId|contactId/);
+    await assert.rejects(
+      getInquiryCrmReadProjection(connection.db, otherActor, applicationInquiryId),
+    );
+    await assert.rejects(
+      getInquiryCrmReadProjection(connection.db, analystActor, applicationInquiryId),
+    );
+    assert.equal((await listInquiryCrmSummaries(connection.db, ownerActor)).length, 1);
+    assert.equal((await listInquiryCrmSummaries(connection.db, otherActor)).length, 0);
+    await assert.rejects(listInquiryCrmSummaries(connection.db, analystActor));
+
+    const movedApplicationPath = "/applications/synthetic-stage5-f2b-current/";
+    await connection.db.update(schema.routes).set({ path: movedApplicationPath })
+      .where(eq(schema.routes.id, sourceFixtures.applicationRouteId));
+    const movedProjection = await getInquiryCrmReadProjection(
+      connection.db,
+      adminActor,
+      applicationInquiryId,
+    );
+    assert.equal(movedProjection?.attribution.submitTouch.sourcePagePath, sourceFixtures.applicationPath);
+    assert.equal(
+      movedProjection?.attribution.sourceEntityEvidence?.currentPublicSource?.href,
+      movedApplicationPath,
+    );
+    await connection.db.update(schema.routes).set({ path: "/admin/synthetic-stage5-f2b-private/" })
+      .where(eq(schema.routes.id, sourceFixtures.applicationRouteId));
+    const privateProjection = await getInquiryCrmReadProjection(
+      connection.db,
+      adminActor,
+      applicationInquiryId,
+    );
+    assert.equal(
+      privateProjection?.attribution.sourceEntityEvidence?.currentPublicSource,
+      null,
+    );
+    const [immutableStoredSource] = await connection.db.select({
+      sourcePagePath: schema.inquiries.sourcePagePath,
+      sourceEntityType: schema.inquiries.sourceEntityType,
+      sourceEntityId: schema.inquiries.sourceEntityId,
+    }).from(schema.inquiries).where(eq(schema.inquiries.id, applicationInquiryId));
+    assert.deepEqual(immutableStoredSource, {
+      sourcePagePath: sourceFixtures.applicationPath,
+      sourceEntityType: "application",
+      sourceEntityId: sourceFixtures.applicationId,
+    });
 
     const equalInput: CreateInquiryInput = {
       idempotencyKey: "postgres-equal-0001",
@@ -454,6 +572,8 @@ async function verifyFresh(url: string): Promise<Record<string, unknown>> {
         "raw v2 query, fragment and repeated-slash runs rejected with six-table counts unchanged",
       sourceResolution:
         "eligible Product, Application and Content pairs persisted; concurrent and later-ineligible replay immutable",
+      crmReadProjection:
+        "Admin and assigned Sales pass; unassigned Sales and Analyst fail; current label/link changes without snapshot rewrite; private current Route produces no link or source UUID",
       indexPlan: "inquiries_source_entity_idx",
     };
   } finally {
