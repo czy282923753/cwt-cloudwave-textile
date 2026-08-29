@@ -36,4 +36,21 @@ describe("S5-F5 Email Template Admin composition", () => {
     expect(page).toContain("Running one capture-only test");
     expect(page).not.toMatch(/<form\b/);
   });
+
+  it("keeps one shared Preview with unique kind naming and zero-minimum wrapping containment", async () => {
+    const [page, browserEvidence] = await Promise.all([
+      readFile("src/app/admin/email-templates/page.tsx", "utf8"),
+      readFile("tests/e2e/email-templates.spec.ts", "utf8"),
+    ]);
+    expect(page).toContain('aria-label={`${kindLabels[kind]} Synthetic Preview`}');
+    expect(page).toContain("<TemplatePreview kind={kind} preview={preview} />");
+    expect(page.match(/function TemplatePreview\b/g)).toHaveLength(1);
+    expect(page).toContain("grid-cols-[minmax(0,1fr)]");
+    expect(page).toContain("[overflow-wrap:anywhere]");
+    expect(page).not.toMatch(/overflow-x-hidden|overflow-hidden|text-ellipsis|truncate/);
+    expect(browserEvidence).toContain("expect(accessibility.violations).toEqual([])");
+    expect(browserEvidence).not.toContain("accessibility.violations.filter");
+    expect(browserEvidence).toContain("visualViewportWidth");
+    expect(browserEvidence).toContain("LONG_UNBROKEN_TOKEN");
+  });
 });

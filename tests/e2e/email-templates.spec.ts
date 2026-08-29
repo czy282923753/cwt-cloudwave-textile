@@ -1,6 +1,105 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+const INTERNAL_PREVIEW_NAME = "Internal inquiry notification Synthetic Preview";
+const CUSTOMER_PREVIEW_NAME = "Customer inquiry confirmation Synthetic Preview";
+const SYNTHETIC_OPERATIONS_URL =
+  "https://operations.example.test/admin/inquiries/00000000-0000-4000-8000-000000000001/";
+const LONG_UNBROKEN_TOKEN = `SYNTHETICLONGTOKEN${"A".repeat(900)}`;
+const INTERNAL_V1_SOURCE = `Synthetic internal v1
+Reference: {{inquiry_reference}}
+Open: {{operations_url}}
+Long token: ${LONG_UNBROKEN_TOKEN}`;
+const INTERNAL_V1_RENDERED = `Synthetic internal v1
+Reference: CWT-AAAAAAAAAAAAAAAAAAAA
+Open: ${SYNTHETIC_OPERATIONS_URL}
+Long token: ${LONG_UNBROKEN_TOKEN}`;
+const INTERNAL_FALLBACK_BODY = `New CWT inquiry
+
+Reference: CWT-AAAAAAAAAAAAAAAAAAAA
+Submitted: 2026-01-15T10:30:00.000Z
+Name: Synthetic Customer
+Email: synthetic@example.test
+Country: US
+WhatsApp: +1 555 0100
+Description: Conspicuously Synthetic inquiry description.
+Private attachment count: 2
+Source page: /synthetic-source/
+Landing page: /synthetic-landing/
+Referrer: synthetic.example.test
+UTM: synthetic_source / synthetic_medium / synthetic_campaign
+Last non-direct: synthetic_last_source / synthetic_last_medium /
+synthetic_last_campaign
+Source entity: product — Synthetic Product Label
+
+Open CWT Operations: ${SYNTHETIC_OPERATIONS_URL}
+Review private files only through authenticated record-scoped access.`;
+
+async function expectUniquePreviewLandmarks(page: Page): Promise<void> {
+  await expect(page.getByRole("region", { name: INTERNAL_PREVIEW_NAME, exact: true })).toHaveCount(1);
+  await expect(page.getByRole("region", { name: CUSTOMER_PREVIEW_NAME, exact: true })).toHaveCount(1);
+}
+
+async function expectUnfilteredAxePass(page: Page): Promise<void> {
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+}
+
+async function expectPreviewContainment(page: Page, expectedDeviceWidth: number): Promise<void> {
+  const metrics = await page.evaluate(() => {
+    const visualViewport = window.visualViewport;
+    const viewportLeft = visualViewport?.offsetLeft ?? 0;
+    const viewportWidth = visualViewport?.width ?? window.innerWidth;
+    const targets = [...document.querySelectorAll<HTMLElement>(
+      "[data-template-preview], [data-template-preview-essential]",
+    )].map((element) => {
+      const bounds = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        marker: element.dataset.templatePreview ?? element.dataset.templatePreviewEssential ?? "unknown",
+        left: bounds.left,
+        right: bounds.right,
+        width: bounds.width,
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        overflowX: style.overflowX,
+        overflowWrap: style.overflowWrap,
+        textOverflow: style.textOverflow,
+        whiteSpace: style.whiteSpace,
+      };
+    });
+    return {
+      screenWidth: window.screen.width,
+      visualViewportWidth: viewportWidth,
+      visualViewportLeft: viewportLeft,
+      innerWidth: window.innerWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      bodyScrollWidth: document.body.scrollWidth,
+      targets,
+    };
+  });
+
+  expect(metrics.screenWidth).toBe(expectedDeviceWidth);
+  expect(metrics.visualViewportWidth).toBe(expectedDeviceWidth);
+  expect(metrics.innerWidth).toBe(expectedDeviceWidth);
+  expect(metrics.documentScrollWidth).toBe(expectedDeviceWidth);
+  expect(metrics.bodyScrollWidth).toBe(expectedDeviceWidth);
+  expect(metrics.targets).toHaveLength(6);
+  const viewportRight = metrics.visualViewportLeft + metrics.visualViewportWidth;
+  for (const target of metrics.targets) {
+    expect(target.left, `${target.marker} left edge`).toBeGreaterThanOrEqual(metrics.visualViewportLeft - 0.5);
+    expect(target.right, `${target.marker} right edge`).toBeLessThanOrEqual(viewportRight + 0.5);
+    expect(target.width, `${target.marker} visible width`).toBeGreaterThan(0);
+    expect(target.scrollWidth, `${target.marker} intrinsic overflow`).toBeLessThanOrEqual(target.clientWidth);
+    expect(target.overflowX, `${target.marker} must not conceal overflow`).not.toMatch(/hidden|clip/);
+    expect(target.textOverflow, `${target.marker} must not truncate`).not.toBe("ellipsis");
+  }
+  const bodies = metrics.targets.filter((target) => target.marker === "body");
+  expect(bodies).toHaveLength(2);
+  expect(bodies.every((target) => target.whiteSpace === "pre-wrap")).toBe(true);
+  expect(bodies.every((target) => target.overflowWrap === "anywhere")).toBe(true);
+}
+
 async function loginAsLocalAdmin(page: Page): Promise<void> {
   await page.context().clearCookies();
   await page.goto("/operations-login/");
@@ -34,6 +133,19 @@ async function runAdminActionAndExpect(
   await expect(form.getByRole("alert")).toHaveCount(0);
 }
 
+async function applyLongInternalTemplate(page: Page, internal: Locator): Promise<void> {
+  const editor = internal.getByRole("heading", { name: "Create next Draft" }).locator("xpath=ancestor::form");
+  await editor.getByLabel("Subject source").fill("Synthetic internal v1 {{inquiry_reference}}");
+  await editor.getByLabel("Plain-text body source").fill(INTERNAL_V1_SOURCE);
+  await editor.getByLabel("Change summary").fill("Synthetic internal v1 Admin flow");
+  await runAdminActionAndExpect(page, editor.getByRole("button", { name: "Save Draft" }));
+  const submit = internal.getByRole("heading", { name: "Submit Draft v1" }).locator("xpath=ancestor::form");
+  await runAdminActionAndExpect(page, submit.getByRole("button", { name: "Submit for review" }));
+  await runAdminActionAndExpect(page, internal.getByRole("button", { name: "Review & Apply" }));
+  await expect(internal.getByText("Synthetic internal v1 CWT-AAAAAAAAAAAAAAAAAAAA", { exact: true }))
+    .toBeVisible();
+}
+
 test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, and role matrix", async ({ page }) => {
   test.setTimeout(240_000);
   await loginAsLocalAdmin(page);
@@ -49,23 +161,24 @@ test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, and r
   const internal = page.locator("article").filter({
     has: page.getByRole("heading", { name: "Internal inquiry notification" }),
   });
-  let editor = internal.getByRole("heading", { name: "Create next Draft" }).locator("xpath=ancestor::form");
-  await editor.getByLabel("Subject source").fill("Synthetic internal v1 {{inquiry_reference}}");
-  await editor.getByLabel("Plain-text body source").fill("Synthetic internal v1\nReference: {{inquiry_reference}}\nOpen: {{operations_url}}");
-  await editor.getByLabel("Change summary").fill("Synthetic internal v1 Admin flow");
-  await runAdminActionAndExpect(page, editor.getByRole("button", { name: "Save Draft" }));
+  const internalPreview = page.getByRole("region", { name: INTERNAL_PREVIEW_NAME, exact: true });
+  await expectUniquePreviewLandmarks(page);
+  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_FALLBACK_BODY);
+  await expect(internalPreview.locator("pre")).toContainText(SYNTHETIC_OPERATIONS_URL);
+  await expectPreviewContainment(page, 1280);
+  await expectUnfilteredAxePass(page);
 
-  let submit = internal.getByRole("heading", { name: "Submit Draft v1" }).locator("xpath=ancestor::form");
-  await runAdminActionAndExpect(page, submit.getByRole("button", { name: "Submit for review" }));
-  await runAdminActionAndExpect(page, internal.getByRole("button", { name: "Review & Apply" }));
+  await applyLongInternalTemplate(page, internal);
   await expect(internal.getByText("Synthetic internal v1 CWT-AAAAAAAAAAAAAAAAAAAA", { exact: true })).toBeVisible();
+  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_V1_RENDERED);
+  await expectPreviewContainment(page, 1280);
 
-  editor = internal.getByRole("heading", { name: "Create next Draft" }).locator("xpath=ancestor::form");
+  const editor = internal.getByRole("heading", { name: "Create next Draft" }).locator("xpath=ancestor::form");
   await editor.getByLabel("Subject source").fill("Synthetic internal v2 {{inquiry_reference}}");
   await editor.getByLabel("Plain-text body source").fill("Synthetic internal v2\nReference: {{inquiry_reference}}\nOpen: {{operations_url}}");
   await editor.getByLabel("Change summary").fill("Synthetic internal v2 Admin flow");
   await runAdminActionAndExpect(page, editor.getByRole("button", { name: "Save Draft" }));
-  submit = internal.getByRole("heading", { name: "Submit Draft v2" }).locator("xpath=ancestor::form");
+  const submit = internal.getByRole("heading", { name: "Submit Draft v2" }).locator("xpath=ancestor::form");
   await runAdminActionAndExpect(page, submit.getByRole("button", { name: "Submit for review" }));
   await runAdminActionAndExpect(page, internal.getByRole("button", { name: "Review & Apply" }));
   await expect(internal.getByText("Synthetic internal v2 CWT-AAAAAAAAAAAAAAAAAAAA", { exact: true })).toBeVisible();
@@ -138,11 +251,9 @@ test("@mobile Email Template Admin is keyboard-focusable, accessible, and has no
   const focusTarget = page.getByRole("button", { name: "Test Active with Synthetic data" }).first();
   await focusTarget.focus();
   await expect(focusTarget).toBeFocused();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-    await page.evaluate(() => window.innerWidth),
-  );
-  const accessibility = await new AxeBuilder({ page }).analyze();
-  expect(accessibility.violations.filter((violation) =>
-    ["critical", "serious"].includes(violation.impact ?? ""),
-  )).toEqual([]);
+  await expectUniquePreviewLandmarks(page);
+  const internalPreview = page.getByRole("region", { name: INTERNAL_PREVIEW_NAME, exact: true });
+  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_FALLBACK_BODY);
+  await expectPreviewContainment(page, 412);
+  await expectUnfilteredAxePass(page);
 });

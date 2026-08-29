@@ -56,9 +56,19 @@ function variablesForKind(kind: EmailTemplateKind): readonly string[] {
     : CUSTOMER_TEMPLATE_VARIABLES;
 }
 
-function TemplatePreview({ preview }: Readonly<{ preview: SyntheticEmailTemplatePreview }>) {
+function TemplatePreview({
+  kind,
+  preview,
+}: Readonly<{
+  kind: EmailTemplateKind;
+  preview: SyntheticEmailTemplatePreview;
+}>) {
   return (
-    <section aria-label="Synthetic template Preview" className={`${panelClass} bg-slate-950`}>
+    <section
+      aria-label={`${kindLabels[kind]} Synthetic Preview`}
+      className={`${panelClass} bg-slate-950`}
+      data-template-preview={kind}
+    >
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <h3 className="text-lg font-semibold">Fixed-Synthetic Preview</h3>
         <span className="rounded-full border border-teal-300/30 px-3 py-1 text-xs text-teal-200">
@@ -68,17 +78,23 @@ function TemplatePreview({ preview }: Readonly<{ preview: SyntheticEmailTemplate
       <p className="mt-2 break-words text-xs text-slate-400">
         Source: {preview.provenance.source} · revision {preview.provenance.revisionVersion ?? "code fallback"}
       </p>
-      <dl className="mt-5 grid min-w-0 gap-4">
-        <div>
+      <dl className="mt-5 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
+        <div className="min-w-0">
           <dt className="text-sm font-semibold text-slate-300">Subject</dt>
-          <dd className="mt-2 break-words rounded-lg border border-white/10 bg-slate-900 p-3">
+          <dd
+            className="mt-2 min-w-0 [overflow-wrap:anywhere] rounded-lg border border-white/10 bg-slate-900 p-3"
+            data-template-preview-essential="subject"
+          >
             {preview.rendered.subject}
           </dd>
         </div>
-        <div>
+        <div className="min-w-0">
           <dt className="text-sm font-semibold text-slate-300">Plain-text body</dt>
-          <dd>
-            <pre className="mt-2 max-w-full whitespace-pre-wrap break-words rounded-lg border border-white/10 bg-slate-900 p-3 font-sans text-sm leading-6">
+          <dd className="min-w-0">
+            <pre
+              className="mt-2 min-w-0 max-w-full whitespace-pre-wrap [overflow-wrap:anywhere] rounded-lg border border-white/10 bg-slate-900 p-3 font-sans text-sm leading-6"
+              data-template-preview-essential="body"
+            >
               {preview.rendered.textBody}
             </pre>
           </dd>
@@ -140,7 +156,7 @@ function TemplatePanel({
         ) : null}
       </section>
 
-      <TemplatePreview preview={preview} />
+      <TemplatePreview kind={kind} preview={preview} />
       {selectedRevisionId ? (
         <Link className="w-fit text-sm text-teal-300 underline" href="/admin/email-templates/">Return to Active previews</Link>
       ) : null}
