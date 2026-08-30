@@ -684,6 +684,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     const internal = jobs.find((job) => job.kind === "inquiry_notification")!;
     await connection.db.update(notificationOutbox).set({
       createdAt: new Date("2036-08-30T00:00:00.000Z"),
+      nextAttemptAt: new Date(0),
       payload: {
         inquiryId: inquiry.inquiryId,
         name: "Synthetic Outbox Buyer",
