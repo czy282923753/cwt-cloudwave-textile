@@ -23,7 +23,9 @@ import { createFileScanner } from "../src/uploads/scanner";
 import { recoverUploadRecoveryJob } from "../src/uploads/upload-recovery-service";
 
 const e2eRetrySessionToken = "cwt-e2e-retryable-asset-session";
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");

@@ -3,6 +3,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { count, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 import { toPublicAnalyticsPayload } from "@/analytics/public-payload";
 import {
   analyticsConsents,
@@ -62,6 +64,7 @@ function publicRequest(
       "content-length": String(Buffer.byteLength(body)),
       "idempotency-key": idempotencyKey,
       "x-cwt-upload-session": anonymousSessionId,
+      "x-cwt-client-address": "192.0.2.20",
       ...(consentSessionId
         ? { cookie: `cwt_analytics_session=${consentSessionId}` }
         : {}),

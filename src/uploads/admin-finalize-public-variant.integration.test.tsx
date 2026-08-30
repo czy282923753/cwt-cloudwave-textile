@@ -1,7 +1,9 @@
 import { eq } from "drizzle-orm";
 import { renderToStaticMarkup } from "react-dom/server";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import {
   assetVariants,
@@ -31,7 +33,9 @@ import {
 } from "./admin-upload-service";
 import { DevelopmentFileScanner } from "./scanner";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 describe("Admin Finalize responsive public Variant contract", () => {
   it("carries one logical key from real Finalize through srcset and governed delivery", async () => {

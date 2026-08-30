@@ -4,7 +4,7 @@ import { assertSameOrigin } from "@/auth/request-security";
 import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
 import { createObjectStorage } from "@/storage";
-import { publicUploadRateLimiter as limiter } from "@/uploads/rate-limit";
+import { sharedRateLimiter as limiter } from "@/security/rate-limiter-factory";
 import {
   assertRequestLength,
   preBodyRateLimitKeys,
@@ -24,9 +24,17 @@ export async function PUT(
   try {
     assertSameOrigin(request);
     assertRequestLength(request, env.MAX_INQUIRY_FILE_BYTES);
-    for (const key of preBodyRateLimitKeys(request)) {
-      if (!(await limiter.consume(key, "upload"))) {
+    const rateLimitKeys = preBodyRateLimitKeys(request);
+    if (rateLimitKeys === null) {
+      return NextResponse.json({ ok: false, error: "Try again later." }, { status: 503 });
+    }
+    for (const key of rateLimitKeys) {
+      const decision = await limiter.consume(key, "upload");
+      if (decision.kind === "limited") {
         return NextResponse.json({ ok: false, error: "Try again later." }, { status: 429 });
+      }
+      if (decision.kind === "unavailable") {
+        return NextResponse.json({ ok: false, error: "Try again later." }, { status: 503 });
       }
     }
     const anonymousSessionId = request.headers.get("x-cwt-upload-session") ?? "";

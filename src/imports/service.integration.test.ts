@@ -16,7 +16,9 @@ import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_LIMITS, PRODUCT_IMPORT_TEMPLATE_
 import { applyProductImportBatch, prepareProductImportBatch, validatePreparedProductImport } from "./service";
 import { ProductImportWorkbookPackageError } from "./workbook";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 async function workbook(rows: string[][]): Promise<Uint8Array> {
   const file = writeExcelFile([

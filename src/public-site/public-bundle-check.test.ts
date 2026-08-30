@@ -20,9 +20,12 @@ const promptTuples = [
   ["seo-content-draft", 1, "91f8868efad16310a5ed26c85a6001024572949c59725efe2b6c0df935499195"],
   ["sourcing-guide-draft", 1, "e4aaf2e39483bde7569edb529f1c1d213b0a11d68ac4a9b99075992620238adf"],
 ] as const;
+const validRateLimiterEvidence =
+  'const valkeyPackage = "@valkey/valkey-glide";\nconst limiterAlgorithm = "fixed-window-v1";';
 const validServerEvidence = [
   serverBoundaryMarker,
   promptBundleMarker,
+  validRateLimiterEvidence,
   ...promptTuples.map(([promptId, promptVersion, sha256]) =>
     `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`),
 ].join("\n");
@@ -35,6 +38,7 @@ function evidenceWithFirstTuple(firstTupleEvidence: string): string {
   return [
     serverBoundaryMarker,
     promptBundleMarker,
+    validRateLimiterEvidence,
     firstTupleEvidence,
     validRemainingTupleEvidence,
   ].join("\n");
@@ -183,7 +187,7 @@ describe("public bundle checker", () => {
       .join("\n");
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/chunks/ssr/admin-ai.js": tupleEvidence,
+        "server/chunks/ssr/admin-ai.js": `${validRateLimiterEvidence}\n${tupleEvidence}`,
         "server/server-reference-manifest.js": `${serverBoundaryMarker}\n${promptBundleMarker}`,
       },
     }));
@@ -195,7 +199,8 @@ describe("public bundle checker", () => {
   it("rejects tuple evidence found only in an excluded client-reference manifest", async () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/chunks/ssr/admin-ai.js": `${serverBoundaryMarker}\n${promptBundleMarker}`,
+        "server/chunks/ssr/admin-ai.js":
+          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}`,
         "server/app/admin/page_client-reference-manifest.js": validServerEvidence,
       },
     }));
@@ -213,7 +218,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${serverBoundaryMarker}\n${promptBundleMarker}\n${declarations}`,
+          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${declarations}`,
       },
     }));
 
@@ -230,7 +235,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${serverBoundaryMarker}\n${promptBundleMarker}\n${splitObjects}`,
+          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${splitObjects}`,
       },
     }));
 
@@ -292,7 +297,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
+          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
       },
     }));
 
@@ -336,6 +341,20 @@ describe("public bundle checker", () => {
     },
   );
 
+  it.each(["@valkey/valkey-glide", "fixed-window-v1"])(
+    "fails closed when required server-only Rate Limiter marker %s is missing",
+    async (marker) => {
+      const result = runChecker(await createBuildFixture({
+        serverFiles: {
+          "server/chunks/ssr/admin-ai.js": validServerEvidence.replace(marker, ""),
+        },
+      }));
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/required server-only Rate Limiter marker is missing/i);
+    },
+  );
+
   it("fails closed when a server Prompt tuple carries the wrong hash", async () => {
     const expectedHash = promptTuples[0][2];
     const result = runChecker(await createBuildFixture({
@@ -358,7 +377,7 @@ describe("public bundle checker", () => {
       `({promptId:"${id}",promptVersion:${version},sha256:"${hash}"})`).join("\n");
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/chunks/ssr/admin-ai-id.js": `${serverBoundaryMarker}\n${promptBundleMarker}\n` +
+        "server/chunks/ssr/admin-ai-id.js": `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n` +
           `({promptId:"${promptId}",promptVersion:1})\n${intactOtherTuples}`,
         "server/chunks/admin-ai-hash.js": `const splitHash="${sha256}";`,
       },
@@ -377,6 +396,12 @@ describe("public bundle checker", () => {
     ["AI testing module", "src/ai/testing"],
     ["private target key", '"targetRevisionId"'],
     ["private run key", '"runId"'],
+    ["GLIDE package", "@valkey/valkey-glide"],
+    ["GLIDE native package", "@valkey/valkey-glide-linux-x64"],
+    ["GLIDE native binary", "valkey_glide"],
+    ["Rate Limiter implementation", "valkey-rate-limiter"],
+    ["Rate Limiter factory", "rate-limiter-factory"],
+    ["Rate Limiter algorithm", "fixed-window-v1"],
   ])("rejects a public client %s leak", async (_label, leak) => {
     expect(leak).toBeTruthy();
     const result = runChecker(await createBuildFixture({
@@ -793,6 +818,16 @@ describe("public bundle checker", () => {
 
     expect(result.status).not.toBe(0);
     expect(combinedOutput(result)).toMatch(/chunk is not a file/i);
+  });
+
+  it("rejects native server dependencies anywhere under public static output", async () => {
+    const buildRoot = await createBuildFixture();
+    await writeBuildFile(buildRoot, "static/chunks/native/valkey_glide.node", "synthetic native fixture");
+
+    const result = runChecker(buildRoot);
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/native server dependency leaked into public static output/i);
   });
 
   it("preserves public manifest selection exclusions", async () => {

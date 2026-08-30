@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import {
   applyProductRevision,

@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createHash } from "node:crypto";
 
 import { recordConversionEvent } from "@/analytics/conversion-service";
 import { consentSessionIdFromRequest } from "@/analytics/consent-service";
 import { assertSameOrigin } from "@/auth/request-security";
 import { databaseConnection } from "@/db/client";
-import { createUploadRateLimiter } from "@/uploads/rate-limit";
-
-const limiter = createUploadRateLimiter();
+import { sharedRateLimiter as limiter } from "@/security/rate-limiter-factory";
+import { trustedClientAddressFromRequest } from "@/security/trusted-client-address";
 
 const eventSchema = z.object({
   eventId: z.string().min(16).max(128),
@@ -41,16 +39,21 @@ const eventSchema = z.object({
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     assertSameOrigin(request);
+    const clientAddress = trustedClientAddressFromRequest(request);
+    if (clientAddress.kind !== "trusted") {
+      return NextResponse.json({ ok: true }, { status: 202 });
+    }
     const input = eventSchema.parse(await request.json());
     const consentSessionId = consentSessionIdFromRequest(request);
     if (!consentSessionId) {
       return NextResponse.json({ ok: false }, { status: 403 });
     }
-    const rateKey = createHash("sha256")
-      .update(`${consentSessionId}:${request.headers.get("user-agent") ?? "unknown"}`)
-      .digest("hex");
-    if (!(await limiter.consume(rateKey, "conversion"))) {
+    const decision = await limiter.consume(`consent:${consentSessionId}:network:${clientAddress.address}`, "conversion");
+    if (decision.kind === "limited") {
       return NextResponse.json({ ok: false }, { status: 429 });
+    }
+    if (decision.kind === "unavailable") {
+      return NextResponse.json({ ok: true }, { status: 202 });
     }
     const conversionInput = {
       ...input,

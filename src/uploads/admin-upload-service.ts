@@ -44,7 +44,8 @@ import { inspectImportImageArchiveStream } from "@/imports/archive";
 import {
   processPendingObjectCleanupJobs,
 } from "./object-cleanup-service";
-import { createUploadRateLimiter, type UploadRateLimiter } from "./rate-limit";
+import { sharedRateLimiter as adminRateLimiter } from "@/security/rate-limiter-factory";
+import type { SharedRateLimiter } from "@/security/shared-rate-limiter";
 import type { FileScanner } from "./scanner";
 import {
   advanceUploadRecoveryStage,
@@ -69,7 +70,6 @@ const sourceSubjectSchema = z.enum([
   "cwt", "partner_factory", "supplier", "customer", "third_party", "unknown",
 ]);
 const permissionSchema = z.enum(["unknown", "allowed", "not_allowed", "restricted"]);
-const adminRateLimiter = createUploadRateLimiter();
 export const IMPORT_WORKBOOK_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const IMPORT_ARCHIVE_MIME = "application/zip";
 const importPackageMimeTypes = [IMPORT_WORKBOOK_MIME, IMPORT_ARCHIVE_MIME] as const;
@@ -116,7 +116,7 @@ export interface AdminUploadBatchInput {
 
 interface AdminUploadOptions {
   auditWriter?: typeof writeAuditLog;
-  rateLimiter?: UploadRateLimiter;
+  rateLimiter?: Pick<SharedRateLimiter, "consume">;
   now?: Date;
   workerId?: string;
   leaseMilliseconds?: number;
@@ -298,8 +298,12 @@ export async function createAdminUploadBatch<TQueryResult extends PgQueryResultH
   const normalized = normalizeBatchInput(input);
   await assertAssociationTarget(db, actor, normalized.associationType ?? null, normalized.associationEntityId ?? null);
   const limiter = options.rateLimiter ?? adminRateLimiter;
-  if (!(await limiter.consume(`admin:${actor.userId}:${actor.authSessionId}`, "upload"))) {
+  const rateLimitDecision = await limiter.consume(`admin:${actor.userId}:${actor.authSessionId}`, "upload");
+  if (rateLimitDecision.kind === "limited") {
     throw new Error("Upload rate limit exceeded.");
+  }
+  if (rateLimitDecision.kind === "unavailable") {
+    throw new Error("Upload rate limiter is unavailable.");
   }
   const expiresAt = new Date(now.getTime() + env.UPLOAD_INTENT_TTL_SECONDS * 1_000);
   if (options.issuedTokens && options.issuedTokens.length !== normalized.files.length) {
@@ -1673,7 +1677,9 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
   }> = [];
   const internalImportOptions: AdminUploadOptions = {
     ...options,
-    rateLimiter: { consume: async () => true },
+    rateLimiter: {
+      consume: async () => ({ kind: "allowed", remaining: 29, retryAfterMs: 60_000 }),
+    },
   };
   try {
     lease = await advanceUploadRecoveryStage(db, lease, "storage_writing", new Date(), leaseMilliseconds);

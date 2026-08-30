@@ -1,6 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import {
   applicationLocalizations,

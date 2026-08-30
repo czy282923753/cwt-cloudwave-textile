@@ -4,7 +4,9 @@ import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
 import sharp from "sharp";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import { createProductDraft } from "@/catalog/product-service";
 import type { DatabaseConnection, PostgresAppDatabase } from "@/db/client";

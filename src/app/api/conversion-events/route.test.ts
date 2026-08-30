@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import { env } from "@/config/env";
 
@@ -13,6 +15,7 @@ describe("public Conversion Event API privacy schema", () => {
       headers: {
         origin: TEST_SITE_ORIGIN,
         "content-type": "application/json",
+        "x-cwt-client-address": "192.0.2.10",
       },
       body: JSON.stringify({
         eventId: "evt_reject_internal_entity_0001",
@@ -31,6 +34,7 @@ describe("public Conversion Event API privacy schema", () => {
       headers: {
         origin: TEST_SITE_ORIGIN,
         "content-type": "application/json",
+        "x-cwt-client-address": "192.0.2.10",
       },
       body: JSON.stringify({
         eventId: "evt_forged_granted_0001",

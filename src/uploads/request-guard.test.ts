@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { assertRequestLength, preBodyRateLimitKeys, readRequestBodyWithLimit, trustedClientAddress } from "./request-guard";
-import { MemoryUploadRateLimiter } from "./rate-limit";
+import { TRUSTED_CLIENT_ADDRESS_HEADER } from "@/security/trusted-client-address";
+import { MemorySharedRateLimiter } from "@/security/shared-rate-limiter";
+
+import { assertRequestLength, preBodyRateLimitKeys, readRequestBodyWithLimit } from "./request-guard";
 
 describe("pre-body upload request guard", () => {
   it("rejects missing, invalid, and oversized Content-Length before body parsing", () => {
@@ -12,18 +14,17 @@ describe("pre-body upload request guard", () => {
     expect(assertRequestLength(new Request("http://localhost/upload", { headers: { "content-length": "10" } }), 10)).toBe(10);
   });
 
-  it("does not trust a forged x-forwarded-for header when no proxy mode is configured", () => {
+  it("does not trust public forwarding headers or create an unknown fallback bucket", () => {
     const first = new Request("http://localhost/upload", { headers: { "x-forwarded-for": "1.1.1.1", "x-cwt-upload-session": "session", "user-agent": "test" } });
-    const second = new Request("http://localhost/upload", { headers: { "x-forwarded-for": "9.9.9.9", "x-cwt-upload-session": "session", "user-agent": "test" } });
-    expect(trustedClientAddress(first)).toBeNull();
-    expect(preBodyRateLimitKeys(first)).toEqual(preBodyRateLimitKeys(second));
-    expect(preBodyRateLimitKeys(first)).toContain("global:public-upload");
+    expect(preBodyRateLimitKeys(first)).toBeNull();
+    const attested = new Request("http://localhost/upload", { headers: { [TRUSTED_CLIENT_ADDRESS_HEADER]: "192.0.2.1", "x-cwt-upload-session": "session" } });
+    expect(preBodyRateLimitKeys(attested)).toEqual(["global:public-upload", "session:session", "network:192.0.2.1"]);
   });
 
   it("applies the request limiter before an upload body would be accepted", async () => {
-    const limiter = new MemoryUploadRateLimiter(1, 60_000);
-    await expect(limiter.consume("global:public-upload")).resolves.toBe(true);
-    await expect(limiter.consume("global:public-upload")).resolves.toBe(false);
+    const limiter = new MemorySharedRateLimiter(1, 60_000);
+    await expect(limiter.consume("global:public-upload")).resolves.toMatchObject({ kind: "allowed" });
+    await expect(limiter.consume("global:public-upload")).resolves.toMatchObject({ kind: "limited" });
   });
 
   it("streams a missing-Content-Length and chunked body up to the exact hard limit", async () => {

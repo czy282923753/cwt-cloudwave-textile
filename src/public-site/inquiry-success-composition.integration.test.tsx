@@ -7,6 +7,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 import { toPublicAnalyticsPayload } from "@/analytics/public-payload";
 import {
   analyticsConsents,
@@ -40,6 +42,7 @@ function actualRequest(
   headers.set("content-length", String(new TextEncoder().encode(body).byteLength));
   headers.set("cookie", `cwt_analytics_session=${consentSessionId}`);
   headers.set("user-agent", "cwt-stage5-f1-synthetic-composition");
+  headers.set("x-cwt-client-address", "192.0.2.30");
   return new Request(`http://localhost:3000${path}`, {
     method: init?.method ?? "POST",
     headers,

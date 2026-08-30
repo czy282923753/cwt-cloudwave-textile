@@ -4,7 +4,8 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   trailingSlash: true,
-  serverExternalPackages: ["@electric-sql/pglite"],
+  output: "standalone",
+  serverExternalPackages: ["@electric-sql/pglite", "@valkey/valkey-glide"],
   ...(process.env.DATABASE_DRIVER !== "postgres"
     ? { experimental: { cpus: 1 } }
     : {}),

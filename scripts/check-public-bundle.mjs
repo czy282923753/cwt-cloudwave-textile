@@ -27,6 +27,10 @@ const serverMarkers = [
   "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A",
   "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3",
 ];
+const serverRateLimiterMarkers = [
+  "@valkey/valkey-glide",
+  "fixed-window-v1",
+];
 const approvedPromptTuples = [
   ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
   ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
@@ -65,6 +69,12 @@ const baseForbidden = [
   "email_template_active_v1",
   "SYNTHETIC_EMAIL_TEMPLATE_V1",
   "/src/email-templates/",
+  "@valkey/valkey-glide",
+  "@valkey/valkey-glide-linux-",
+  "valkey_glide",
+  "valkey-rate-limiter",
+  "rate-limiter-factory",
+  "fixed-window-v1",
 ];
 
 async function readProductionPromptAuthority() {
@@ -478,6 +488,13 @@ for (const marker of serverMarkers) {
   }
   serverEvidenceIdentities.add(evidence.identity);
 }
+for (const marker of serverRateLimiterMarkers) {
+  const evidence = serverRuntimeJavaScript.find((file) => file.content.includes(marker));
+  if (evidence === undefined) {
+    throw new Error(`Required server-only Rate Limiter marker is missing: ${marker}`);
+  }
+  serverEvidenceIdentities.add(evidence.identity);
+}
 for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
   const evidence = serverRuntimeJavaScript.find((file) =>
     hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]));
@@ -515,6 +532,12 @@ async function scanChunk(identity, source, coverage) {
   for (const needle of forbidden) {
     if (chunk.includes(needle)) leaks.push(`${identity}: ${needle}`);
   }
+}
+
+const staticFiles = await filesUnder(join(buildRoot, "static"));
+const staticNativeFiles = staticFiles.filter((path) => path.endsWith(".node"));
+if (staticNativeFiles.length > 0) {
+  throw new Error(`Native server dependency leaked into public static output:\n${staticNativeFiles.join("\n")}`);
 }
 
 const buildManifest = JSON.parse(await readFile(join(buildRoot, "build-manifest.json"), "utf8"));

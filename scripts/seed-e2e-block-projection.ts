@@ -142,7 +142,11 @@ async function seed<TQueryResult extends PgQueryResultHKT>(db: AppDatabase<TQuer
     associationType: "product",
     associationEntityId: variantProduct.id,
     sourceDeclarationEnabled: false,
-  }, { rateLimiter: { consume: async () => true } });
+  }, {
+    rateLimiter: {
+      consume: async () => ({ kind: "allowed", remaining: 29, retryAfterMs: 60_000 }),
+    },
+  });
   const variantAssetId = await completeAdminUploadIntent(
     db,
     storage,

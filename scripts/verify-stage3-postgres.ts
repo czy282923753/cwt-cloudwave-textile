@@ -55,7 +55,9 @@ import {
 import { DevelopmentFileScanner } from "../src/uploads/scanner";
 import { processPendingUploadRecoveryJobs } from "../src/uploads/upload-recovery-service";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 type JournalEntry = { idx: number; tag: string; when: number; version: string; breakpoints: boolean };
 type Journal = { version: string; dialect: string; entries: JournalEntry[] };

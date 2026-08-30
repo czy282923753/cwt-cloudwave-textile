@@ -37,7 +37,9 @@ import { DevelopmentFileScanner } from "@/uploads/scanner";
 
 import { applyProductImportBatch, retryProductImportErrors } from "./service";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 type NormalizedUpdate = {
   productCode: string;

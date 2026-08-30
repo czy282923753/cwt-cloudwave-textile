@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 const mocks = vi.hoisted(() => ({
   createInquiry: vi.fn(),
 }));
@@ -29,8 +31,8 @@ vi.mock("@/uploads/request-guard", () => ({
   assertRequestLength: () => undefined,
   preBodyRateLimitKeys: () => [],
 }));
-vi.mock("@/uploads/rate-limit", () => ({
-  publicUploadRateLimiter: { consume: () => Promise.resolve(true) },
+vi.mock("@/security/rate-limiter-factory", () => ({
+  sharedRateLimiter: { consume: () => Promise.resolve({ kind: "allowed", remaining: 1, retryAfterMs: 1 }) },
 }));
 vi.mock("@/config/env", () => ({
   env: {

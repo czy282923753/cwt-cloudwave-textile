@@ -40,7 +40,9 @@ import {
   validatePreparedProductImport,
 } from "./service";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 async function workbook(): Promise<Uint8Array> {
   const row = Array(PRODUCT_IMPORT_HEADERS.length).fill("");

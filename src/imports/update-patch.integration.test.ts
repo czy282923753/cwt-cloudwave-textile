@@ -43,7 +43,9 @@ import { DevelopmentFileScanner } from "@/uploads/scanner";
 import { PRODUCT_IMPORT_HEADERS, PRODUCT_IMPORT_TEMPLATE_NAME } from "./contract";
 import { applyProductImportBatch, prepareProductImportBatch, validatePreparedProductImport } from "./service";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 async function workbook(row: string[]): Promise<Uint8Array> {
   const file = writeExcelFile([

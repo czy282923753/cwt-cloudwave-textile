@@ -36,7 +36,9 @@ import {
 } from "../src/uploads/upload-recovery-service";
 
 const validationFlag = "isolated-test-database";
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 function invariant(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);

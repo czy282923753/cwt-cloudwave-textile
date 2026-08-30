@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
-
-import { env } from "@/config/env";
+import { trustedClientAddressFromRequest } from "@/security/trusted-client-address";
 
 export function assertRequestLength(
   request: Request,
@@ -62,27 +60,13 @@ export async function readRequestBodyWithLimit(
   return bytes;
 }
 
-export function trustedClientAddress(request: Request): string | null {
-  if (env.TRUSTED_PROXY_MODE === "cloudflare") {
-    return request.headers.get("cf-connecting-ip")?.trim() || null;
-  }
-  if (env.TRUSTED_PROXY_MODE === "vercel") {
-    return request.headers.get("x-real-ip")?.trim() || null;
-  }
-  return null;
-}
-
-export function preBodyRateLimitKeys(request: Request): string[] {
+export function preBodyRateLimitKeys(request: Request): readonly string[] | null {
   const session = request.headers.get("x-cwt-upload-session")?.trim() || "missing";
-  const trustedAddress = trustedClientAddress(request);
-  const userAgent = request.headers.get("user-agent")?.slice(0, 160) || "unknown";
-  const digest = (value: string) =>
-    createHash("sha256").update(value).digest("hex");
+  const trustedAddress = trustedClientAddressFromRequest(request);
+  if (trustedAddress.kind !== "trusted") return null;
   return [
     "global:public-upload",
-    `session:${digest(session)}`,
-    trustedAddress
-      ? `trusted-ip:${digest(trustedAddress)}`
-      : `no-trusted-ip:${digest(userAgent)}`,
+    `session:${session}`,
+    `network:${trustedAddress.address}`,
   ];
 }

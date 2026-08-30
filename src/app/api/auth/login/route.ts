@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/audit/service";
@@ -8,10 +8,9 @@ import { createAuthenticatedSession } from "@/auth/session";
 import { env } from "@/config/env";
 import { databaseConnection } from "@/db/client";
 import type { AppDatabase } from "@/db/types";
-import { createUploadRateLimiter } from "@/uploads/rate-limit";
+import { sharedRateLimiter as loginLimiter } from "@/security/rate-limiter-factory";
+import { trustedClientAddressFromRequest } from "@/security/trusted-client-address";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
-
-const loginLimiter = createUploadRateLimiter();
 
 async function withDatabase<TResult>(
   operation: <TQueryResult extends PgQueryResultHKT>(
@@ -22,13 +21,10 @@ async function withDatabase<TResult>(
   return operation(databaseConnection.db);
 }
 
-function loginKeys(request: Request, email: string): readonly string[] {
-  const networkIdentity = `${request.headers.get("cf-connecting-ip") ?? request.headers.get("x-real-ip") ?? "unknown"}:${request.headers.get("user-agent") ?? "unknown"}`;
+function loginKeys(address: string, email: string): readonly string[] {
   return [
-    createHash("sha256").update(`network:${networkIdentity}`).digest("hex"),
-    createHash("sha256")
-      .update(`account:${email.trim().toLowerCase()}`)
-      .digest("hex"),
+    `network:${address}`,
+    `account:${email.trim().toLowerCase()}`,
   ];
 }
 
@@ -41,17 +37,22 @@ export async function POST(request: Request): Promise<NextResponse> {
   const requestId = randomUUID();
   try {
     assertSameOrigin(request);
+    const clientAddress = trustedClientAddressFromRequest(request);
+    if (clientAddress.kind !== "trusted") return loginRedirect("rate_unavailable");
     const form = await request.formData();
     const email = form.get("email");
     const password = form.get("password");
     if (typeof email !== "string" || typeof password !== "string") {
       return loginRedirect("invalid");
     }
-    const keys = loginKeys(request, email);
+    const keys = loginKeys(clientAddress.address, email);
     const decisions = await Promise.all(
       keys.map((key) => loginLimiter.consume(key, "login")),
     );
-    if (decisions.some((allowed) => !allowed)) {
+    if (decisions.some((decision) => decision.kind === "unavailable")) {
+      return loginRedirect("rate_unavailable");
+    }
+    if (decisions.some((decision) => decision.kind === "limited")) {
       await withDatabase((db) =>
         writeAuditLog(db, {
           action: "auth.login.rate_limited",

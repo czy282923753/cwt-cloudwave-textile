@@ -30,7 +30,9 @@ import { DevelopmentFileScanner, type FileScanner } from "@/uploads/scanner";
 import { processPendingUploadRecoveryJobs } from "@/uploads/upload-recovery-service";
 import { cancelProductImportBatch } from "./service";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 async function zip(entries: Array<{ name: string; bytes: Uint8Array }>): Promise<Uint8Array> {
   const writer = new ZipWriter(new Uint8ArrayWriter());

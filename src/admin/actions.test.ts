@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
 vi.mock("./actor", () => ({
   currentActor: vi.fn().mockResolvedValue({
     userId: "11111111-1111-4111-8111-111111111111",

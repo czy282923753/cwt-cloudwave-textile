@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import { writeAuditLog } from "@/audit/service";
 import {
@@ -38,7 +40,9 @@ import {
   recoverUploadRecoveryJob,
 } from "./upload-recovery-service";
 
-const allowLimiter = { consume: async () => true };
+const allowLimiter = {
+  consume: async () => ({ kind: "allowed" as const, remaining: 29, retryAfterMs: 60_000 }),
+};
 
 class RecoveryStorage extends InMemoryObjectStorage {
   failPrivatePutAfterPersist = false;
