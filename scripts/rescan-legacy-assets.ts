@@ -1,6 +1,6 @@
 import { databaseConnection } from "../src/db/client";
 import { createObjectStorage } from "../src/storage";
-import { createFileScanner } from "../src/uploads/scanner";
+import { createFileScanner } from "../src/uploads/scanner-factory";
 import {
   listLegacyAssetsRequiringManualReview,
   rescanLegacyAsset,

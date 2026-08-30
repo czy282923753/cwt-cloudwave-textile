@@ -31,6 +31,12 @@ const serverRateLimiterMarkers = [
   "@valkey/valkey-glide",
   "fixed-window-v1",
 ];
+const serverScannerMarkers = [
+  "/virus/scan/file",
+  "CleanResult",
+  "FoundViruses",
+  "Apikey",
+];
 const approvedPromptTuples = [
   ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
   ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
@@ -75,6 +81,13 @@ const baseForbidden = [
   "valkey-rate-limiter",
   "rate-limiter-factory",
   "fixed-window-v1",
+  "cloudmersive-file-scanner",
+  "/virus/scan/file",
+  "CloudmersiveFileScanner",
+  "CleanResult",
+  "FoundViruses",
+  "FILE_SCAN_API_KEY",
+  "Apikey",
 ];
 
 async function readProductionPromptAuthority() {
@@ -495,6 +508,14 @@ for (const marker of serverRateLimiterMarkers) {
   }
   serverEvidenceIdentities.add(evidence.identity);
 }
+const scannerEvidence = serverRuntimeJavaScript.find((file) =>
+  serverScannerMarkers.every((marker) => file.content.includes(marker)));
+if (scannerEvidence === undefined) {
+  throw new Error(
+    `Required co-located server-only File Scanner contract is missing: ${serverScannerMarkers.join(", ")}`,
+  );
+}
+serverEvidenceIdentities.add(scannerEvidence.identity);
 for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
   const evidence = serverRuntimeJavaScript.find((file) =>
     hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]));

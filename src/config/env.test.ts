@@ -74,6 +74,7 @@ describe("environment safety", () => {
     expect(environment.DATABASE_DRIVER).toBe("pglite");
     expect(environment.FILE_SCAN_DRIVER).toBe("development");
     expect(environment.SHARED_RATE_LIMIT_DRIVER).toBe("memory");
+    expect(() => parseEnvironment({ APP_ENV: "test", FILE_SCAN_DRIVER: "http" })).toThrow();
   });
 
   it.each(["production", "staging"] as const)("accepts the exact isolated %s configuration through synthetic secret files", (name) => {

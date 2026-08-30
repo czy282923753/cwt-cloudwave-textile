@@ -14,6 +14,12 @@ const legacyChunkPath = "static/chunks/app/public.js";
 const disposableBuilds: string[] = [];
 const serverBoundaryMarker = "CWT_SERVER_AI_BOUNDARY_V1_5F4D7C2A";
 const promptBundleMarker = "CWT_SERVER_AI_PROMPT_BUNDLE_V1_91B6E4A3";
+const scannerRuntimeMarkers = [
+  "/virus/scan/file",
+  "CleanResult",
+  "FoundViruses",
+  "Apikey",
+] as const;
 const promptTuples = [
   ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
   ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
@@ -22,10 +28,21 @@ const promptTuples = [
 ] as const;
 const validRateLimiterEvidence =
   'const valkeyPackage = "@valkey/valkey-glide";\nconst limiterAlgorithm = "fixed-window-v1";';
-const validServerEvidence = [
+const validScannerEvidence =
+  scannerRuntimeMarkers.map((marker, index) => `const scannerContract${index}=${JSON.stringify(marker)};`).join("\n");
+const validServerInfrastructureEvidence =
+  `${validRateLimiterEvidence}\n${validScannerEvidence}`;
+const validServerEvidenceWithoutScanner = [
   serverBoundaryMarker,
   promptBundleMarker,
   validRateLimiterEvidence,
+  ...promptTuples.map(([promptId, promptVersion, sha256]) =>
+    `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`),
+].join("\n");
+const validServerEvidence = [
+  serverBoundaryMarker,
+  promptBundleMarker,
+  validServerInfrastructureEvidence,
   ...promptTuples.map(([promptId, promptVersion, sha256]) =>
     `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`),
 ].join("\n");
@@ -38,7 +55,7 @@ function evidenceWithFirstTuple(firstTupleEvidence: string): string {
   return [
     serverBoundaryMarker,
     promptBundleMarker,
-    validRateLimiterEvidence,
+    validServerInfrastructureEvidence,
     firstTupleEvidence,
     validRemainingTupleEvidence,
   ].join("\n");
@@ -145,6 +162,12 @@ afterEach(async () => {
 });
 
 describe("public bundle checker", () => {
+  it("accepts the four real File Scanner contract markers only when co-located in eligible server runtime", async () => {
+    const result = runChecker(await createBuildFixture());
+
+    expect(result.status).toBe(0);
+  });
+
   it("accepts current Next framing and reports nonzero manifest chunk coverage", async () => {
     const result = runChecker(await createBuildFixture());
 
@@ -187,7 +210,7 @@ describe("public bundle checker", () => {
       .join("\n");
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/chunks/ssr/admin-ai.js": `${validRateLimiterEvidence}\n${tupleEvidence}`,
+        "server/chunks/ssr/admin-ai.js": `${validServerInfrastructureEvidence}\n${tupleEvidence}`,
         "server/server-reference-manifest.js": `${serverBoundaryMarker}\n${promptBundleMarker}`,
       },
     }));
@@ -200,7 +223,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}`,
+          `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}`,
         "server/app/admin/page_client-reference-manifest.js": validServerEvidence,
       },
     }));
@@ -218,7 +241,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${declarations}`,
+          `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${declarations}`,
       },
     }));
 
@@ -235,7 +258,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${splitObjects}`,
+          `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${splitObjects}`,
       },
     }));
 
@@ -297,7 +320,7 @@ describe("public bundle checker", () => {
     const result = runChecker(await createBuildFixture({
       serverFiles: {
         "server/chunks/ssr/admin-ai.js":
-          `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
+          `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
       },
     }));
 
@@ -355,6 +378,63 @@ describe("public bundle checker", () => {
     },
   );
 
+  it.each(scannerRuntimeMarkers)(
+    "fails closed when required real File Scanner marker %s is missing",
+    async (marker) => {
+      const result = runChecker(await createBuildFixture({
+        serverFiles: {
+          "server/chunks/ssr/admin-ai.js": validServerEvidence.replace(marker, ""),
+        },
+      }));
+
+      expect(result.status).not.toBe(0);
+      expect(combinedOutput(result)).toMatch(/required co-located server-only File Scanner contract is missing/i);
+    },
+  );
+
+  it("rejects real File Scanner markers split across eligible server chunks", async () => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/server-authority.js":
+          `${validServerEvidenceWithoutScanner}\n${scannerRuntimeMarkers.slice(0, 2).join("\n")}`,
+        "server/chunks/scanner-remainder.js": scannerRuntimeMarkers.slice(2).join("\n"),
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/required co-located server-only File Scanner contract is missing/i);
+  });
+
+  it.each([
+    "server/server-reference-manifest.js",
+    "server/app/admin/page_client-reference-manifest.js",
+    "server/chunks/ssr/scanner.js.map",
+  ])("does not accept File Scanner evidence found only in ineligible output %s", async (path) => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/server-authority.js": validServerEvidenceWithoutScanner,
+        [path]: validScannerEvidence,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/required co-located server-only File Scanner contract is missing/i);
+  });
+
+  it("does not accept File Scanner evidence from a public client chunk", async () => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/ssr/server-authority.js": validServerEvidenceWithoutScanner,
+      },
+      chunkFiles: {
+        "static/chunks/app/public.js": validScannerEvidence,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/required co-located server-only File Scanner contract is missing/i);
+  });
+
   it("fails closed when a server Prompt tuple carries the wrong hash", async () => {
     const expectedHash = promptTuples[0][2];
     const result = runChecker(await createBuildFixture({
@@ -377,7 +457,7 @@ describe("public bundle checker", () => {
       `({promptId:"${id}",promptVersion:${version},sha256:"${hash}"})`).join("\n");
     const result = runChecker(await createBuildFixture({
       serverFiles: {
-        "server/chunks/ssr/admin-ai-id.js": `${validRateLimiterEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n` +
+        "server/chunks/ssr/admin-ai-id.js": `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n` +
           `({promptId:"${promptId}",promptVersion:1})\n${intactOtherTuples}`,
         "server/chunks/admin-ai-hash.js": `const splitHash="${sha256}";`,
       },
@@ -402,6 +482,12 @@ describe("public bundle checker", () => {
     ["Rate Limiter implementation", "valkey-rate-limiter"],
     ["Rate Limiter factory", "rate-limiter-factory"],
     ["Rate Limiter algorithm", "fixed-window-v1"],
+    ["Cloudmersive adapter", "cloudmersive-file-scanner"],
+    ["Cloudmersive fixed path", "/virus/scan/file"],
+    ["Cloudmersive request type", "Apikey"],
+    ["Cloudmersive response type", "CleanResult"],
+    ["Cloudmersive virus type", "FoundViruses"],
+    ["Cloudmersive key identifier", "FILE_SCAN_API_KEY"],
   ])("rejects a public client %s leak", async (_label, leak) => {
     expect(leak).toBeTruthy();
     const result = runChecker(await createBuildFixture({

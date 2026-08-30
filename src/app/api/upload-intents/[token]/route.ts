@@ -10,7 +10,7 @@ import {
   preBodyRateLimitKeys,
   readRequestBodyWithLimit,
 } from "@/uploads/request-guard";
-import { createFileScanner } from "@/uploads/scanner";
+import { createFileScanner } from "@/uploads/scanner-factory";
 import {
   completeInquiryUploadIntent,
   inspectInquiryUploadIntentForRequest,

@@ -121,11 +121,56 @@ export async function inspectImportImageArchive(bytes: Uint8Array): Promise<Safe
   return inspectArchiveReader(new Uint8ArrayReader(bytes));
 }
 
+export function accumulateImportArchiveCompressedBytes(
+  currentBytes: number,
+  nextChunkBytes: number,
+): number {
+  if (!Number.isSafeInteger(currentBytes) || currentBytes < 0) {
+    throw new Error("Archive compressed byte counter is invalid.");
+  }
+  if (!Number.isSafeInteger(nextChunkBytes) || nextChunkBytes < 0) {
+    throw new Error("Archive compressed chunk size is invalid.");
+  }
+  const total = currentBytes + nextChunkBytes;
+  if (total > PRODUCT_IMPORT_LIMITS.archiveBytes) {
+    throw new Error("Archive actual compressed bytes exceed the limit.");
+  }
+  return total;
+}
+
+function boundedImportArchiveStream(
+  stream: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const reader = stream.getReader();
+  let compressedBytes = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          controller.close();
+          return;
+        }
+        compressedBytes = accumulateImportArchiveCompressedBytes(
+          compressedBytes,
+          next.value.byteLength,
+        );
+        controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
+}
+
 export async function inspectImportImageArchiveStream(
   stream: ReadableStream<Uint8Array>,
   onMedia?: (media: SafeImportMedia) => Promise<void>,
 ): Promise<SafeImportMedia[]> {
-  return inspectArchiveReader(stream, onMedia);
+  return inspectArchiveReader(boundedImportArchiveStream(stream), onMedia);
 }
 
 export function validateFolderMediaPath(path: string): string {

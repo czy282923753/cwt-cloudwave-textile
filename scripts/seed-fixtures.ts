@@ -1,4 +1,4 @@
-import { createFileScanner } from "../src/uploads/scanner";
+import { createFileScanner } from "../src/uploads/scanner-factory";
 import { createObjectStorage } from "../src/storage";
 import { seedFixtureProducts } from "../src/db/fixture-seed";
 import { seedCoreData } from "../src/db/seed";

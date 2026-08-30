@@ -1666,6 +1666,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
     },
   }));
   const media: CompletedImportArchiveMedia[] = [];
+  const readyToFinalize: CompletedImportArchiveMedia[] = [];
   const temporaryRoot = await mkdtemp(join(tmpdir(), "cwt-product-import-"));
   const stagedMedia: Array<{
     sourceKey: string;
@@ -1702,17 +1703,6 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
       }),
     ]);
     stagedMedia.sort((left, right) => left.relativePath.localeCompare(right.relativePath, "en"));
-    for (const file of stagedMedia) {
-      const bytes = new Uint8Array(await readFile(file.path));
-      await validateUploadedFile({
-        bytes,
-        declaredMimeType: file.detectedMimeType,
-        maximumBytes: 20 * 1024 * 1024,
-        purpose: "admin_asset_staging",
-      });
-      const scan = await scanner.scan(bytes, file.displayName);
-      if (!scan.clean) throw new Error("An archive image was rejected by malware scanning.");
-    }
     const existingBindings = await readBoundImportMedia(db, actor, assetId);
     for (const [sourceOrder, file] of stagedMedia.entries()) {
       const bytes = new Uint8Array(await readFile(file.path));
@@ -1757,9 +1747,7 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
               issuedTokens: [token],
             });
         const stagedAssetId = await completeAdminUploadIntent(db, storage, scanner, actor, { token, bytes }, internalImportOptions);
-        const finalized = await finalizeAdminUploadBatch(db, storage, actor, issued.batchId, internalImportOptions);
-        if (!finalized.assetIds.includes(stagedAssetId)) throw new Error("Import media Finalize identity mismatch.");
-        media.push({
+        readyToFinalize.push({
           sourceKey: binding.sourceKey,
           relativePath: binding.relativePath,
           displayName: binding.displayName,
@@ -1769,9 +1757,24 @@ export async function completeAdminImportArchiveIntent<TQueryResult extends PgQu
         });
       }
       lease = await advanceUploadRecoveryStage(db, lease, "scanning", new Date(), leaseMilliseconds);
-      if (media.length === 1) await options.faultInjector?.("after_import_archive_first_media");
     }
     lease = await advanceUploadRecoveryStage(db, lease, "scan_passed", new Date(), leaseMilliseconds);
+    for (const staged of readyToFinalize) {
+      const finalized = await finalizeAdminUploadBatch(
+        db,
+        storage,
+        actor,
+        staged.uploadBatchId,
+        internalImportOptions,
+      );
+      if (!finalized.assetIds.includes(staged.assetId)) {
+        throw new Error("Import media Finalize identity mismatch.");
+      }
+      media.push(staged);
+      if (media.length === 1) {
+        await options.faultInjector?.("after_import_archive_first_media");
+      }
+    }
     await db.transaction(async (transaction) => {
       const completedAt = new Date();
       const assetUpdated = await transaction.update(assets).set({

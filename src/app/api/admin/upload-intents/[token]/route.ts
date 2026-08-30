@@ -14,7 +14,7 @@ import {
   inspectAdminUploadIntent,
 } from "@/uploads/admin-upload-service";
 import { assertRequestLength, readRequestBodyWithLimit } from "@/uploads/request-guard";
-import { createFileScanner } from "@/uploads/scanner";
+import { createFileScanner } from "@/uploads/scanner-factory";
 
 const ADMIN_BINARY_UPLOAD_MAXIMUM_BYTES = Math.max(
   env.MAX_PUBLIC_FILE_BYTES,

@@ -19,7 +19,7 @@ import {
   finalizeAdminUploadBatch,
   type AdminUploadActor,
 } from "../src/uploads/admin-upload-service";
-import { createFileScanner } from "../src/uploads/scanner";
+import { createFileScanner } from "../src/uploads/scanner-factory";
 import { recoverUploadRecoveryJob } from "../src/uploads/upload-recovery-service";
 
 const e2eRetrySessionToken = "cwt-e2e-retryable-asset-session";

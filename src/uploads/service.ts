@@ -18,7 +18,7 @@ import type { ObjectStorage, StoragePartition } from "@/storage";
 import { validateUploadedFile, inferNonBlockingRiskHints } from "./file-validation";
 import { createImageDerivatives } from "./image-derivatives";
 import { processPendingObjectCleanupJobs } from "./object-cleanup-service";
-import type { FileScanner } from "./scanner";
+import { ScannerUnavailableError, type FileScanner } from "./scanner";
 
 type AssetCategory = typeof assets.$inferInsert.category;
 
@@ -163,7 +163,9 @@ export async function uploadAsset<TQueryResult extends PgQueryResultHKT>(
       .set({
         status: "quarantined",
         scanStatus: "error",
-        scanResult: "scanner_error",
+        scanProvider: error instanceof ScannerUnavailableError ? error.provider : null,
+        scanResult: error instanceof ScannerUnavailableError ? error.reference : "scanner_error",
+        scanCompletedAt: new Date(),
       })
       .where(eq(assets.id, asset.id));
     throw error;

@@ -41,7 +41,7 @@ import {
 import type { AppDatabase } from "../src/db/types";
 import type { BlockDocument } from "../src/editorial/blocks";
 import { createObjectStorage } from "../src/storage";
-import { createFileScanner } from "../src/uploads/scanner";
+import { createFileScanner } from "../src/uploads/scanner-factory";
 import {
   completeAdminUploadIntent,
   createAdminUploadBatch,

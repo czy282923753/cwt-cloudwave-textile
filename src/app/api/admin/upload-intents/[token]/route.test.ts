@@ -24,7 +24,7 @@ vi.mock("@/uploads/admin-upload-service", () => ({
   IMPORT_ARCHIVE_MIME: "application/zip",
   inspectAdminUploadIntent: mocks.inspectAdminUploadIntent,
 }));
-vi.mock("@/uploads/scanner", () => ({
+vi.mock("@/uploads/scanner-factory", () => ({
   createFileScanner: mocks.createFileScanner,
 }));
 

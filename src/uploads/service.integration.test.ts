@@ -7,7 +7,7 @@ import { InMemoryObjectStorage } from "@/test/in-memory-storage";
 import { createTestDatabase } from "@/test/database";
 import { isPublicWebsiteUseAllowed } from "./asset-eligibility";
 
-import { DevelopmentFileScanner } from "./scanner";
+import { DevelopmentFileScanner, ScannerUnavailableError } from "./scanner";
 import {
   adminOverrideSourceDeclaration,
   cleanupUnlinkedInquiryAssets,
@@ -470,6 +470,33 @@ describe("secure asset upload", () => {
     expect(
       [...storage.objects.keys()].every((key) => key.startsWith("private:quarantine/")),
     ).toBe(true);
+    await connection.close();
+  });
+
+  it("keeps a typed scanner outage quarantined with safe evidence and no public release", async () => {
+    const connection = await createTestDatabase();
+    const storage = new InMemoryObjectStorage();
+    await expect(uploadAsset(connection.db, storage, {
+      async scan() {
+        throw new ScannerUnavailableError("cloudmersive", "cloudmersive:unavailable");
+      },
+    }, {
+      fileName: "synthetic-outage.jpg",
+      declaredMimeType: "image/jpeg",
+      bytes: await testJpeg(),
+      category: "product",
+      purpose: "public_asset",
+    })).rejects.toThrow(ScannerUnavailableError);
+    const rows = await connection.db.select().from(assets);
+    expect(rows[0]).toMatchObject({
+      status: "quarantined",
+      scanStatus: "error",
+      scanProvider: "cloudmersive",
+      scanResult: "cloudmersive:unavailable",
+    });
+    expect(rows[0]?.scanCompletedAt).toBeInstanceOf(Date);
+    expect([...storage.objects.keys()]).toHaveLength(1);
+    expect([...storage.objects.keys()][0]).toMatch(/^private:quarantine\//);
     await connection.close();
   });
 });

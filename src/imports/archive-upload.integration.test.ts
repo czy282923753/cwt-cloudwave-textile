@@ -279,6 +279,7 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         { token: issued.intents[0]!.token, stream: stream(bytes) },
         { rateLimiter: allowLimiter },
       )).rejects.toThrow(/malware/i);
+      expect(scans).toBe(2);
       const publicAssets = await test.connection.db.select().from(assets).where(eq(assets.storagePartition, "public"));
       expect(publicAssets).toHaveLength(0);
       const cleanup = await test.connection.db.select().from(objectCleanupJobs).where(eq(objectCleanupJobs.uploadBatchId, issued.batchId));
@@ -292,7 +293,7 @@ describe("Import Archive convergence with the governed Upload Saga", () => {
         now: new Date(recovery.expiresAt.getTime() + 1),
         workerId: "synthetic-expired-import-cleanup",
       });
-      expect(expiredRecovery).toEqual({ attempted: 1, completed: 1 });
+      expect(expiredRecovery).toEqual({ attempted: 2, completed: 2 });
       await expect(test.storage.exists("imports", packageAsset.objectKey)).resolves.toBe(false);
       expect((await test.connection.db.select().from(assets).where(eq(assets.id, packageAsset.id)))[0])
         .toMatchObject({ status: "deleted" });
