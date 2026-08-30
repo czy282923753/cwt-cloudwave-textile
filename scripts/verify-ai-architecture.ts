@@ -20,9 +20,17 @@ const fixturePath = "test-fixtures/ai/deepseek-synthetic-contract.v1.json";
 const expectedProfileFileHash = "59b075f27b563f1790a62cce3c299983eeecf68f5676763140f2a7d3865d3e0e";
 const expectedProfileIntegrityHash = "88a107e695962f4217f7f843f8b2b25fd37be9539c03a01dba66bed482f318f6";
 const expectedFixtureHash = "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42";
-const acceptedS12Parent = "ee13e743158e245f520a8d7ec68aa1854179fdc3";
+const acceptedS25Commit = "d7655385e37330927c53e60fbb108b56950c9794";
+const acceptedS25Tree = "db18f7fdb545d91ad37280af6cc6822b78d6cfd6";
+const acceptedS25Parent = "ee13e743158e245f520a8d7ec68aa1854179fdc3";
 const acceptedPhaseECommit = "41dfc135f5f124e68aaac416c049c2e387e38d57";
 const acceptedPhaseETree = "f85182ad8d4519d58e1d829967cfc889b8f1e830";
+const acceptedStage4ProductCommit = "29c5c8117b98ccada938cd22f552cc4d306a41bc";
+const acceptedStage4ProductTree = "2dbaa4ce7894627058b70e43801c34d4d49e9b30";
+const acceptedStage4FreezeCommit = "f05852dbd3c5cff80421793a4ea345e401d50361";
+const acceptedStage4FreezeTree = "a9c31e1370431d5de02cdff78113b075e80c94c1";
+const acceptedStage4TagRef = "refs/tags/phase-1b-stage4-approved-2026-08-28";
+const acceptedStage4TagObject = "d5a8828197282f2d5d2929bf59bd5589949b650b";
 const phaseFExecutablePaths = [
   "scripts/phase-f-bounded-bootstrap.ts",
   "scripts/phase-f-m6-one-case-diagnostic.ts",
@@ -2855,22 +2863,60 @@ for (const path of actualFiles.filter((candidate) => candidate.startsWith("test-
   }
 }
 
-const exactHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-const currentBranch = spawnSync("git", ["symbolic-ref", "--short", "-q", "HEAD"], {
-  cwd: repositoryRoot,
-  encoding: "utf8",
-}).stdout.trim();
-const acceptedPhaseEAncestry = spawnSync("git", ["merge-base", "--is-ancestor", acceptedPhaseECommit, exactHead], {
-  cwd: repositoryRoot,
-  encoding: "utf8",
-}).status === 0;
-const phaseFMinimalCandidate = currentBranch === "codex/phase-f-minimal-experiment-v1" && acceptedPhaseEAncestry;
-let observedNameStatus: readonly (readonly [string, string])[];
-if (phaseFMinimalCandidate) {
-  if (execFileSync("git", ["rev-parse", `${acceptedPhaseECommit}^{tree}`], { encoding: "utf8" }).trim() !== acceptedPhaseETree ||
-    execFileSync("git", ["rev-parse", "codex/checkpoint/phase-e-accepted-v1"], { encoding: "utf8" }).trim() !== acceptedPhaseECommit) {
-    fail("Phase F accepted-P/freeze identity drifted");
+function gitText(args: readonly string[], failure: string): string {
+  const result = spawnSync("git", args, { cwd: repositoryRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  if (result.status !== 0) {
+    fail(`${failure}; complete accepted Git history is required`);
   }
+  return result.stdout.trim();
+}
+
+function gitBytes(args: readonly string[], failure: string): Uint8Array {
+  const result = spawnSync("git", args, { cwd: repositoryRoot, maxBuffer: 16 * 1024 * 1024 });
+  if (result.status !== 0) {
+    fail(`${failure}; complete accepted Git history is required`);
+  }
+  return result.stdout;
+}
+
+function requireAncestor(ancestor: string, descendant: string, failure: string): void {
+  const result = spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) fail(`${failure}; complete accepted Git history is required`);
+}
+
+const exactHead = gitText(["rev-parse", "HEAD"], "current Candidate identity is unavailable");
+if (gitText(["rev-parse", `${acceptedS25Commit}^{tree}`], "exact S2.5 object is unavailable") !== acceptedS25Tree ||
+  gitText(["rev-parse", `${acceptedS25Commit}^`], "exact S2.5 parent is unavailable") !== acceptedS25Parent ||
+  gitText(["rev-list", "--parents", "-n", "1", acceptedS25Commit], "exact S2.5 lineage is unavailable")
+    .split(/\s+/u).length !== 2) {
+  fail("immutable exact S2.5 commit/tree/sole-parent identity drifted");
+}
+if (gitText(["rev-parse", `${acceptedPhaseECommit}^{tree}`], "accepted Phase E object is unavailable") !== acceptedPhaseETree ||
+  gitText(["rev-parse", `${acceptedStage4ProductCommit}^{tree}`], "accepted Stage 4 Product object is unavailable") !==
+    acceptedStage4ProductTree ||
+  gitText(["rev-parse", `${acceptedStage4FreezeCommit}^{tree}`], "accepted Stage 4 freeze object is unavailable") !==
+    acceptedStage4FreezeTree) {
+  fail("accepted Phase E/Stage 4 fixed-object identity drifted");
+}
+requireAncestor(acceptedPhaseECommit, acceptedStage4ProductCommit,
+  "accepted Phase F history is not descended from Phase E");
+requireAncestor(acceptedStage4ProductCommit, acceptedStage4FreezeCommit,
+  "accepted Stage 4 freeze is not descended from the Phase F Product");
+requireAncestor(acceptedStage4FreezeCommit, exactHead,
+  "current Candidate is not a descendant of the accepted Stage 4 freeze");
+if (gitText(["rev-parse", acceptedStage4TagRef], "accepted Stage 4 annotated tag is unavailable") !==
+    acceptedStage4TagObject ||
+  gitText(["rev-parse", `${acceptedStage4TagRef}^{}`], "accepted Stage 4 annotated tag cannot be peeled") !==
+    acceptedStage4FreezeCommit) {
+  fail("accepted Stage 4 annotated-tag identity drifted");
+}
+
+let phaseFObservedNameStatus: readonly (readonly [string, string])[];
+let phaseFNameStatusSha256: string;
+{
   const allowed = (path: string): boolean => phaseFExecutablePaths.includes(
     path as (typeof phaseFExecutablePaths)[number],
   ) || path === "scripts/phase-f-bounded-exercise.ts" ||
@@ -2930,58 +2976,55 @@ if (phaseFMinimalCandidate) {
     path === "docs/PHASE_1B_STAGE4A_PHASE_F_MINIMAL_EXPERIMENT_IMPLEMENTATION_CHECKER_REMEDIATION_V1_2.md.sha256" ||
     path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-2/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_2.json" ||
     path === "docs/review-evidence/phase-1b-stage4a-phase-f-minimal-experiment-checker-remediation-v1-2/PHASE_F_MINIMAL_EXPERIMENT_CHECKER_REMEDIATION_VERIFICATION_V1_2.json.sha256";
-  const changedPaths = new Set([
-    ...execFileSync("git", ["diff", "--name-only", acceptedPhaseECommit, exactHead], { encoding: "utf8" }).split("\n"),
-    ...execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" }).split("\n"),
-    ...execFileSync("git", ["ls-files", "--others", "--exclude-standard"], { encoding: "utf8" }).split("\n"),
-  ].filter(Boolean));
+  const changedPaths = new Set(gitText([
+    "diff", "--name-only", "--no-renames", acceptedPhaseECommit, acceptedStage4ProductCommit,
+  ], "accepted Phase F change budget is unavailable").split("\n").filter(Boolean));
   const outsideBudget = [...changedPaths].filter((path) => !allowed(path));
   if (outsideBudget.length > 0) {
     fail(`Phase F change exceeds the approved minimal budget: ${JSON.stringify(outsideBudget)}`);
   }
-  observedNameStatus = execFileSync("git", [
-    "diff", "--name-status", "--no-renames", acceptedPhaseECommit, exactHead,
-  ], { cwd: repositoryRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean)
+  const phaseFNameStatusBytes = gitBytes([
+    "diff", "--name-status", "--no-renames", acceptedPhaseECommit, acceptedStage4ProductCommit,
+  ], "accepted Phase F name-status proof is unavailable");
+  phaseFNameStatusSha256 = sha256(phaseFNameStatusBytes);
+  phaseFObservedNameStatus = Buffer.from(phaseFNameStatusBytes).toString("utf8").trim().split("\n").filter(Boolean)
     .map((line) => {
       const [status, path] = line.split("\t");
       if (status === undefined || path === undefined) fail("Phase F diff name-status is malformed");
       return [path, status] as const;
     }).sort(([left], [right]) => left.localeCompare(right, "en"));
-} else {
-  const parentLine = execFileSync("git", ["rev-list", "--parents", "-n", "1", exactHead], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  }).trim().split(/\s+/u);
-  if (parentLine.length !== 2 || parentLine[1] !== acceptedS12Parent) {
-    fail("aggregate/Gate lineage requires the sole parent ee13e743158e245f520a8d7ec68aa1854179fdc3");
-  }
-  const expectedActions = new Map<string, string>(exactImplementationPaths.map((path) => [path, "M"] as const));
-  expectedActions.set("src/integrations/ai/providers/deepseek-text-adapter.ts", "M");
-  for (const path of retiredPhaseDPaths) expectedActions.set(path, "D");
-  for (const path of [
-    "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
-    fixturePath,
-    "src/app/fonts/geist-latin.woff2",
-    "src/app/fonts/geist-mono-latin.woff2",
-  ]) expectedActions.set(path, "A");
-  const expectedNameStatus = [...expectedActions].sort(([left], [right]) => left.localeCompare(right, "en"));
-  observedNameStatus = execFileSync("git", [
-    "diff", "--name-status", "--no-renames", parentLine[1]!, exactHead,
-  ], { cwd: repositoryRoot, encoding: "utf8" }).trim().split("\n").filter(Boolean)
-    .map((line) => {
-      const [status, path] = line.split("\t");
-      if (status === undefined || path === undefined) fail("S2 diff name-status is malformed");
-      return [path, status] as const;
-    }).sort(([left], [right]) => left.localeCompare(right, "en"));
-  if (JSON.stringify(observedNameStatus) !== JSON.stringify(expectedNameStatus) || observedNameStatus.length !== 23) {
-    fail(`S2 diff is not the exact 23-path allowlist: ${JSON.stringify(observedNameStatus)}`);
-  }
+}
+if (phaseFObservedNameStatus.length !== 59 || phaseFNameStatusSha256 !==
+  "c3115d9856725a252847c26210655606b06c68e19ecba6a45ec2790ad0a69b6a") {
+  fail("accepted Phase F fixed-object change-budget proof drifted");
+}
+
+const expectedActions = new Map<string, string>(exactImplementationPaths.map((path) => [path, "M"] as const));
+expectedActions.set("src/integrations/ai/providers/deepseek-text-adapter.ts", "M");
+for (const path of retiredPhaseDPaths) expectedActions.set(path, "D");
+for (const path of [
+  "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json",
+  fixturePath,
+  "src/app/fonts/geist-latin.woff2",
+  "src/app/fonts/geist-mono-latin.woff2",
+]) expectedActions.set(path, "A");
+const expectedNameStatus = [...expectedActions].sort(([left], [right]) => left.localeCompare(right, "en"));
+const observedNameStatus = gitText([
+  "diff", "--name-status", "--no-renames", acceptedS25Parent, acceptedS25Commit,
+], "exact S2.5 name-status proof is unavailable").split("\n").filter(Boolean)
+  .map((line) => {
+    const [status, path] = line.split("\t");
+    if (status === undefined || path === undefined) fail("exact S2.5 diff name-status is malformed");
+    return [path, status] as const;
+  }).sort(([left], [right]) => left.localeCompare(right, "en"));
+if (JSON.stringify(observedNameStatus) !== JSON.stringify(expectedNameStatus) || observedNameStatus.length !== 23) {
+  fail(`immutable S2.5 diff is not the exact 23-path allowlist: ${JSON.stringify(observedNameStatus)}`);
 }
 function gitBlobSha1(bytes: Uint8Array): string {
   const header = new TextEncoder().encode(`blob ${bytes.byteLength}\0`);
   return createHash("sha1").update(header).update(bytes).digest("hex");
 }
-const expectedFileSha256 = new Map<string, string>([
+const historicalS25FileSha256 = new Map<string, string>([
   ["package.json", "415b7d4bda2d3ad9edbb3e461912dac2a14a7f3bd685a36289f926c3040d7a4e"],
   ["pnpm-workspace.yaml", "735fc96d5067d9260e40aadfd04f8f4eb6ecb5f17354003d34272f845940cf10"],
   ["pnpm-lock.yaml", "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb"],
@@ -2996,11 +3039,26 @@ const expectedFileSha256 = new Map<string, string>([
   ["src/server/ai/phase-d-provider-composition.ts", "6cd66c6ca636ca38ce62f206584da14950915cf8c156810a032bfefe377a0a31"],
   ["scripts/process-ai-runs.ts", "43a719732ddd26ce3a89117cb1cbf932546170a54851e3691bbaacb8d43a94b5"],
 ]);
-if (!phaseFMinimalCandidate) {
-  for (const [path, expectedHash] of expectedFileSha256) {
-    if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
-      fail(`preserved or exact-target file identity mismatch: ${path}`);
-    }
+for (const [path, expectedHash] of historicalS25FileSha256) {
+  if (sha256(gitBytes(["show", `${acceptedS25Commit}:${path}`],
+    `exact S2.5 blob is unavailable: ${path}`)) !== expectedHash) {
+    fail(`immutable exact S2.5 blob identity mismatch: ${path}`);
+  }
+}
+const currentProtectedAuthoritySha256 = new Map<string, string>([
+  [profilePath, expectedProfileFileHash],
+  [fixturePath, expectedFixtureHash],
+  ["src/integrations/ai/providers/deepseek-text-adapter.ts",
+    "41ffa802a2abb97aa5e70633081094db5433b242ab3d9685813e6195ed8c39cb"],
+  ["src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts",
+    "9be5a39c8146af52ddffc5b748f87d16974018d6b82d9d949ebb5411399c96b7"],
+  ["src/server/ai/phase-d-provider-composition.ts",
+    "c8d46dfc228d2387f2b7d04b6b695d292c7fc39966c12e4cc5497756e3bbaaa2"],
+  ["scripts/process-ai-runs.ts", "43a719732ddd26ce3a89117cb1cbf932546170a54851e3691bbaacb8d43a94b5"],
+]);
+for (const [path, expectedHash] of currentProtectedAuthoritySha256) {
+  if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {
+    fail(`current accepted AI semantic authority identity mismatch: ${path}`);
   }
 }
 const expectedRouteBlobs = new Map<string, string>([
@@ -3009,21 +3067,18 @@ const expectedRouteBlobs = new Map<string, string>([
   ["src/app/api/upload-intents/[token]/route.test.ts", "fb72e65385435c9f6066892be9eb2d4a2051c153"],
   ["src/app/api/upload-intents/route.test.ts", "c855c7b34fddee4367d0b070aa6ee19b6e202906"],
 ]);
-if (!phaseFMinimalCandidate) {
-  for (const [path, expectedBlob] of expectedRouteBlobs) {
-    if (gitBlobSha1(readFileSync(resolve(repositoryRoot, path))) !== expectedBlob) {
-      fail(`numeric-origin route-test transform identity mismatch: ${path}`);
-    }
+for (const [path, expectedBlob] of expectedRouteBlobs) {
+  if (gitBlobSha1(gitBytes(["show", `${acceptedS25Commit}:${path}`],
+    `exact S2.5 route-test blob is unavailable: ${path}`)) !== expectedBlob) {
+    fail(`immutable exact S2.5 numeric-origin route-test transform identity mismatch: ${path}`);
   }
 }
 for (const path of ["src/app/fonts/geist-latin.woff2", "src/app/fonts/geist-mono-latin.woff2"]) {
-  const stat = lstatSync(resolve(repositoryRoot, path));
-  const stage = execFileSync("git", ["ls-files", "--stage", "--", path], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  });
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o111) !== 0 ||
-    !stage.startsWith("100644 ")) fail(`font target physicality or Git mode mismatch: ${path}`);
+  const historicalTreeEntry = gitText(["ls-tree", acceptedS25Commit, "--", path],
+    `exact S2.5 font tree entry is unavailable: ${path}`);
+  if (!historicalTreeEntry.startsWith("100644 blob ")) {
+    fail(`immutable exact S2.5 font Git mode mismatch: ${path}`);
+  }
 }
 const packageDocument: unknown = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8"));
 if (typeof packageDocument !== "object" || packageDocument === null || Array.isArray(packageDocument)) {
@@ -3037,10 +3092,40 @@ if (typeof packageScripts !== "object" || packageScripts === null || Array.isArr
   (packageScripts as Record<string, unknown>)["check:ai-phase-d-synthetic"] !== acceptancePackageCommand ||
   "ai:validate:deepseek" in packageScripts ||
   typeof dependencies !== "object" || dependencies === null || Array.isArray(dependencies) ||
-  typeof devDependencies !== "object" || devDependencies === null || Array.isArray(devDependencies) ||
-  Object.keys(dependencies).length + Object.keys(devDependencies).length !== 37) {
-  fail("synthetic package command or direct dependency identity mismatch");
+  typeof devDependencies !== "object" || devDependencies === null || Array.isArray(devDependencies)) {
+  fail("current synthetic package command or dependency shape mismatch");
 }
+const deniedDirectAiDependencies = [
+  "openai", "@anthropic-ai/sdk", "@google/generative-ai", "@google/genai", "cohere-ai", "groq-sdk", "ollama",
+] as const;
+const currentDirectDependencies = {
+  ...(dependencies as Record<string, unknown>),
+  ...(devDependencies as Record<string, unknown>),
+};
+const presentDeniedDirectAiDependencies = deniedDirectAiDependencies.filter((name) =>
+  Object.prototype.hasOwnProperty.call(currentDirectDependencies, name));
+if (presentDeniedDirectAiDependencies.length > 0) {
+  fail(`denied direct AI SDK dependency present: ${JSON.stringify(presentDeniedDirectAiDependencies)}`);
+}
+const currentDirectPackageCount = Object.keys(dependencies).length + Object.keys(devDependencies).length;
+const currentPackageSha256 = sha256(readFileSync(resolve(repositoryRoot, "package.json")));
+const currentWorkspaceSha256 = sha256(readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml")));
+const currentLockSha256 = sha256(readFileSync(resolve(repositoryRoot, "pnpm-lock.yaml")));
+const stage4PackageSha256 = sha256(gitBytes(["show", `${acceptedStage4FreezeCommit}:package.json`],
+  "accepted Stage 4 package blob is unavailable"));
+const stage4WorkspaceSha256 = sha256(gitBytes(["show", `${acceptedStage4FreezeCommit}:pnpm-workspace.yaml`],
+  "accepted Stage 4 workspace blob is unavailable"));
+const stage4LockSha256 = sha256(gitBytes(["show", `${acceptedStage4FreezeCommit}:pnpm-lock.yaml`],
+  "accepted Stage 4 lock blob is unavailable"));
+const historicalPackageDocument = JSON.parse(Buffer.from(gitBytes([
+  "show", `${acceptedS25Commit}:package.json`,
+], "exact S2.5 package blob is unavailable")).toString("utf8")) as {
+  readonly dependencies?: Record<string, unknown>;
+  readonly devDependencies?: Record<string, unknown>;
+};
+const historicalDirectPackageCount = Object.keys(historicalPackageDocument.dependencies ?? {}).length +
+  Object.keys(historicalPackageDocument.devDependencies ?? {}).length;
+if (historicalDirectPackageCount !== 37) fail("immutable exact S2.5 direct dependency count drifted");
 const installedNextPackage: unknown = JSON.parse(readFileSync(resolve(repositoryRoot,
   "node_modules/next/package.json"), "utf8"));
 if (typeof installedNextPackage !== "object" || installedNextPackage === null || Array.isArray(installedNextPackage) ||
@@ -3602,14 +3687,36 @@ const aggregateResult = Object.freeze({
   packageLockDelta: {
     exactPathCount: observedNameStatus.length,
     nameStatus: observedNameStatus,
-    packageSha256: sha256(readFileSync(resolve(repositoryRoot, "package.json"))),
-    workspaceSha256: sha256(readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"))),
-    lockSha256: sha256(readFileSync(resolve(repositoryRoot, "pnpm-lock.yaml"))),
+    packageSha256: "415b7d4bda2d3ad9edbb3e461912dac2a14a7f3bd685a36289f926c3040d7a4e",
+    workspaceSha256: "735fc96d5067d9260e40aadfd04f8f4eb6ecb5f17354003d34272f845940cf10",
+    lockSha256: "3ed14b1c3dbafa98fa9034259a4f8a288d7333ed8dedc4a2b7e5a3de7ddec0bb",
     lockChanged: false,
-    directPackageCount: Object.keys(dependencies).length + Object.keys(devDependencies).length,
+    directPackageCount: historicalDirectPackageCount,
     installedNextVersion: (installedNextPackage as Record<string, unknown>).version,
-    productAdapterSha256: sha256(readFileSync(resolve(repositoryRoot,
-      "src/integrations/ai/providers/deepseek-text-adapter.ts"))),
+    productAdapterSha256: "2742227baab3073b3b594ab322f1943762c5d206af606c52e2039223400344da",
+  },
+  currentSemanticAuthority: {
+    acceptedStage4FreezeCommit,
+    acceptedStage4FreezeTree,
+    acceptedStage4TagObject,
+    packageSha256: currentPackageSha256,
+    workspaceSha256: currentWorkspaceSha256,
+    lockSha256: currentLockSha256,
+    packageChangedSinceStage4: currentPackageSha256 !== stage4PackageSha256,
+    workspaceChangedSinceStage4: currentWorkspaceSha256 !== stage4WorkspaceSha256,
+    lockChangedSinceStage4: currentLockSha256 !== stage4LockSha256,
+    directPackageCount: currentDirectPackageCount,
+    deniedDirectAiDependenciesPresent: presentDeniedDirectAiDependencies,
+    protectedAuthoritySha256: Object.fromEntries(currentProtectedAuthoritySha256),
+  },
+  immutableHistory: {
+    exactS25Commit: acceptedS25Commit,
+    exactS25Tree: acceptedS25Tree,
+    exactS25Parent: acceptedS25Parent,
+    phaseECommit: acceptedPhaseECommit,
+    phaseEToStage4ProductNameStatusSha256:
+      "c3115d9856725a252847c26210655606b06c68e19ecba6a45ec2790ad0a69b6a",
+    stage4ProductCommit: acceptedStage4ProductCommit,
   },
   bespokeMutationProbes: phaseDBespokeMutationResults,
 });
@@ -3618,7 +3725,7 @@ const aggregateManifest = Object.freeze({
   schemaVersion: 1,
   classification: "SYNTHETIC_ONLY_PHASE_D_NOT_PROVIDER_EVIDENCE",
   candidateCommit: exactHead,
-  acceptedParent: acceptedS12Parent,
+  acceptedParent: acceptedS25Parent,
   checkerSha256,
   profileFileSha256: expectedProfileFileHash,
   profileIntegritySha256: expectedProfileIntegrityHash,
