@@ -1,10 +1,14 @@
-# CWT Phase 1B Stage 6 Planning Review Evidence Manifest V1.2
+# CWT Phase 1B Stage 6 Planning Review Evidence Manifest V1.3
 
-Status: **REMEDIATED TECHNICAL LEAD CANDIDATE EVIDENCE — fresh independent planning re-review required**
+Status: **PRE-REVIEW COORDINATOR-CORRECTED TECHNICAL LEAD CANDIDATE EVIDENCE — fresh independent planning re-review required**
 
 Date: **2026-08-30**
 
 Candidate branch: `codex/phase-1b-stage6-planning-remediation-v1`
+
+Delivered remediation Candidate: `caaa17ee2892890ba7e3da4580bfc7a5b9df861b`
+
+V1.3 correction scope: **exact Production service-name convergence and affected document locators/sidecars only**
 
 Accepted baseline commit/tree: `a200838be34c8834a00bdcf6d1819da96e2ad26c` / `00438c32997f9be7d753dfca8325c1765bd90146`
 
@@ -22,9 +26,11 @@ Owner boundary: **Stage 6 only. Stage 7 is HOLD and requires new explicit Owner 
 
 This manifest gives a fresh independent reviewer the minimum evidence needed to determine whether the remediated Stage 6 pre-development package closes failed Review findings `F-01` and `F-02`, preserves the full Owner-decision chronology, and remains bounded and executable for a later separate implementer.
 
+V1.3 supersedes Evidence Manifest V1.2 as the sole current manifest. V1.2 remains immutable at delivered Candidate `caaa17ee2892890ba7e3da4580bfc7a5b9df861b` and is not a current re-review locator. V1.3 changes only the three shortened, nonexistent Production service names in the F-02 summary, the correction lineage/protocol, and references/sidecars required to point to this sole current manifest. It does not change the Provider direction, database topology, implementation plan, Owner authority, acceptance mapping, or external-action boundary.
+
 It does not approve itself or any implementation. It does not prove a Provider contract, account, credential, external file transfer, target-host behavior, Production readiness, or an `External Validation` row. No account, purchase, Provider call, real file, secret value, deployment, Push, Staging/Production mutation, DNS change, Stage 7 action, product code, Migration, tag, or accepted ref is within this Candidate.
 
-The Candidate starts from failed Candidate `68980a98ac7f8f1b72edfbac30b20ab044b52e97`. Review-only commit `e27752053b6a8aad49e5ac3003e247bdd87a595b` is read-only evidence and must not be an ancestor of or absorbed into the remediation Candidate.
+The package starts from failed Candidate `68980a98ac7f8f1b72edfbac30b20ab044b52e97`, reaches delivered remediation Candidate `caaa17ee2892890ba7e3da4580bfc7a5b9df861b`, then adds exactly one docs-only pre-review correction child. Review-only commit `e27752053b6a8aad49e5ac3003e247bdd87a595b` is read-only evidence and must not be an ancestor of or absorbed into either Candidate.
 
 ## 2. Candidate scope and principal deliverables
 
@@ -38,9 +44,9 @@ The intended Candidate mutation is exactly these seven new Markdown artifacts an
 | `docs/PHASE_1B_STAGE6_PLANNING_REMEDIATION_F01_F02_CROSSWALK_V1_1.md` | One-to-one closure map from failed Review `F-01`/`F-02` to exact decision and revised planning sections. |
 | `docs/PHASE_1B_STAGE6_SCANNER_AND_SHARED_RATE_LIMITER_ENTRY_GATE_RECOMMENDATION_V1_2.md` | Remediated Scanner/Rate Limiter selection, option evidence, contracts, cost/operations, credentials plan, failure and replacement boundaries. |
 | `docs/PHASE_1B_STAGE6_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN_CANDIDATE_V1_2.md` | Remediated exact implementation slices, file ownership, retirement, tests, acceptance mapping, rollback, stops and sequencing. |
-| `docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_2.md` | Lineage, evidence, mechanical checks and fresh independent re-review protocol. |
+| `docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_3.md` | Sole current lineage/evidence manifest, exact service-token checks and fresh independent re-review protocol. |
 
-The failed V1.0 Candidate artifacts remain byte-identical at their original commit. The failed Review remains byte-identical at its Review-only commit. The V1.0/V1.1 Owner Decision Records are historical facts only; the V1.2 record is controlling.
+The failed V1.0 Candidate artifacts remain byte-identical at their original commit. The failed Review remains byte-identical at its Review-only commit. Evidence Manifest V1.2 remains immutable at `caaa17ee2892890ba7e3da4580bfc7a5b9df861b` but is absent from the corrected tip, so it cannot compete with V1.3 as a current manifest. The V1.0/V1.1 Owner Decision Records are historical facts only; the V1.2 Owner Decision Record is controlling.
 
 ## 3. Identity and lineage evidence
 
@@ -50,10 +56,11 @@ The failed V1.0 Candidate artifacts remain byte-identical at their original comm
 | Accepted starting tree | `00438c32997f9be7d753dfca8325c1765bd90146` |
 | Accepted Stage 5 annotated tag object | `ba8edc69623099a1c22d3be5c5b4fd72a2b1a988` |
 | Failed planning Candidate | `68980a98ac7f8f1b72edfbac30b20ab044b52e97`, sole parent is the accepted starting commit |
+| Delivered remediation Candidate | `caaa17ee2892890ba7e3da4580bfc7a5b9df861b`, sole parent is the failed planning Candidate |
 | Failed Review-only commit | `e27752053b6a8aad49e5ac3003e247bdd87a595b`, sole parent is the failed Candidate |
 | Failed Review artifact SHA-256 | `47bb68ef7807e648d6c2c7c0a5c3e2c7ea921426f7cfa6a195f5657532277319` |
 | Remediation base | Exactly the failed Candidate, not the Review-only commit |
-| Required remediation lineage | The final Candidate has exactly one new commit whose sole parent is `68980a98ac7f8f1b72edfbac30b20ab044b52e97`; `e277520...` is not an ancestor |
+| Required correction lineage | The corrected Candidate has exactly one docs-only child whose sole parent is `caaa17ee2892890ba7e3da4580bfc7a5b9df861b`; `caaa17ee...` retains sole parent `68980a98...`; `e277520...` is not an ancestor |
 
 ### 3.1 Authoritative accepted-input hashes
 
@@ -79,9 +86,16 @@ The failed Review result is `FAIL` with two Blockers. The authoritative detailed
 | Finding | Failed condition | Required closure evidence in this Candidate |
 | --- | --- | --- |
 | `F-01` | The failed Candidate selected Cloudmersive Basic/North America and possible separate Production/Staging commercial boundaries without recorded Owner approval. | Owner Decision Record V1.2 records the latest controlling choice after V1.0 approval and V1.1 withdrawal: Cloudmersive restored behind `FileScanner`; North America and future transmission/processing of Private Inquiry file bytes are approved as direction. Free is evaluation-only; Basic/North America is the future Stage 7 activation target subject to current-term validation. Purchase, accounts, credentials, calls, real transfer, deployment and Stage 7 remain unauthorized. Production and Staging cannot share account/key/secret authority. Recommendation V1.2 and Plan V1.2 repeat exactly this boundary. |
-| `F-02` | The failed topology placed PostgreSQL only on a singular disconnected/shared `database` network while application services used other networks. | Plan V1.2 deletes that model and defines exactly two internal environment-private database attachments: `production-database` and `staging-database`. The one PostgreSQL service joins both. Only `web-prod`, `worker-prod`, `scheduler-prod` join the Production network; only matching Staging services join the Staging network. No application service crosses; proxy and Valkey networks remain separate; no third/shared database network and no second PostgreSQL exist. Assertions, denial tests, rollback and stop rules use this same graph. Separate DBs/users/passwords and no cross-grants remain required. |
+| `F-02` | The failed topology placed PostgreSQL only on a singular disconnected/shared `database` network while application services used other networks. | Plan V1.2 deletes that model and defines exactly two internal environment-private database attachments: `production-database` and `staging-database`. The one PostgreSQL service joins both. Only `web-production`, `worker-production`, `scheduler-production` join the Production network; only `web-staging`, `worker-staging`, `scheduler-staging` join the Staging network. No application service crosses; proxy and Valkey networks remain separate; no third/shared database network and no second PostgreSQL exist. Assertions, denial tests, rollback and stop rules use this same graph. Separate DBs/users/passwords and no cross-grants remain required. |
 
 No other Review finding is hidden or merged into either closure. Fresh review must verify both independently.
+
+The exact database-network allowlists are:
+
+| Internal network | Allowed members only |
+| --- | --- |
+| `production-database` | `postgres`, `web-production`, `worker-production`, `scheduler-production` |
+| `staging-database` | `postgres`, `web-staging`, `worker-staging`, `scheduler-staging` |
 
 ## 5. Current Owner-decision chronology
 
@@ -162,8 +176,10 @@ Run from the committed Candidate worktree:
 
 ```text
 git show --no-patch --format=fuller HEAD
-test "$(git rev-parse HEAD^)" = "68980a98ac7f8f1b72edfbac30b20ab044b52e97"
+test "$(git rev-parse HEAD^)" = "caaa17ee2892890ba7e3da4580bfc7a5b9df861b"
+test "$(git rev-parse caaa17ee2892890ba7e3da4580bfc7a5b9df861b^)" = "68980a98ac7f8f1b72edfbac30b20ab044b52e97"
 if git merge-base --is-ancestor e27752053b6a8aad49e5ac3003e247bdd87a595b HEAD; then exit 1; fi
+git diff --no-renames --name-status caaa17ee2892890ba7e3da4580bfc7a5b9df861b..HEAD
 git diff --name-status 68980a98ac7f8f1b72edfbac30b20ab044b52e97..HEAD
 git diff --exit-code 68980a98ac7f8f1b72edfbac30b20ab044b52e97..HEAD -- \
   docs/PHASE_1B_STAGE6_SCANNER_AND_SHARED_RATE_LIMITER_ENTRY_GATE_RECOMMENDATION_V1_0.md \
@@ -174,9 +190,13 @@ git rev-parse a200838be34c8834a00bdcf6d1819da96e2ad26c^{tree}
 git cat-file -t ba8edc69623099a1c22d3be5c5b4fd72a2b1a988
 git rev-parse ba8edc69623099a1c22d3be5c5b4fd72a2b1a988^{}
 git show e27752053b6a8aad49e5ac3003e247bdd87a595b:docs/PHASE_1B_STAGE6_PRE_DEVELOPMENT_PLANNING_INDEPENDENT_REVIEW_V1_0.md | shasum -a 256
+test ! -e docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_2.md
+test ! -e docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_2.md.sha256
+test -e docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_3.md
+test -e docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_3.md.sha256
 ```
 
-Expected diff: exactly 14 added files from §2. Any modification to a V1.0 Candidate artifact, Review-only artifact, source, test, configuration, Migration, accepted/frozen document, tag or ref is a mandatory finding.
+Expected correction-child diff with rename detection disabled: modify Plan V1.2, Crosswalk V1.1 and their sidecars; delete Manifest V1.2 and its sidecar; add Manifest V1.3 and its sidecar. The complete package diff from failed Candidate `68980a98...` remains exactly the seven current Markdown artifacts in §2 and seven adjacent sidecars, all added. Any other mutation, or any modification to a V1.0 Candidate artifact, Review-only artifact, source, test, configuration, Migration, accepted/frozen document, tag or ref, is a mandatory finding.
 
 Verify all seven sidecars from `docs/`:
 
@@ -187,7 +207,7 @@ shasum -a 256 -c PHASE_1B_STAGE6_CLOUDMERSIVE_RESTORATION_AND_PRIVATE_FILE_TRANS
 shasum -a 256 -c PHASE_1B_STAGE6_PLANNING_REMEDIATION_F01_F02_CROSSWALK_V1_1.md.sha256
 shasum -a 256 -c PHASE_1B_STAGE6_SCANNER_AND_SHARED_RATE_LIMITER_ENTRY_GATE_RECOMMENDATION_V1_2.md.sha256
 shasum -a 256 -c PHASE_1B_STAGE6_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN_CANDIDATE_V1_2.md.sha256
-shasum -a 256 -c PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_2.md.sha256
+shasum -a 256 -c PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_3.md.sha256
 ```
 
 ### 10.2 Content checks
@@ -199,11 +219,32 @@ The independent reviewer must verify:
 3. Free is synthetic evaluation-only; current CWT size contracts remain `10/12/20/500 MiB`; Basic is only a future Stage 7 activation target pending current official/commercial/legal validation.
 4. `FileScanner` remains provider-neutral; local/CI cannot call the Provider; all indeterminate outcomes fail closed before release.
 5. Production and Staging do not share Cloudmersive account/key/secret authority; separate commercial access is a future explicit purchase/access gate.
-6. `F-02` closure has exactly two environment-private database networks; one PostgreSQL on both; exact app allowlists; no crossed app, third/shared database network, second PostgreSQL, proxy or Valkey membership.
+6. `F-02` closure has exactly two environment-private database networks; one PostgreSQL on both; exact `web-production`/`worker-production`/`scheduler-production` and `web-staging`/`worker-staging`/`scheduler-staging` allowlists; no crossed app, third/shared database network, second PostgreSQL, proxy or Valkey membership.
 7. Separate environment DBs/users/passwords and no cross-grants align with assertions, denial tests, rollback and stops.
 8. Valkey is one atomic protected-environment authority with no memory/generic HTTP fallback and denial on unavailable/full/malformed behavior.
 9. Every slice has scope, dependencies, verification, rollback, stop conditions and an independent next gate; no Schema/Migration or hidden persistent coordination is introduced.
 10. Every `O-01`–`O-25` and `X-05`/`X-06` row is preparation only and Stage 7 remains HOLD.
+
+The reviewer must also run a complete-token rejection and exact-row assertion over the current package. The shortened tokens are assembled at runtime so the verification command does not cause its own source document to match; the negative boundaries still treat each accepted longer Production name as distinct from its shortened prefix:
+
+```text
+short_web='web-''prod'
+short_worker='worker-''prod'
+short_scheduler='scheduler-''prod'
+short_pattern="(?<![A-Za-z0-9-])(?:${short_web}|${short_worker}|${short_scheduler})(?![A-Za-z0-9-])"
+if rg -n --pcre2 "$short_pattern" \
+  docs/PHASE_1B_STAGE6_CLOUDMERSIVE_BASIC_NORTH_AMERICA_OWNER_DECISION_RECORD_V1_0.md \
+  docs/PHASE_1B_STAGE6_CLOUDMERSIVE_WITHDRAWAL_AND_SELF_HOSTED_SCANNER_OWNER_DECISION_RECORD_V1_1.md \
+  docs/PHASE_1B_STAGE6_CLOUDMERSIVE_RESTORATION_AND_PRIVATE_FILE_TRANSMISSION_OWNER_DECISION_RECORD_V1_2.md \
+  docs/PHASE_1B_STAGE6_PLANNING_REMEDIATION_F01_F02_CROSSWALK_V1_1.md \
+  docs/PHASE_1B_STAGE6_SCANNER_AND_SHARED_RATE_LIMITER_ENTRY_GATE_RECOMMENDATION_V1_2.md \
+  docs/PHASE_1B_STAGE6_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN_CANDIDATE_V1_2.md \
+  docs/PHASE_1B_STAGE6_PLANNING_REVIEW_EVIDENCE_MANIFEST_V1_3.md; then exit 1; fi
+rg -Fqx '| `production-database` | `postgres`, `web-production`, `worker-production`, `scheduler-production` |' docs/PHASE_1B_STAGE6_PLANNING_REMEDIATION_F01_F02_CROSSWALK_V1_1.md
+rg -Fqx '| `staging-database` | `postgres`, `web-staging`, `worker-staging`, `scheduler-staging` |' docs/PHASE_1B_STAGE6_PLANNING_REMEDIATION_F01_F02_CROSSWALK_V1_1.md
+rg -Fq '| `production-database` | `postgres`, `web-production`, `worker-production`, `scheduler-production` |' docs/PHASE_1B_STAGE6_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN_CANDIDATE_V1_2.md
+rg -Fq '| `staging-database` | `postgres`, `web-staging`, `worker-staging`, `scheduler-staging` |' docs/PHASE_1B_STAGE6_PRE_DEVELOPMENT_IMPLEMENTATION_PLAN_CANDIDATE_V1_2.md
+```
 
 ### 10.3 Verdict boundary
 
@@ -211,7 +252,7 @@ Apply `docs/REVIEW_POLICY.md`. `PASS` requires both `F-01` and `F-02` to be inde
 
 ## 11. Technical Lead planning gate result
 
-Technical Lead self-check result: **READY FOR FRESH INDEPENDENT STAGE 6 PLANNING RE-REVIEW; not reviewed or accepted.**
+Technical Lead self-check result: **PRE-REVIEW SERVICE-NAME CORRECTION COMPLETE; READY FOR FRESH INDEPENDENT STAGE 6 PLANNING RE-REVIEW; not reviewed or accepted.**
 
 The latest Owner decision resolves the local provider-direction question. No immediate Owner decision, Schema/Migration, or draft ADR is required to hand this plan to independent re-review. Future external prerequisites remain deliberately unproved and unauthorized: current commercial/legal/privacy terms; Provider account and separate environment credentials/subscriptions; spend/caps; real Provider behavior; Cloudflare/DNS/TLS/origin rules; target-host behavior; external monitoring; backup destinations; real restore; and named protected-environment access.
 

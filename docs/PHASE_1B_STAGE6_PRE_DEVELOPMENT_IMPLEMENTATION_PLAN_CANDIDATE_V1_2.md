@@ -369,7 +369,7 @@ Architecture-impacting findings require the exact affected scope, compatibility/
 
 ## 10. Developer/reviewer sequence and terminal boundary
 
-1. A fresh independent Stage 6 planning re-review checks this Plan V1.2, Recommendation V1.2, all three chronological Owner Decision Records (using V1.2 only as current authority), Crosswalk V1.1 and Evidence Manifest V1.2 against the exact accepted baseline and failed Review. This Technical Lead does not self-review or self-approve.
+1. A fresh independent Stage 6 planning re-review checks this Plan V1.2, Recommendation V1.2, all three chronological Owner Decision Records (using V1.2 only as current authority), Crosswalk V1.1 and the sole current Evidence Manifest V1.3 against the exact accepted baseline and failed Review. This Technical Lead does not self-review or self-approve.
 2. If accepted under existing Stage 6 authority, a separate developer task implements S6-01 through S6-07 in order, with checkpoint evidence and no self-review.
 3. A separate independent reviewer performs implementation, security, operations and Security & Test Simplification review. Material findings return to a separate remediation task and re-review.
 4. The coordinator records Stage 6 acceptance/checkpoint only after all mandatory findings close and the Candidate tree is reproducible/clean.

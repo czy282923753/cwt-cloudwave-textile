@@ -28,8 +28,8 @@ The failed Candidate V1.0 artifacts and failed Review remain immutable history. 
 - does not edit, cherry-pick, merge or absorb the Review-only commit;
 - preserves all three Owner decisions as chronological records;
 - uses only V1.2 as current forward Owner authority;
-- creates complete Recommendation, Plan Candidate and Evidence Manifest V1.2 artifacts; and
-- must produce a sole-parent remediation commit whose parent is `68980a98ac7f8f1b72edfbac30b20ab044b52e97`.
+- creates complete Recommendation V1.2, Plan Candidate V1.2 and sole current Evidence Manifest V1.3 artifacts; and
+- preserves delivered remediation commit `caaa17ee2892890ba7e3da4580bfc7a5b9df861b` with sole parent `68980a98ac7f8f1b72edfbac30b20ab044b52e97`, then permits exactly one docs-only pre-review correction child.
 
 Decision chronology:
 
@@ -45,7 +45,8 @@ The intended history is:
 a200838be34c8834a00bdcf6d1819da96e2ad26c
   └─ 68980a98ac7f8f1b72edfbac30b20ab044b52e97  (failed Candidate V1.0)
        ├─ e27752053b6a8aad49e5ac3003e247bdd87a595b  (immutable review-only FAIL)
-       └─ <this remediation Candidate commit>                        (new docs/sidecars only)
+       └─ caaa17ee2892890ba7e3da4580bfc7a5b9df861b  (delivered remediation Candidate)
+            └─ <pre-review correction Candidate commit>             (exact service names/locators/sidecars only)
 ```
 
 The Review is a sibling record, never Candidate ancestry.
@@ -54,8 +55,8 @@ The Review is a sibling record, never Candidate ancestry.
 
 | Finding | Failed condition | Exact remediation authority/artifacts | Revised planning locations | Closure evidence required for re-review |
 | --- | --- | --- | --- | --- |
-| F-01 | Failed Candidate selected Cloudmersive Basic / North America without Owner authority for Provider choice, private Inquiry processing and environment account/key direction. | Current `docs/PHASE_1B_STAGE6_CLOUDMERSIVE_RESTORATION_AND_PRIVATE_FILE_TRANSMISSION_OWNER_DECISION_RECORD_V1_2.md`; V1.0/V1.1 decision records preserve the supersession trail. | Recommendation V1.2 §§1–4, 6–7; Plan V1.2 authority/outcome, S6-03, local gate, acceptance, stop and sequence sections; Evidence Manifest V1.2 authority/source/content checks. | V1.2 explicitly restores Cloudmersive, permits future North America transmission/processing including Private Inquiry bytes, classifies Free as Synthetic evaluation only, retains Basic as future activation target, requires separate Production/Staging accounts/keys/secrets and withholds every actual external action until a newly authorized Stage 7 gate. |
-| F-02 | PostgreSQL was attached only to singular `database` while every application service was attached elsewhere; silently sharing that network would violate environment isolation. | Minimum convergence in this record and Plan V1.2: delete singular `database`; create exactly `production-database` and `staging-database`; attach the one PostgreSQL service to both; attach environment app/ops services only to their own database network. | Plan V1.2 §§3.1–3.4, S6-04, acceptance `O-01`/`O-02`/`O-06`, rollback and stop sections; Evidence Manifest V1.2 topology checks. | Machine-readable allowlist proves exactly two database networks, one PostgreSQL service on both, no cross-environment app membership, no proxy/Valkey membership, separate DB/users/no-cross-grants and cross-environment denial. |
+| F-01 | Failed Candidate selected Cloudmersive Basic / North America without Owner authority for Provider choice, private Inquiry processing and environment account/key direction. | Current `docs/PHASE_1B_STAGE6_CLOUDMERSIVE_RESTORATION_AND_PRIVATE_FILE_TRANSMISSION_OWNER_DECISION_RECORD_V1_2.md`; V1.0/V1.1 decision records preserve the supersession trail. | Recommendation V1.2 §§1–4, 6–7; Plan V1.2 authority/outcome, S6-03, local gate, acceptance, stop and sequence sections; sole current Evidence Manifest V1.3 authority/source/content checks. | V1.2 explicitly restores Cloudmersive, permits future North America transmission/processing including Private Inquiry bytes, classifies Free as Synthetic evaluation only, retains Basic as future activation target, requires separate Production/Staging accounts/keys/secrets and withholds every actual external action until a newly authorized Stage 7 gate. |
+| F-02 | PostgreSQL was attached only to singular `database` while every application service was attached elsewhere; silently sharing that network would violate environment isolation. | Minimum convergence in this record and Plan V1.2: delete singular `database`; create exactly `production-database` and `staging-database`; attach the one PostgreSQL service to both; attach environment app/ops services only to their own database network. | Plan V1.2 §§3.1–3.4, S6-04, acceptance `O-01`/`O-02`/`O-06`, rollback and stop sections; sole current Evidence Manifest V1.3 topology/token checks. | Machine-readable allowlist proves exactly two database networks, one PostgreSQL service on both, no cross-environment app membership, no proxy/Valkey membership, separate DB/users/no-cross-grants and cross-environment denial. |
 
 No finding is combined with the other: F-01 closes only through current Owner authority plus aligned Scanner boundaries; F-02 closes only through the corrected executable topology and aligned proof/rollback/stop text.
 
