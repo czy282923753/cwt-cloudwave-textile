@@ -74,6 +74,10 @@ function sequenceClock(...instants: readonly string[]) {
   return { clock, calls: () => index };
 }
 
+function claimInstantAfter(nextAttemptAt: Date) {
+  return new Date(nextAttemptAt.getTime() + 1);
+}
+
 describe("two-kind Notification Outbox lease and dispatch authority", () => {
   it("lists and claims by job ID, with same-row contention and simultaneous two-kind claims", async () => {
     const { connection, jobs } = await setupInquiry("claim");
@@ -107,12 +111,18 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
 
   it("renders both kinds from captured templates and immutable Inquiry data", async () => {
     const { connection, jobs } = await setupInquiry("render");
+    const oldFixedClaimAt = new Date("2026-08-30T01:00:00.000Z");
+    await connection.db.update(notificationOutbox).set({
+      nextAttemptAt: new Date(oldFixedClaimAt.getTime() + 60_000),
+    });
+    const persistedJobs = await connection.db.select().from(notificationOutbox);
+    expect(persistedJobs.every((job) => job.nextAttemptAt > oldFixedClaimAt)).toBe(true);
     const transport = new InMemoryCaptureEmailTransport();
-    for (const job of jobs) {
+    for (const job of persistedJobs) {
       await expect(deliverNotificationOutboxJob(connection.db, transport, job.id, {
         policy,
         workerId: `worker-${job.kind}`,
-        clock: () => new Date("2026-08-30T01:00:00.000Z"),
+        clock: () => claimInstantAfter(job.nextAttemptAt),
       })).resolves.toBe(true);
     }
     expect(transport.captured).toHaveLength(2);
@@ -125,6 +135,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     const rows = await connection.db.select().from(notificationOutbox);
     expect(rows.map((row) => row.status)).toEqual(["sent", "sent"]);
     expect(rows.every((row) => row.attempts === row.attemptCount)).toBe(true);
+    expect(new Set(rows.map((row) => row.id))).toEqual(new Set(jobs.map((job) => job.id)));
     await connection.close();
   });
 
@@ -199,7 +210,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, transport, internal.id, {
       policy,
       workerId: "source-render-worker",
-      clock: () => new Date("2026-08-30T01:30:00.000Z"),
+      clock: () => claimInstantAfter(internal.nextAttemptAt),
     })).resolves.toBe(true);
     const body = transport.captured[0]!.textBody;
     expect(body).toContain("Private attachment count: 1");
@@ -224,13 +235,13 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, failing, internal.id, {
       policy,
       workerId: "worker-failure",
-      clock: () => new Date("2026-08-30T02:00:00.000Z"),
+      clock: () => claimInstantAfter(internal.nextAttemptAt),
     })).resolves.toBe(false);
     const successful = new InMemoryCaptureEmailTransport();
     await expect(deliverNotificationOutboxJob(connection.db, successful, customer.id, {
       policy,
       workerId: "worker-success",
-      clock: () => new Date("2026-08-30T02:00:00.000Z"),
+      clock: () => claimInstantAfter(customer.nextAttemptAt),
     })).resolves.toBe(true);
     const rows = await connection.db.select().from(notificationOutbox);
     expect(rows.find((row) => row.id === internal.id)).toMatchObject({
@@ -519,7 +530,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
   it("records uncertain first attempt as bounded Failed with deterministic backoff", async () => {
     const { connection, jobs } = await setupInquiry("uncertain");
     const job = jobs[0]!;
-    const attemptedAt = new Date("2026-08-30T02:30:00.000Z");
+    const attemptedAt = claimInstantAfter(job.nextAttemptAt);
     const uncertain = new InMemoryCaptureEmailTransport({
       outcome: "uncertain",
       errorClass: "Synthetic_timeout_with_private_detail",
@@ -562,6 +573,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
       status: "pending",
       attempts: 0,
       attemptCount: 0,
+      nextAttemptAt: new Date(0),
       lockedAt: null,
       lockedBy: null,
       leaseExpiresAt: null,
@@ -648,7 +660,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await deliverNotificationOutboxJob(connection.db, oldTransport, oldCustomer.id, {
       policy,
       workerId: "old-snapshot-worker",
-      clock: () => new Date("2026-08-30T04:00:00.000Z"),
+      clock: () => claimInstantAfter(oldCustomer.nextAttemptAt),
     });
     const newCustomerJob = (await connection.db.select().from(notificationOutbox).where(eq(
       notificationOutbox.aggregateId,
@@ -658,7 +670,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await deliverNotificationOutboxJob(connection.db, newTransport, newCustomerJob.id, {
       policy,
       workerId: "new-snapshot-worker",
-      clock: () => new Date("2026-08-30T04:00:00.000Z"),
+      clock: () => claimInstantAfter(newCustomerJob.nextAttemptAt),
     });
     expect(oldTransport.captured[0]?.subject).toMatch(/^We received your CloudWave Textile inquiry/);
     expect(newTransport.captured[0]?.subject).toMatch(/^CUSTOM ACTIVE/);
@@ -709,7 +721,7 @@ describe("two-kind Notification Outbox lease and dispatch authority", () => {
     await expect(deliverNotificationOutboxJob(connection.db, transport, internal.id, {
       policy,
       workerId: "pollution-worker",
-      clock: () => new Date("2026-08-30T05:00:00.000Z"),
+      clock: () => claimInstantAfter(internal.nextAttemptAt),
     })).resolves.toBe(false);
     expect(transport.captured).toHaveLength(0);
     const [row] = await connection.db.select().from(notificationOutbox)
