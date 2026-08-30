@@ -29,7 +29,15 @@ const promptTuples = [
 const validRateLimiterEvidence =
   'const valkeyPackage = "@valkey/valkey-glide";\nconst limiterAlgorithm = "fixed-window-v1";';
 const validScannerEvidence =
-  scannerRuntimeMarkers.map((marker, index) => `const scannerContract${index}=${JSON.stringify(marker)};`).join("\n");
+  `module.exports=[56002,e=>{${scannerRuntimeMarkers.map((marker, index) =>
+    `const scannerContract${index}=${JSON.stringify(marker)};`).join("")}e.s(["createFileScanner",0,function(){}],56002)}];`;
+const validTurbopackRuntimeEvidence = [
+  "const moduleFactories = new Map();",
+  "const moduleCache = Object.create(null);",
+  "if (!moduleFactories.has(id)) moduleFactories.set(id, factoryToInstall);",
+  "moduleCache[id] = module1;",
+].join("\n");
+const validScannerChunkPath = "server/chunks/ssr/admin-ai.js";
 const validServerInfrastructureEvidence =
   `${validRateLimiterEvidence}\n${validScannerEvidence}`;
 const validServerEvidenceWithoutScanner = [
@@ -50,6 +58,18 @@ const validRemainingTupleEvidence = promptTuples.slice(1)
   .map(([promptId, promptVersion, sha256]) =>
     `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}"})`)
   .join("\n");
+
+function validServerArtifactFiles(serverEvidence = validServerEvidence): Record<string, string> {
+  return {
+    "server/chunks/[turbopack]_runtime.js": validTurbopackRuntimeEvidence,
+    [validScannerChunkPath]: serverEvidence,
+    "server/app/api/scanner-proof/route.js": [
+      'var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/scanner-proof/route.js")',
+      `R.c(${JSON.stringify(validScannerChunkPath)})`,
+      "module.exports=R.m(1).exports",
+    ].join("\n"),
+  };
+}
 
 function evidenceWithFirstTuple(firstTupleEvidence: string): string {
   return [
@@ -116,7 +136,7 @@ async function createBuildFixture({
   manifestRelativePath = "page_client-reference-manifest.js",
   rootChunks = [],
   chunkFiles = { "static/chunks/app/public.js": "public fixture" },
-  serverFiles = { "server/chunks/ssr/admin-ai.js": validServerEvidence },
+  serverFiles = validServerArtifactFiles(),
 }: {
   manifest?: string;
   manifestRelativePath?: string;
@@ -318,10 +338,9 @@ describe("public bundle checker", () => {
       `({promptId:"${promptId}",promptVersion:${promptVersion},sha256:"${sha256}",ordinal:${index}})`)
       .join("\n");
     const result = runChecker(await createBuildFixture({
-      serverFiles: {
-        "server/chunks/ssr/admin-ai.js":
-          `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
-      },
+      serverFiles: validServerArtifactFiles(
+        `${validServerInfrastructureEvidence}\n${serverBoundaryMarker}\n${promptBundleMarker}\n${tupleEvidence}`,
+      ),
     }));
 
     expect(result.status).toBe(0);
@@ -343,7 +362,10 @@ describe("public bundle checker", () => {
     "server/app/api/internal-ai/route.js",
   ])("accepts exact tuple bindings in eligible app runtime %s", async (path) => {
     const result = runChecker(await createBuildFixture({
-      serverFiles: { [path]: validServerEvidence },
+      serverFiles: {
+        ...validServerArtifactFiles(validServerInfrastructureEvidence),
+        [path]: validServerEvidenceWithoutScanner,
+      },
     }));
 
     expect(result.status).toBe(0);
@@ -403,6 +425,69 @@ describe("public bundle checker", () => {
 
     expect(result.status).not.toBe(0);
     expect(combinedOutput(result)).toMatch(/required co-located server-only File Scanner contract is missing/i);
+  });
+
+  it("accepts repeated Scanner factory emissions only under one cached Turbopack module identity", async () => {
+    const secondChunk = "server/chunks/scanner-second.js";
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        ...validServerArtifactFiles(),
+        [secondChunk]: validScannerEvidence,
+        "server/app/api/scanner-proof-second/route.js": [
+          'var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/scanner-proof-second/route.js")',
+          `R.c(${JSON.stringify(secondChunk)})`,
+        ].join("\n"),
+      },
+    }));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/File Scanner module 56002 across 2 emitted chunks and 2 governed entrypoints/i);
+  });
+
+  it("fails closed when Scanner factory emissions use different Turbopack module identities", async () => {
+    const secondChunk = "server/chunks/scanner-second.js";
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        ...validServerArtifactFiles(),
+        [secondChunk]: validScannerEvidence.replaceAll("56002", "56003"),
+        "server/app/api/scanner-proof-second/route.js": [
+          'var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/scanner-proof-second/route.js")',
+          `R.c(${JSON.stringify(secondChunk)})`,
+        ].join("\n"),
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/more than one Turbopack module identity/i);
+  });
+
+  it.each([
+    "const moduleFactories = new Map();",
+    "const moduleCache = Object.create(null);",
+    "if (!moduleFactories.has(id))",
+    "moduleCache[id] = module1;",
+  ])("fails closed when the governed Turbopack runtime omits %s", async (marker) => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        ...validServerArtifactFiles(),
+        "server/chunks/[turbopack]_runtime.js": validTurbopackRuntimeEvidence.replace(marker, ""),
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/module factory\/cache runtime contract is missing/i);
+  });
+
+  it("fails closed when an emitted Scanner factory chunk has no governed application entrypoint", async () => {
+    const result = runChecker(await createBuildFixture({
+      serverFiles: {
+        "server/chunks/[turbopack]_runtime.js": validTurbopackRuntimeEvidence,
+        [validScannerChunkPath]: validServerEvidence,
+      },
+    }));
+
+    expect(result.status).not.toBe(0);
+    expect(combinedOutput(result)).toMatch(/not resolved by a governed Turbopack application entrypoint/i);
   });
 
   it.each([
@@ -483,6 +568,8 @@ describe("public bundle checker", () => {
     ["Rate Limiter factory", "rate-limiter-factory"],
     ["Rate Limiter algorithm", "fixed-window-v1"],
     ["Cloudmersive adapter", "cloudmersive-file-scanner"],
+    ["Scanner factory", "scanner-factory"],
+    ["Scanner factory export", "createFileScanner"],
     ["Cloudmersive fixed path", "/virus/scan/file"],
     ["Cloudmersive request type", "Apikey"],
     ["Cloudmersive response type", "CleanResult"],

@@ -37,6 +37,14 @@ const serverScannerMarkers = [
   "FoundViruses",
   "Apikey",
 ];
+const scannerFactoryExportMarker = '"createFileScanner"';
+const turbopackRuntimeIdentity = "server/chunks/[turbopack]_runtime.js";
+const turbopackRuntimeMarkers = [
+  "const moduleFactories = new Map();",
+  "const moduleCache = Object.create(null);",
+  "if (!moduleFactories.has(id))",
+  "moduleCache[id] = module1;",
+];
 const approvedPromptTuples = [
   ["fabric-knowledge-draft", 1, "b3b65d50e9ea0d5f5da2e0dca25d808463a47fbf59a7dfcb9b71b64823501a8c"],
   ["product-description-draft", 1, "0aefaeb2dba08c76587f6501451dc0031b6f825ab3bb903be00f28dda5e0b198"],
@@ -82,8 +90,10 @@ const baseForbidden = [
   "rate-limiter-factory",
   "fixed-window-v1",
   "cloudmersive-file-scanner",
+  "scanner-factory",
   "/virus/scan/file",
   "CloudmersiveFileScanner",
+  "createFileScanner",
   "CleanResult",
   "FoundViruses",
   "FILE_SCAN_API_KEY",
@@ -139,6 +149,22 @@ function eligibleServerRuntimeIdentity(path) {
   }
   if (/^app\/(?:.*\/)?(?:page|route)\.js$/.test(identity)) return `server/${identity}`;
   return undefined;
+}
+
+function compressedTurbopackModules(file) {
+  const starts = [...file.content.matchAll(
+    /(?:^|[,[}])([0-9]+),(?:[A-Za-z_$][\w$]*|\([^)]*\))=>/g,
+  )].map((match) => ({ id: match[1], offset: match.index }));
+  return starts.map((start, index) => ({
+    id: start.id,
+    content: file.content.slice(start.offset, starts[index + 1]?.offset),
+  }));
+}
+
+function referencedServerChunks(file) {
+  return new Set([...file.content.matchAll(
+    /[A-Za-z_$][\w$]*\.c\("(server\/chunks\/[^"]+\.js)"\)/g,
+  )].map((match) => match[1]));
 }
 
 function directPropertyName(property) {
@@ -508,14 +534,17 @@ for (const marker of serverRateLimiterMarkers) {
   }
   serverEvidenceIdentities.add(evidence.identity);
 }
-const scannerEvidence = serverRuntimeJavaScript.find((file) =>
-  serverScannerMarkers.every((marker) => file.content.includes(marker)));
-if (scannerEvidence === undefined) {
+const scannerEvidence = serverRuntimeJavaScript.flatMap((file) =>
+  compressedTurbopackModules(file)
+    .filter((module) => module.content.includes(scannerFactoryExportMarker) &&
+      serverScannerMarkers.every((marker) => module.content.includes(marker)))
+    .map((module) => ({ ...module, identity: file.identity })));
+if (scannerEvidence.length === 0) {
   throw new Error(
-    `Required co-located server-only File Scanner contract is missing: ${serverScannerMarkers.join(", ")}`,
+    `Required co-located server-only File Scanner contract is missing from one executable module: ${serverScannerMarkers.join(", ")}`,
   );
 }
-serverEvidenceIdentities.add(scannerEvidence.identity);
+const scannerModuleIds = new Set(scannerEvidence.map((evidence) => evidence.id));
 for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
   const evidence = serverRuntimeJavaScript.find((file) =>
     hasExactPromptTupleBinding(file, [promptId, promptVersion, sha256]));
@@ -524,6 +553,30 @@ for (const [promptId, promptVersion, sha256] of approvedPromptTuples) {
   }
   serverEvidenceIdentities.add(evidence.identity);
 }
+if (scannerModuleIds.size !== 1) {
+  throw new Error("File Scanner factory is emitted under more than one Turbopack module identity.");
+}
+const runtimeEvidence = serverRuntimeJavaScript.find((file) =>
+  file.identity === turbopackRuntimeIdentity);
+if (runtimeEvidence === undefined ||
+  !turbopackRuntimeMarkers.every((marker) => runtimeEvidence.content.includes(marker))) {
+  throw new Error("The governed Turbopack module factory/cache runtime contract is missing.");
+}
+const scannerChunkIdentities = new Set(scannerEvidence.map((evidence) => evidence.identity));
+const scannerEntrypoints = serverRuntimeJavaScript.filter((file) =>
+  /^server\/app\/(?:.*\/)?(?:page|route)\.js$/.test(file.identity) &&
+  file.content.includes("[turbopack]_runtime.js") &&
+  [...referencedServerChunks(file)].some((identity) => scannerChunkIdentities.has(identity)));
+const referencedScannerChunks = new Set(scannerEntrypoints.flatMap((file) =>
+  [...referencedServerChunks(file)].filter((identity) => scannerChunkIdentities.has(identity))));
+if ([...scannerChunkIdentities].some((identity) => !referencedScannerChunks.has(identity))) {
+  throw new Error(
+    "File Scanner server chunk is not resolved by a governed Turbopack application entrypoint.",
+  );
+}
+for (const evidence of scannerEvidence) serverEvidenceIdentities.add(evidence.identity);
+serverEvidenceIdentities.add(runtimeEvidence.identity);
+for (const entrypoint of scannerEntrypoints) serverEvidenceIdentities.add(entrypoint.identity);
 
 const manifests = (await filesUnder(serverAppRoot)).filter((path) => {
   const name = relative(serverAppRoot, path).replaceAll("\\", "/");
@@ -612,5 +665,5 @@ if (leaks.length > 0) {
 }
 
 process.stdout.write(
-  `Public bundle boundary verified: ${serverRuntimeJavaScript.length} eligible server runtime JavaScript files; AI evidence in ${[...serverEvidenceIdentities].sort().join(", ")}; ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
+  `Public bundle boundary verified: ${serverRuntimeJavaScript.length} eligible server runtime JavaScript files; AI/server evidence in ${[...serverEvidenceIdentities].sort().join(", ")}; File Scanner module ${[...scannerModuleIds][0]} across ${scannerEvidence.length} emitted chunks and ${scannerEntrypoints.length} governed entrypoints; ${manifests.length} public page manifests; ${rootChunkIdentities.size} root chunks; ${manifestChunkIdentities.size} manifest chunks; ${scannedPhysicalChunks.size} distinct chunk files.\n`,
 );
