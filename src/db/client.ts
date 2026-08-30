@@ -45,7 +45,10 @@ export function createDatabaseConnection(): DatabaseConnection {
     };
   }
 
-  const client = postgres(env.DATABASE_URL, { max: 10, prepare: false });
+  const client = postgres(env.DATABASE_URL, {
+    max: env.DATABASE_POOL_MAX,
+    prepare: false,
+  });
   return {
     kind: "postgres",
     db: drizzlePostgres(client, { schema }),
