@@ -20,7 +20,7 @@ function fixture() {
   const layer = put(Buffer.from("synthetic-layer"));
   const children = [];
   for (const architecture of ["amd64", "arm64"]) {
-    const config = put({ created: "2026-08-31T00:00:00.000Z", config: { User: "10001:10001", Labels: { "org.opencontainers.image.revision": releaseId } }, rootfs: { diff_ids: [`sha256:${architecture === "amd64" ? "4" : "5"}`.padEnd(71, architecture === "amd64" ? "4" : "5")] }, history: [{ created: "2026-08-31T00:00:00.000Z", created_by: "synthetic" }] });
+    const config = put({ created: "2026-08-31T00:00:00Z", config: { User: "10001:10001", Labels: { "org.opencontainers.image.revision": releaseId } }, rootfs: { diff_ids: [`sha256:${architecture === "amd64" ? "4" : "5"}`.padEnd(71, architecture === "amd64" ? "4" : "5")] }, history: [{ created: "2026-08-31T00:00:00Z", created_by: "synthetic" }] });
     const manifest = put({ schemaVersion: 2, config: { ...config, mediaType: "application/vnd.oci.image.config.v1+json" }, layers: [{ ...layer, mediaType: "application/vnd.oci.image.layer.v1.tar" }] });
     children.push({ mediaType: "application/vnd.oci.image.manifest.v1+json", ...manifest, platform: { os: "linux", architecture } });
   }

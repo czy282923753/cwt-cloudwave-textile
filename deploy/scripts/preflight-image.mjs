@@ -99,11 +99,11 @@ export function verifyReleaseRecord({ releasePath, ociRoot, requireState = "buil
   if (record.oci.indexDigest !== inventory.indexDigest || JSON.stringify(record.oci.children) !== JSON.stringify(inventory.children) ||
     JSON.stringify(record.oci.platformOrder) !== JSON.stringify(PLATFORM_ORDER)) fail("recorded OCI graph differs from exact layout");
   if (inventory.children.some((child) => child.releaseId !== record.releaseId)) fail("source/image release ID mismatch");
-  const expectedCreated = new Date(record.source.epoch * 1000).toISOString();
+  const expectedCreatedMilliseconds = record.source.epoch * 1000;
   for (const child of inventory.children) {
     const observed = child.historyCreated.filter((value) => value !== null);
-    if (child.created !== expectedCreated || observed.length === 0 || observed.at(-1) !== expectedCreated ||
-      observed.some((value) => Date.parse(value) > record.source.epoch * 1000)) fail("OCI created/history epoch drifted");
+    if (Date.parse(child.created) !== expectedCreatedMilliseconds || observed.length === 0 || Date.parse(observed.at(-1)) !== expectedCreatedMilliseconds ||
+      observed.some((value) => Date.parse(value) > expectedCreatedMilliseconds)) fail("OCI created/history epoch drifted");
   }
   if (record.tools.next !== "16.2.12" || record.tools.node !== "24.14.0" || record.tools.pnpm !== "11.9.0" ||
     record.tools.tsx !== "4.23.1" || record.tools.supercronic !== "0.2.48" || record.tools.buildx !== "0.35.0-desktop.2" ||
