@@ -1,12 +1,21 @@
 import { createHash } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { execFileSync } from "node:child_process";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdtempSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const RELEASE = /^[0-9a-f]{40}$/u;
 const PLATFORM_ORDER = ["linux/amd64", "linux/arm64"];
 const LEGAL_STATES = ["built", "staging_validated", "promotion_authorized"];
 const REVOCATION_REASONS = ["post_emission_gate_failed", "runtime_validation_failed", "operator_revoked"];
+
+export const PROHIBITED_RUNTIME_PACKAGE_MANAGERS = Object.freeze([
+  Object.freeze({ id: "npm", sbomNames: Object.freeze(["npm", "npx"]), launcherPaths: Object.freeze(["usr/local/bin/npm", "usr/local/bin/npx"]), moduleNames: Object.freeze(["npm"]), rootfsPrefixes: Object.freeze([]) }),
+  Object.freeze({ id: "pnpm", sbomNames: Object.freeze(["pnpm", "pnpx"]), launcherPaths: Object.freeze(["usr/local/bin/pnpm", "usr/local/bin/pnpx"]), moduleNames: Object.freeze(["pnpm"]), rootfsPrefixes: Object.freeze(["opt/pnpm"]) }),
+  Object.freeze({ id: "yarn", sbomNames: Object.freeze(["yarn", "yarnpkg"]), launcherPaths: Object.freeze(["usr/local/bin/yarn", "usr/local/bin/yarnpkg"]), moduleNames: Object.freeze(["yarn"]), rootfsPrefixes: Object.freeze(["opt/yarn-"]) }),
+  Object.freeze({ id: "corepack", sbomNames: Object.freeze(["corepack"]), launcherPaths: Object.freeze(["usr/local/bin/corepack"]), moduleNames: Object.freeze(["corepack"]), rootfsPrefixes: Object.freeze([]) }),
+]);
 
 function fail(message) { throw new Error(`Image evidence refused: ${message}`); }
 export function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
@@ -70,6 +79,80 @@ export function inventoryOciLayout(inputRoot) {
   return { root, indexDigest: subjectDescriptor.digest, children };
 }
 
+function normalizeLayerEntry(value) {
+  const normalized = value.replace(/^(?:\.\/)+/u, "").replace(/\/+$/u, "");
+  if (!normalized || normalized === ".") return undefined;
+  if (isAbsolute(normalized) || normalized.split("/").some((part) => part === ".." || part === "")) fail("OCI layer path escapes rootfs");
+  return normalized;
+}
+
+function rootfsPath(root, path) {
+  const candidate = resolve(root, path);
+  if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) fail("OCI layer path escapes rootfs");
+  return candidate;
+}
+
+export function extractOciChildRootfs(ociRoot, child, destination) {
+  const root = resolve(destination);
+  mkdirSync(root, { recursive: true });
+  for (const layerDigest of child.layers) {
+    const layerPath = resolve(ociRoot, "blobs", "sha256", layerDigest.slice(7));
+    const entries = execFileSync("tar", ["-tf", layerPath], { encoding: "utf8", maxBuffer: 1024 * 1024 * 1024 })
+      .split("\n").map(normalizeLayerEntry).filter(Boolean);
+    const whiteouts = entries.filter((entry) => basename(entry).startsWith(".wh."));
+    for (const marker of whiteouts) {
+      const markerName = basename(marker); const markerDirectory = dirname(marker) === "." ? "" : dirname(marker);
+      if (markerName === ".wh..wh..opq") {
+        const targetDirectory = rootfsPath(root, markerDirectory);
+        if (existsSync(targetDirectory) && lstatSync(targetDirectory).isDirectory()) {
+          for (const name of readdirSync(targetDirectory)) rmSync(resolve(targetDirectory, name), { recursive: true, force: true });
+        }
+      } else {
+        rmSync(rootfsPath(root, join(markerDirectory, markerName.slice(4))), { recursive: true, force: true });
+      }
+    }
+    execFileSync("tar", ["-xf", layerPath, "-C", root], { stdio: ["ignore", "ignore", "inherit"] });
+    for (const marker of whiteouts) rmSync(rootfsPath(root, marker), { recursive: true, force: true });
+  }
+  return root;
+}
+
+function rootfsInventory(root) {
+  const paths = [];
+  const visit = (directory, prefix = "") => {
+    for (const name of readdirSync(directory).sort()) {
+      const path = prefix ? `${prefix}/${name}` : name;
+      const absolute = resolve(directory, name);
+      paths.push(path);
+      if (lstatSync(absolute).isDirectory()) visit(absolute, path);
+    }
+  };
+  visit(root);
+  return paths;
+}
+
+function matchesManagerPath(path, manager) {
+  if (manager.launcherPaths.includes(path)) return true;
+  if (manager.rootfsPrefixes.some((prefix) => path === prefix || path.startsWith(prefix.endsWith("-") ? prefix : `${prefix}/`))) return true;
+  return manager.moduleNames.some((name) => path === `node_modules/${name}` || path.startsWith(`node_modules/${name}/`) ||
+    path.includes(`/node_modules/${name}/`) || path.endsWith(`/node_modules/${name}`));
+}
+
+export function deriveRuntimePackageManagerEvidence(rootfsRoot, sbomDocument) {
+  const paths = rootfsInventory(rootfsRoot);
+  const packages = Array.isArray(sbomDocument?.packages) ? sbomDocument.packages : [];
+  const rootfsMatches = new Set(); const sbomMatches = new Set();
+  for (const manager of PROHIBITED_RUNTIME_PACKAGE_MANAGERS) {
+    if (paths.some((path) => matchesManagerPath(path, manager))) rootfsMatches.add(manager.id);
+    if (packages.some((entry) => manager.sbomNames.includes(String(entry?.name ?? "").toLowerCase()))) sbomMatches.add(manager.id);
+  }
+  return Object.freeze({
+    status: rootfsMatches.size === 0 && sbomMatches.size === 0 ? "pass" : "fail",
+    rootfsMatchCount: rootfsMatches.size,
+    sbomMatchCount: sbomMatches.size,
+  });
+}
+
 function evidencePath(releasePath, relativePath) {
   if (isAbsolute(relativePath) || relativePath.split("/").includes("..")) fail("evidence path escapes release directory");
   const releaseRoot = realpathSync(dirname(releasePath));
@@ -112,31 +195,61 @@ export function verifyReleaseRecord({ releasePath, ociRoot, requireState = "buil
   if (!Array.isArray(record.frameworkSchemas) || record.frameworkSchemas.length !== 2 ||
     record.frameworkSchemas.map((entry) => entry.platform).join(",") !== PLATFORM_ORDER.join(",")) fail("framework schema platform inventory drifted");
   for (const entry of record.frameworkSchemas) validateFrameworkSchema(entry.schema);
-  const evidenceKinds = new Set();
-  for (const item of record.evidence ?? []) {
+  const evidenceKinds = new Set(); const evidenceByKind = new Map();
+  if (!Array.isArray(record.evidence) || record.evidence.length !== PLATFORM_ORDER.length * 3) fail("detached evidence inventory drifted");
+  for (const item of record.evidence) {
+    assertExactKeys(item, ["kind", "platform", "subjectDigest", "path", "sha256"], "detached evidence descriptor");
     if (!PLATFORM_ORDER.includes(item.platform) || !["sbom", "scan", "provenance"].includes(item.kind) || !DIGEST.test(item.subjectDigest) || !/^[0-9a-f]{64}$/u.test(item.sha256)) fail("detached evidence descriptor drifted");
     const child = inventory.children.find((candidate) => candidate.platform === item.platform);
     if (!child || child.manifestDigest !== item.subjectDigest) fail("detached evidence is bound to the wrong child");
     const path = evidencePath(absoluteRelease, item.path);
     if (sha256File(path) !== item.sha256) fail("detached evidence hash is stale");
+    const key = `${item.platform}:${item.kind}`;
+    if (evidenceByKind.has(key)) fail("duplicate detached evidence kind");
+    evidenceByKind.set(key, { item, path }); evidenceKinds.add(key);
+  }
+  for (const platform of PLATFORM_ORDER) for (const kind of ["sbom", "scan", "provenance"]) {
+    if (!evidenceKinds.has(`${platform}:${kind}`)) fail(`missing ${platform} ${kind} evidence`);
+  }
+
+  const runtimePackageManagerEvidence = new Map();
+  for (const child of inventory.children) {
+    const sbomEntry = evidenceByKind.get(`${child.platform}:sbom`);
+    const document = readJson(sbomEntry.path);
+    const packages = Array.isArray(document.packages) ? document.packages : [];
+    const has = (name, version) => packages.some((entry) => entry.name === name && entry.versionInfo === version);
+    if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("@valkey/valkey-glide", "2.5.1")) fail("SBOM runtime pin inventory drifted");
+    const rootfs = mkdtempSync(resolve(tmpdir(), `cwt-option-f-rootfs-${child.platform.split("/")[1]}-`));
+    try {
+      extractOciChildRootfs(inventory.root, child, rootfs);
+      const derived = deriveRuntimePackageManagerEvidence(rootfs, document);
+      if (derived.status !== "pass") fail(`${child.platform} runtime contains a prohibited package manager`);
+      runtimePackageManagerEvidence.set(child.platform, { derived, packageCount: packages.length });
+    } finally {
+      rmSync(rootfs, { recursive: true, force: true });
+    }
+  }
+
+  for (const item of record.evidence) {
+    const path = evidenceByKind.get(`${item.platform}:${item.kind}`).path;
     const document = readJson(path);
     if (item.kind === "sbom") {
-      const packages = Array.isArray(document.packages) ? document.packages : [];
-      const has = (name, version) => packages.some((entry) => entry.name === name && entry.versionInfo === version);
-      if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("@valkey/valkey-glide", "2.5.1")) fail("SBOM runtime pin inventory drifted");
+      // The exact bound SPDX document and its runtime inventory were independently checked above.
     } else if (item.kind === "scan") {
-      if (document.subjectDigest !== item.subjectDigest || document.platform !== item.platform || document.externalVulnerabilityFeedClaimed !== false ||
-        JSON.stringify(document.checks) !== JSON.stringify({ pinnedRuntimePackages: "pass", runtimePackageManagerAbsent: "pass", businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 })) fail("local scan evidence drifted");
+      const derived = runtimePackageManagerEvidence.get(item.platform);
+      assertExactKeys(document, ["schemaVersion", "kind", "subjectDigest", "platform", "packageCount", "checks", "externalVulnerabilityFeedClaimed"], "local scan");
+      assertExactKeys(document.checks, ["pinnedRuntimePackages", "runtimePackageManagerAbsent", "businessSecretLeakageMatches", "frameworkValueOrHashEvidenceLeakageMatches"], "local scan checks");
+      assertExactKeys(document.checks.runtimePackageManagerAbsent, ["status", "rootfsMatchCount", "sbomMatchCount"], "runtime package-manager evidence");
+      if (document.schemaVersion !== 1 || document.kind !== "local-release-policy-scan" || document.subjectDigest !== item.subjectDigest ||
+        document.platform !== item.platform || document.packageCount !== derived.packageCount || document.externalVulnerabilityFeedClaimed !== false ||
+        document.checks.pinnedRuntimePackages !== "pass" || JSON.stringify(document.checks.runtimePackageManagerAbsent) !== JSON.stringify(derived.derived) ||
+        document.checks.businessSecretLeakageMatches !== 0 || document.checks.frameworkValueOrHashEvidenceLeakageMatches !== 0) fail("local scan evidence drifted");
     } else if (item.kind === "provenance") {
       if (document.subject?.indexDigest !== inventory.indexDigest || document.subject?.childManifestDigest !== item.subjectDigest ||
         document.subject?.platform !== item.platform || document.source?.commit !== record.releaseId || document.source?.tree !== record.source.tree ||
         document.source?.archiveSha256 !== record.source.archiveSha256 || document.build?.networkAfterAcquisition !== "none" ||
         document.build?.noCache !== true || document.build?.attachedSbom !== false || document.build?.attachedProvenance !== false) fail("detached provenance evidence drifted");
     }
-    evidenceKinds.add(`${item.platform}:${item.kind}`);
-  }
-  for (const platform of PLATFORM_ORDER) for (const kind of ["sbom", "scan", "provenance"]) {
-    if (!evidenceKinds.has(`${platform}:${kind}`)) fail(`missing ${platform} ${kind} evidence`);
   }
   if (JSON.stringify(record.retention) !== JSON.stringify({ registryPrivate: true, immutableNoOverwrite: true, noEarlyDeletion: true, leastReadAudited: true, completeProtectedReplica: true, totalLossDisposition: "NEW_RELEASE_REQUIRED" })) fail("retention/loss contract drifted");
   const transitionsRoot = resolve(dirname(absoluteRelease), "transitions");

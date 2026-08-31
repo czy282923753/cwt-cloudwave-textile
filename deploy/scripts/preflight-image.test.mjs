@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { afterEach, test } from "node:test";
 import { inventoryOciLayout, sha256File, verifyReleaseRecord } from "./preflight-image.mjs";
 
@@ -12,15 +12,23 @@ afterEach(() => { while (roots.length) rmSync(roots.pop(), { recursive: true, fo
 const json = (value) => Buffer.from(`${JSON.stringify(value)}\n`);
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
-function fixture() {
+function fixture(options = {}) {
   const root = mkdtempSync(resolve(tmpdir(), "cwt-option-f-image-test-")); roots.push(root);
   const layout = resolve(root, "subject.oci"); mkdirSync(resolve(layout, "blobs/sha256"), { recursive: true });
   const put = (value) => { const bytes = Buffer.isBuffer(value) ? value : json(value); const identity = digest(bytes); writeFileSync(resolve(layout, "blobs/sha256", identity.slice(7)), bytes); return { digest: identity, size: bytes.length }; };
   const releaseId = "1".repeat(40); const tree = "2".repeat(40); const archiveSha256 = "3".repeat(64);
-  const layer = put(Buffer.from("synthetic-layer"));
+  const layerRoot = resolve(root, "layer-root"); mkdirSync(resolve(layerRoot, "app"), { recursive: true });
+  writeFileSync(resolve(layerRoot, "app/runtime-marker"), "synthetic\n");
+  if (options.launcher) {
+    const path = resolve(layerRoot, options.launcher); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, "#!/bin/sh\nexit 0\n"); chmodSync(path, 0o755);
+  }
+  if (options.modulePath) {
+    const path = resolve(layerRoot, options.modulePath); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, "{}\n");
+  }
+  const layer = put(execFileSync("tar", ["-C", layerRoot, "-cf", "-", "."], { maxBuffer: 1024 * 1024 * 1024 }));
   const children = [];
   for (const architecture of ["amd64", "arm64"]) {
-    const config = put({ created: "2026-08-31T00:00:00Z", config: { User: "10001:10001", Labels: { "org.opencontainers.image.revision": releaseId } }, rootfs: { diff_ids: [`sha256:${architecture === "amd64" ? "4" : "5"}`.padEnd(71, architecture === "amd64" ? "4" : "5")] }, history: [{ created: "2026-08-31T00:00:00Z", created_by: "synthetic" }] });
+    const config = put({ created: "2026-08-31T00:00:00Z", config: { User: "10001:10001", Labels: { "org.opencontainers.image.revision": releaseId } }, rootfs: { diff_ids: [layer.digest] }, history: [{ created: "2026-08-31T00:00:00Z", created_by: "synthetic" }] });
     const manifest = put({ schemaVersion: 2, config: { ...config, mediaType: "application/vnd.oci.image.config.v1+json" }, layers: [{ ...layer, mediaType: "application/vnd.oci.image.layer.v1.tar" }] });
     children.push({ mediaType: "application/vnd.oci.image.manifest.v1+json", ...manifest, platform: { os: "linux", architecture } });
   }
@@ -32,8 +40,8 @@ function fixture() {
   for (const child of inventory.children) {
     const architecture = child.platform.split("/")[1];
     const documents = {
-      sbom: { spdxVersion: "SPDX-2.3", packages: [{ name: "next", versionInfo: "16.2.12" }, { name: "tsx", versionInfo: "4.23.1" }, { name: "@valkey/valkey-glide", versionInfo: "2.5.1" }] },
-      scan: { schemaVersion: 1, subjectDigest: child.manifestDigest, platform: child.platform, checks: { pinnedRuntimePackages: "pass", runtimePackageManagerAbsent: "pass", businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 }, externalVulnerabilityFeedClaimed: false },
+      sbom: { spdxVersion: "SPDX-2.3", packages: [{ name: "next", versionInfo: "16.2.12" }, { name: "tsx", versionInfo: "4.23.1" }, { name: "@valkey/valkey-glide", versionInfo: "2.5.1" }, ...(options.sbomPackage ? [{ name: options.sbomPackage, versionInfo: "synthetic" }] : [])] },
+      scan: { schemaVersion: 1, kind: "local-release-policy-scan", subjectDigest: child.manifestDigest, platform: child.platform, packageCount: 3 + (options.sbomPackage ? 1 : 0), checks: { pinnedRuntimePackages: "pass", runtimePackageManagerAbsent: { status: "pass", rootfsMatchCount: 0, sbomMatchCount: 0 }, businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 }, externalVulnerabilityFeedClaimed: false },
       provenance: { schemaVersion: 1, subject: { indexDigest: inventory.indexDigest, childManifestDigest: child.manifestDigest, configDigest: child.configDigest, platform: child.platform }, source: { commit: releaseId, tree, epoch: 1788134400, archiveSha256 }, dependencyBundleSha256: "6".repeat(64), build: { networkAfterAcquisition: "none", noCache: true, attachedSbom: false, attachedProvenance: false, rewriteTimestamp: true } },
     };
     for (const [kind, document] of Object.entries(documents)) {
@@ -53,6 +61,25 @@ test("verifies built -> staging_validated -> promotion_authorized for one exact 
   execFileSync(process.execPath, [script, "transition", "--release", value.releasePath, "--oci", value.layout, "--to", "staging_validated", "--index", value.inventory.indexDigest, "--child", child]);
   execFileSync(process.execPath, [script, "transition", "--release", value.releasePath, "--oci", value.layout, "--to", "promotion_authorized", "--index", value.inventory.indexDigest, "--child", child]);
   assert.equal(verifyReleaseRecord({ releasePath: value.releasePath, ociRoot: value.layout, requireState: "promotion_authorized" }).state, "promotion_authorized");
+});
+
+test("derives package-manager absence from both exact child rootfs archives and bound SPDX documents", () => {
+  const value = fixture();
+  assert.equal(verifyReleaseRecord({ releasePath: value.releasePath, ociRoot: value.layout }).state, "built");
+  for (const architecture of ["amd64", "arm64"]) {
+    const scan = JSON.parse(readFileSync(resolve(value.root, `evidence/${architecture}.scan.json`), "utf8"));
+    assert.deepEqual(scan.checks.runtimePackageManagerAbsent, { status: "pass", rootfsMatchCount: 0, sbomMatchCount: 0 });
+  }
+});
+
+for (const [name, options] of [
+  ["executable launcher", { launcher: "usr/local/bin/yarn" }],
+  ["backing module", { modulePath: "opt/yarn-v1.22.22/package.json" }],
+  ["bound SPDX package", { sbomPackage: "yarn" }],
+  ["forged caller-written pass", { launcher: "usr/local/bin/corepack" }],
+]) test(`rejects prohibited runtime package-manager ${name}`, () => {
+  const value = fixture(options);
+  assert.throws(() => verifyReleaseRecord({ releasePath: value.releasePath, ociRoot: value.layout }), /prohibited package manager/u);
 });
 
 test("rejects wrong index/child/config/order, tag-only, stale/leaking evidence, Next drift, and revoked subjects", () => {

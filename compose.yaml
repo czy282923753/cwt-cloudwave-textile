@@ -23,6 +23,17 @@ x-app-common: &app-common
 
 x-production-config: &production-config
   env_file: [/etc/cwt/production/runtime.env]
+  environment:
+    DATABASE_URL_FILE: /run/secrets/production-database-url
+    AUTH_SESSION_SECRET_FILE: /run/secrets/production-auth-session-secret
+    FILE_SCAN_API_KEY_FILE: /run/secrets/production-cloudmersive-api-key
+    VALKEY_PASSWORD_FILE: /run/secrets/production-valkey-password
+    SMTP_PASSWORD_FILE: /run/secrets/production-smtp-password
+    SENTRY_DSN_FILE: /run/secrets/production-monitoring-dsn
+    AI_PROVIDER_API_KEY_FILE: /run/secrets/production-ai-api-key
+    COS_ACCESS_KEY_ID_FILE: /run/secrets/production-cos-access-key-id
+    COS_SECRET_ACCESS_KEY_FILE: /run/secrets/production-cos-secret-key
+    BACKUP_REPOSITORY_PASSWORD_FILE: /run/secrets/production-backup-password
   secrets:
     - production-database-url
     - production-auth-session-secret
@@ -31,11 +42,23 @@ x-production-config: &production-config
     - production-smtp-password
     - production-monitoring-dsn
     - production-ai-api-key
+    - production-cos-access-key-id
     - production-cos-secret-key
     - production-backup-password
 
 x-staging-config: &staging-config
   env_file: [/etc/cwt/staging/runtime.env]
+  environment:
+    DATABASE_URL_FILE: /run/secrets/staging-database-url
+    AUTH_SESSION_SECRET_FILE: /run/secrets/staging-auth-session-secret
+    FILE_SCAN_API_KEY_FILE: /run/secrets/staging-cloudmersive-api-key
+    VALKEY_PASSWORD_FILE: /run/secrets/staging-valkey-password
+    SMTP_PASSWORD_FILE: /run/secrets/staging-smtp-password
+    SENTRY_DSN_FILE: /run/secrets/staging-monitoring-dsn
+    AI_PROVIDER_API_KEY_FILE: /run/secrets/staging-ai-api-key
+    COS_ACCESS_KEY_ID_FILE: /run/secrets/staging-cos-access-key-id
+    COS_SECRET_ACCESS_KEY_FILE: /run/secrets/staging-cos-secret-key
+    BACKUP_REPOSITORY_PASSWORD_FILE: /run/secrets/staging-backup-password
   secrets:
     - staging-database-url
     - staging-auth-session-secret
@@ -44,6 +67,7 @@ x-staging-config: &staging-config
     - staging-smtp-password
     - staging-monitoring-dsn
     - staging-ai-api-key
+    - staging-cos-access-key-id
     - staging-cos-secret-key
     - staging-backup-password
 
@@ -248,6 +272,7 @@ secrets:
   production-smtp-password: { file: /etc/cwt/production/smtp-password }
   production-monitoring-dsn: { file: /etc/cwt/production/monitoring-dsn }
   production-ai-api-key: { file: /etc/cwt/production/ai-api-key }
+  production-cos-access-key-id: { file: /etc/cwt/production/cos-access-key-id }
   production-cos-secret-key: { file: /etc/cwt/production/cos-secret-key }
   production-backup-password: { file: /etc/cwt/production/backup-password }
   staging-database-url: { file: /etc/cwt/staging/database-url }
@@ -257,5 +282,6 @@ secrets:
   staging-smtp-password: { file: /etc/cwt/staging/smtp-password }
   staging-monitoring-dsn: { file: /etc/cwt/staging/monitoring-dsn }
   staging-ai-api-key: { file: /etc/cwt/staging/ai-api-key }
+  staging-cos-access-key-id: { file: /etc/cwt/staging/cos-access-key-id }
   staging-cos-secret-key: { file: /etc/cwt/staging/cos-secret-key }
   staging-backup-password: { file: /etc/cwt/staging/backup-password }

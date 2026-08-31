@@ -56,15 +56,15 @@ function protectedEnvironment(environment: "production" | "staging") {
     AUDIT_LOG_RETENTION_DAYS: "365",
     MONITORING_DRIVER: "external",
     SENTRY_DSN: "",
-    SENTRY_DSN_FILE: `${prefix}sentry-dsn`,
+    SENTRY_DSN_FILE: `${prefix}monitoring-dsn`,
     AI_PROVIDER_API_KEY: "",
-    AI_PROVIDER_API_KEY_FILE: `${prefix}ai-provider-api-key`,
+    AI_PROVIDER_API_KEY_FILE: `${prefix}ai-api-key`,
     COS_ACCESS_KEY_ID: "",
     COS_ACCESS_KEY_ID_FILE: `${prefix}cos-access-key-id`,
     COS_SECRET_ACCESS_KEY: "",
-    COS_SECRET_ACCESS_KEY_FILE: `${prefix}cos-secret-access-key`,
+    COS_SECRET_ACCESS_KEY_FILE: `${prefix}cos-secret-key`,
     BACKUP_REPOSITORY_PASSWORD: "",
-    BACKUP_REPOSITORY_PASSWORD_FILE: `${prefix}backup-repository-password`,
+    BACKUP_REPOSITORY_PASSWORD_FILE: `${prefix}backup-password`,
   } as const;
 }
 
@@ -95,6 +95,7 @@ describe("environment safety", () => {
   it("refuses cross-environment or non-secret-root file paths", () => {
     for (const path of [
       "/run/secrets/staging-database-url",
+      "/run/secrets/production-auth-session-secret",
       "/etc/cwt/production/database-url",
       "/run/secrets/production/../production-database-url",
       "production-database-url",

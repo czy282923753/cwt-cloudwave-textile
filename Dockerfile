@@ -91,8 +91,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     CWT_RELEASE_ID=${CWT_RELEASE_ID}
 WORKDIR /app
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
-  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/yarn /opt/yarn-v1.22.22 \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg \
   && groupadd --gid 10001 cwt \
   && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin cwt
 COPY --from=dependency-input --chmod=0555 /bin/supercronic /usr/local/bin/supercronic
@@ -106,8 +106,11 @@ COPY --from=build --chown=10001:10001 /app/src ./src
 COPY --from=build --chown=10001:10001 /app/deploy/schedule ./deploy/schedule
 RUN test "$(node --version)" = "v24.14.0" \
   && test "$(node -p "require('tsx/package.json').version")" = "4.23.1" \
-  && test ! -e /usr/local/bin/npm \
-  && test ! -e /usr/local/bin/corepack \
+  && for path in \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx \
+    /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/yarn \
+    /opt/yarn-v1.22.22; do test ! -e "$path" && test ! -L "$path"; done \
   && test ! -e /app/node_modules/.modules.yaml \
   && chown -R 10001:10001 /app
 USER 10001:10001

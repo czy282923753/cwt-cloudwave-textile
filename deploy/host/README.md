@@ -21,6 +21,7 @@ Future authorized activation installs verified, root-owned bytes as follows:
 - `deploy/scripts/preflight-compose-graph.mjs` at `/usr/local/libexec/cwt/preflight-compose-graph.mjs`, root:root, regular file, mode `0444`, link count one.
 - The byte-identical root `compose.yaml` at `/etc/cwt/compose.yaml`, root:root, regular file, mode `0444`, link count one. This installed copy is not a second authority; activation rejects a hash mismatch.
 - `/etc/cwt/compose.env` contains reviewed non-secret values and exact immutable digest inputs only; it contains no `DOCKER_*`, `COMPOSE_*` or secret value. Environment-private secrets stay in root-readable files under `/etc/cwt/production`, `/etc/cwt/staging` and `/etc/cwt/postgres`.
+- The root Compose anchors map the protected parser's exact ten secret-file classes one-to-one for every Web, Worker and Scheduler role. Each environment owns separate database URL, auth/session, scanner, Valkey, SMTP, monitoring, AI, COS access-key ID, COS secret key and backup-password subjects; runtime env files do not supply literal values or redirect one class to another file.
 - `cwt-tmpfiles.conf` and `docker.socket.d/cwt-root-only.conf` retain the one root principal, one FD9 lock and root-only local Docker socket.
 
 Activation records exact source/installed hashes, tool/package identities, architecture, release/index/child identities and config hashes in the protected activation manifest before exposing the gate. It must not download, build or infer an image on the application host.

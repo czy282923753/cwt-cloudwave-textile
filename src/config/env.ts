@@ -1,7 +1,7 @@
 import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 
-import { readProtectedSecret, type SecretFileReader } from "./secret-files";
+import { DOCKER_SECRETS_ROOT, readProtectedSecret, type SecretFileReader } from "./secret-files";
 
 export const PRODUCTION_SITE_ORIGIN = "https://cwtextile.com";
 export const STAGING_SITE_ORIGIN = "https://staging.cwtextile.com";
@@ -108,17 +108,17 @@ const environmentSchema = z.object({
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;
 
-const protectedSecrets = [
-  ["DATABASE_URL", "DATABASE_URL_FILE", 1],
-  ["AUTH_SESSION_SECRET", "AUTH_SESSION_SECRET_FILE", 32],
-  ["FILE_SCAN_API_KEY", "FILE_SCAN_API_KEY_FILE", 1],
-  ["VALKEY_PASSWORD", "VALKEY_PASSWORD_FILE", 16],
-  ["SMTP_PASSWORD", "SMTP_PASSWORD_FILE", 1],
-  ["SENTRY_DSN", "SENTRY_DSN_FILE", 1],
-  ["AI_PROVIDER_API_KEY", "AI_PROVIDER_API_KEY_FILE", 1],
-  ["COS_ACCESS_KEY_ID", "COS_ACCESS_KEY_ID_FILE", 1],
-  ["COS_SECRET_ACCESS_KEY", "COS_SECRET_ACCESS_KEY_FILE", 1],
-  ["BACKUP_REPOSITORY_PASSWORD", "BACKUP_REPOSITORY_PASSWORD_FILE", 16],
+export const PROTECTED_SECRET_FILE_REQUIREMENTS = [
+  ["DATABASE_URL", "DATABASE_URL_FILE", "database-url", 1],
+  ["AUTH_SESSION_SECRET", "AUTH_SESSION_SECRET_FILE", "auth-session-secret", 32],
+  ["FILE_SCAN_API_KEY", "FILE_SCAN_API_KEY_FILE", "cloudmersive-api-key", 1],
+  ["VALKEY_PASSWORD", "VALKEY_PASSWORD_FILE", "valkey-password", 16],
+  ["SMTP_PASSWORD", "SMTP_PASSWORD_FILE", "smtp-password", 1],
+  ["SENTRY_DSN", "SENTRY_DSN_FILE", "monitoring-dsn", 1],
+  ["AI_PROVIDER_API_KEY", "AI_PROVIDER_API_KEY_FILE", "ai-api-key", 1],
+  ["COS_ACCESS_KEY_ID", "COS_ACCESS_KEY_ID_FILE", "cos-access-key-id", 1],
+  ["COS_SECRET_ACCESS_KEY", "COS_SECRET_ACCESS_KEY_FILE", "cos-secret-key", 1],
+  ["BACKUP_REPOSITORY_PASSWORD", "BACKUP_REPOSITORY_PASSWORD_FILE", "backup-password", 16],
 ] as const;
 
 function pathsOverlap(left: string, right: string): boolean {
@@ -175,7 +175,11 @@ export function parseEnvironment(
   const parsed = environmentSchema.parse(input);
   if (parsed.APP_ENV !== "production" && parsed.APP_ENV !== "staging") return parsed;
   const resolved = { ...parsed };
-  for (const [literalField, fileField, minimumLength] of protectedSecrets) {
+  for (const [literalField, fileField, subjectSuffix, minimumLength] of PROTECTED_SECRET_FILE_REQUIREMENTS) {
+    const expectedFile = `${DOCKER_SECRETS_ROOT}/${parsed.APP_ENV}-${subjectSuffix}`;
+    if (parsed[fileField] !== expectedFile) {
+      throw new Error(`Protected ${parsed.APP_ENV} ${fileField} must use the exact environment-prefixed path ${expectedFile}.`);
+    }
     resolved[literalField] = readProtectedSecret({
       environment: parsed.APP_ENV,
       field: literalField,

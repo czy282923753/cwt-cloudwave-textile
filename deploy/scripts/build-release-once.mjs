@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { inventoryOciLayout, sha256, sha256File } from "./preflight-image.mjs";
+import { deriveRuntimePackageManagerEvidence, extractOciChildRootfs, inventoryOciLayout, sha256, sha256File } from "./preflight-image.mjs";
 
 const repositoryRoot = realpathSync(process.cwd());
 const platforms = ["linux/amd64", "linux/arm64"];
@@ -57,11 +57,9 @@ function dockerScoutSbom(layout, child, path, scratch, releaseId) {
   const packages = Array.isArray(sbom.packages) ? sbom.packages : [];
   const has = (name, version) => packages.some((entry) => entry.name === name && entry.versionInfo === version);
   if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("@valkey/valkey-glide", "2.5.1")) fail(`${child.platform} SBOM is missing a pinned runtime package`);
-  return packages.length;
+  return { document: sbom, packageCount: packages.length };
 }
-function extractFramework(layout, child, root) {
-  mkdirSync(root, { recursive: true });
-  for (const digest of child.layers) run("tar", ["-xf", resolve(layout, "blobs/sha256", digest.slice(7)), "-C", root]);
+function extractFramework(root) {
   const nextRoot = resolve(root, "app/.next/standalone/.next");
   const prerender = JSON.parse(readFileSync(resolve(nextRoot, "prerender-manifest.json"), "utf8"));
   const references = JSON.parse(readFileSync(resolve(nextRoot, "server/server-reference-manifest.json"), "utf8"));
@@ -122,12 +120,15 @@ try {
   for (const child of inventory.children) {
     const architecture = child.platform.split("/")[1];
     const sbomPath = resolve(evidenceRoot, `${architecture}.sbom.spdx.json`);
-    const packageCount = dockerScoutSbom(layout, child, sbomPath, temporary, releaseId);
-    const framework = extractFramework(layout, child, resolve(temporary, `rootfs-${architecture}`));
+    const sbom = dockerScoutSbom(layout, child, sbomPath, temporary, releaseId);
+    const rootfs = extractOciChildRootfs(layout, child, resolve(temporary, `rootfs-${architecture}`));
+    const runtimePackageManagerAbsent = deriveRuntimePackageManagerEvidence(rootfs, sbom.document);
+    if (runtimePackageManagerAbsent.status !== "pass") fail(`${child.platform} runtime contains a prohibited package manager`);
+    const framework = extractFramework(rootfs);
     frameworkSchemas.push({ platform: child.platform, schema: framework.schema });
     forbiddenEvidenceStrings.push(...framework.sensitive, ...framework.sensitive.map((value) => sha256(value)));
     const scanPath = resolve(evidenceRoot, `${architecture}.scan.json`);
-    writeEvidence(scanPath, { schemaVersion: 1, kind: "local-release-policy-scan", subjectDigest: child.manifestDigest, platform: child.platform, packageCount, checks: { pinnedRuntimePackages: "pass", runtimePackageManagerAbsent: "pass", businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 }, externalVulnerabilityFeedClaimed: false });
+    writeEvidence(scanPath, { schemaVersion: 1, kind: "local-release-policy-scan", subjectDigest: child.manifestDigest, platform: child.platform, packageCount: sbom.packageCount, checks: { pinnedRuntimePackages: "pass", runtimePackageManagerAbsent, businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 }, externalVulnerabilityFeedClaimed: false });
     const provenancePath = resolve(evidenceRoot, `${architecture}.provenance.json`);
     writeEvidence(provenancePath, { schemaVersion: 1, kind: "detached-local-provenance", subject: { indexDigest: inventory.indexDigest, childManifestDigest: child.manifestDigest, configDigest: child.configDigest, platform: child.platform }, source: { commit: releaseId, tree, epoch, archiveSha256 }, dependencyBundleSha256: dependencyHashes[child.platform], build: { networkAfterAcquisition: "none", noCache: true, attachedSbom: false, attachedProvenance: false, rewriteTimestamp: true } });
     for (const [kind, path] of [["sbom", sbomPath], ["scan", scanPath], ["provenance", provenancePath]]) descriptors.push({ kind, platform: child.platform, subjectDigest: child.manifestDigest, path: relative(outputRoot, path).split(sep).join("/"), sha256: sha256File(path) });

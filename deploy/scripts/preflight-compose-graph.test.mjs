@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { resolve } from "node:path";
-import { validateComposeGraph } from "./preflight-compose-graph.mjs";
+import { exactProtectedSecretFiles, validateComposeGraph } from "./preflight-compose-graph.mjs";
 
 function normalized() {
   const digestA = `sha256:${"a".repeat(64)}`;
@@ -17,6 +17,15 @@ function normalized() {
 
 test("accepts the frozen ten-service graph", () => {
   assert.deepEqual(validateComposeGraph(normalized()), { services: 10, defaultBytes: 2080374784, stagingBytes: 1275068416, minimumStagingAvailableBytes: 1476395008 });
+});
+
+test("matches every protected parser secret-file class to the root Compose closure one-to-one", () => {
+  const source = readFileSync(resolve("src/config/env.ts"), "utf8");
+  const block = source.match(/export const PROTECTED_SECRET_FILE_REQUIREMENTS = \[([\s\S]*?)\] as const;/u)?.[1] ?? "";
+  const parserRequirements = [...block.matchAll(/\["([A-Z_]+)", "([A-Z_]+_FILE)", "([a-z0-9-]+)", \d+\]/gu)]
+    .map((match) => ({ literalField: match[1], fileField: match[2], subjectSuffix: match[3] }));
+  assert.deepEqual(parserRequirements, exactProtectedSecretFiles);
+  assert.equal(parserRequirements.length, 10);
 });
 
 test("keeps the durable AI Worker signal lifecycle and database cleanup explicit", () => {
@@ -38,6 +47,12 @@ for (const [name, mutate] of [
   ["resource drift", (value) => { value.services["web-staging"].mem_limit += 1; }],
   ["runtime pnpm", (value) => { value.services["worker-staging"].command = ["pnpm", "ai:runs:process"]; }],
   ["Worker stop grace", (value) => { value.services["worker-staging"].stop_grace_period = "10s"; }],
+  ["missing protected secret", (value) => { delete value.secrets["production-cos-access-key-id"]; }],
+  ["cross-environment secret grant", (value) => {
+    const secret = value.services["web-production"].secrets.find((entry) => entry.source === "production-cos-access-key-id");
+    secret.source = "staging-cos-access-key-id"; secret.target = "/run/secrets/staging-cos-access-key-id";
+  }],
+  ["cross-environment secret-file mapping", (value) => { value.services["worker-production"].environment.COS_ACCESS_KEY_ID_FILE = "/run/secrets/staging-cos-access-key-id"; }],
 ]) test(`rejects ${name}`, () => {
   const value = normalized(); mutate(value);
   assert.throws(() => validateComposeGraph(value), /refused/u);

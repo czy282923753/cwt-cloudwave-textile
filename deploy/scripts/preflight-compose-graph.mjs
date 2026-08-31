@@ -10,6 +10,18 @@ const exactServices = [
 const exactDefault = ["postgres", "proxy", "scheduler-production", "valkey-production", "web-production"];
 const exactStaging = ["scheduler-staging", "valkey-staging", "web-staging", "worker-staging"];
 const exactProductionAi = ["worker-production"];
+export const exactProtectedSecretFiles = Object.freeze([
+  Object.freeze({ literalField: "DATABASE_URL", fileField: "DATABASE_URL_FILE", subjectSuffix: "database-url" }),
+  Object.freeze({ literalField: "AUTH_SESSION_SECRET", fileField: "AUTH_SESSION_SECRET_FILE", subjectSuffix: "auth-session-secret" }),
+  Object.freeze({ literalField: "FILE_SCAN_API_KEY", fileField: "FILE_SCAN_API_KEY_FILE", subjectSuffix: "cloudmersive-api-key" }),
+  Object.freeze({ literalField: "VALKEY_PASSWORD", fileField: "VALKEY_PASSWORD_FILE", subjectSuffix: "valkey-password" }),
+  Object.freeze({ literalField: "SMTP_PASSWORD", fileField: "SMTP_PASSWORD_FILE", subjectSuffix: "smtp-password" }),
+  Object.freeze({ literalField: "SENTRY_DSN", fileField: "SENTRY_DSN_FILE", subjectSuffix: "monitoring-dsn" }),
+  Object.freeze({ literalField: "AI_PROVIDER_API_KEY", fileField: "AI_PROVIDER_API_KEY_FILE", subjectSuffix: "ai-api-key" }),
+  Object.freeze({ literalField: "COS_ACCESS_KEY_ID", fileField: "COS_ACCESS_KEY_ID_FILE", subjectSuffix: "cos-access-key-id" }),
+  Object.freeze({ literalField: "COS_SECRET_ACCESS_KEY", fileField: "COS_SECRET_ACCESS_KEY_FILE", subjectSuffix: "cos-secret-key" }),
+  Object.freeze({ literalField: "BACKUP_REPOSITORY_PASSWORD", fileField: "BACKUP_REPOSITORY_PASSWORD_FILE", subjectSuffix: "backup-password" }),
+]);
 const exactMemory = Object.freeze({
   postgres: 768 * MIB,
   proxy: 64 * MIB,
@@ -47,14 +59,58 @@ function fail(message) { throw new Error(`Compose graph refused: ${message}`); }
 function sorted(value) { return [...value].sort(); }
 function same(left, right) { return JSON.stringify(sorted(left)) === JSON.stringify(sorted(right)); }
 
+function secretSources(service) {
+  return (service.secrets ?? []).map((secret) => secret.source);
+}
+
+function validateProtectedSecretClosure(document) {
+  const protectedRoles = {
+    production: ["web-production", "worker-production", "scheduler-production"],
+    staging: ["web-staging", "worker-staging", "scheduler-staging"],
+  };
+  const expectedTopLevel = {
+    "postgres-bootstrap-password": "/etc/cwt/postgres/bootstrap-password",
+    "production-database-password": "/etc/cwt/production/database-password",
+    "staging-database-password": "/etc/cwt/staging/database-password",
+  };
+  for (const [environment, roles] of Object.entries(protectedRoles)) {
+    const expectedEnvironment = {}; const expectedSubjects = [];
+    for (const requirement of exactProtectedSecretFiles) {
+      const subject = `${environment}-${requirement.subjectSuffix}`;
+      expectedSubjects.push(subject);
+      expectedEnvironment[requirement.fileField] = `/run/secrets/${subject}`;
+      expectedTopLevel[subject] = `/etc/cwt/${environment}/${requirement.subjectSuffix}`;
+    }
+    for (const role of roles) {
+      const service = document.services[role];
+      if (!same(secretSources(service), expectedSubjects)) fail(`${role} protected secret grant drifted`);
+      if (!same(Object.keys(service.environment ?? {}), Object.keys(expectedEnvironment)) ||
+        Object.entries(expectedEnvironment).some(([field, path]) => service.environment[field] !== path)) fail(`${role} protected secret-file mapping drifted`);
+      for (const secret of service.secrets ?? []) {
+        if (secret.target !== `/run/secrets/${secret.source}`) fail(`${role} protected secret target drifted`);
+      }
+    }
+  }
+  if (!same(Object.keys(document.secrets ?? {}), Object.keys(expectedTopLevel))) fail("top-level secret subject closure drifted");
+  for (const [subject, file] of Object.entries(expectedTopLevel)) {
+    const secret = document.secrets[subject];
+    if (secret?.file !== file || secret?.name !== `cwt_${subject}`) fail(`${subject} top-level secret custody drifted`);
+  }
+  if (!same(secretSources(document.services.postgres), ["postgres-bootstrap-password", "production-database-password", "staging-database-password"]) ||
+    !same(secretSources(document.services["valkey-production"]), ["production-valkey-password"]) ||
+    !same(secretSources(document.services["valkey-staging"]), ["staging-valkey-password"]) ||
+    (document.services.proxy.secrets ?? []).length !== 0) fail("infrastructure secret grant drifted");
+}
+
 export function validateComposeGraph(document) {
-  if (!document || typeof document !== "object" || !document.services || !document.networks) fail("invalid normalized document");
+  if (!document || typeof document !== "object" || !document.services || !document.networks || !document.secrets) fail("invalid normalized document");
   const services = document.services;
   if (!same(Object.keys(services), exactServices)) fail("service set drifted");
   const defaults = Object.entries(services).filter(([, service]) => !service.profiles?.length).map(([name]) => name);
   const staging = Object.entries(services).filter(([, service]) => same(service.profiles ?? [], ["staging"])).map(([name]) => name);
   const productionAi = Object.entries(services).filter(([, service]) => same(service.profiles ?? [], ["production-ai"])).map(([name]) => name);
   if (!same(defaults, exactDefault) || !same(staging, exactStaging) || !same(productionAi, exactProductionAi)) fail("profile selection drifted");
+  validateProtectedSecretClosure(document);
   if (services["worker-production"].restart !== "no") fail("Production AI Worker must remain dormant and non-restarting");
   for (const [name, service] of Object.entries(services)) {
     if (name !== "worker-production" && service.restart !== "unless-stopped") fail(`${name} restart policy drifted`);
