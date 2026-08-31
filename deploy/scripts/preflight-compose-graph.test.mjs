@@ -37,6 +37,7 @@ for (const [name, mutate] of [
   ["cross-environment database", (value) => { value.services["web-staging"].networks["production-database"] = null; }],
   ["resource drift", (value) => { value.services["web-staging"].mem_limit += 1; }],
   ["runtime pnpm", (value) => { value.services["worker-staging"].command = ["pnpm", "ai:runs:process"]; }],
+  ["Worker stop grace", (value) => { value.services["worker-staging"].stop_grace_period = "10s"; }],
 ]) test(`rejects ${name}`, () => {
   const value = normalized(); mutate(value);
   assert.throws(() => validateComposeGraph(value), /refused/u);

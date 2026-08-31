@@ -10,6 +10,8 @@ The static foundation pins Nginx `1.30.4` at index `sha256:09cc2702709e6388d979d
 
 The ordinary default is exactly `proxy`, `web-production`, `scheduler-production`, `postgres` and `valkey-production`. `worker-production` exists only under the dormant `production-ai` profile with restart `no`. The on-demand `staging` profile contains exactly `web-staging`, `worker-staging`, `scheduler-staging` and `valkey-staging`. Starting both profiles is unauthorized.
 
+Every application role uses explicit `SIGTERM` with a 30-second Compose stop grace period. This preserves the accepted Worker drain and post-abort window; shortening the grace period is a deployment refusal.
+
 ## Protected installation
 
 Future authorized activation installs verified, root-owned bytes as follows:

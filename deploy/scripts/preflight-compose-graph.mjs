@@ -71,6 +71,9 @@ export function validateComposeGraph(document) {
   }
   for (const [name, command] of Object.entries(exactCommands)) {
     if (JSON.stringify(services[name].command) !== JSON.stringify(command)) fail(`${name} command drifted`);
+    if (services[name].stop_signal !== "SIGTERM" || services[name].stop_grace_period !== "30s") {
+      fail(`${name} signal/grace contract drifted`);
+    }
   }
   const databaseNetworks = Object.entries(document.networks).filter(([name]) => name.endsWith("-database"));
   if (!same(databaseNetworks.map(([name]) => name), ["production-database", "staging-database"]) ||
