@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdtempSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -153,6 +154,87 @@ export function deriveRuntimePackageManagerEvidence(rootfsRoot, sbomDocument) {
   });
 }
 
+function pathInside(root, path, label) {
+  const offset = relative(root, path);
+  if (offset === ".." || offset.startsWith(`..${sep}`) || isAbsolute(offset)) fail(`${label} escapes the standalone closure`);
+  return offset.split(sep).join("/");
+}
+
+function requiredSymlink(root, path, label) {
+  try {
+    if (!lstatSync(path).isSymbolicLink()) fail(`${label} is not a package symlink`);
+    const target = realpathSync(path);
+    pathInside(root, target, label);
+    return target;
+  } catch (error) {
+    if (String(error?.message ?? "").startsWith("Image evidence refused:")) throw error;
+    fail(`${label} is absent or unresolved`);
+  }
+}
+
+function requiredFile(root, path, label) {
+  try {
+    const target = realpathSync(path);
+    pathInside(root, target, label);
+    if (!lstatSync(target).isFile()) fail(`${label} is not a regular file`);
+    return target;
+  } catch (error) {
+    if (String(error?.message ?? "").startsWith("Image evidence refused:")) throw error;
+    fail(`${label} is absent or unresolved`);
+  }
+}
+
+export function deriveSharpStandaloneEvidence(standaloneRoot, platform) {
+  const runtimeArchitecture = platform === "linux/amd64" ? "x64" : platform === "linux/arm64" ? "arm64" : undefined;
+  if (!runtimeArchitecture) fail("Sharp standalone platform is unsupported");
+  const root = realpathSync(standaloneRoot);
+  const modules = resolve(root, "node_modules");
+  const sharpRoot = requiredSymlink(root, resolve(modules, "sharp"), "Sharp package");
+  let sharpPackage;
+  try { sharpPackage = readJson(resolve(sharpRoot, "package.json")); } catch { fail("Sharp package metadata is absent"); }
+  if (sharpPackage.version !== "0.35.3") fail("Sharp package version drifted");
+
+  const dependencyRoot = resolve(dirname(sharpRoot), "@img");
+  const nativePackage = requiredSymlink(root, resolve(dependencyRoot, `sharp-linux-${runtimeArchitecture}`), "Sharp native package");
+  const libvipsPackage = requiredSymlink(root, resolve(dependencyRoot, `sharp-libvips-linux-${runtimeArchitecture}`), "Sharp libvips package");
+  requiredSymlink(root, resolve(dirname(sharpRoot), "detect-libc"), "Sharp detect-libc dependency");
+  const nativeAddon = requiredFile(root, resolve(nativePackage, "lib", `sharp-linux-${runtimeArchitecture}-0.35.3.node`), "Sharp native addon");
+  const libvips = requiredFile(root, resolve(libvipsPackage, "lib", "libvips-cpp.so.8.18.3"), "Sharp libvips library");
+
+  return Object.freeze({
+    status: "pass",
+    architecture: runtimeArchitecture,
+    sharpVersion: "0.35.3",
+    packageSymlinks: "pass",
+    nativeAddon: Object.freeze({ path: pathInside(root, nativeAddon, "Sharp native addon"), sha256: sha256File(nativeAddon) }),
+    libvips: Object.freeze({ path: pathInside(root, libvips, "Sharp libvips library"), sha256: sha256File(libvips) }),
+  });
+}
+
+export async function runSharpStandaloneSmoke(standaloneRoot, platform) {
+  const root = realpathSync(standaloneRoot);
+  const evidence = deriveSharpStandaloneEvidence(root, platform);
+  const require = createRequire(resolve(root, "server.js"));
+  let sharp;
+  try {
+    const resolved = realpathSync(require.resolve("sharp"));
+    pathInside(root, resolved, "Sharp runtime resolution");
+    sharp = require("sharp");
+  } catch (error) {
+    fail(`Sharp executable load failed (${error?.message ?? "unknown error"})`);
+  }
+  if (sharp.versions?.sharp !== "0.35.3" || sharp.versions?.vips !== "8.18.3") fail("Sharp executable version drifted");
+  try {
+    const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 1, g: 2, b: 3, alpha: 1 } } }).png().toBuffer();
+    const metadata = await sharp(png).metadata();
+    if (metadata.width !== 1 || metadata.height !== 1 || metadata.format !== "png") fail("Sharp executable decode result drifted");
+  } catch (error) {
+    if (String(error?.message ?? "").startsWith("Image evidence refused:")) throw error;
+    fail(`Sharp executable smoke failed (${error?.message ?? "unknown error"})`);
+  }
+  return Object.freeze({ ...evidence, executableSmoke: "pass", decoded: Object.freeze({ format: "png", width: 1, height: 1 }) });
+}
+
 function evidencePath(releasePath, relativePath) {
   if (isAbsolute(relativePath) || relativePath.split("/").includes("..")) fail("evidence path escapes release directory");
   const releaseRoot = realpathSync(dirname(releasePath));
@@ -224,7 +306,8 @@ export function verifyReleaseRecord({ releasePath, ociRoot, requireState = "buil
       extractOciChildRootfs(inventory.root, child, rootfs);
       const derived = deriveRuntimePackageManagerEvidence(rootfs, document);
       if (derived.status !== "pass") fail(`${child.platform} runtime contains a prohibited package manager`);
-      runtimePackageManagerEvidence.set(child.platform, { derived, packageCount: packages.length });
+      const sharpStandalone = deriveSharpStandaloneEvidence(resolve(rootfs, "app/.next/standalone"), child.platform);
+      runtimePackageManagerEvidence.set(child.platform, { derived, sharpStandalone, packageCount: packages.length });
     } finally {
       rmSync(rootfs, { recursive: true, force: true });
     }
@@ -238,11 +321,17 @@ export function verifyReleaseRecord({ releasePath, ociRoot, requireState = "buil
     } else if (item.kind === "scan") {
       const derived = runtimePackageManagerEvidence.get(item.platform);
       assertExactKeys(document, ["schemaVersion", "kind", "subjectDigest", "platform", "packageCount", "checks", "externalVulnerabilityFeedClaimed"], "local scan");
-      assertExactKeys(document.checks, ["pinnedRuntimePackages", "runtimePackageManagerAbsent", "businessSecretLeakageMatches", "frameworkValueOrHashEvidenceLeakageMatches"], "local scan checks");
+      assertExactKeys(document.checks, ["pinnedRuntimePackages", "runtimePackageManagerAbsent", "sharpStandaloneRuntime", "businessSecretLeakageMatches", "frameworkValueOrHashEvidenceLeakageMatches"], "local scan checks");
       assertExactKeys(document.checks.runtimePackageManagerAbsent, ["status", "rootfsMatchCount", "sbomMatchCount"], "runtime package-manager evidence");
+      assertExactKeys(document.checks.sharpStandaloneRuntime, ["status", "architecture", "sharpVersion", "packageSymlinks", "nativeAddon", "libvips", "executableSmoke", "decoded"], "Sharp standalone runtime evidence");
+      assertExactKeys(document.checks.sharpStandaloneRuntime.nativeAddon, ["path", "sha256"], "Sharp native addon evidence");
+      assertExactKeys(document.checks.sharpStandaloneRuntime.libvips, ["path", "sha256"], "Sharp libvips evidence");
+      assertExactKeys(document.checks.sharpStandaloneRuntime.decoded, ["format", "width", "height"], "Sharp executable smoke evidence");
+      const expectedSharpRuntime = { ...derived.sharpStandalone, executableSmoke: "pass", decoded: { format: "png", width: 1, height: 1 } };
       if (document.schemaVersion !== 1 || document.kind !== "local-release-policy-scan" || document.subjectDigest !== item.subjectDigest ||
         document.platform !== item.platform || document.packageCount !== derived.packageCount || document.externalVulnerabilityFeedClaimed !== false ||
         document.checks.pinnedRuntimePackages !== "pass" || JSON.stringify(document.checks.runtimePackageManagerAbsent) !== JSON.stringify(derived.derived) ||
+        JSON.stringify(document.checks.sharpStandaloneRuntime) !== JSON.stringify(expectedSharpRuntime) ||
         document.checks.businessSecretLeakageMatches !== 0 || document.checks.frameworkValueOrHashEvidenceLeakageMatches !== 0) fail("local scan evidence drifted");
     } else if (item.kind === "provenance") {
       if (document.subject?.indexDigest !== inventory.indexDigest || document.subject?.childManifestDigest !== item.subjectDigest ||
@@ -350,5 +439,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
   } else if (args.command === "loss") {
     process.stdout.write("NEW_RELEASE_REQUIRED\n");
     process.exitCode = 78;
+  } else if (args.command === "sharp-smoke") {
+    const evidence = await runSharpStandaloneSmoke(args.root, args.platform);
+    process.stdout.write(`${JSON.stringify(evidence)}\n`);
   } else fail("unknown command");
 }

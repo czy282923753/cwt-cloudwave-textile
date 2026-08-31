@@ -83,6 +83,7 @@ RUN --network=none test "$(node --version)" = "v24.14.0" \
 FROM ${NODE_IMAGE} AS runtime
 ARG CWT_RELEASE_ID
 ARG SOURCE_DATE_EPOCH
+ARG TARGETARCH
 LABEL org.opencontainers.image.revision=${CWT_RELEASE_ID} \
       org.opencontainers.image.created=${SOURCE_DATE_EPOCH} \
       org.opencontainers.image.title="CloudWave Textile application"
@@ -99,6 +100,9 @@ COPY --from=dependency-input --chmod=0555 /bin/supercronic /usr/local/bin/superc
 COPY --from=build --chown=10001:10001 /app/.next/standalone ./.next/standalone
 COPY --from=build --chown=10001:10001 /app/.next/static ./.next/standalone/.next/static
 COPY --from=build --chown=10001:10001 /app/public ./.next/standalone/public
+COPY --from=build --chmod=0444 /app/deploy/scripts/preflight-image.mjs /usr/local/lib/cwt-preflight-image.mjs
+RUN cd /app/.next/standalone \
+  && node /usr/local/lib/cwt-preflight-image.mjs sharp-smoke --root . --platform "linux/${TARGETARCH}"
 COPY --from=build --chown=10001:10001 /app/node_modules ./node_modules
 COPY --from=build --chown=10001:10001 /app/package.json /app/tsconfig.json ./
 COPY --from=build --chown=10001:10001 /app/scripts ./scripts

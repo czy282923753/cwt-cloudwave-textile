@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   trailingSlash: true,
   output: "standalone",
+  outputFileTracingIncludes: {
+    "/*": [
+      "node_modules/.pnpm/@img+sharp-libvips-linux-*@1.3.2/node_modules/@img/sharp-libvips-linux-*/lib/**/*",
+    ],
+  },
   serverExternalPackages: ["@electric-sql/pglite", "@valkey/valkey-glide"],
   ...(process.env.DATABASE_DRIVER !== "postgres"
     ? { experimental: { cpus: 1 } }

@@ -1,16 +1,40 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { afterEach, test } from "node:test";
-import { inventoryOciLayout, sha256File, verifyReleaseRecord } from "./preflight-image.mjs";
+import { deriveSharpStandaloneEvidence, inventoryOciLayout, sha256File, verifyReleaseRecord } from "./preflight-image.mjs";
 
 const roots = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop(), { recursive: true, force: true }); });
 const json = (value) => Buffer.from(`${JSON.stringify(value)}\n`);
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+
+function createSharpStandaloneFixture(layerRoot) {
+  const modules = resolve(layerRoot, "app/.next/standalone/node_modules");
+  const sharpStore = resolve(modules, ".pnpm/sharp@0.35.3_@types+node@24.13.3/node_modules");
+  const sharpRoot = resolve(sharpStore, "sharp");
+  mkdirSync(sharpRoot, { recursive: true });
+  writeFileSync(resolve(sharpRoot, "package.json"), json({ name: "sharp", version: "0.35.3" }));
+  const link = (target, path) => { mkdirSync(dirname(path), { recursive: true }); symlinkSync(relative(dirname(path), target), path); };
+  link(sharpRoot, resolve(modules, "sharp"));
+  const detectLibc = resolve(modules, ".pnpm/detect-libc@2.1.2/node_modules/detect-libc");
+  mkdirSync(detectLibc, { recursive: true }); writeFileSync(resolve(detectLibc, "package.json"), json({ name: "detect-libc", version: "2.1.2" }));
+  link(detectLibc, resolve(sharpStore, "detect-libc"));
+  for (const architecture of ["x64", "arm64"]) {
+    const nativePackage = resolve(modules, `.pnpm/@img+sharp-linux-${architecture}@0.35.3/node_modules/@img/sharp-linux-${architecture}`);
+    const libvipsPackage = resolve(modules, `.pnpm/@img+sharp-libvips-linux-${architecture}@1.3.2/node_modules/@img/sharp-libvips-linux-${architecture}`);
+    mkdirSync(resolve(nativePackage, "lib"), { recursive: true });
+    mkdirSync(resolve(libvipsPackage, "lib"), { recursive: true });
+    writeFileSync(resolve(nativePackage, "lib", `sharp-linux-${architecture}-0.35.3.node`), `synthetic-${architecture}-native\n`);
+    writeFileSync(resolve(libvipsPackage, "lib/libvips-cpp.so.8.18.3"), `synthetic-${architecture}-libvips\n`);
+    link(nativePackage, resolve(sharpStore, `@img/sharp-linux-${architecture}`));
+    link(libvipsPackage, resolve(sharpStore, `@img/sharp-libvips-linux-${architecture}`));
+  }
+  return resolve(layerRoot, "app/.next/standalone");
+}
 
 function fixture(options = {}) {
   const root = mkdtempSync(resolve(tmpdir(), "cwt-option-f-image-test-")); roots.push(root);
@@ -19,6 +43,12 @@ function fixture(options = {}) {
   const releaseId = "1".repeat(40); const tree = "2".repeat(40); const archiveSha256 = "3".repeat(64);
   const layerRoot = resolve(root, "layer-root"); mkdirSync(resolve(layerRoot, "app"), { recursive: true });
   writeFileSync(resolve(layerRoot, "app/runtime-marker"), "synthetic\n");
+  const standaloneRoot = createSharpStandaloneFixture(layerRoot);
+  const sharpRuntimeEvidence = Object.fromEntries(["linux/amd64", "linux/arm64"].map((platform) => [platform, {
+    ...deriveSharpStandaloneEvidence(standaloneRoot, platform), executableSmoke: "pass", decoded: { format: "png", width: 1, height: 1 },
+  }]));
+  if (options.omitSharpNative) rmSync(resolve(standaloneRoot, "node_modules/.pnpm/@img+sharp-linux-x64@0.35.3/node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.3.node"));
+  if (options.omitSharpLibvips) rmSync(resolve(standaloneRoot, "node_modules/.pnpm/@img+sharp-libvips-linux-arm64@1.3.2/node_modules/@img/sharp-libvips-linux-arm64/lib/libvips-cpp.so.8.18.3"));
   if (options.launcher) {
     const path = resolve(layerRoot, options.launcher); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, "#!/bin/sh\nexit 0\n"); chmodSync(path, 0o755);
   }
@@ -41,7 +71,7 @@ function fixture(options = {}) {
     const architecture = child.platform.split("/")[1];
     const documents = {
       sbom: { spdxVersion: "SPDX-2.3", packages: [{ name: "next", versionInfo: "16.2.12" }, { name: "tsx", versionInfo: "4.23.1" }, { name: "@valkey/valkey-glide", versionInfo: "2.5.1" }, ...(options.sbomPackage ? [{ name: options.sbomPackage, versionInfo: "synthetic" }] : [])] },
-      scan: { schemaVersion: 1, kind: "local-release-policy-scan", subjectDigest: child.manifestDigest, platform: child.platform, packageCount: 3 + (options.sbomPackage ? 1 : 0), checks: { pinnedRuntimePackages: "pass", runtimePackageManagerAbsent: { status: "pass", rootfsMatchCount: 0, sbomMatchCount: 0 }, businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 }, externalVulnerabilityFeedClaimed: false },
+      scan: { schemaVersion: 1, kind: "local-release-policy-scan", subjectDigest: child.manifestDigest, platform: child.platform, packageCount: 3 + (options.sbomPackage ? 1 : 0), checks: { pinnedRuntimePackages: "pass", runtimePackageManagerAbsent: { status: "pass", rootfsMatchCount: 0, sbomMatchCount: 0 }, sharpStandaloneRuntime: sharpRuntimeEvidence[child.platform], businessSecretLeakageMatches: 0, frameworkValueOrHashEvidenceLeakageMatches: 0 }, externalVulnerabilityFeedClaimed: false },
       provenance: { schemaVersion: 1, subject: { indexDigest: inventory.indexDigest, childManifestDigest: child.manifestDigest, configDigest: child.configDigest, platform: child.platform }, source: { commit: releaseId, tree, epoch: 1788134400, archiveSha256 }, dependencyBundleSha256: "6".repeat(64), build: { networkAfterAcquisition: "none", noCache: true, attachedSbom: false, attachedProvenance: false, rewriteTimestamp: true } },
     };
     for (const [kind, document] of Object.entries(documents)) {
@@ -70,6 +100,40 @@ test("derives package-manager absence from both exact child rootfs archives and 
     const scan = JSON.parse(readFileSync(resolve(value.root, `evidence/${architecture}.scan.json`), "utf8"));
     assert.deepEqual(scan.checks.runtimePackageManagerAbsent, { status: "pass", rootfsMatchCount: 0, sbomMatchCount: 0 });
   }
+});
+
+test("keeps the pinned Sharp trace include and isolated runtime-stage smoke gate narrow", () => {
+  const config = readFileSync(resolve("next.config.ts"), "utf8");
+  assert.match(config, /node_modules\/\.pnpm\/@img\+sharp-libvips-linux-\*@1\.3\.2\/node_modules\/@img\/sharp-libvips-linux-\*\/lib\/\*\*\/\*/u);
+  assert.doesNotMatch(config, /node_modules\/sharp\/\*\*/u);
+  const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+  const standaloneCopy = dockerfile.indexOf("/app/.next/standalone ./.next/standalone");
+  const smoke = dockerfile.indexOf("node /usr/local/lib/cwt-preflight-image.mjs sharp-smoke");
+  const rootModulesCopy = dockerfile.indexOf("/app/node_modules ./node_modules");
+  assert.ok(standaloneCopy >= 0 && smoke > standaloneCopy && rootModulesCopy > smoke);
+  for (const prohibited of ["LD_LIBRARY_PATH", "apt install libvips", "/usr/lib/libvips", "node_modules/sharp/**/*"]) {
+    assert.equal(`${config}\n${dockerfile}`.includes(prohibited), false);
+  }
+});
+
+for (const [name, options] of [
+  ["native addon", { omitSharpNative: true, sbomPackage: "sharp" }],
+  ["libvips library", { omitSharpLibvips: true, sbomPackage: "sharp" }],
+]) test(`rejects a Sharp SBOM-style pass when the standalone ${name} is absent`, () => {
+  const value = fixture(options);
+  assert.throws(() => verifyReleaseRecord({ releasePath: value.releasePath, ociRoot: value.layout }), /Sharp .* absent or unresolved/u);
+});
+
+test("rejects caller-written Sharp executable-smoke evidence", () => {
+  const value = fixture();
+  const record = JSON.parse(readFileSync(value.releasePath, "utf8"));
+  const scanPath = resolve(value.root, "evidence/amd64.scan.json");
+  const scan = JSON.parse(readFileSync(scanPath, "utf8"));
+  scan.checks.sharpStandaloneRuntime.executableSmoke = "not-run";
+  writeFileSync(scanPath, json(scan));
+  record.evidence.find((item) => item.kind === "scan" && item.platform === "linux/amd64").sha256 = sha256File(scanPath);
+  writeFileSync(value.releasePath, json(record));
+  assert.throws(() => verifyReleaseRecord({ releasePath: value.releasePath, ociRoot: value.layout }), /local scan evidence drifted/u);
 });
 
 for (const [name, options] of [
