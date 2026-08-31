@@ -18,14 +18,27 @@ RUN TARGETARCH="${TARGETARCH}" node <<'EOF'
 const { createHash } = require("node:crypto");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 (async () => {
+async function fetchWithRetry(url) {
+  let lastFailure;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      if (response.ok) return response;
+      lastFailure = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastFailure = error;
+    }
+    if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+  }
+  throw lastFailure;
+}
 const identities = {
   amd64: { asset: "supercronic-linux-amd64", sha256: "88c1b66b94c486f972fdd1a4d1f901e3e75ff04f749cddd60c5db573e3a33c6c" },
   arm64: { asset: "supercronic-linux-arm64", sha256: "50ae8755e04fa72812d0a1bc47a112a856811cc91cce7b6c875c378a850788bc" },
 };
 const identity = identities[process.env.TARGETARCH];
 if (!identity) throw new Error("Unsupported dependency platform.");
-const response = await fetch(`https://github.com/aptible/supercronic/releases/download/v0.2.48/${identity.asset}`);
-if (!response.ok) throw new Error(`Supercronic acquisition failed (${response.status}).`);
+const response = await fetchWithRetry(`https://github.com/aptible/supercronic/releases/download/v0.2.48/${identity.asset}`);
 const bytes = Buffer.from(await response.arrayBuffer());
 if (createHash("sha256").update(bytes).digest("hex") !== identity.sha256) {
   throw new Error("Supercronic checksum mismatch.");
