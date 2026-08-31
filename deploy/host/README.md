@@ -43,3 +43,13 @@ Never send `SIGKILL` to the gate, its lifecycle child, their process groups or a
 External activation requires a private registry that enforces immutable digest storage, deny-overwrite and deny-early-delete policy, least-read audited access and retention of the complete OCI graph. A separately access-controlled protected replica must retain the graph and every detached digest-bound SBOM, scan, provenance, release and transition record. Evidence artifacts remain detached and never add manifests to the canonical index.
 
 Rollback selects a previously retained, independently accepted index plus matching evidence and exact validated child. A rejected subject remains revoked. If all copies of a subject or required evidence are lost, the only disposition is `NEW_RELEASE_REQUIRED`: authorize a new source identity, perform one new build, repeat Staging validation and obtain a new promotion record. Never rebuild under the old release record or promise the same digest.
+
+## Health, monitoring and bounded logs
+
+Application liveness is the process-only `/api/health/live/` route. Application readiness is the single `/api/health/ready/` authority and checks protected configuration, the three approved local storage roots, one bounded database query, the accepted Valkey canary/script and required local runtime dependencies. It never calls Cloudmersive, Sentry, AI, SMTP, Tencent, an uptime service or any other external Provider. Compose Web healthchecks use this exact readiness route.
+
+The scheduler's Notification Outbox one-shot also evaluates the redacted work-health authority. Exit `0` means healthy, exit `2` means an observed Outbox backlog/repeated failure/dead row, terminal AI Worker work, or missing/stale/invalid daily-backup completion evidence, and exit `1` means the probe itself failed. Only fixed state names and aggregate counts enter journald. The Production and Staging schedulers receive read-only access only to their own `/srv/cwt/backups/postgresql/{environment}` completion-evidence root.
+
+Docker services retain the `journald` logging driver. `deploy/monitoring/journald-cwt.conf` is the single future host policy template: persistent compressed/sealed journals, 14-day maximum retention, 4 GiB maximum use and one-day file segments. `deploy/monitoring/monitoring-policy.v1.json` contains provider-neutral thresholds only. Installing either template, configuring a monitoring account or testing external delivery requires separate protected-host/Stage 7 authority and has not occurred here.
+
+Rollback may disable only an optional external monitoring adapter. It may not disable readiness, safe local logs, resource ceilings, scheduler exit semantics or the image-work semaphore.

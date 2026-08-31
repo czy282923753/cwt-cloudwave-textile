@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error: unknown) => {
-  process.stderr.write(`Retention failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
+void main().catch(() => {
+  process.stderr.write("Retention failed: unavailable.\n");
   process.exitCode = 1;
 });

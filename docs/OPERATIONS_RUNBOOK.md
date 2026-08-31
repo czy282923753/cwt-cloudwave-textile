@@ -72,3 +72,16 @@ Do not edit a published path outside the route service. Resolve redirect conflic
 ## Credentials, monitoring, and emergency controls
 
 Rotate database, S3, SMTP, scanner, rate-limit, auth-session, analytics, and monitoring credentials independently. Feature flags can disable Refine shell exposure and future optional modules, but cannot bypass domain security. Production monitoring/alerts and provider-specific runbooks remain blocked on account selection and explicit deployment approval.
+
+## S6-05 health, work and log hooks
+
+- `/api/health/live/` is process-only and must remain independent of configuration files, database, Valkey, storage and every external Provider.
+- `/api/health/ready/` is the sole application readiness authority. HTTP `200` means the fixed configuration/storage/database/Valkey/local-dependency checks passed within their deadlines; HTTP `503` means at least one failed. Its body exposes only `ready`/`not_ready` and fixed component pass/fail states. Never add raw errors, paths, hostnames, identifiers, payloads or credential metadata.
+- Readiness performs no Cloudmersive, Sentry, AI, SMTP, Tencent or uptime call and consumes no Provider quota. External uptime may observe the route only after separate account/deployment authorization.
+- The redacted work-health hook classifies Outbox backlog older than 30 minutes, repeated delivery failures, dead Outbox work, terminal AI Worker failures and daily database backup completion older than 26 hours. It emits aggregate counts only. Exit `2` is an operationally unhealthy observation and does not reverse or misreport an already committed Inquiry, Outbox delivery, Upload Finalize or cleanup business success; investigate the durable records under their existing runbooks.
+- Missing backup completion is expected to remain unhealthy until the separately implemented S6-06 backup authority creates valid environment-specific completion evidence. Never fabricate or manually edit a completion marker to make health pass.
+- Image decode and derivative work share one process-local bounded semaphore: one active operation and at most eight waiting operations. Capacity refusal is backpressure, not permission to start a parallel path. Accepted AI text concurrency remains two and is independent.
+- All application/container operational output stays on Docker `journald`. The future authorized Linux host installs the exact `deploy/monitoring/journald-cwt.conf` template for a 14-day/4-GiB bound. Do not enable a second JSON/file log path or log payloads/raw errors.
+- External monitoring is optional and provider-neutral. Its event boundary permits only fixed codes, environment/release identity and scrubbed allowlisted attributes. Transport failure is non-critical telemetry failure; journald/readiness/work exit codes remain authoritative. Zoho/SMTP cannot be the only critical alert channel.
+
+These are local implementation hooks, not proof of target-host journald behavior, external delivery, protected credentials or Production readiness. Provider/host activation remains HOLD.

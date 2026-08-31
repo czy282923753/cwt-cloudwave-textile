@@ -54,6 +54,10 @@ const exactCommands = Object.freeze({
   "scheduler-production": ["supercronic", "-passthrough-logs", "/app/deploy/schedule/production.crontab"],
   "scheduler-staging": ["supercronic", "-passthrough-logs", "/app/deploy/schedule/staging.crontab"],
 });
+const exactWebHealthcheck = [
+  "CMD", "node", "-e",
+  "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))",
+];
 
 function fail(message) { throw new Error(`Compose graph refused: ${message}`); }
 function sorted(value) { return [...value].sort(); }
@@ -113,6 +117,7 @@ export function validateComposeGraph(document) {
   validateProtectedSecretClosure(document);
   if (services["worker-production"].restart !== "no") fail("Production AI Worker must remain dormant and non-restarting");
   for (const [name, service] of Object.entries(services)) {
+    if (service.logging?.driver !== "journald") fail(`${name} logging authority drifted`);
     if (name !== "worker-production" && service.restart !== "unless-stopped") fail(`${name} restart policy drifted`);
     if (Number(service.mem_limit) !== exactMemory[name]) fail(`${name} memory limit drifted`);
     if (!same(Object.keys(service.networks ?? {}), exactNetworks[name])) fail(`${name} network membership drifted`);
@@ -123,6 +128,19 @@ export function validateComposeGraph(document) {
         !same(service.cap_drop ?? [], ["ALL"]) || !(service.security_opt ?? []).includes("no-new-privileges:true")) {
         fail(`${name} privilege boundary drifted`);
       }
+    }
+  }
+  for (const name of ["web-production", "web-staging"]) {
+    if (JSON.stringify(services[name].healthcheck?.test) !== JSON.stringify(exactWebHealthcheck)) {
+      fail(`${name} application readiness healthcheck drifted`);
+    }
+  }
+  for (const environment of ["production", "staging"]) {
+    const scheduler = services[`scheduler-${environment}`];
+    const target = `/srv/cwt/backups/postgresql/${environment}`;
+    const backupMounts = (scheduler.volumes ?? []).filter((volume) => volume.target?.startsWith("/srv/cwt/backups/postgresql/"));
+    if (backupMounts.length !== 1 || backupMounts[0].source !== target || backupMounts[0].target !== target || backupMounts[0].read_only !== true) {
+      fail(`${environment} backup-completion evidence mount drifted`);
     }
   }
   for (const [name, command] of Object.entries(exactCommands)) {

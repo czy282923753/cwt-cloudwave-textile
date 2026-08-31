@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "health": {
+    "livePath": "/api/health/live/",
+    "readyPath": "/api/health/ready/",
+    "intervalSeconds": 300,
+    "consecutiveFailureThreshold": 3
+  },
+  "work": {
+    "outboxOldestBacklogSeconds": 1800,
+    "outboxRepeatedFailureThreshold": 2,
+    "workerDeadThreshold": 1,
+    "dailyBackupMaximumAgeSeconds": 93600
+  },
+  "host": {
+    "diskWarningPercent": 70,
+    "diskCriticalPercent": 80,
+    "memoryWarningPercent": 80,
+    "memoryWarningSeconds": 600,
+    "cpuWarningPercent": 85,
+    "cpuWarningSeconds": 900
+  },
+  "alerts": {
+    "independentNonSmtpChannelRequired": true,
+    "smtpOnlyAllowed": false
+  },
+  "logs": {
+    "driver": "journald",
+    "maximumBytes": 4294967296,
+    "maximumAgeSeconds": 1209600
+  }
+}

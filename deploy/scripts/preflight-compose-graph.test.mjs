@@ -53,6 +53,12 @@ for (const [name, mutate] of [
     secret.source = "staging-cos-access-key-id"; secret.target = "/run/secrets/staging-cos-access-key-id";
   }],
   ["cross-environment secret-file mapping", (value) => { value.services["worker-production"].environment.COS_ACCESS_KEY_ID_FILE = "/run/secrets/staging-cos-access-key-id"; }],
+  ["application readiness healthcheck", (value) => { value.services["web-production"].healthcheck.test[3] = "fetch('http://127.0.0.1:3000/robots.txt')"; }],
+  ["non-journald logging", (value) => { value.services["worker-staging"].logging.driver = "json-file"; }],
+  ["cross-environment backup evidence", (value) => {
+    const mount = value.services["scheduler-production"].volumes.find((entry) => entry.target.includes("/backups/postgresql/"));
+    mount.source = "/srv/cwt/backups/postgresql/staging";
+  }],
 ]) test(`rejects ${name}`, () => {
   const value = normalized(); mutate(value);
   assert.throws(() => validateComposeGraph(value), /refused/u);

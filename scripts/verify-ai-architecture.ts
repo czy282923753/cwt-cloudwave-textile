@@ -3054,7 +3054,7 @@ const currentProtectedAuthoritySha256 = new Map<string, string>([
     "9be5a39c8146af52ddffc5b748f87d16974018d6b82d9d949ebb5411399c96b7"],
   ["src/server/ai/phase-d-provider-composition.ts",
     "c8c7c09b9a308f3a5128ef1a3723b5c0b06ecc32bd58740af4daaab1a72263ab"],
-  ["scripts/process-ai-runs.ts", "3594eb1acbbeae01637c3a45c2941be9ce195c8e1401c20a93cfcb42a4653c09"],
+  ["scripts/process-ai-runs.ts", "d5a7a1dbf20886acb2221d205e875fc0c09f9a9e1e4453ad1b8b278baf064c57"],
 ]);
 for (const [path, expectedHash] of currentProtectedAuthoritySha256) {
   if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {

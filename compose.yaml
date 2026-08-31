@@ -111,7 +111,7 @@ services:
       - /srv/cwt/production/media/import:/srv/cwt/production/media/import
     networks: [production-ingress, production-backend, production-database]
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/robots.txt').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -135,6 +135,7 @@ services:
       - /srv/cwt/production/media/public:/srv/cwt/production/media/public
       - /srv/cwt/production/media/private-inquiries:/srv/cwt/production/media/private-inquiries
       - /srv/cwt/production/media/import:/srv/cwt/production/media/import
+      - /srv/cwt/backups/postgresql/production:/srv/cwt/backups/postgresql/production:ro
     networks: [production-backend, production-database]
 
   postgres:
@@ -202,7 +203,7 @@ services:
       - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
     networks: [staging-ingress, staging-backend, staging-database]
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/robots.txt').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -226,6 +227,7 @@ services:
       - /srv/cwt/staging/media/public:/srv/cwt/staging/media/public
       - /srv/cwt/staging/media/private-inquiries:/srv/cwt/staging/media/private-inquiries
       - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
+      - /srv/cwt/backups/postgresql/staging:/srv/cwt/backups/postgresql/staging:ro
     networks: [staging-backend, staging-database]
 
   valkey-staging:

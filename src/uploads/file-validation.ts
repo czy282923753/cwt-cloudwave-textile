@@ -1,5 +1,7 @@
 import sharp from "sharp";
 
+import { runWithImageWorkSemaphore } from "./image-derivatives";
+
 export const acceptedPublicMimeTypes = [
   "image/jpeg",
   "image/png",
@@ -86,14 +88,16 @@ export async function validateUploadedFile(
   }
 
   try {
-    const decoded = sharp(input.bytes, { failOn: "error" });
-    const metadata = await decoded.metadata();
-    await decoded.clone().toBuffer();
-    return {
-      detectedMimeType,
-      width: metadata.width ?? null,
-      height: metadata.height ?? null,
-    };
+    return await runWithImageWorkSemaphore(async () => {
+      const decoded = sharp(input.bytes, { failOn: "error" });
+      const metadata = await decoded.metadata();
+      await decoded.clone().toBuffer();
+      return {
+        detectedMimeType,
+        width: metadata.width ?? null,
+        height: metadata.height ?? null,
+      };
+    });
   } catch {
     throw new Error("Image decoding validation failed.");
   }
