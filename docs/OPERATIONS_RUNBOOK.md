@@ -27,6 +27,12 @@ Outbox workers use 60-second leases and a stable Delivery Key. Monitor `processi
 
 Use Node 24.14 and pnpm 11.9. Apply migrations, run both repeatable seeds as needed, run `db:verify`, then execute `check:all`. Synthetic fixtures are local/test-only and noindex. Never use the development user, PGlite database, local storage, log email, in-memory limiter, or development scanner in production.
 
+For an Option F Candidate, build once from the clean committed implementation source and retain the exact OCI index, both children and detached evidence. Validate both children locally/Synthetically, then create the append-only Staging transition for the exact current-host child. Promotion authorization may be appended only for that same index and child after every accepted gate. Never rebuild after Staging and substitute the replacement, use a tag as identity, edit a transition in place or restore a revoked subject.
+
+The only repository-authorized protected Staging start is the installed zero-argument `/usr/local/sbin/cwt-staging-start` described by `deploy/host/README.md`. There is no authorized raw Compose start. Ordinary `INT`, `TERM` and `HUP` are deferred while one FD9/lifecycle tree settles. Do not use `SIGKILL`. If all FD9 holders are lost, stop every local lifecycle action, preserve read-only evidence, report and escalate; do not rerun the gate, roll back locally or treat time/events/snapshots as re-entry authority.
+
+Registry readers can obtain the accepted Next framework material, so registry read access is security-sensitive. Keep immutable digest storage private, least-read and audited; retain one separately protected complete replica and the detached evidence. If every subject or required evidence copy is lost, record `NEW_RELEASE_REQUIRED` and begin a newly authorized release. Do not infer or reconstruct the old digest.
+
 ## Migration and rollback
 
 Back up the target database before a production migration. Apply committed migrations in order and run relationship verification. Application rollback may use the preceding release only when its schema remains forward-compatible. Destructive or data-rewriting migrations require a separate approved ADR, rehearsed restore, and explicit maintenance plan; none exist in Phase 1A.

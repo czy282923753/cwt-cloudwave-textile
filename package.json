@@ -8,17 +8,19 @@
     "pnpm": "11.9.0"
   },
   "scripts": {
-    "ai:runs:process": "tsx scripts/process-ai-runs.ts",
+    "ai:runs:process": "node --conditions=react-server --import=tsx scripts/process-ai-runs.ts",
     "check:ai-phase-d-synthetic": "vitest run src/integrations/ai/providers/deepseek-text-adapter.test.ts src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts src/integrations/ai/providers/deepseek-pricing.test.ts src/ai/testing/synthetic-application/synthetic-application.test.ts src/ai/testing/synthetic-prompts/synthetic-prompt.test.ts",
     "dev": "next dev",
     "env:check": "node scripts/check-runtime.mjs",
     "env:diagnose": "node scripts/diagnose-environment.mjs",
     "build": "next build",
+    "build:release-once": "node deploy/scripts/build-release-once.mjs",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:deployment": "node --test deploy/scripts/*.test.mjs",
     "test:valkey-integration": "node --conditions=react-server --import=tsx scripts/verify-valkey-two-process.ts",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
@@ -37,10 +39,10 @@
     "db:verify:ai-foundation-candidate": "tsx scripts/verify-ai-foundation-candidate.ts",
     "db:validate:postgres": "tsx scripts/verify-postgres-round2.ts",
     "assets:rescan-legacy": "tsx scripts/rescan-legacy-assets.ts",
-    "retention:preview": "tsx scripts/enforce-retention.ts",
-    "retention:execute": "tsx scripts/enforce-retention.ts --execute",
-    "outbox:process": "tsx scripts/process-notification-outbox.ts",
-    "cleanup:objects": "tsx scripts/process-object-cleanup.ts",
+    "retention:preview": "node --conditions=react-server --import=tsx scripts/enforce-retention.ts",
+    "retention:execute": "node --conditions=react-server --import=tsx scripts/enforce-retention.ts --execute",
+    "outbox:process": "node --conditions=react-server --import=tsx scripts/process-notification-outbox.ts",
+    "cleanup:objects": "node --conditions=react-server --import=tsx scripts/process-object-cleanup.ts",
     "check": "pnpm check:ai-prompts && pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle",
     "check:all": "pnpm check && pnpm audit --prod && pnpm test:e2e"
   },
@@ -63,7 +65,8 @@
     "server-only": "0.0.1",
     "sharp": "0.35.3",
     "write-excel-file": "4.1.1",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "tsx": "4.23.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",
@@ -82,7 +85,6 @@
     "eslint-config-next": "16.2.12",
     "jsdom": "30.0.1",
     "tailwindcss": "4.3.3",
-    "tsx": "4.23.1",
     "typescript": "5.9.3",
     "vitest": "4.1.10"
   }

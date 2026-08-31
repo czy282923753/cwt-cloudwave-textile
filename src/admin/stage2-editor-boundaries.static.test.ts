@@ -58,7 +58,8 @@ describe("Stage 2 editor authority boundaries", () => {
       expect(preview).toContain("index: false");
       expect(preview).toContain("follow: false");
     }
-    expect(proxy).toContain("/admin/preview/:path*");
+    expect(proxy).toContain('request.nextUrl.pathname.startsWith("/admin/preview/")');
+    expect(proxy).toContain('"/((?!_next/static|_next/image|favicon.ico).*)"');
     expect(proxy).toContain("noindex, nofollow, noarchive");
     expect(proxy).toContain("private, no-store");
     expect(assetRoute).toContain("resolveCurrentUser");

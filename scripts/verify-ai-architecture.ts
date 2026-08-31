@@ -17,8 +17,8 @@ import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json";
 const fixturePath = "test-fixtures/ai/deepseek-synthetic-contract.v1.json";
-const expectedProfileFileHash = "59b075f27b563f1790a62cce3c299983eeecf68f5676763140f2a7d3865d3e0e";
-const expectedProfileIntegrityHash = "88a107e695962f4217f7f843f8b2b25fd37be9539c03a01dba66bed482f318f6";
+const expectedProfileFileHash = "0affb8039548f79cadc4180570317e84ef484744de7e5c10119d2675700d2c40";
+const expectedProfileIntegrityHash = "6a393785b29d1426cfa9265a4afcb3bac123a2b10271c4771fe73869cf913633";
 const expectedFixtureHash = "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42";
 const acceptedS25Commit = "d7655385e37330927c53e60fbb108b56950c9794";
 const acceptedS25Tree = "db18f7fdb545d91ad37280af6cc6822b78d6cfd6";
@@ -3054,7 +3054,7 @@ const currentProtectedAuthoritySha256 = new Map<string, string>([
     "9be5a39c8146af52ddffc5b748f87d16974018d6b82d9d949ebb5411399c96b7"],
   ["src/server/ai/phase-d-provider-composition.ts",
     "c8d46dfc228d2387f2b7d04b6b695d292c7fc39966c12e4cc5497756e3bbaaa2"],
-  ["scripts/process-ai-runs.ts", "43a719732ddd26ce3a89117cb1cbf932546170a54851e3691bbaacb8d43a94b5"],
+  ["scripts/process-ai-runs.ts", "c4c6d0e3c526f1700f097ab0aa8a73fefc7e37869dcd9a2b12ba73b6b428b44c"],
 ]);
 for (const [path, expectedHash] of currentProtectedAuthoritySha256) {
   if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {

@@ -1,5 +1,15 @@
 import type { NextConfig } from "next";
 
+const RELEASE_ID_PATTERN = /^[0-9a-f]{40}$/u;
+
+function requireReleaseId(): string {
+  const releaseId = process.env.CWT_RELEASE_ID ?? "";
+  if (!RELEASE_ID_PATTERN.test(releaseId)) {
+    throw new Error("CWT_RELEASE_ID must be the full lowercase 40-character source commit.");
+  }
+  return releaseId;
+}
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
@@ -13,48 +23,7 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [],
   },
-  async headers() {
-    const indexingAllowed =
-      process.env.APP_ENV === "production" &&
-      process.env.NON_PRODUCTION_NOINDEX !== "true";
-    const securityHeaders = [
-      { key: "X-Content-Type-Options", value: "nosniff" },
-      { key: "X-Frame-Options", value: "DENY" },
-      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-      {
-        key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), payment=()",
-      },
-      {
-        key: "Content-Security-Policy",
-        value: [
-          "default-src 'self'",
-          "base-uri 'self'",
-          "object-src 'none'",
-          "frame-ancestors 'none'",
-          "form-action 'self'",
-          "img-src 'self' data: blob: https:",
-          "font-src 'self' data:",
-          "style-src 'self' 'unsafe-inline'",
-          "script-src 'self' 'unsafe-inline'",
-          "connect-src 'self' https:",
-        ].join("; "),
-      },
-    ];
-    if (process.env.APP_ENV === "production") {
-      securityHeaders.push({
-        key: "Strict-Transport-Security",
-        value: "max-age=63072000; includeSubDomains; preload",
-      });
-    }
-    if (!indexingAllowed) {
-      securityHeaders.push({
-        key: "X-Robots-Tag",
-        value: "noindex, nofollow, noarchive",
-      });
-    }
-    return [{ source: "/(.*)", headers: securityHeaders }];
-  },
+  generateBuildId: async () => requireReleaseId(),
 };
 
 export default nextConfig;

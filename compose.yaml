@@ -1,0 +1,259 @@
+name: cwt
+
+x-app-common: &app-common
+  image: ${CWT_IMAGE_REFERENCE:?CWT_IMAGE_REFERENCE must be an immutable index digest reference}
+  user: "10001:10001"
+  read_only: true
+  init: true
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=67108864,uid=10001,gid=10001,mode=0700
+  logging:
+    driver: journald
+    options:
+      tag: cwt-{{.Name}}
+  labels:
+    cwt.release.index: ${CWT_IMAGE_INDEX_DIGEST:?CWT_IMAGE_INDEX_DIGEST is required}
+    cwt.release.child: ${CWT_IMAGE_CHILD_DIGEST:?CWT_IMAGE_CHILD_DIGEST is required}
+
+x-production-config: &production-config
+  env_file: [/etc/cwt/production/runtime.env]
+  secrets:
+    - production-database-url
+    - production-auth-session-secret
+    - production-valkey-password
+    - production-cloudmersive-api-key
+    - production-smtp-password
+    - production-monitoring-dsn
+    - production-ai-api-key
+    - production-cos-secret-key
+    - production-backup-password
+
+x-staging-config: &staging-config
+  env_file: [/etc/cwt/staging/runtime.env]
+  secrets:
+    - staging-database-url
+    - staging-auth-session-secret
+    - staging-valkey-password
+    - staging-cloudmersive-api-key
+    - staging-smtp-password
+    - staging-monitoring-dsn
+    - staging-ai-api-key
+    - staging-cos-secret-key
+    - staging-backup-password
+
+services:
+  proxy:
+    image: nginx:1.30.4@sha256:09cc2702709e6388d979d8030e3ab4eb1ceb699b2dced26d7543e872a822e823
+    user: "101:101"
+    read_only: true
+    init: true
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 64m
+    cpus: 0.25
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16777216,uid=101,gid=101,mode=0700
+    volumes:
+      - ./deploy/proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${CWT_CLOUDFLARE_RANGES_FILE:?Cloudflare range file is required}:/etc/nginx/cloudflare-ranges.conf:ro
+    ports:
+      - "80:8080"
+      - "443:8081"
+    networks: [edge, production-ingress, staging-ingress]
+    healthcheck:
+      test: [CMD, nginx, -t]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: { driver: journald, options: { tag: "cwt-{{.Name}}" } }
+
+  web-production:
+    <<: [*app-common, *production-config]
+    command: [node, .next/standalone/server.js]
+    mem_limit: 768m
+    cpus: 0.75
+    volumes:
+      - /srv/cwt/production/media/public:/srv/cwt/production/media/public
+      - /srv/cwt/production/media/private-inquiries:/srv/cwt/production/media/private-inquiries
+      - /srv/cwt/production/media/import:/srv/cwt/production/media/import
+    networks: [production-ingress, production-backend, production-database]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/robots.txt').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker-production:
+    <<: [*app-common, *production-config]
+    profiles: [production-ai]
+    restart: "no"
+    command: [node, --conditions=react-server, --import=tsx, /app/scripts/process-ai-runs.ts]
+    mem_limit: 512m
+    cpus: 0.5
+    networks: [production-backend, production-database]
+
+  scheduler-production:
+    <<: [*app-common, *production-config]
+    command: [supercronic, -passthrough-logs, /app/deploy/schedule/production.crontab]
+    mem_limit: 256m
+    cpus: 0.25
+    volumes:
+      - /srv/cwt/production/media/public:/srv/cwt/production/media/public
+      - /srv/cwt/production/media/private-inquiries:/srv/cwt/production/media/private-inquiries
+      - /srv/cwt/production/media/import:/srv/cwt/production/media/import
+    networks: [production-backend, production-database]
+
+  postgres:
+    image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+    user: "999:999"
+    read_only: true
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 0.5
+    environment:
+      POSTGRES_USER: cwt_bootstrap
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-bootstrap-password
+      PGDATA: /var/lib/postgresql/18/docker
+    command: [postgres, -c, max_connections=30, -c, shared_buffers=256MB, -c, log_connections=on]
+    secrets: [postgres-bootstrap-password, production-database-password, staging-database-password]
+    volumes:
+      - /srv/cwt/postgresql/data:/var/lib/postgresql
+      - ./deploy/postgres/init-environments.sh:/docker-entrypoint-initdb.d/10-cwt-environments.sh:ro
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=33554432,uid=999,gid=999,mode=0700, /var/run/postgresql:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0750]
+    networks: [production-database, staging-database]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U cwt_bootstrap -d postgres | grep -q 'accepting connections'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: { driver: journald, options: { tag: "cwt-{{.Name}}" } }
+
+  valkey-production:
+    image: valkey/valkey:8.1.9@sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327
+    user: "999:999"
+    read_only: true
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    entrypoint: [/opt/cwt/valkey-entrypoint.sh, production]
+    secrets: [production-valkey-password]
+    volumes: [./deploy/valkey/entrypoint.sh:/opt/cwt/valkey-entrypoint.sh:ro]
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700]
+    networks: [production-backend]
+    healthcheck:
+      test: [CMD-SHELL, "REDISCLI_AUTH=$$(cat /run/secrets/production-valkey-password) valkey-cli --user cwt-production ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: { driver: journald, options: { tag: "cwt-{{.Name}}" } }
+
+  web-staging:
+    <<: [*app-common, *staging-config]
+    profiles: [staging]
+    command: [node, .next/standalone/server.js]
+    mem_limit: 512m
+    cpus: 0.5
+    volumes:
+      - /srv/cwt/staging/media/public:/srv/cwt/staging/media/public
+      - /srv/cwt/staging/media/private-inquiries:/srv/cwt/staging/media/private-inquiries
+      - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
+    networks: [staging-ingress, staging-backend, staging-database]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/robots.txt').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker-staging:
+    <<: [*app-common, *staging-config]
+    profiles: [staging]
+    command: [node, --conditions=react-server, --import=tsx, /app/scripts/process-ai-runs.ts]
+    mem_limit: 384m
+    cpus: 0.5
+    networks: [staging-backend, staging-database]
+
+  scheduler-staging:
+    <<: [*app-common, *staging-config]
+    profiles: [staging]
+    command: [supercronic, -passthrough-logs, /app/deploy/schedule/staging.crontab]
+    mem_limit: 192m
+    cpus: 0.25
+    volumes:
+      - /srv/cwt/staging/media/public:/srv/cwt/staging/media/public
+      - /srv/cwt/staging/media/private-inquiries:/srv/cwt/staging/media/private-inquiries
+      - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
+    networks: [staging-backend, staging-database]
+
+  valkey-staging:
+    image: valkey/valkey:8.1.9@sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327
+    profiles: [staging]
+    user: "999:999"
+    read_only: true
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    entrypoint: [/opt/cwt/valkey-entrypoint.sh, staging]
+    secrets: [staging-valkey-password]
+    volumes: [./deploy/valkey/entrypoint.sh:/opt/cwt/valkey-entrypoint.sh:ro]
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700]
+    networks: [staging-backend]
+    healthcheck:
+      test: [CMD-SHELL, "REDISCLI_AUTH=$$(cat /run/secrets/staging-valkey-password) valkey-cli --user cwt-staging ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: { driver: journald, options: { tag: "cwt-{{.Name}}" } }
+
+networks:
+  edge: {}
+  production-ingress: { internal: true }
+  production-backend: { internal: true }
+  production-database: { internal: true }
+  staging-ingress: { internal: true }
+  staging-backend: { internal: true }
+  staging-database: { internal: true }
+
+secrets:
+  postgres-bootstrap-password: { file: /etc/cwt/postgres/bootstrap-password }
+  production-database-password: { file: /etc/cwt/production/database-password }
+  staging-database-password: { file: /etc/cwt/staging/database-password }
+  production-database-url: { file: /etc/cwt/production/database-url }
+  production-auth-session-secret: { file: /etc/cwt/production/auth-session-secret }
+  production-valkey-password: { file: /etc/cwt/production/valkey-password }
+  production-cloudmersive-api-key: { file: /etc/cwt/production/cloudmersive-api-key }
+  production-smtp-password: { file: /etc/cwt/production/smtp-password }
+  production-monitoring-dsn: { file: /etc/cwt/production/monitoring-dsn }
+  production-ai-api-key: { file: /etc/cwt/production/ai-api-key }
+  production-cos-secret-key: { file: /etc/cwt/production/cos-secret-key }
+  production-backup-password: { file: /etc/cwt/production/backup-password }
+  staging-database-url: { file: /etc/cwt/staging/database-url }
+  staging-auth-session-secret: { file: /etc/cwt/staging/auth-session-secret }
+  staging-valkey-password: { file: /etc/cwt/staging/valkey-password }
+  staging-cloudmersive-api-key: { file: /etc/cwt/staging/cloudmersive-api-key }
+  staging-smtp-password: { file: /etc/cwt/staging/smtp-password }
+  staging-monitoring-dsn: { file: /etc/cwt/staging/monitoring-dsn }
+  staging-ai-api-key: { file: /etc/cwt/staging/ai-api-key }
+  staging-cos-secret-key: { file: /etc/cwt/staging/cos-secret-key }
+  staging-backup-password: { file: /etc/cwt/staging/backup-password }

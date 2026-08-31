@@ -9,7 +9,7 @@ import {
 } from "@/public-site/data";
 import { listIndexableRoutes } from "@/seo/public-index";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 const knownStaticPaths = [
   "/",

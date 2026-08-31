@@ -1,15 +1,21 @@
 import { createPhaseDAiRunWorkerV1 } from "@/server/ai/phase-d-provider-composition";
 
-const worker = createPhaseDAiRunWorkerV1();
-let stopping = false;
+async function main(): Promise<void> {
+  const worker = createPhaseDAiRunWorkerV1();
+  let stopPromise: Promise<void> | undefined;
+  const stop = (signal: "SIGINT" | "SIGTERM"): void => {
+    stopPromise ??= worker.stop(signal);
+    void stopPromise.catch(() => undefined);
+  };
 
-async function stop(signal: "SIGINT" | "SIGTERM") {
-  if (stopping) return;
-  stopping = true;
-  await worker.stop(signal);
+  process.once("SIGINT", () => stop("SIGINT"));
+  process.once("SIGTERM", () => stop("SIGTERM"));
+  await worker.start();
+  await worker.join();
+  await stopPromise;
 }
 
-process.once("SIGINT", () => { void stop("SIGINT"); });
-process.once("SIGTERM", () => { void stop("SIGTERM"); });
-
-await worker.start();
+void main().catch((error: unknown) => {
+  process.stderr.write(`AI Worker failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
+  process.exitCode = 1;
+});

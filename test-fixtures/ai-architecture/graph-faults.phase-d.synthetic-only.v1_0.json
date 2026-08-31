@@ -465,7 +465,13 @@
               "scripts/verify-ai-prompt-history.ts"
             ],
             "excludeTestSemantic": true,
-            "files": [],
+            "files": [
+              "deploy/scripts/build-release-once.mjs",
+              "deploy/scripts/preflight-compose-graph.mjs",
+              "deploy/scripts/preflight-image.mjs",
+              "deploy/scripts/preflight-proxy-config.mjs",
+              "deploy/scripts/preflight-proxy-ranges.mjs"
+            ],
             "testSemantic": false
           },
           "stageStatus": "existing_or_build_only"
@@ -1389,7 +1395,7 @@
         "/phaseCSyntheticAuthority",
         "/phaseCSyntheticMutationProbeIds"
       ],
-        "sha256": "88a107e695962f4217f7f843f8b2b25fd37be9539c03a01dba66bed482f318f6"
+        "sha256": "6a393785b29d1426cfa9265a4afcb3bac123a2b10271c4771fe73869cf913633"
     },
     "profileVersion": "1.0.0",
     "proofArtifactContracts": {

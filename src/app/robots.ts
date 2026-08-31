@@ -2,6 +2,8 @@ import type { MetadataRoute } from "next";
 
 import { env, publicIndexingAllowed } from "@/config/env";
 
+export const dynamic = "force-dynamic";
+
 export function productionRobots(siteOrigin: string): MetadataRoute.Robots {
   return {
     rules: {

@@ -24,26 +24,29 @@ const geistMono = localFont({
   adjustFontFallback: "Arial",
 });
 
-export const metadata: Metadata = {
-  metadataBase: new URL(env.NEXT_PUBLIC_SITE_URL),
-  title: {
-    default: "CloudWave Textile | Professional Fabric Supplier in China",
-    template: "%s | CloudWave Textile",
-  },
-  description:
-    "CloudWave Textile helps global brands source suitable fabric materials from China.",
-  robots:
-    publicIndexingAllowed()
+export const dynamic = "force-dynamic";
+
+export function generateMetadata(): Metadata {
+  return {
+    metadataBase: new URL(env.NEXT_PUBLIC_SITE_URL),
+    title: {
+      default: "CloudWave Textile | Professional Fabric Supplier in China",
+      template: "%s | CloudWave Textile",
+    },
+    description:
+      "CloudWave Textile helps global brands source suitable fabric materials from China.",
+    robots: publicIndexingAllowed()
       ? { index: true, follow: true }
       : { index: false, follow: false, noarchive: true, nosnippet: false },
-  openGraph: {
-    type: "website",
-    siteName: "CloudWave Textile",
-    title: "CloudWave Textile | Professional Fabric Supplier in China",
-    description:
-      "Multi-category fabric sourcing, matching, sampling, and export support from China.",
-  },
-};
+    openGraph: {
+      type: "website",
+      siteName: "CloudWave Textile",
+      title: "CloudWave Textile | Professional Fabric Supplier in China",
+      description:
+        "Multi-category fabric sourcing, matching, sampling, and export support from China.",
+    },
+  };
+}
 
 export default function RootLayout({
   children,

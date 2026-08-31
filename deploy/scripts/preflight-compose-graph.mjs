@@ -1,0 +1,176 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const MIB = 1024 * 1024;
+const exactServices = [
+  "postgres", "proxy", "scheduler-production", "scheduler-staging", "valkey-production",
+  "valkey-staging", "web-production", "web-staging", "worker-production", "worker-staging",
+];
+const exactDefault = ["postgres", "proxy", "scheduler-production", "valkey-production", "web-production"];
+const exactStaging = ["scheduler-staging", "valkey-staging", "web-staging", "worker-staging"];
+const exactProductionAi = ["worker-production"];
+const exactMemory = Object.freeze({
+  postgres: 768 * MIB,
+  proxy: 64 * MIB,
+  "scheduler-production": 256 * MIB,
+  "scheduler-staging": 192 * MIB,
+  "valkey-production": 128 * MIB,
+  "valkey-staging": 128 * MIB,
+  "web-production": 768 * MIB,
+  "web-staging": 512 * MIB,
+  "worker-production": 512 * MIB,
+  "worker-staging": 384 * MIB,
+});
+const exactNetworks = Object.freeze({
+  postgres: ["production-database", "staging-database"],
+  proxy: ["edge", "production-ingress", "staging-ingress"],
+  "scheduler-production": ["production-backend", "production-database"],
+  "scheduler-staging": ["staging-backend", "staging-database"],
+  "valkey-production": ["production-backend"],
+  "valkey-staging": ["staging-backend"],
+  "web-production": ["production-backend", "production-database", "production-ingress"],
+  "web-staging": ["staging-backend", "staging-database", "staging-ingress"],
+  "worker-production": ["production-backend", "production-database"],
+  "worker-staging": ["staging-backend", "staging-database"],
+});
+const exactCommands = Object.freeze({
+  "web-production": ["node", ".next/standalone/server.js"],
+  "web-staging": ["node", ".next/standalone/server.js"],
+  "worker-production": ["node", "--conditions=react-server", "--import=tsx", "/app/scripts/process-ai-runs.ts"],
+  "worker-staging": ["node", "--conditions=react-server", "--import=tsx", "/app/scripts/process-ai-runs.ts"],
+  "scheduler-production": ["supercronic", "-passthrough-logs", "/app/deploy/schedule/production.crontab"],
+  "scheduler-staging": ["supercronic", "-passthrough-logs", "/app/deploy/schedule/staging.crontab"],
+});
+
+function fail(message) { throw new Error(`Compose graph refused: ${message}`); }
+function sorted(value) { return [...value].sort(); }
+function same(left, right) { return JSON.stringify(sorted(left)) === JSON.stringify(sorted(right)); }
+
+export function validateComposeGraph(document) {
+  if (!document || typeof document !== "object" || !document.services || !document.networks) fail("invalid normalized document");
+  const services = document.services;
+  if (!same(Object.keys(services), exactServices)) fail("service set drifted");
+  const defaults = Object.entries(services).filter(([, service]) => !service.profiles?.length).map(([name]) => name);
+  const staging = Object.entries(services).filter(([, service]) => same(service.profiles ?? [], ["staging"])).map(([name]) => name);
+  const productionAi = Object.entries(services).filter(([, service]) => same(service.profiles ?? [], ["production-ai"])).map(([name]) => name);
+  if (!same(defaults, exactDefault) || !same(staging, exactStaging) || !same(productionAi, exactProductionAi)) fail("profile selection drifted");
+  if (services["worker-production"].restart !== "no") fail("Production AI Worker must remain dormant and non-restarting");
+  for (const [name, service] of Object.entries(services)) {
+    if (name !== "worker-production" && service.restart !== "unless-stopped") fail(`${name} restart policy drifted`);
+    if (Number(service.mem_limit) !== exactMemory[name]) fail(`${name} memory limit drifted`);
+    if (!same(Object.keys(service.networks ?? {}), exactNetworks[name])) fail(`${name} network membership drifted`);
+    if (name.includes("production") || name.includes("staging")) {
+      if (name.startsWith("valkey")) {
+        if (service.user !== "999:999" || service.read_only !== true) fail(`${name} privilege boundary drifted`);
+      } else if (service.user !== "10001:10001" || service.read_only !== true ||
+        !same(service.cap_drop ?? [], ["ALL"]) || !(service.security_opt ?? []).includes("no-new-privileges:true")) {
+        fail(`${name} privilege boundary drifted`);
+      }
+    }
+  }
+  for (const [name, command] of Object.entries(exactCommands)) {
+    if (JSON.stringify(services[name].command) !== JSON.stringify(command)) fail(`${name} command drifted`);
+  }
+  const databaseNetworks = Object.entries(document.networks).filter(([name]) => name.endsWith("-database"));
+  if (!same(databaseNetworks.map(([name]) => name), ["production-database", "staging-database"]) ||
+    databaseNetworks.some(([, network]) => network.internal !== true)) fail("database network authority drifted");
+  const published = Object.entries(services).filter(([, service]) => (service.ports ?? []).length > 0).map(([name]) => name);
+  if (!same(published, ["proxy"])) fail("only proxy may publish host ports");
+  const sum = (names) => names.reduce((total, name) => total + exactMemory[name], 0);
+  const defaultBytes = sum(exactDefault);
+  const stagingBytes = sum(exactStaging);
+  if (defaultBytes !== 1984 * MIB || stagingBytes !== 1216 * MIB ||
+    defaultBytes + exactMemory["worker-production"] !== 2496 * MIB ||
+    defaultBytes + stagingBytes !== 3200 * MIB ||
+    defaultBytes - exactMemory["scheduler-production"] + stagingBytes !== 2944 * MIB ||
+    defaultBytes + stagingBytes + exactMemory["worker-production"] !== 3712 * MIB) fail("resource arithmetic drifted");
+  return { services: exactServices.length, defaultBytes, stagingBytes, minimumStagingAvailableBytes: 1408 * MIB };
+}
+
+function normalizedFromCompose(composePath) {
+  const digestA = `sha256:${"a".repeat(64)}`;
+  const digestB = `sha256:${"b".repeat(64)}`;
+  const digestC = `sha256:${"c".repeat(64)}`;
+  const output = execFileSync("/usr/bin/docker", [
+    "compose", "--file", composePath, "--profile", "staging", "--profile", "production-ai",
+    "config", "--format", "json", "--no-env-resolution", "--no-path-resolution",
+  ], {
+    encoding: "utf8",
+    env: {
+      PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
+      HOME: "/root", LANG: "C", LC_ALL: "C", TZ: "UTC",
+      CWT_IMAGE_REFERENCE: `cwt.invalid/application@${digestA}`,
+      CWT_IMAGE_INDEX_DIGEST: digestA,
+      CWT_IMAGE_CHILD_DIGEST: digestB,
+      CWT_PROXY_IMAGE_REFERENCE: `cwt.invalid/proxy@${digestC}`,
+      CWT_CLOUDFLARE_RANGES_FILE: "/etc/cwt/cloudflare-ranges.conf",
+    },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  return JSON.parse(output);
+}
+
+function readAvailableMemoryBytes() {
+  const line = readFileSync("/proc/meminfo", "utf8").split("\n").find((candidate) => candidate.startsWith("MemAvailable:"));
+  const kib = Number(line?.match(/^MemAvailable:\s+(\d+)\s+kB$/u)?.[1]);
+  if (!Number.isSafeInteger(kib)) fail("MemAvailable is unavailable");
+  return kib * 1024;
+}
+
+function protectedProjectState() {
+  const output = execFileSync("/usr/bin/env", [
+    "-i", "PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C", "LC_ALL=C", "TZ=UTC", "DOCKER_API_VERSION=1.55",
+    "/usr/bin/docker", "--config", "/etc/cwt/docker-cli", "--host", "unix:///run/docker.sock",
+    "compose", "--env-file", "/etc/cwt/compose.env", "--project-name", "cwt", "--file", "/etc/cwt/compose.yaml",
+    "--profile", "staging", "ps", "--all", "--format", "json",
+  ], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  const parsed = JSON.parse(output);
+  if (!Array.isArray(parsed)) fail("project state is not a JSON array");
+  const byService = new Map(parsed.map((entry) => [entry.Service, entry]));
+  if (byService.size !== parsed.length) fail("project state contains duplicate services");
+  return byService;
+}
+
+function isInactive(entry) {
+  return entry === undefined || ["exited", "dead", "created"].includes(String(entry.State).toLowerCase());
+}
+
+function requireRunning(byService, name) {
+  const entry = byService.get(name);
+  if (!entry || String(entry.State).toLowerCase() !== "running" || entry.Paused === true ||
+    (entry.Health && String(entry.Health).toLowerCase() !== "healthy")) fail(`${name} is not stably running/healthy`);
+}
+
+function validateProtectedState(mode) {
+  const byService = protectedProjectState();
+  for (const name of ["proxy", "web-production", "postgres", "valkey-production"]) requireRunning(byService, name);
+  const scheduler = byService.get("scheduler-production");
+  if (!scheduler || (String(scheduler.State).toLowerCase() !== "paused" && scheduler.Paused !== true)) {
+    fail("Production Scheduler must be paused");
+  }
+  if (!isInactive(byService.get("worker-production"))) fail("Production AI Worker must be inactive");
+  for (const name of exactStaging) {
+    if (mode === "pre") {
+      if (!isInactive(byService.get(name))) fail(`${name} must be inactive before the single action`);
+    } else {
+      requireRunning(byService, name);
+    }
+  }
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href) {
+  const normalizedArgument = process.argv.indexOf("--normalized");
+  const composeArgument = process.argv.indexOf("--compose");
+  const protectedMode = process.argv[2] === "--protected-pre-start" || process.argv[2] === "--protected-post-start";
+  const document = normalizedArgument > 0
+    ? JSON.parse(readFileSync(resolve(process.argv[normalizedArgument + 1]), "utf8"))
+    : normalizedFromCompose(protectedMode ? "/etc/cwt/compose.yaml" : resolve(process.argv[composeArgument + 1] ?? "compose.yaml"));
+  const result = validateComposeGraph(document);
+  if (process.argv[2] === "--protected-pre-start" && readAvailableMemoryBytes() < result.minimumStagingAvailableBytes) {
+    fail("MemAvailable is below the exact 1408 MiB threshold");
+  }
+  if (process.argv[2] === "--protected-pre-start") validateProtectedState("pre");
+  if (process.argv[2] === "--protected-post-start") validateProtectedState("post");
+  process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+}
