@@ -74,7 +74,9 @@ RUN --network=none test "$(node --version)" = "v24.14.0" \
   && test "$(node -p "require('next/package.json').version")" = "16.2.12" \
   && test "$(node -p "require('tsx/package.json').version")" = "4.23.1" \
   && node /opt/pnpm/runtime/bin/pnpm.cjs build \
-  && node /opt/pnpm/runtime/bin/pnpm.cjs prune --prod --config.ignore-scripts=true \
+  && mv node_modules /tmp/build-node_modules \
+  && node /opt/pnpm/runtime/bin/pnpm.cjs install --prod --offline --frozen-lockfile --trust-lockfile --store-dir /opt/pnpm/store \
+  && rm -rf /tmp/build-node_modules \
   && rm -rf .next/cache .next/trace .next/trace-build /tmp/node-compile-cache \
   && rm -f node_modules/.modules.yaml node_modules/.pnpm-workspace-state-v1.json \
   && test "$(cat .next/BUILD_ID)" = "${CWT_RELEASE_ID}"
