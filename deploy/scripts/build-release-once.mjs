@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { inventoryOciLayout, sha256, sha256File } from "./preflight-image.mjs";
@@ -18,9 +18,10 @@ function fileTreeHash(root) {
   const records = [];
   const visit = (directory) => {
     for (const name of readdirSync(directory).sort()) {
-      const path = join(directory, name); const stat = statSync(path);
+      const path = join(directory, name); const stat = lstatSync(path);
       if (stat.isDirectory()) visit(path);
       else if (stat.isFile()) records.push(`${relative(root, path).split(sep).join("/")}\0${stat.mode & 0o777}\0${sha256File(path)}`);
+      else if (stat.isSymbolicLink()) records.push(`${relative(root, path).split(sep).join("/")}\0symlink\0${readlinkSync(path)}`);
       else fail("dependency bundle contains a non-regular node");
     }
   };
