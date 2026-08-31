@@ -53,7 +53,14 @@ for (const [name, mutate] of [
     secret.source = "staging-cos-access-key-id"; secret.target = "/run/secrets/staging-cos-access-key-id";
   }],
   ["cross-environment secret-file mapping", (value) => { value.services["worker-production"].environment.COS_ACCESS_KEY_ID_FILE = "/run/secrets/staging-cos-access-key-id"; }],
+  ["missing Web bind authority", (value) => { delete value.services["web-production"].environment.HOSTNAME; }],
+  ["wrong Web bind authority", (value) => { value.services["web-staging"].environment.HOSTNAME = "127.0.0.1"; }],
+  ["empty Web bind authority", (value) => { value.services["web-production"].environment.HOSTNAME = ""; }],
+  ["hostname-derived Web bind authority", (value) => { value.services["web-staging"].environment.HOSTNAME = "${HOSTNAME}"; }],
+  ["service-only bind drift", (value) => { delete value.services["scheduler-production"].environment.HOSTNAME; }],
   ["application readiness healthcheck", (value) => { value.services["web-production"].healthcheck.test[3] = "fetch('http://127.0.0.1:3000/robots.txt')"; }],
+  ["hostname-derived health target", (value) => { value.services["web-production"].healthcheck.test[3] = "fetch(`http://${process.env.HOSTNAME}:3000/api/health/ready/`)"; }],
+  ["non-loopback health target", (value) => { value.services["web-staging"].healthcheck.test[3] = "fetch('http://0.0.0.0:3000/api/health/ready/')"; }],
   ["non-journald logging", (value) => { value.services["worker-staging"].logging.driver = "json-file"; }],
   ["cross-environment backup evidence", (value) => {
     const mount = value.services["scheduler-production"].volumes.find((entry) => entry.target.includes("/backups/postgresql/"));

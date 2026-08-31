@@ -58,6 +58,8 @@ const exactWebHealthcheck = [
   "CMD", "node", "-e",
   "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))",
 ];
+const exactApplicationBindHostname = "0.0.0.0";
+const exactWebHealthHostname = "127.0.0.1";
 
 function fail(message) { throw new Error(`Compose graph refused: ${message}`); }
 function sorted(value) { return [...value].sort(); }
@@ -78,7 +80,7 @@ function validateProtectedSecretClosure(document) {
     "staging-database-password": "/etc/cwt/staging/database-password",
   };
   for (const [environment, roles] of Object.entries(protectedRoles)) {
-    const expectedEnvironment = {}; const expectedSubjects = [];
+    const expectedEnvironment = { HOSTNAME: exactApplicationBindHostname }; const expectedSubjects = [];
     for (const requirement of exactProtectedSecretFiles) {
       const subject = `${environment}-${requirement.subjectSuffix}`;
       expectedSubjects.push(subject);
@@ -89,7 +91,7 @@ function validateProtectedSecretClosure(document) {
       const service = document.services[role];
       if (!same(secretSources(service), expectedSubjects)) fail(`${role} protected secret grant drifted`);
       if (!same(Object.keys(service.environment ?? {}), Object.keys(expectedEnvironment)) ||
-        Object.entries(expectedEnvironment).some(([field, path]) => service.environment[field] !== path)) fail(`${role} protected secret-file mapping drifted`);
+        Object.entries(expectedEnvironment).some(([field, path]) => service.environment[field] !== path)) fail(`${role} protected environment mapping drifted`);
       for (const secret of service.secrets ?? []) {
         if (secret.target !== `/run/secrets/${secret.source}`) fail(`${role} protected secret target drifted`);
       }
@@ -131,8 +133,17 @@ export function validateComposeGraph(document) {
     }
   }
   for (const name of ["web-production", "web-staging"]) {
-    if (JSON.stringify(services[name].healthcheck?.test) !== JSON.stringify(exactWebHealthcheck)) {
+    const service = services[name];
+    if (service.environment?.HOSTNAME !== exactApplicationBindHostname) {
+      fail(`${name} application bind authority drifted`);
+    }
+    if (JSON.stringify(service.healthcheck?.test) !== JSON.stringify(exactWebHealthcheck)) {
       fail(`${name} application readiness healthcheck drifted`);
+    }
+    const healthScript = service.healthcheck.test[3];
+    const healthHostname = healthScript.match(/^fetch\('http:\/\/([^/:]+):3000\/api\/health\/ready\/'/u)?.[1];
+    if (healthHostname !== exactWebHealthHostname || service.environment.HOSTNAME !== exactApplicationBindHostname) {
+      fail(`${name} bind and loopback health authority diverged`);
     }
   }
   for (const environment of ["production", "staging"]) {

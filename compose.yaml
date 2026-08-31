@@ -24,6 +24,7 @@ x-app-common: &app-common
 x-production-config: &production-config
   env_file: [/etc/cwt/production/runtime.env]
   environment:
+    HOSTNAME: "0.0.0.0"
     DATABASE_URL_FILE: /run/secrets/production-database-url
     AUTH_SESSION_SECRET_FILE: /run/secrets/production-auth-session-secret
     FILE_SCAN_API_KEY_FILE: /run/secrets/production-cloudmersive-api-key
@@ -49,6 +50,7 @@ x-production-config: &production-config
 x-staging-config: &staging-config
   env_file: [/etc/cwt/staging/runtime.env]
   environment:
+    HOSTNAME: "0.0.0.0"
     DATABASE_URL_FILE: /run/secrets/staging-database-url
     AUTH_SESSION_SECRET_FILE: /run/secrets/staging-auth-session-secret
     FILE_SCAN_API_KEY_FILE: /run/secrets/staging-cloudmersive-api-key
