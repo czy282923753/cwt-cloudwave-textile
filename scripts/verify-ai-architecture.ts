@@ -3053,8 +3053,8 @@ const currentProtectedAuthoritySha256 = new Map<string, string>([
   ["src/integrations/ai/providers/deepseek-text-adapter.node-fetch.integration.test.ts",
     "9be5a39c8146af52ddffc5b748f87d16974018d6b82d9d949ebb5411399c96b7"],
   ["src/server/ai/phase-d-provider-composition.ts",
-    "c8d46dfc228d2387f2b7d04b6b695d292c7fc39966c12e4cc5497756e3bbaaa2"],
-  ["scripts/process-ai-runs.ts", "c4c6d0e3c526f1700f097ab0aa8a73fefc7e37869dcd9a2b12ba73b6b428b44c"],
+    "c8c7c09b9a308f3a5128ef1a3723b5c0b06ecc32bd58740af4daaab1a72263ab"],
+  ["scripts/process-ai-runs.ts", "3594eb1acbbeae01637c3a45c2941be9ce195c8e1401c20a93cfcb42a4653c09"],
 ]);
 for (const [path, expectedHash] of currentProtectedAuthoritySha256) {
   if (sha256(readFileSync(resolve(repositoryRoot, path))) !== expectedHash) {

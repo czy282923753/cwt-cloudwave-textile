@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { resolve } from "node:path";
 import { validateComposeGraph } from "./preflight-compose-graph.mjs";
@@ -16,6 +17,18 @@ function normalized() {
 
 test("accepts the frozen ten-service graph", () => {
   assert.deepEqual(validateComposeGraph(normalized()), { services: 10, defaultBytes: 2080374784, stagingBytes: 1275068416, minimumStagingAvailableBytes: 1476395008 });
+});
+
+test("keeps the durable AI Worker signal lifecycle and database cleanup explicit", () => {
+  const source = readFileSync(resolve("scripts/process-ai-runs.ts"), "utf8");
+  const composition = readFileSync(resolve("src/server/ai/phase-d-provider-composition.ts"), "utf8");
+  assert.match(source, /process\.once\("SIGINT", onSigint\)/u);
+  assert.match(source, /process\.once\("SIGTERM", onSigterm\)/u);
+  assert.match(source, /process\.off\("SIGINT", onSigint\)/u);
+  assert.match(source, /process\.off\("SIGTERM", onSigterm\)/u);
+  assert.match(source, /if \(worker\?\.running\) await worker\.stop\(stopSignal \?\? "SIGTERM"\)/u);
+  assert.doesNotMatch(source, /@\/db\//u);
+  assert.match(composition, /try \{\s+await worker\.stop\(signal\);\s+\} finally \{\s+await databaseConnection\.close\(\);\s+\}/u);
 });
 
 for (const [name, mutate] of [

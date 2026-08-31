@@ -81,11 +81,28 @@ export function createPhaseDAiRunWorkerV1() {
     throw new Error("The Phase D Provider Worker requires enabled Staging.");
   }
   const capability = enabledStagingCapability();
-  return createAiRunWorkerV1({
+  const worker = createAiRunWorkerV1({
     database: databaseConnection.db,
     trustedEnvironment,
     providerRegistry: capability.providerRegistry,
     promptLoader: productionPromptLoaderV1,
     pricingRegistry: capability.pricingRegistry,
   });
+  let ownedStop: Promise<void> | undefined;
+  return {
+    workerId: worker.workerId,
+    get running() { return worker.running; },
+    start() { return worker.start(); },
+    join() { return worker.join(); },
+    stop(signal?: "SIGINT" | "SIGTERM") {
+      ownedStop ??= (async () => {
+        try {
+          await worker.stop(signal);
+        } finally {
+          await databaseConnection.close();
+        }
+      })();
+      return ownedStop;
+    },
+  };
 }
