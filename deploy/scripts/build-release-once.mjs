@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { inventoryOciLayout, sha256, sha256File } from "./preflight-image.mjs";
@@ -28,12 +28,35 @@ function fileTreeHash(root) {
   visit(root); return sha256(`${records.join("\n")}\n`);
 }
 function writeEvidence(path, value) { writeFileSync(path, stableJson(value), { mode: 0o444, flag: "wx" }); }
-function dockerScoutSbom(layout, platform, path) {
-  run("docker", ["scout", "sbom", "--format", "spdx", "--platform", platform, "--output", path, `oci-dir://${layout}`]);
+function dockerScoutSbom(layout, child, path, scratch, releaseId) {
+  const architecture = child.platform.split("/")[1];
+  const childLayout = resolve(scratch, `${architecture}.scout.oci`);
+  mkdirSync(resolve(childLayout, "blobs/sha256"), { recursive: true });
+  const rootIndex = JSON.parse(readFileSync(resolve(layout, "index.json"), "utf8"));
+  const indexDigest = rootIndex.manifests[0].digest;
+  const subject = JSON.parse(readFileSync(resolve(layout, "blobs/sha256", indexDigest.slice(7)), "utf8"));
+  const originalDescriptor = subject.manifests.find((entry) => entry.digest === child.manifestDigest);
+  if (!originalDescriptor) fail(`${child.platform} descriptor is absent from the emitted index`);
+  const tag = `cwt.local/scout-${releaseId}:${architecture}`;
+  const descriptor = { ...originalDescriptor, annotations: { "io.containerd.image.name": tag, "org.opencontainers.image.ref.name": architecture } };
+  for (const digest of [child.manifestDigest, child.configDigest, ...child.layers]) {
+    linkSync(resolve(layout, "blobs/sha256", digest.slice(7)), resolve(childLayout, "blobs/sha256", digest.slice(7)));
+  }
+  writeFileSync(resolve(childLayout, "oci-layout"), stableJson({ imageLayoutVersion: "1.0.0" }));
+  writeFileSync(resolve(childLayout, "index.json"), stableJson({ schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: [descriptor] }));
+  const archivePath = resolve(scratch, `${architecture}.scout.oci.tar`);
+  run("tar", ["-C", childLayout, "-cf", archivePath, "."]);
+  if (spawnSync("docker", ["image", "inspect", tag], { stdio: "ignore" }).status === 0) fail(`${tag} already exists in the local image store`);
+  run("docker", ["load", "-i", archivePath]);
+  try {
+    run("docker", ["scout", "sbom", "--format", "spdx", "--output", path, `local://${tag}`]);
+  } finally {
+    run("docker", ["image", "rm", tag]);
+  }
   const sbom = JSON.parse(readFileSync(path, "utf8"));
   const packages = Array.isArray(sbom.packages) ? sbom.packages : [];
   const has = (name, version) => packages.some((entry) => entry.name === name && entry.versionInfo === version);
-  if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("@valkey/valkey-glide", "2.5.1")) fail(`${platform} SBOM is missing a pinned runtime package`);
+  if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("@valkey/valkey-glide", "2.5.1")) fail(`${child.platform} SBOM is missing a pinned runtime package`);
   return packages.length;
 }
 function extractFramework(layout, child, root) {
@@ -99,7 +122,7 @@ try {
   for (const child of inventory.children) {
     const architecture = child.platform.split("/")[1];
     const sbomPath = resolve(evidenceRoot, `${architecture}.sbom.spdx.json`);
-    const packageCount = dockerScoutSbom(layout, child.platform, sbomPath);
+    const packageCount = dockerScoutSbom(layout, child, sbomPath, temporary, releaseId);
     const framework = extractFramework(layout, child, resolve(temporary, `rootfs-${architecture}`));
     frameworkSchemas.push({ platform: child.platform, schema: framework.schema });
     forbiddenEvidenceStrings.push(...framework.sensitive, ...framework.sensitive.map((value) => sha256(value)));
