@@ -8,7 +8,12 @@ WORKDIR /workspace
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable \
   && corepack prepare pnpm@11.9.0 --activate \
-  && pnpm fetch --frozen-lockfile --store-dir /dependency/pnpm-store
+  && test "$(pnpm --version)" = "11.9.0" \
+  && pnpm fetch --frozen-lockfile --store-dir /dependency/pnpm-store \
+  && PNPM_ENTRY="$(find /root/.cache/node/corepack -type f -path '*/bin/pnpm.cjs' -print -quit)" \
+  && test -n "${PNPM_ENTRY}" \
+  && mkdir -p /dependency/pnpm \
+  && cp -a "$(dirname "$(dirname "${PNPM_ENTRY}")")/." /dependency/pnpm/
 RUN TARGETARCH="${TARGETARCH}" node <<'EOF'
 const { createHash } = require("node:crypto");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
@@ -46,17 +51,17 @@ ENV CWT_RELEASE_ID=${CWT_RELEASE_ID} \
     PNPM_HOME=/opt/pnpm
 WORKDIR /app
 COPY --from=dependency-input /pnpm-store /opt/pnpm/store
+COPY --from=dependency-input /pnpm /opt/pnpm/runtime
 COPY package.json pnpm-lock.yaml ./
-RUN --network=none corepack enable \
-  && corepack prepare pnpm@11.9.0 --activate \
-  && pnpm install --offline --frozen-lockfile --store-dir /opt/pnpm/store
+RUN --network=none test "$(node /opt/pnpm/runtime/bin/pnpm.cjs --version)" = "11.9.0" \
+  && node /opt/pnpm/runtime/bin/pnpm.cjs install --offline --frozen-lockfile --store-dir /opt/pnpm/store
 COPY . .
 RUN --network=none test "$(node --version)" = "v24.14.0" \
-  && test "$(pnpm --version)" = "11.9.0" \
+  && test "$(node /opt/pnpm/runtime/bin/pnpm.cjs --version)" = "11.9.0" \
   && test "$(node -p "require('next/package.json').version")" = "16.2.12" \
   && test "$(node -p "require('tsx/package.json').version")" = "4.23.1" \
-  && pnpm build \
-  && pnpm prune --prod --config.ignore-scripts=true \
+  && node /opt/pnpm/runtime/bin/pnpm.cjs build \
+  && node /opt/pnpm/runtime/bin/pnpm.cjs prune --prod --config.ignore-scripts=true \
   && rm -rf .next/cache .next/trace .next/trace-build /tmp/node-compile-cache \
   && rm -f node_modules/.modules.yaml node_modules/.pnpm-workspace-state-v1.json \
   && test "$(cat .next/BUILD_ID)" = "${CWT_RELEASE_ID}"
