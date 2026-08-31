@@ -33,6 +33,26 @@ The only repository-authorized protected Staging start is the installed zero-arg
 
 Registry readers can obtain the accepted Next framework material, so registry read access is security-sensitive. Keep immutable digest storage private, least-read and audited; retain one separately protected complete replica and the detached evidence. If every subject or required evidence copy is lost, record `NEW_RELEASE_REQUIRED` and begin a newly authorized release. Do not infer or reconstruct the old digest.
 
+### S6-05 successor custody and post-emission gate
+
+Use `deploy/scripts/preflight-release-compose.mjs`; do not reconstruct an ad hoc root-Compose harness. The supplied owner endpoint must be a disposable daemon with either a private containerd socket/root or a run-unique namespace distinct from outer `moby`. Every release load, inspection, Compose config/up/inspection/down and image removal uses that explicit owner. The outer endpoint may hold the disposable controller/helper lifecycle and the non-CWT custody probe, but it must never create, inspect for acceptance, tag or delete the CWT successor reference.
+
+Pre-emission procedure:
+
+1. Prove the source branch starts at the frozen Technical Escalation Candidate and changes only the approved paths.
+2. Run deployment/validator mutations, focused S6-05 checks, one full Vitest, Lint, strict TypeScript, AI Prompt/history and exact AI architecture, a fresh Next build followed immediately by the public-bundle check, and the Production dependency audit.
+3. Run `self-test` with explicit `--owner-host`, `--outer-host` and a run-unique `--token`. Record only the sanitized owner version, snapshotter status, socket identity class, namespace class, digest result and cleanup result. Stop and clean the owner before continuing.
+4. Commit the implementation and report/manifest skeletons. Require a clean committed HEAD before the sole Build Once invocation.
+
+Post-emission procedure:
+
+1. Supply the new absolute release record, OCI layout and an absent absolute evidence directory to `validate`; never use a revoked predecessor, tag-only reference, Registry, Provider or protected host.
+2. Gate-open occurs once, after exact same-daemon index/child/revision resolution and before the first subject runtime action. One unchanged root `compose.yaml` positive uses the digest-qualified index with `--pull never --no-build`.
+3. Preserve the evidence JSON and hash, then remove direct containers, mutation project, positive Compose consumers and networks. Only after zero consumers may the owner remove `Q`/`T` and pinned dependency references. Stop the owner, unmount/remove only its exact run-local roots and prove the endpoint/controller/bridge/mounts are absent.
+4. Re-verify `built`, no revocation and no lifecycle transition. Independent Review is the next gate.
+
+Failure classification is prospective and must remain explicit. Source/static, custody, daemon, import, namespace, disk/path or Synthetic setup failures before gate-open are harness failures: block without revocation. An emitted OCI/release identity failure requires the existing immutable revocation path. A package/runtime/security/readiness/root-Compose assertion against the authenticated subject after gate-open revokes the exact index. Cleanup-only failure blocks without revocation and must not be presented as Product evidence. Never retry Build Once or emit a second successor in the same task.
+
 ## Migration and rollback
 
 Back up the target database before a production migration. Apply committed migrations in order and run relationship verification. Application rollback may use the preceding release only when its schema remains forward-compatible. Destructive or data-rewriting migrations require a separate approved ADR, rehearsed restore, and explicit maintenance plan; none exist in Phase 1A.

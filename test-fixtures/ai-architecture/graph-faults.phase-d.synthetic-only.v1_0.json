@@ -470,7 +470,8 @@
               "deploy/scripts/preflight-compose-graph.mjs",
               "deploy/scripts/preflight-image.mjs",
               "deploy/scripts/preflight-proxy-config.mjs",
-              "deploy/scripts/preflight-proxy-ranges.mjs"
+              "deploy/scripts/preflight-proxy-ranges.mjs",
+              "deploy/scripts/preflight-release-compose.mjs"
             ],
             "testSemantic": false
           },
@@ -1395,7 +1396,7 @@
         "/phaseCSyntheticAuthority",
         "/phaseCSyntheticMutationProbeIds"
       ],
-        "sha256": "6a393785b29d1426cfa9265a4afcb3bac123a2b10271c4771fe73869cf913633"
+        "sha256": "6e2c6a05a709935428d2bd3e0956c45bd98e5b1af2eac410f0907f5650d2e127"
     },
     "profileVersion": "1.0.0",
     "proofArtifactContracts": {

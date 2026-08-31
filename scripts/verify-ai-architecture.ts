@@ -17,8 +17,8 @@ import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json";
 const fixturePath = "test-fixtures/ai/deepseek-synthetic-contract.v1.json";
-const expectedProfileFileHash = "0affb8039548f79cadc4180570317e84ef484744de7e5c10119d2675700d2c40";
-const expectedProfileIntegrityHash = "6a393785b29d1426cfa9265a4afcb3bac123a2b10271c4771fe73869cf913633";
+const expectedProfileFileHash = "3082a5e7cb79b8b199a55a227b6b1fe997a33677d926d07754a5303f7183d72f";
+const expectedProfileIntegrityHash = "6e2c6a05a709935428d2bd3e0956c45bd98e5b1af2eac410f0907f5650d2e127";
 const expectedFixtureHash = "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42";
 const acceptedS25Commit = "d7655385e37330927c53e60fbb108b56950c9794";
 const acceptedS25Tree = "db18f7fdb545d91ad37280af6cc6822b78d6cfd6";
