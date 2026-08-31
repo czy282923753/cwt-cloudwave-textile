@@ -160,7 +160,9 @@ services:
     volumes:
       - /srv/cwt/postgresql/data:/var/lib/postgresql
       - ./deploy/postgres/init-environments.sh:/docker-entrypoint-initdb.d/10-cwt-environments.sh:ro
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=33554432,uid=999,gid=999,mode=0700, /var/run/postgresql:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0750]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=33554432,uid=999,gid=999,mode=0700"
+      - "/var/run/postgresql:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0750"
     networks: [production-database, staging-database]
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U cwt_bootstrap -d postgres | grep -q 'accepting connections'"]
@@ -183,7 +185,8 @@ services:
     entrypoint: [/opt/cwt/valkey-entrypoint.sh, production]
     secrets: [production-valkey-password]
     volumes: [./deploy/valkey/entrypoint.sh:/opt/cwt/valkey-entrypoint.sh:ro]
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700"
     networks: [production-backend]
     healthcheck:
       test: [CMD-SHELL, "REDISCLI_AUTH=$$(cat /run/secrets/production-valkey-password) valkey-cli --user cwt-production ping | grep -qx PONG"]
@@ -246,7 +249,8 @@ services:
     entrypoint: [/opt/cwt/valkey-entrypoint.sh, staging]
     secrets: [staging-valkey-password]
     volumes: [./deploy/valkey/entrypoint.sh:/opt/cwt/valkey-entrypoint.sh:ro]
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700"
     networks: [staging-backend]
     healthcheck:
       test: [CMD-SHELL, "REDISCLI_AUTH=$$(cat /run/secrets/staging-valkey-password) valkey-cli --user cwt-staging ping | grep -qx PONG"]

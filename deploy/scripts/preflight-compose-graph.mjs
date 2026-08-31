@@ -60,6 +60,19 @@ const exactWebHealthcheck = [
 ];
 const exactApplicationBindHostname = "0.0.0.0";
 const exactWebHealthHostname = "127.0.0.1";
+const exactInfrastructureTmpfs = Object.freeze({
+  postgres: Object.freeze([
+    "/tmp:rw,noexec,nosuid,nodev,size=33554432,uid=999,gid=999,mode=0700",
+    "/var/run/postgresql:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0750",
+  ]),
+  "valkey-production": Object.freeze([
+    "/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700",
+  ]),
+  "valkey-staging": Object.freeze([
+    "/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=999,gid=999,mode=0700",
+  ]),
+});
+const standaloneTmpfsOption = /^(?:rw|ro|exec|noexec|suid|nosuid|dev|nodev|size=\d+|uid=\d+|gid=\d+|mode=[0-7]+)$/u;
 
 function fail(message) { throw new Error(`Compose graph refused: ${message}`); }
 function sorted(value) { return [...value].sort(); }
@@ -145,6 +158,12 @@ export function validateComposeGraph(document) {
     if (healthHostname !== exactWebHealthHostname || service.environment.HOSTNAME !== exactApplicationBindHostname) {
       fail(`${name} bind and loopback health authority diverged`);
     }
+  }
+  for (const [name, expected] of Object.entries(exactInfrastructureTmpfs)) {
+    if (JSON.stringify(services[name].tmpfs) !== JSON.stringify(expected)) fail(`${name} tmpfs authority drifted`);
+  }
+  for (const [name, service] of Object.entries(services)) {
+    if ((service.tmpfs ?? []).some((entry) => standaloneTmpfsOption.test(entry))) fail(`${name} contains a split tmpfs option fragment`);
   }
   for (const environment of ["production", "staging"]) {
     const scheduler = services[`scheduler-${environment}`];

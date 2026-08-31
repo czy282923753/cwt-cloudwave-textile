@@ -61,6 +61,12 @@ for (const [name, mutate] of [
   ["application readiness healthcheck", (value) => { value.services["web-production"].healthcheck.test[3] = "fetch('http://127.0.0.1:3000/robots.txt')"; }],
   ["hostname-derived health target", (value) => { value.services["web-production"].healthcheck.test[3] = "fetch(`http://${process.env.HOSTNAME}:3000/api/health/ready/`)"; }],
   ["non-loopback health target", (value) => { value.services["web-staging"].healthcheck.test[3] = "fetch('http://0.0.0.0:3000/api/health/ready/')"; }],
+  ["missing PostgreSQL tmpfs mount", (value) => { value.services.postgres.tmpfs.pop(); }],
+  ["wrong Valkey tmpfs options", (value) => { value.services["valkey-production"].tmpfs[0] = value.services["valkey-production"].tmpfs[0].replace("size=16777216", "size=1"); }],
+  ["split tmpfs option fragments", (value) => { value.services["valkey-staging"].tmpfs = ["/tmp:rw", "noexec", "uid=999", "gid=999", "mode=0700"]; }],
+  ["extra PostgreSQL tmpfs mount", (value) => { value.services.postgres.tmpfs.push("/unexpected:rw,noexec,nosuid,nodev,size=1,uid=999,gid=999,mode=0700"); }],
+  ["wrong PostgreSQL tmpfs path", (value) => { value.services.postgres.tmpfs[0] = value.services.postgres.tmpfs[0].replace("/tmp:", "/var/tmp:"); }],
+  ["weakened Valkey tmpfs permission", (value) => { value.services["valkey-staging"].tmpfs[0] = value.services["valkey-staging"].tmpfs[0].replace("mode=0700", "mode=0755"); }],
   ["non-journald logging", (value) => { value.services["worker-staging"].logging.driver = "json-file"; }],
   ["cross-environment backup evidence", (value) => {
     const mount = value.services["scheduler-production"].volumes.find((entry) => entry.target.includes("/backups/postgresql/"));
