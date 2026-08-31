@@ -77,7 +77,10 @@ try {
   for (const platform of platforms) {
     const architecture = platform.split("/")[1];
     const destination = resolve(temporary, `deps-${architecture}`);
-    run("docker", ["buildx", "build", "--no-cache", "--platform", platform, "--target", "dependency-bundle", "--output", `type=local,dest=${destination}`, "."]);
+    const archivePath = resolve(temporary, `deps-${architecture}.tar`);
+    run("docker", ["buildx", "build", "--no-cache", "--platform", platform, "--target", "dependency-bundle", "--output", `type=tar,dest=${archivePath}`, "."]);
+    mkdirSync(destination);
+    run("tar", ["-xf", archivePath, "-C", destination]);
     dependencyHashes[platform] = fileTreeHash(destination);
   }
   const layout = resolve(outputRoot, "subject.oci");
