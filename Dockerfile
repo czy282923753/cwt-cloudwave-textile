@@ -5,7 +5,7 @@ ARG NODE_IMAGE=node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4
 FROM ${NODE_IMAGE} AS dependency-acquisition
 ARG TARGETARCH
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack enable \
   && corepack prepare pnpm@11.9.0 --activate \
   && test "$(pnpm --version)" = "11.9.0" \
@@ -65,9 +65,9 @@ ENV CWT_RELEASE_ID=${CWT_RELEASE_ID} \
 WORKDIR /app
 COPY --from=dependency-input /pnpm-store /opt/pnpm/store
 COPY --from=dependency-input /pnpm /opt/pnpm/runtime
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --network=none test "$(node /opt/pnpm/runtime/bin/pnpm.cjs --version)" = "11.9.0" \
-  && node /opt/pnpm/runtime/bin/pnpm.cjs install --offline --frozen-lockfile --store-dir /opt/pnpm/store
+  && node /opt/pnpm/runtime/bin/pnpm.cjs install --offline --frozen-lockfile --trust-lockfile --store-dir /opt/pnpm/store
 COPY . .
 RUN --network=none test "$(node --version)" = "v24.14.0" \
   && test "$(node /opt/pnpm/runtime/bin/pnpm.cjs --version)" = "11.9.0" \
