@@ -51,6 +51,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return response;
   }
   const sourcePath = normalizePath(request.nextUrl.pathname);
+  if (sourcePath === "/api/health/live/" || sourcePath === "/api/health/ready/") {
+    return applyRuntimeResponsePolicy(NextResponse.next());
+  }
   const destinationPath = await findRedirect(sourcePath);
   if (!destinationPath) return applyRuntimeResponsePolicy(NextResponse.next());
   const destination = request.nextUrl.clone();
