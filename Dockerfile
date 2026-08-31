@@ -18,12 +18,12 @@ RUN TARGETARCH="${TARGETARCH}" node <<'EOF'
 const { createHash } = require("node:crypto");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 (async () => {
-async function fetchWithRetry(url) {
+async function fetchBytesWithRetry(url) {
   let lastFailure;
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-      if (response.ok) return response;
+      const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      if (response.ok) return Buffer.from(await response.arrayBuffer());
       lastFailure = new Error(`HTTP ${response.status}`);
     } catch (error) {
       lastFailure = error;
@@ -38,8 +38,7 @@ const identities = {
 };
 const identity = identities[process.env.TARGETARCH];
 if (!identity) throw new Error("Unsupported dependency platform.");
-const response = await fetchWithRetry(`https://github.com/aptible/supercronic/releases/download/v0.2.48/${identity.asset}`);
-const bytes = Buffer.from(await response.arrayBuffer());
+const bytes = await fetchBytesWithRetry(`https://github.com/aptible/supercronic/releases/download/v0.2.48/${identity.asset}`);
 if (createHash("sha256").update(bytes).digest("hex") !== identity.sha256) {
   throw new Error("Supercronic checksum mismatch.");
 }
