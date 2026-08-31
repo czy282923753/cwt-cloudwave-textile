@@ -11,5 +11,6 @@ test("accepts the exact proxy config and lab range", () => {
 
 test("rejects raw forwarded authority and broad ranges", () => {
   assert.throws(() => validateProxyConfig(readFileSync("deploy/proxy/nginx.conf", "utf8").replace('proxy_set_header X-Forwarded-For "";', "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")), /refused/u);
+  assert.throws(() => validateProxyConfig(readFileSync("deploy/proxy/nginx.conf", "utf8").replace("fastcgi_temp_path /tmp/fastcgi;", "fastcgi_temp_path /var/cache/nginx/fastcgi_temp;")), /refused/u);
   assert.throws(() => validateProxyRanges("set_real_ip_from 0.0.0.0/0;\nreal_ip_header X-Forwarded-For;\nreal_ip_recursive off;\n"), /refused/u);
 });
