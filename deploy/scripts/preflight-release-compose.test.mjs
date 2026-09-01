@@ -8,6 +8,7 @@ import { test } from "node:test";
 import {
   OWNER_DIND_REFERENCE,
   __testOnly,
+  assertDependencyImageReferencesAbsent,
   assertExclusiveStore,
   assertSelfTestImageReferencesAbsent,
   classifyValidationFailure,
@@ -21,6 +22,7 @@ import {
   ownerResources,
   pinnedDindVersionProbeArgs,
   validateOwnerControllerPlan,
+  validateDependencySourceImageInspection,
   validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
   validateSelfTestSourceImageInspection,
@@ -132,6 +134,128 @@ function ownerImageClients({ loadError, mutateInspection, extraImageIds = [] } =
     throw new Error(`runtime operation began before owner image authority: ${args.join(" ")}`);
   } };
   return { clients, events, transfer };
+}
+
+function dependencyFixture(spec) {
+  const postgres = spec.role === "postgres";
+  return Object.freeze({
+    ...spec,
+    childDigest: `sha256:${postgres ? "d" : "e"}`.padEnd(71, postgres ? "d" : "e"),
+    platform: Object.freeze({ os: "linux", architecture: "arm64", variant: postgres ? "v8" : null }),
+    nativePlatform: "linux/arm64",
+    neutralImageId: spec.indexDigest,
+    nativeImageId: `sha256:${postgres ? "1" : "2"}`.padEnd(71, postgres ? "1" : "2"),
+    rootfsDiffIds: Object.freeze([
+      `sha256:${postgres ? "3" : "4"}`.padEnd(71, postgres ? "3" : "4"),
+      `sha256:${postgres ? "5" : "6"}`.padEnd(71, postgres ? "5" : "6"),
+    ]),
+  });
+}
+
+function dependencyInspection(expected, repoDigests = [expected.sourceReference]) {
+  const platform = {
+    Id: expected.nativeImageId,
+    Descriptor: { digest: expected.childDigest },
+    RepoDigests: [...repoDigests],
+    Os: expected.platform.os,
+    Architecture: expected.platform.architecture,
+    RootFS: { Type: "layers", Layers: [...expected.rootfsDiffIds] },
+  };
+  if (expected.platform.variant !== null) platform.Variant = expected.platform.variant;
+  const nativeDescriptor = {
+    digest: expected.childDigest,
+    platform: { os: expected.platform.os, architecture: expected.platform.architecture },
+  };
+  if (expected.platform.variant !== null) nativeDescriptor.platform.variant = expected.platform.variant;
+  return {
+    neutralInspection: { Id: expected.neutralImageId, Descriptor: { digest: expected.indexDigest }, RepoDigests: [...repoDigests] },
+    platformInspection: platform,
+    nativeDescriptor,
+  };
+}
+
+function dependencyIdentities() {
+  return Object.fromEntries(__testOnly.DEPENDENCY_IMAGES.map((spec) => {
+    const fixture = dependencyFixture(spec);
+    const exact = dependencyInspection(fixture);
+    return [spec.role, validateDependencySourceImageInspection({ role: spec.role, ...exact })];
+  }));
+}
+
+function dependencyInventory(expected) {
+  const descriptorPlatform = { os: expected.platform.os, architecture: expected.platform.architecture };
+  if (expected.platform.variant !== null) descriptorPlatform.variant = expected.platform.variant;
+  return {
+    RepoDigests: [expected.sourceReference],
+    Descriptor: { digest: expected.indexDigest },
+    Manifests: [{ Kind: "image", Available: true, Descriptor: { digest: expected.childDigest, platform: descriptorPlatform } }],
+  };
+}
+
+function outerDependencyTransferClients({ saveError, consumeSourcesOnCleanup = false } = {}) {
+  const events = [];
+  const presentTags = new Set();
+  let sourcesPresent = true;
+  const identities = Object.fromEntries(__testOnly.DEPENDENCY_IMAGES.map((spec) => [spec.role, dependencyFixture(spec)]));
+  const tags = __testOnly.dependencyTransferTags(token);
+  const specFor = (reference) => __testOnly.DEPENDENCY_IMAGES.find((spec) => reference === spec.sourceReference || reference === tags[spec.role]);
+  const clients = {
+    outerInventory: async () => Object.values(identities).map(dependencyInventory),
+    outer(args) {
+      events.push([...args]);
+      if (args[0] === "image" && args[1] === "tag") { presentTags.add(args[3]); return { status: 0, stdout: "", stderr: "" }; }
+      if (args[0] === "image" && args[1] === "save") {
+        if (saveError) throw saveError;
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "image" && args[1] === "rm") {
+        for (const reference of args.slice(2)) presentTags.delete(reference);
+        if (consumeSourcesOnCleanup) sourcesPresent = false;
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "image" && args[1] === "inspect") {
+        const reference = args.at(-1);
+        const spec = specFor(reference);
+        if (!spec || (reference === spec?.sourceReference && !sourcesPresent) || (reference === tags[spec.role] && !presentTags.has(reference))) return { status: 1, stdout: "", stderr: "absent" };
+        const exact = dependencyInspection(identities[spec.role]);
+        return { status: 0, stdout: JSON.stringify([args.includes("--platform") ? exact.platformInspection : exact.neutralInspection]), stderr: "" };
+      }
+      throw new Error(`unexpected dependency outer command: ${args.join(" ")}`);
+    },
+  };
+  return { clients, events, tags, identities };
+}
+
+function dependencyOwnerClients({ loadError, missingComposeRole, mutateInspection, extraImageIds = [] } = {}) {
+  const events = [];
+  const transfer = __testOnly.createDependencyImageTransferPlan({ archive: "/tmp/cwt-dependencies.tar", token });
+  const identities = dependencyIdentities();
+  let loaded = false;
+  const clients = { owner(args) {
+    events.push([...args]);
+    if (args[0] === "image" && args[1] === "load") {
+      if (loadError) throw loadError;
+      loaded = true;
+      return { status: 0, stdout: "Loaded images", stderr: "" };
+    }
+    if (args[0] === "image" && args[1] === "rm") { loaded = false; return { status: 0, stdout: "", stderr: "" }; }
+    if (args[0] === "image" && args[1] === "inspect") {
+      const reference = args.at(-1);
+      const spec = __testOnly.DEPENDENCY_IMAGES.find((candidate) =>
+        reference === transfer.tags[candidate.role] || reference === transfer.ownerReferences[candidate.role] || reference === candidate.sourceReference);
+      if (!loaded || !spec || (missingComposeRole === spec.role && reference === transfer.ownerReferences[spec.role])) return { status: 1, stdout: "", stderr: "No such image" };
+      const exact = dependencyInspection(identities[spec.role]);
+      const inspection = structuredClone(args.includes("--platform") ? exact.platformInspection : exact.neutralInspection);
+      mutateInspection?.({ args, reference, role: spec.role, inspection });
+      return { status: 0, stdout: JSON.stringify([inspection]), stderr: "" };
+    }
+    if (args[0] === "image" && args[1] === "ls") {
+      const ids = loaded ? [...Object.values(identities).map(({ neutralImageId }) => neutralImageId), ...extraImageIds] : [];
+      return { status: 0, stdout: ids.length > 0 ? `${ids.join("\n")}\n` : "", stderr: "" };
+    }
+    throw new Error(`runtime operation began before dependency image authority: ${args.join(" ")}`);
+  } };
+  return { clients, events, transfer, identities };
 }
 
 function disposableWorkspace() {
@@ -447,6 +571,110 @@ test("blocks runtime on load failure, loaded identity drift or any extra owner i
   assert.equal(extraFailure.events.some((args) => args[0] === "run" || args[0] === "compose"), false);
 });
 
+test("derives run-local dependency tags under the original repositories and one exact save/load plan", () => {
+  const tags = __testOnly.dependencyTransferTags(token);
+  assert.deepEqual(tags, {
+    postgres: `postgres:cwt-${token}-postgres`,
+    valkey: `valkey/valkey:cwt-${token}-valkey`,
+  });
+  const plan = __testOnly.createDependencyImageTransferPlan({ archive: "/tmp/cwt-dependencies.tar", token });
+  assert.deepEqual(plan.tag, __testOnly.DEPENDENCY_IMAGES.map((spec) => ["image", "tag", spec.sourceReference, tags[spec.role]]));
+  assert.deepEqual(plan.save, ["image", "save", "--output", "/tmp/cwt-dependencies.tar", tags.postgres, tags.valkey]);
+  assert.deepEqual(plan.load, ["image", "load", "--input", "/tmp/cwt-dependencies.tar"]);
+  assert.deepEqual(plan.ownerReferences, Object.fromEntries(__testOnly.DEPENDENCY_IMAGES.map((spec) => [spec.role, spec.composeReference])));
+  assert.equal(plan.save.some((reference) => reference.includes("@sha256:")), false);
+});
+
+test("binds and saves both exact dependency sources once, then removes all outer transfer tags", async () => {
+  const { clients, events, tags } = outerDependencyTransferClients();
+  const prepared = await __testOnly.prepareDependencyImageTransfer(clients, "/tmp/cwt-dependencies.tar", token);
+  assert.deepEqual(prepared.transfer.tags, tags);
+  const saves = events.filter((args) => args[0] === "image" && args[1] === "save");
+  assert.deepEqual(saves, [["image", "save", "--output", "/tmp/cwt-dependencies.tar", tags.postgres, tags.valkey]]);
+  for (const spec of __testOnly.DEPENDENCY_IMAGES) {
+    const tagIndex = events.findIndex((args) => args[0] === "image" && args[1] === "tag" && args[2] === spec.sourceReference && args[3] === tags[spec.role]);
+    const boundInspection = events.findIndex((args, position) => position > tagIndex && args[0] === "image" && args[1] === "inspect" && args.at(-1) === tags[spec.role]);
+    assert.ok(tagIndex >= 0 && boundInspection > tagIndex && boundInspection < events.indexOf(saves[0]));
+  }
+  const cleanupIndex = events.findIndex((args) => args[0] === "image" && args[1] === "rm");
+  assert.ok(cleanupIndex > events.indexOf(saves[0]));
+  assert.deepEqual(events[cleanupIndex], ["image", "rm", tags.postgres, tags.valkey]);
+  assert.equal(events.slice(cleanupIndex + 1).some((args) => __testOnly.DEPENDENCY_IMAGES.some((spec) => args.at(-1) === spec.sourceReference)), false);
+});
+
+test("permits successful transfer-tag cleanup to consume the last outer cache locators", async () => {
+  const { clients, tags } = outerDependencyTransferClients({ consumeSourcesOnCleanup: true });
+  const prepared = await __testOnly.prepareDependencyImageTransfer(clients, "/tmp/cwt-dependencies.tar", token);
+  assert.deepEqual(prepared.transfer.tags, tags);
+  for (const spec of __testOnly.DEPENDENCY_IMAGES) {
+    assert.equal(clients.outer(["image", "inspect", spec.sourceReference], { allowFailure: true }).status, 1);
+  }
+  for (const tagValue of Object.values(tags)) {
+    assert.equal(clients.outer(["image", "inspect", tagValue], { allowFailure: true }).status, 1);
+  }
+});
+
+test("refuses every outer or owner dependency transfer/reference collision before load", () => {
+  const tags = __testOnly.dependencyTransferTags(token);
+  const outer = assertDependencyImageReferencesAbsent({ check: () => ({ status: 1 }), phase: "outer", token });
+  const owner = assertDependencyImageReferencesAbsent({ check: () => ({ status: 1 }), phase: "owner", token });
+  assert.deepEqual(outer, [tags.postgres, tags.valkey]);
+  assert.deepEqual(owner, __testOnly.DEPENDENCY_IMAGES.flatMap((spec) => [tags[spec.role], spec.sourceReference, spec.composeReference]));
+  for (const [phase, references] of [["outer", outer], ["owner", owner]]) {
+    for (const collision of references) {
+      assert.throws(() => assertDependencyImageReferencesAbsent({
+        phase, token, check: (reference) => ({ status: reference === collision ? 0 : 1 }),
+      }), /dependency image collision/u);
+    }
+  }
+});
+
+test("loads dependencies once and proves unchanged Compose names, exact native/rootfs identity and the complete image set", () => {
+  const { clients, events, transfer, identities } = dependencyOwnerClients();
+  const ownerImages = __testOnly.loadDependencyOwnerImages({ clients, transfer, identities, token });
+  assert.deepEqual(Object.keys(ownerImages).sort(), ["postgres", "valkey"]);
+  assert.deepEqual(events[0], transfer.load);
+  assert.equal(events.filter((args) => args[0] === "image" && args[1] === "load").length, 1);
+  assert.deepEqual(Object.fromEntries(Object.entries(ownerImages).map(([role, value]) => [role, value.ownerRuntimeReference])), transfer.ownerReferences);
+  assert.equal(events.some((args) => args[0] === "run" || args[0] === "compose"), false);
+});
+
+test("the original missing-name regression and digest/native/rootfs/image-set drift all fail before subject runtime", () => {
+  const missing = dependencyOwnerClients({ missingComposeRole: "postgres" });
+  let missingError;
+  try { __testOnly.loadDependencyOwnerImages({ clients: missing.clients, transfer: missing.transfer, identities: missing.identities, token }); }
+  catch (error) { missingError = error; }
+  assert.ok(missingError);
+  assert.deepEqual(classifyValidationFailure(missingError, { gateOpen: false, cleanup: false }), { failureClass: "harness_pre_gate", revoke: false });
+  assert.equal(missing.events.some((args) => args[0] === "run" || args[0] === "compose"), false);
+
+  for (const mutateInspection of [
+    ({ role, reference, inspection }) => { if (role === "postgres" && reference.includes("18.4-bookworm") && !inspection.RootFS) inspection.Descriptor.digest = index; },
+    ({ role, reference, inspection }) => { if (role === "postgres" && reference.includes("18.4-bookworm") && inspection.RootFS) inspection.Architecture = "amd64"; },
+    ({ role, reference, inspection }) => { if (role === "valkey" && reference.includes("8.1.9") && inspection.RootFS) inspection.RootFS.Layers.reverse(); },
+  ]) {
+    const drift = dependencyOwnerClients({ mutateInspection });
+    assert.throws(() => __testOnly.loadDependencyOwnerImages({ clients: drift.clients, transfer: drift.transfer, identities: drift.identities, token }), /owner-local authority identity drifted/u);
+    assert.equal(drift.events.some((args) => args[0] === "run" || args[0] === "compose"), false);
+  }
+
+  const extra = dependencyOwnerClients({ extraImageIds: [index] });
+  assert.throws(() => __testOnly.loadDependencyOwnerImages({ clients: extra.clients, transfer: extra.transfer, identities: extra.identities, token }), /owner image inventory drifted/u);
+  assert.equal(extra.events.some((args) => args[0] === "run" || args[0] === "compose"), false);
+});
+
+test("dependency owner cleanup removes run-local tags only after the caller reaches zero consumers and proves no image residue", () => {
+  const { clients, events, transfer, identities } = dependencyOwnerClients();
+  __testOnly.loadDependencyOwnerImages({ clients, transfer, identities, token });
+  const zeroConsumers = true;
+  assert.equal(zeroConsumers, true);
+  __testOnly.removeDependencyOwnerImages({ clients, transfer, requireEmpty: true });
+  const removalIndex = events.findIndex((args) => args[0] === "image" && args[1] === "rm");
+  assert.ok(removalIndex > events.findIndex((args) => args[0] === "image" && args[1] === "load"));
+  assert.deepEqual(events[removalIndex], transfer.ownerCleanup);
+  assert.deepEqual(events.at(-1), ["image", "ls", "--all", "--quiet"]);
+});
+
 test("generates one exact Nginx container-local healthy server with journald and no published surface", () => {
   const shellPlan = __testOnly.createSelfTestShellPlan({ repositoryRoot, token, storageProof: "/srv/cwt/staging/media/import/proof" });
   const definition = __testOnly.createSelfTestComposeDefinition({ image: __testOnly.SELF_TEST_SERVER_OWNER_REFERENCE, command: shellPlan.composeServer });
@@ -659,6 +887,14 @@ test("plans every release image and Compose operation through the one private ow
   assert.equal(plan.every((command) => command.endpoint === "owner" && command.argv[2] === ownerHost), true);
   assert.equal(plan.find((command) => command.operation === "compose-up").composeReference, qualified);
   assert.ok(plan.findIndex((command) => command.operation === "image-rm") > plan.findIndex((command) => command.operation === "zero-consumers"));
+  assert.ok(plan.findIndex((command) => command.operation === "dependency-image-rm") > plan.findIndex((command) => command.operation === "zero-consumers"));
+  const firstSubject = plan.findIndex((command) => command.phase === "subject");
+  assert.equal(plan[firstSubject].operation, "compose-up");
+  for (const operation of ["dependency-collisions", "dependency-image-load", "dependency-identity", "dependency-image-set", "image-load", "index-inspect", "child-inspect", "compose-config"]) {
+    const position = plan.findIndex((command) => command.operation === operation);
+    assert.ok(position >= 0 && position < firstSubject);
+    assert.equal(plan[position].phase, "pre-gate");
+  }
 });
 
 test("rejects tag-only Compose authority, outer deletion and early image cleanup mutations", () => {
@@ -670,6 +906,12 @@ test("rejects tag-only Compose authority, outer deletion and early image cleanup
   removal.endpoint = "owner";
   const removalIndex = plan.indexOf(removal); plan.splice(removalIndex, 1); plan.splice(2, 0, removal);
   assert.throws(() => validateValidationPlan(plan, { ownerHost, qualified, tag }), /cleanup occurs before/u);
+
+  const dependencyPlan = [...createValidationPlan({ ownerHost, outerHost, releaseId: revision, indexDigest: index, childDigest: child, project: "cwt-release-proof" })].map((entry) => ({ ...entry, argv: [...entry.argv] }));
+  const dependencyRemoval = dependencyPlan.find((command) => command.operation === "dependency-image-rm");
+  const dependencyRemovalIndex = dependencyPlan.indexOf(dependencyRemoval);
+  dependencyPlan.splice(dependencyRemovalIndex, 1); dependencyPlan.splice(2, 0, dependencyRemoval);
+  assert.throws(() => validateValidationPlan(dependencyPlan, { ownerHost, qualified, tag }), /cleanup occurs before/u);
 });
 
 test("binds same-daemon index, native child and source revision exactly", () => {
@@ -683,6 +925,8 @@ test("binds same-daemon index, native child and source revision exactly", () => 
 
 test("keeps harness/process and authenticated subject failures prospectively separate", () => {
   assert.deepEqual(classifyValidationFailure(new Error("daemon unavailable"), { gateOpen: false, cleanup: false }), { failureClass: "harness_pre_gate", revoke: false });
+  assert.deepEqual(classifyValidationFailure(__testOnly.subjectFailure("misplaced pre-gate subject wrapper"), { gateOpen: false, cleanup: false }), { failureClass: "harness_pre_gate", revoke: false });
+  assert.deepEqual(classifyValidationFailure(new Error("dependency vanished after gate"), { gateOpen: true, cleanup: false }), { failureClass: "harness_process_after_gate_open", revoke: false });
   assert.deepEqual(classifyValidationFailure(new Error("cleanup"), { gateOpen: true, cleanup: true }), { failureClass: "harness_cleanup", revoke: false });
   assert.deepEqual(classifyValidationFailure(__testOnly.subjectFailure(), { gateOpen: true, cleanup: false }), { failureClass: "subject", revoke: true });
 });

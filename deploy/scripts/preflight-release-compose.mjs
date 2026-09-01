@@ -71,10 +71,22 @@ const CONFIG_SUBJECT_NAMES = [
 ];
 const EXACT_SERVICES = ["postgres", "valkey-production", "valkey-staging", "web-production", "web-staging"];
 const APP_SERVICES = ["web-production", "web-staging"];
-const DEPENDENCY_REFERENCES = [
-  "postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
-  "valkey/valkey:8.1.9@sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327",
-];
+const DEPENDENCY_IMAGES = Object.freeze([
+  Object.freeze({
+    role: "postgres",
+    repository: "postgres",
+    composeReference: "postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+    sourceReference: "postgres@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+    indexDigest: "sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382",
+  }),
+  Object.freeze({
+    role: "valkey",
+    repository: "valkey/valkey",
+    composeReference: "valkey/valkey:8.1.9@sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327",
+    sourceReference: "valkey/valkey@sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327",
+    indexDigest: "sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327",
+  }),
+]);
 const EXPECTED_TMPFS = Object.freeze({
   postgres: Object.freeze({
     "/tmp": "rw,noexec,nosuid,nodev,size=33554432,uid=999,gid=999,mode=0700",
@@ -389,6 +401,10 @@ export function createValidationPlan({ ownerHost, outerHost, releaseId, indexDig
   const qualified = digestQualifiedReference("cwt.local/release", indexDigest);
   const owner = (phase, operation, args, extra = {}) => Object.freeze({ phase, operation, endpoint: "owner", argv: ownerDockerArgs(ownerHost, args), ...extra });
   const plan = [
+    owner("pre-gate", "dependency-collisions", ["image", "inspect", "<dependency-references>"]),
+    owner("pre-gate", "dependency-image-load", ["image", "load", "--input", "<dependency-archive>"]),
+    owner("pre-gate", "dependency-identity", ["image", "inspect", "<exact-compose-dependency-references>"]),
+    owner("pre-gate", "dependency-image-set", ["image", "ls", "--all", "--quiet", "--no-trunc"]),
     owner("pre-gate", "tag-absent", ["image", "inspect", tag]),
     owner("pre-gate", "image-load", ["image", "load", "--input", "<oci-archive>"]),
     owner("pre-gate", "index-inspect", ["image", "inspect", qualified]),
@@ -399,6 +415,7 @@ export function createValidationPlan({ ownerHost, outerHost, releaseId, indexDig
     owner("cleanup", "compose-down", ["compose", "--project-name", project, "--file", "<root-compose>", "down", "--remove-orphans"]),
     owner("cleanup", "zero-consumers", ["compose", "--project-name", project, "--file", "<root-compose>", "ps", "--all", "--quiet"]),
     owner("cleanup", "image-rm", ["image", "rm", qualified, tag]),
+    owner("cleanup", "dependency-image-rm", ["image", "rm", "<dependency-transfer-tags>"]),
   ];
   validateValidationPlan(plan, { ownerHost, qualified, tag });
   return Object.freeze(plan);
@@ -406,7 +423,7 @@ export function createValidationPlan({ ownerHost, outerHost, releaseId, indexDig
 
 export function validateValidationPlan(plan, { ownerHost, qualified, tag }) {
   if (!Array.isArray(plan) || plan.length === 0 || !qualified?.includes("@sha256:") || tag?.includes("@")) refuse("command plan reference identity is invalid");
-  let composeDown = -1; let zeroConsumers = -1; let imageRemoval = -1; let composeUp = -1;
+  let composeDown = -1; let zeroConsumers = -1; let imageRemoval = -1; let dependencyRemoval = -1; let composeUp = -1;
   for (const [index, command] of plan.entries()) {
     if (command.endpoint !== "owner" || command.argv?.[0] !== "docker" || command.argv?.[1] !== "--host" || command.argv?.[2] !== ownerHost) {
       refuse("release operation escapes the one explicit owner endpoint");
@@ -422,9 +439,10 @@ export function validateValidationPlan(plan, { ownerHost, qualified, tag }) {
     if (command.operation === "compose-down") composeDown = index;
     if (command.operation === "zero-consumers") zeroConsumers = index;
     if (command.operation === "image-rm") imageRemoval = index;
+    if (command.operation === "dependency-image-rm") dependencyRemoval = index;
   }
-  if (composeUp < 0 || composeDown < composeUp || zeroConsumers < composeDown || imageRemoval < zeroConsumers) refuse("release reference cleanup occurs before consumer teardown");
-  if (plan.some((command) => command.operation === "image-rm" && command.endpoint !== "owner")) refuse("outer deletion is prohibited");
+  if (composeUp < 0 || composeDown < composeUp || zeroConsumers < composeDown || imageRemoval < zeroConsumers || dependencyRemoval < zeroConsumers) refuse("release reference cleanup occurs before consumer teardown");
+  if (plan.some((command) => ["image-rm", "dependency-image-rm"].includes(command.operation) && command.endpoint !== "owner")) refuse("outer deletion is prohibited");
   return true;
 }
 
@@ -440,9 +458,10 @@ export function validateResolvedIdentity({ expectedIndex, expectedChild, expecte
 }
 
 export function classifyValidationFailure(error, { gateOpen, cleanup }) {
-  if (error instanceof SubjectFailure) return Object.freeze({ failureClass: "subject", revoke: true });
   if (cleanup) return Object.freeze({ failureClass: "harness_cleanup", revoke: false });
-  return Object.freeze({ failureClass: gateOpen ? "harness_process_after_gate_open" : "harness_pre_gate", revoke: false });
+  if (!gateOpen) return Object.freeze({ failureClass: "harness_pre_gate", revoke: false });
+  if (error instanceof SubjectFailure) return Object.freeze({ failureClass: "subject", revoke: true });
+  return Object.freeze({ failureClass: "harness_process_after_gate_open", revoke: false });
 }
 
 function parseArgs(argv) {
@@ -553,6 +572,98 @@ function selfTestTransferTags(token) {
   return Object.freeze(Object.fromEntries(SELF_TEST_IMAGES.map(({ role }) => [role, `${SELF_TEST_CUSTODY_REPOSITORY}:${token}-${role}`])));
 }
 
+function dependencyImageSpec(role) {
+  const spec = DEPENDENCY_IMAGES.find((candidate) => candidate.role === role);
+  if (!spec) refuse("dependency image role is invalid");
+  return spec;
+}
+
+function dependencyTransferTags(token) {
+  if (!SAFE_TOKEN.test(token ?? "")) refuse("dependency transfer token is invalid");
+  return Object.freeze(Object.fromEntries(DEPENDENCY_IMAGES.map(({ role, repository }) => [role, `${repository}:cwt-${token}-${role}`])));
+}
+
+function normalizedPlatform(platform) {
+  if (platform?.os !== "linux" || platform?.architecture !== "arm64" || (platform.variant !== undefined && platform.variant !== "v8")) {
+    refuse("dependency native platform identity drifted");
+  }
+  return Object.freeze({ os: platform.os, architecture: platform.architecture, variant: platform.variant ?? null });
+}
+
+function exactDependencyNativeDescriptor(inventory, role) {
+  const spec = dependencyImageSpec(role);
+  const native = inventory?.Manifests?.filter((manifest) => manifest?.Kind === "image" && manifest?.Available === true &&
+    manifest?.Descriptor?.platform?.os === "linux" && manifest.Descriptor.platform.architecture === "arm64") ?? [];
+  if (inventory?.Descriptor?.digest !== spec.indexDigest || !inventory?.RepoDigests?.includes(spec.sourceReference) || native.length !== 1 ||
+    native[0]?.Descriptor?.digest === undefined || !DIGEST.test(native[0].Descriptor.digest)) {
+    refuse(`dependency ${role} native child inventory identity drifted`);
+  }
+  normalizedPlatform(native[0].Descriptor.platform);
+  return native[0].Descriptor;
+}
+
+function validateDependencyImageIdentity({ expected, neutralInspection, platformInspection, nativeDescriptor, stage }) {
+  if (!expected || !DEPENDENCY_IMAGES.some(({ role }) => role === expected.role) || !DIGEST.test(expected.indexDigest ?? "") ||
+    !DIGEST.test(expected.childDigest ?? "") || !Array.isArray(expected.rootfsDiffIds) || expected.rootfsDiffIds.length === 0 ||
+    expected.rootfsDiffIds.some((value) => !DIGEST.test(value)) || typeof expected.neutralImageId !== "string" || expected.neutralImageId.length === 0 ||
+    typeof expected.nativeImageId !== "string" || expected.nativeImageId.length === 0) {
+    refuse(`dependency ${expected?.role ?? "unknown"} ${stage} expected identity is incomplete`);
+  }
+  const platform = normalizedPlatform(nativeDescriptor?.platform);
+  const inspectionVariant = platformInspection?.Variant ?? null;
+  if (neutralInspection?.Descriptor?.digest !== expected.indexDigest || neutralInspection?.Id !== expected.neutralImageId ||
+    nativeDescriptor?.digest !== expected.childDigest || platform.os !== expected.platform.os || platform.architecture !== expected.platform.architecture || platform.variant !== expected.platform.variant ||
+    platformInspection?.Descriptor?.digest !== expected.childDigest || platformInspection?.Id !== expected.nativeImageId ||
+    platformInspection?.Os !== expected.platform.os || platformInspection?.Architecture !== expected.platform.architecture || inspectionVariant !== expected.platform.variant ||
+    JSON.stringify(platformInspection?.RootFS?.Layers) !== JSON.stringify(expected.rootfsDiffIds)) {
+    refuse(`dependency ${expected.role} ${stage} identity drifted`);
+  }
+  return expected;
+}
+
+function validateDependencyRepoDigest({ expected, neutralInspection, platformInspection, stage }) {
+  if (JSON.stringify(neutralInspection?.RepoDigests) !== JSON.stringify([expected.sourceReference]) ||
+    JSON.stringify(platformInspection?.RepoDigests) !== JSON.stringify([expected.sourceReference])) {
+    refuse(`dependency ${expected.role} ${stage} RepoDigest drifted`);
+  }
+  return expected;
+}
+
+export function validateDependencySourceImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor }) {
+  const spec = dependencyImageSpec(role);
+  const platform = normalizedPlatform(nativeDescriptor?.platform);
+  const expected = Object.freeze({
+    ...spec,
+    childDigest: nativeDescriptor?.digest,
+    nativePlatform: `linux/${platform.architecture}`,
+    platform,
+    neutralImageId: neutralInspection?.Id,
+    nativeImageId: platformInspection?.Id,
+    rootfsDiffIds: Object.freeze([...(platformInspection?.RootFS?.Layers ?? [])]),
+  });
+  validateDependencyImageIdentity({ expected, neutralInspection, platformInspection, nativeDescriptor, stage: "source authority" });
+  return validateDependencyRepoDigest({ expected, neutralInspection, platformInspection, stage: "source authority" });
+}
+
+export function validateDependencyTransferImageInspection({ expected, neutralInspection, platformInspection, nativeDescriptor }) {
+  return validateDependencyImageIdentity({ expected, neutralInspection, platformInspection, nativeDescriptor, stage: "transfer locator binding" });
+}
+
+function validateDependencyOwnerImageInspection({ expected, neutralInspection, platformInspection, nativeDescriptor }) {
+  validateDependencyImageIdentity({ expected, neutralInspection, platformInspection, nativeDescriptor, stage: "owner-local authority" });
+  return validateDependencyRepoDigest({ expected, neutralInspection, platformInspection, stage: "owner-local authority" });
+}
+
+export function assertDependencyImageReferencesAbsent({ check, phase, token }) {
+  if (typeof check !== "function" || !["outer", "owner"].includes(phase)) refuse("dependency collision gate inputs are invalid");
+  const tags = dependencyTransferTags(token);
+  const references = phase === "outer" ? Object.values(tags) : DEPENDENCY_IMAGES.flatMap(({ role, sourceReference, composeReference }) => [tags[role], sourceReference, composeReference]);
+  for (const reference of references) {
+    if (check(reference)?.status === 0) refuse(`${phase} dependency image collision: ${reference}`);
+  }
+  return Object.freeze([...references]);
+}
+
 export function assertSelfTestImageReferencesAbsent({ check, phase, token }) {
   if (typeof check !== "function" || !["outer", "owner"].includes(phase)) refuse("self-test collision gate inputs are invalid");
   const tags = selfTestTransferTags(token);
@@ -616,20 +727,37 @@ function validateSelfTestOwnerImageInspection({ role, neutralInspection, platfor
   return validateSelfTestDigestBoundImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest, stage: "owner-local authority" });
 }
 
+function createImageTransferPlan({ archive, images, tags, ownerReferences, label }) {
+  if (!isAbsolute(archive ?? "") || !Array.isArray(images) || images.length === 0 ||
+    JSON.stringify(Object.keys(tags ?? {}).sort()) !== JSON.stringify(images.map(({ role }) => role).sort()) ||
+    JSON.stringify(Object.keys(ownerReferences ?? {}).sort()) !== JSON.stringify(images.map(({ role }) => role).sort())) {
+    refuse(`${label} image transfer inputs are invalid`);
+  }
+  return Object.freeze({
+    tags,
+    ownerReferences,
+    tag: Object.freeze(images.map(({ role, sourceReference }) => Object.freeze(["image", "tag", sourceReference, tags[role]]))),
+    save: Object.freeze(["image", "save", "--output", archive, ...images.map(({ role }) => tags[role])]),
+    load: Object.freeze(["image", "load", "--input", archive]),
+    outerCleanup: Object.freeze(["image", "rm", ...images.map(({ role }) => tags[role])]),
+    ownerCleanup: Object.freeze(["image", "rm", ...images.map(({ role }) => tags[role])]),
+    ownerAbsence: Object.freeze(images.flatMap(({ role, sourceReference }) => [tags[role], sourceReference, ownerReferences[role]])),
+  });
+}
+
 function createSelfTestImageTransferPlan({ archive, token }) {
   if (!isAbsolute(archive ?? "")) refuse("self-test image transfer inputs are invalid");
   const tags = selfTestTransferTags(token);
   const ownerReferences = Object.freeze(Object.fromEntries(SELF_TEST_IMAGES.map(({ role }) => [role, selfTestOwnerReference(role)])));
-  return Object.freeze({
-    tags,
-    ownerReferences,
-    tag: Object.freeze(SELF_TEST_IMAGES.map(({ role, reference }) => Object.freeze(["image", "tag", reference, tags[role]]))),
-    save: Object.freeze(["image", "save", "--output", archive, ...SELF_TEST_IMAGES.map(({ role }) => tags[role])]),
-    load: Object.freeze(["image", "load", "--input", archive]),
-    outerCleanup: Object.freeze(["image", "rm", ...SELF_TEST_IMAGES.map(({ role }) => tags[role])]),
-    ownerCleanup: Object.freeze(["image", "rm", ...SELF_TEST_IMAGES.map(({ role }) => tags[role])]),
-    ownerAbsence: Object.freeze(SELF_TEST_IMAGES.flatMap(({ role }) => [tags[role], ownerReferences[role]])),
-  });
+  const images = SELF_TEST_IMAGES.map((spec) => ({ ...spec, sourceReference: spec.reference }));
+  const plan = createImageTransferPlan({ archive, images, tags, ownerReferences, label: "self-test" });
+  return Object.freeze({ ...plan, ownerAbsence: Object.freeze(SELF_TEST_IMAGES.flatMap(({ role }) => [tags[role], ownerReferences[role]])) });
+}
+
+function createDependencyImageTransferPlan({ archive, token }) {
+  const tags = dependencyTransferTags(token);
+  const ownerReferences = Object.freeze(Object.fromEntries(DEPENDENCY_IMAGES.map(({ role, composeReference }) => [role, composeReference])));
+  return createImageTransferPlan({ archive, images: DEPENDENCY_IMAGES, tags, ownerReferences, label: "dependency" });
 }
 
 async function prepareSelfTestImageTransfer(clients, archive, token) {
@@ -666,6 +794,48 @@ async function prepareSelfTestImageTransfer(clients, archive, token) {
     for (const spec of SELF_TEST_IMAGES) {
       const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.reference], { label: `Retained self-test ${spec.role} source inspection` }));
       if (neutralInspection.Descriptor?.digest !== spec.indexDigest || !neutralInspection.RepoDigests?.includes(spec.reference)) throw new HarnessFailure(`outer self-test ${spec.role} source did not survive transfer cleanup`);
+    }
+  } catch (error) { cleanupError = error; }
+  if (primaryError) {
+    if (cleanupError) Object.defineProperty(primaryError, "cleanupFailure", { value: String(cleanupError?.message ?? cleanupError), enumerable: true });
+    throw primaryError;
+  }
+  if (cleanupError) throw cleanupError;
+  return prepared;
+}
+
+async function prepareDependencyImageTransfer(clients, archive, token) {
+  const transfer = createDependencyImageTransferPlan({ archive, token });
+  let primaryError; let prepared; let outerInventory; let identities;
+  try {
+    assertDependencyImageReferencesAbsent({
+      phase: "outer", token,
+      check: (reference) => clients.outer(["image", "inspect", reference], { allowFailure: true }),
+    });
+    outerInventory = await clients.outerInventory();
+    identities = Object.fromEntries(DEPENDENCY_IMAGES.map((spec) => {
+      const inventory = outerInventory.find((entry) => entry?.RepoDigests?.includes(spec.sourceReference));
+      const nativeDescriptor = exactDependencyNativeDescriptor(inventory, spec.role);
+      const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.sourceReference], { label: `Local dependency ${spec.role} index inspection` }));
+      const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", "linux/arm64", spec.sourceReference], { label: `Local dependency ${spec.role} native inspection` }));
+      return [spec.role, validateDependencySourceImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor })];
+    }));
+    for (const command of transfer.tag) clients.outer(command, { label: "Exact source-bound dependency custody tag" });
+    for (const spec of DEPENDENCY_IMAGES) {
+      const expected = identities[spec.role];
+      const nativeDescriptor = { digest: expected.childDigest, platform: { ...expected.platform, ...(expected.platform.variant === null ? { variant: undefined } : {}) } };
+      const neutralInspection = parseInspection(clients.outer(["image", "inspect", transfer.tags[spec.role]], { label: `Outer ${spec.role} dependency custody tag inspection` }));
+      const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", expected.nativePlatform, transfer.tags[spec.role]], { label: `Outer ${spec.role} dependency custody native inspection` }));
+      validateDependencyTransferImageInspection({ expected, neutralInspection, platformInspection, nativeDescriptor });
+    }
+    clients.outer(transfer.save, { label: "Exact two-tag dependency image archive" });
+    prepared = Object.freeze({ transfer, identities: Object.freeze(identities) });
+  } catch (error) { primaryError = error; }
+  let cleanupError;
+  try {
+    clients.outer(transfer.outerCleanup, { allowFailure: true });
+    for (const reference of Object.values(transfer.tags)) {
+      if (clients.outer(["image", "inspect", reference], { allowFailure: true }).status === 0) throw new HarnessFailure(`outer dependency transfer tag survived cleanup: ${reference}`);
     }
   } catch (error) { cleanupError = error; }
   if (primaryError) {
@@ -1149,6 +1319,82 @@ function loadSelfTestOwnerImages({ clients, transfer, token }) {
   return ownerImages;
 }
 
+function dependencyNativeDescriptor(expected) {
+  return {
+    digest: expected.childDigest,
+    platform: {
+      os: expected.platform.os,
+      architecture: expected.platform.architecture,
+      ...(expected.platform.variant === null ? {} : { variant: expected.platform.variant }),
+    },
+  };
+}
+
+function inspectDependencyOwnerImages({ clients, transfer, identities }) {
+  return Object.fromEntries(DEPENDENCY_IMAGES.map((spec) => {
+    const expected = identities?.[spec.role];
+    if (!expected) refuse(`dependency ${spec.role} expected owner identity is absent`);
+    return [spec.role, Object.freeze({
+      tagNeutral: ownerImageInspection(clients, transfer.tags[spec.role]),
+      tagPlatform: ownerImageInspection(clients, transfer.tags[spec.role], expected.nativePlatform),
+      ownerNeutral: ownerImageInspection(clients, transfer.ownerReferences[spec.role]),
+      ownerPlatform: ownerImageInspection(clients, transfer.ownerReferences[spec.role], expected.nativePlatform),
+    })];
+  }));
+}
+
+export function validateDependencyOwnerImageSet({ images, identities, transferTags, token, actualImageIds, otherImageIds = [] }) {
+  const roles = DEPENDENCY_IMAGES.map(({ role }) => role).sort();
+  if (JSON.stringify(Object.keys(images ?? {}).sort()) !== JSON.stringify(roles) ||
+    JSON.stringify(Object.keys(identities ?? {}).sort()) !== JSON.stringify(roles) ||
+    JSON.stringify(Object.keys(transferTags ?? {}).sort()) !== JSON.stringify(roles) ||
+    !SAFE_TOKEN.test(token ?? "") || !Array.isArray(actualImageIds) || !Array.isArray(otherImageIds)) {
+    refuse("complete dependency owner identity gate is absent");
+  }
+  const ownerImages = Object.fromEntries(DEPENDENCY_IMAGES.map((spec) => {
+    const expected = identities[spec.role];
+    const value = images[spec.role];
+    const nativeDescriptor = dependencyNativeDescriptor(expected);
+    validateDependencyOwnerImageInspection({ expected, neutralInspection: value?.tagNeutral, platformInspection: value?.tagPlatform, nativeDescriptor });
+    validateDependencyOwnerImageInspection({ expected, neutralInspection: value?.ownerNeutral, platformInspection: value?.ownerPlatform, nativeDescriptor });
+    if (transferTags[spec.role] !== `${spec.repository}:cwt-${token}-${spec.role}` || expected.composeReference !== spec.composeReference ||
+      value?.tagNeutral?.Descriptor?.digest !== value?.ownerNeutral?.Descriptor?.digest || value?.tagNeutral?.Id !== value?.ownerNeutral?.Id ||
+      value?.tagPlatform?.Descriptor?.digest !== value?.ownerPlatform?.Descriptor?.digest || value?.tagPlatform?.Id !== value?.ownerPlatform?.Id) {
+      refuse(`dependency ${spec.role} owner tag/reference agreement drifted`);
+    }
+    return [spec.role, Object.freeze({ ...expected, transferLocator: transferTags[spec.role], ownerRuntimeReference: spec.composeReference, ownerImageId: value.ownerNeutral.Id })];
+  }));
+  const expectedIds = [...new Set([...Object.values(ownerImages).map(({ ownerImageId }) => ownerImageId), ...otherImageIds])].sort();
+  const observedIds = [...new Set(actualImageIds)].sort();
+  if (actualImageIds.length !== observedIds.length || JSON.stringify(observedIds) !== JSON.stringify(expectedIds)) refuse("dependency owner image inventory drifted");
+  return Object.freeze(ownerImages);
+}
+
+function loadDependencyOwnerImages({ clients, transfer, identities, token }) {
+  clients.owner(transfer.load, { label: "Owner exact dependency image load" });
+  const images = inspectDependencyOwnerImages({ clients, transfer, identities });
+  const actualImageIds = clients.owner(["image", "ls", "--all", "--quiet", "--no-trunc"], { label: "Owner exact dependency image set" }).stdout
+    .split("\n").map((value) => value.trim()).filter(Boolean);
+  return validateDependencyOwnerImageSet({ images, identities, transferTags: transfer.tags, token, actualImageIds });
+}
+
+function revalidateDependencyOwnerImages({ clients, transfer, identities, token, otherImageIds }) {
+  const images = inspectDependencyOwnerImages({ clients, transfer, identities });
+  const actualImageIds = clients.owner(["image", "ls", "--all", "--quiet", "--no-trunc"], { label: "Owner complete post-import image set" }).stdout
+    .split("\n").map((value) => value.trim()).filter(Boolean);
+  return validateDependencyOwnerImageSet({ images, identities, transferTags: transfer.tags, token, actualImageIds, otherImageIds });
+}
+
+function removeDependencyOwnerImages({ clients, transfer, requireEmpty }) {
+  clients.owner(transfer.ownerCleanup, { allowFailure: true, label: "Owner exact dependency custody-tag cleanup" });
+  for (const reference of transfer.ownerAbsence) {
+    if (clients.owner(["image", "inspect", reference], { allowFailure: true }).status === 0) throw new HarnessFailure(`owner dependency image survived cleanup: ${reference}`);
+  }
+  if (requireEmpty && clients.owner(["image", "ls", "--all", "--quiet"], { label: "Owner empty image-list cleanup proof" }).stdout.trim() !== "") {
+    throw new HarnessFailure("owner image list survived dependency cleanup");
+  }
+}
+
 async function waitForComposeHealth(compose) {
   for (let attempt = 0; attempt < 240; attempt += 1) {
     const states = Object.fromEntries(EXACT_SERVICES.map((service) => {
@@ -1415,15 +1661,17 @@ async function validateRelease(args) {
   const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot });
   const clients = createDockerClients({ resources, outerHost, helperImage: OWNER_HELPER_REFERENCE, repositoryRoot, releaseRoot, workspace });
   const rootCompose = resolve(repositoryRoot, "compose.yaml");
-  let gateOpen = false; let cleanupPhase = false; let imported = false; let dependencyImported = false; let ownerCleanupRequired = false;
+  let gateOpen = false; let cleanupPhase = false; let imported = false; let dependencyCleanupRequired = false; let ownerCleanupRequired = false;
   let qualified; let tag; let indexDigest; let releaseId; let nativeChild; let nativePlatform; let project;
-  let outcome; let compose; let mutationComposeClient; let primaryError; let failureClassification;
+  let outcome; let compose; let mutationComposeClient; let primaryError; let failureClassification; let dependencyPreparation; let dependencyOwnerImages;
   try {
     const verified = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     releaseId = verified.record.releaseId; indexDigest = verified.inventory.indexDigest;
     const configRoot = createSyntheticConfiguration(workspace, releaseId);
     const pinned = verifyPinnedOwnerImages(clients, workspace);
     const projectionPlan = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
+    const dependencyArchive = resolve(workspace, "dependencies.tar");
+    dependencyPreparation = await prepareDependencyImageTransfer(clients, dependencyArchive, token);
     ownerCleanupRequired = true;
     createOwnerVolumes(clients, plan);
     populateOwnerVolumes(clients, projectionPlan);
@@ -1436,19 +1684,28 @@ async function validateRelease(args) {
     nativeChild = native.manifestDigest; qualified = digestQualifiedReference("cwt.local/release", indexDigest); tag = `cwt.local/release:${releaseId}`;
     project = `cwt-${token}`;
     createValidationPlan({ ownerHost: resources.ownerHost, outerHost, releaseId, indexDigest, childDigest: nativeChild, project });
-    if (clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) refuse("release tag pre-exists in validation owner");
+    assertDependencyImageReferencesAbsent({
+      phase: "owner", token,
+      check: (reference) => clients.owner(["image", "inspect", reference], { allowFailure: true }),
+    });
+    if (clients.owner(["image", "ls", "--all", "--quiet"], { label: "Owner empty dependency image-list precondition" }).stdout.trim() !== "") refuse("validation owner image list is not empty before dependency load");
+    dependencyCleanupRequired = true;
+    dependencyOwnerImages = loadDependencyOwnerImages({ clients, transfer: dependencyPreparation.transfer, identities: dependencyPreparation.identities, token });
+    if (clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0 || clients.owner(["image", "inspect", qualified], { allowFailure: true }).status === 0) {
+      refuse("release reference pre-exists in validation owner");
+    }
 
     const archive = resolve(workspace, "subject.oci.tar"); createOciArchive(ociRoot, archive);
-    clients.owner(["image", "load", "--input", archive], { label: "owner OCI import" }); imported = true;
+    imported = true;
+    clients.owner(["image", "load", "--input", archive], { label: "owner OCI import" });
     const neutralInspection = ownerImageInspection(clients, qualified);
     const platformInspection = ownerImageInspection(clients, qualified, nativePlatform);
     validateResolvedIdentity({ expectedIndex: indexDigest, expectedChild: nativeChild, expectedRevision: releaseId, neutralInspection, platformInspection });
     const afterImport = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     if (afterImport.state !== "built" || afterImport.inventory.indexDigest !== indexDigest) refuse("release record changed during owner import");
-
-    const dependencyArchive = resolve(workspace, "dependencies.tar");
-    clients.outer(["image", "save", "--output", dependencyArchive, ...DEPENDENCY_REFERENCES], { label: "pinned dependency archive" });
-    clients.owner(["image", "load", "--input", dependencyArchive], { label: "owner dependency import" }); dependencyImported = true;
+    dependencyOwnerImages = revalidateDependencyOwnerImages({
+      clients, transfer: dependencyPreparation.transfer, identities: dependencyPreparation.identities, token, otherImageIds: [neutralInspection.Id],
+    });
     const environment = composeEnvironment({ qualified, indexDigest, childDigest: nativeChild, repositoryRoot });
     compose = createComposeClient({ clients, project, repositoryRoot, composeFile: rootCompose, environment });
     const normalized = JSON.parse(compose(["--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], { label: "owner Compose normalization" }).stdout);
@@ -1466,6 +1723,11 @@ async function validateRelease(args) {
     mutationComposeClient = createComposeClient({ clients, project: mutationProject, repositoryRoot, composeFile: mutationCompose, environment });
     const mutated = JSON.parse(mutationComposeClient(["--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], { label: "mutated Compose normalization" }).stdout);
     assert.throws(() => validateComposeGraph(mutated, { projectName: mutationProject }), /tmpfs authority drifted|split tmpfs option fragment/u);
+    const negative = mutationComposeClient(["create", "--pull", "never", "valkey-staging"], { allowFailure: true });
+    if (negative.status === 0 || !/invalid mount path|mount path must be absolute/u.test(`${negative.stderr}\n${negative.stdout}`)) refuse("split-tmpfs Compose mutation was not rejected");
+    const negativeRunning = mutationComposeClient(["ps", "--status", "running", "--quiet"], { allowFailure: true }).stdout.trim();
+    if (negativeRunning !== "") refuse("split-tmpfs mutation created a running container");
+    mutationComposeClient(["down", "--remove-orphans"], { allowFailure: true });
 
     gateOpen = true;
     await subjectOperation(() => compose(["up", "--detach", "--pull", "never", "--no-build", ...EXACT_SERVICES], { label: "authoritative root Compose up" }), "root Compose up failed");
@@ -1496,19 +1758,13 @@ async function validateRelease(args) {
 
     const direct = await runDirectMatrix({ clients, qualified, nativePlatform, nativeChild, nonNativePlatform: nonNative.platform, nonNativeChild: nonNative.manifestDigest, project, token });
 
-    const negative = mutationComposeClient(["create", "--pull", "never", "valkey-staging"], { allowFailure: true });
-    if (negative.status === 0 || !/invalid mount path|mount path must be absolute/u.test(`${negative.stderr}\n${negative.stdout}`)) subjectRefuse("split-tmpfs Compose mutation was not rejected");
-    const negativeRunning = mutationComposeClient(["ps", "--status", "running", "--quiet"], { allowFailure: true }).stdout.trim();
-    if (negativeRunning !== "") subjectRefuse("split-tmpfs mutation created a running container");
-    mutationComposeClient(["down", "--remove-orphans"], { allowFailure: true });
-
     cleanupPhase = true;
     compose(["down", "--remove-orphans"], { label: "authoritative root Compose down" });
     if (compose(["ps", "--all", "--quiet"], { allowFailure: true }).stdout.trim() !== "") throw new HarnessFailure("Compose consumers remain after teardown");
     const remainingNetworks = clients.owner(["network", "ls", "--quiet", "--filter", `label=com.docker.compose.project=${project}`], { label: "owner zero-network proof" }).stdout.trim();
     if (remainingNetworks !== "") throw new HarnessFailure("Compose networks remain after teardown");
     clients.owner(["image", "rm", qualified, tag], { allowFailure: true }); imported = false;
-    for (const reference of DEPENDENCY_REFERENCES) clients.owner(["image", "rm", reference], { allowFailure: true }); dependencyImported = false;
+    removeDependencyOwnerImages({ clients, transfer: dependencyPreparation.transfer, requireEmpty: true }); dependencyCleanupRequired = false;
     if (clients.owner(["image", "inspect", qualified], { allowFailure: true }).status === 0 || clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) {
       throw new HarnessFailure("release reference remains after owner-only cleanup");
     }
@@ -1520,11 +1776,19 @@ async function validateRelease(args) {
       schemaVersion: 1, status: "passed", gateOpen: true, failureClass: null,
       release: { releaseId, indexDigest, qualifiedReference: qualified, nativePlatform, nativeChildDigest: nativeChild, nonNativePlatform: nonNative.platform, nonNativeChildDigest: nonNative.manifestDigest, releaseRecordSha256: sha256File(releasePath), finalState: "built", revoked: false, transitioned: false },
       owner: { ownerToken: token, serverVersion: ownerInfo.serverVersion, containerdSnapshotter: ownerInfo.snapshotter, ...isolation, pinned },
+      dependencies: {
+        saveCount: 1, loadCount: 1, outerTransferTagsRemovedBeforeOwnerLoad: true,
+        outerSourceLocatorRetentionRequired: false,
+        sourceAuthorities: Object.fromEntries(DEPENDENCY_IMAGES.map(({ role, sourceReference }) => [role, sourceReference])),
+        transferLocators: dependencyPreparation.transfer.tags,
+        composeRuntimeReferences: Object.fromEntries(Object.entries(dependencyOwnerImages).map(([role, identity]) => [role, identity.ownerRuntimeReference])),
+        ownerIdentity: "pass", nativeRootfsIdentity: "pass", completeImageSet: "pass",
+      },
       rootCompose: { path: "compose.yaml", sha256: sha256File(rootCompose), positiveRuns: 1, files: ["compose.yaml"], overrides: 0, services: healthStates, networks: networkEvidence, exactTmpfs: "pass", hostnameAndLoopbackHealth: "pass", exactImageIdentity: "pass", publishedPorts: 0 },
       directRuntime: direct,
       mutation: { splitTmpfsRejected: true, composeCreateExitNonzero: true, zeroRunningContainers: true },
       isolation: { externalProviderCalls: 0, secretValuesRecorded: false, syntheticProtectedConfiguration: true },
-      cleanup: { consumers: 0, networks: 0, ownerReleaseReferences: 0 },
+      cleanup: { consumers: 0, networks: 0, ownerReleaseReferences: 0, ownerDependencyReferences: 0, ownerImages: 0, outerDependencyTransferTags: 0 },
     };
   } catch (error) {
     primaryError = error;
@@ -1548,7 +1812,9 @@ async function validateRelease(args) {
         attempt(() => { if (clients.owner(["network", "ls", "--quiet", "--filter", `label=com.docker.compose.project=${project}`], { allowFailure: true }).stdout.trim() !== "") { zeroConsumers = false; throw new HarnessFailure("Compose networks remain during final cleanup"); } });
       }
       if (zeroConsumers && imported && qualified && tag) attempt(() => { clients.owner(["image", "rm", qualified, tag], { allowFailure: true }); imported = false; });
-      if (zeroConsumers && dependencyImported) attempt(() => { for (const reference of DEPENDENCY_REFERENCES) clients.owner(["image", "rm", reference], { allowFailure: true }); dependencyImported = false; });
+      if (zeroConsumers && dependencyCleanupRequired && dependencyPreparation) attempt(() => {
+        removeDependencyOwnerImages({ clients, transfer: dependencyPreparation.transfer, requireEmpty: true }); dependencyCleanupRequired = false;
+      });
       let captured;
       if (ownerCleanupRequired) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
       attempt(() => removeExactSyntheticWorkspace(workspace));
@@ -1582,6 +1848,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
 }
 
 export const __testOnly = Object.freeze({
+  DEPENDENCY_IMAGES,
   EXACT_SERVICES,
   SELF_TEST_COMMUNICATION_SCRIPT,
   SELF_TEST_IMAGES,
@@ -1594,6 +1861,7 @@ export const __testOnly = Object.freeze({
   SELF_TEST_UTILITY_REFERENCE,
   captureSelfTestComposeDiagnostics,
   composeArgs,
+  createDependencyImageTransferPlan,
   createSelfTestComposeDefinition,
   createSelfTestImageTransferPlan,
   createSelfTestShellPlan,
@@ -1603,8 +1871,12 @@ export const __testOnly = Object.freeze({
   fixedShellArgs,
   proveSelfTestComposeCommunication,
   loadSelfTestOwnerImages,
+  loadDependencyOwnerImages,
+  prepareDependencyImageTransfer,
   prepareSelfTestImageTransfer,
   removeExactSyntheticWorkspace,
+  removeDependencyOwnerImages,
+  dependencyTransferTags,
   selfTestTransferTags,
   subjectFailure: (message = "subject") => new SubjectFailure(message),
 });
