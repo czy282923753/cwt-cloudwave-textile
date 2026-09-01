@@ -24,7 +24,8 @@ import {
   validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
   validateSelfTestImageArchiveMetadata,
-  validateSelfTestImageInspection,
+  validateSelfTestSourceImageInspection,
+  validateSelfTestTransferImageInspection,
   validateSelfTestOwnerImageSet,
   validateSelfTestComposeDefinition,
   validateSelfTestServerState,
@@ -238,10 +239,10 @@ test("freezes both exact source indexes and complete native config/layer/rootfs 
   assert.equal(__testOnly.SELF_TEST_NATIVE_PLATFORM, "linux/arm64/v8");
 });
 
-test("rejects source/tag binding drift in index, native child, platform, RepoDigest or rootfs", () => {
+test("keeps original source authority strict across RepoDigest and immutable image identity", () => {
   for (const spec of __testOnly.SELF_TEST_IMAGES) {
     const exact = selfTestInspection(spec, spec.reference);
-    const identity = validateSelfTestImageInspection({ role: spec.role, ...exact, expectedRepoDigest: spec.reference });
+    const identity = validateSelfTestSourceImageInspection({ role: spec.role, ...exact, expectedRepoDigest: spec.reference });
     assert.equal(identity.sourceAuthority, spec.reference);
     assert.equal(identity.ownerRuntimeReference, `cwt.local/custody@${spec.indexDigest}`);
     for (const mutate of [
@@ -249,12 +250,65 @@ test("rejects source/tag binding drift in index, native child, platform, RepoDig
       (value) => { value.nativeDescriptor.digest = child; },
       (value) => { value.platformInspection.Architecture = "amd64"; value.platformInspection.Variant = undefined; },
       (value) => { value.platformInspection.RootFS.Layers[0] = index; },
-      (value) => { value.neutralInspection.RepoDigests = ["alpine:3.22"]; },
+      (value) => { delete value.neutralInspection.RepoDigests; },
+      (value) => { value.neutralInspection.RepoDigests = []; },
+      (value) => { value.neutralInspection.RepoDigests.push(`wrong@${spec.indexDigest}`); },
+      (value) => { value.neutralInspection.RepoDigests = [`wrong@${spec.indexDigest}`]; },
+      (value) => { value.platformInspection.RepoDigests = []; },
+      (value) => { value.platformInspection.RepoDigests.push(`wrong@${spec.indexDigest}`); },
+      (value) => { value.platformInspection.RepoDigests = [`wrong@${spec.indexDigest}`]; },
     ]) {
       const mutation = structuredClone(exact); mutate(mutation);
-      assert.throws(() => validateSelfTestImageInspection({ role: spec.role, ...mutation, expectedRepoDigest: spec.reference }), /identity drifted/u);
+      assert.throws(() => validateSelfTestSourceImageInspection({ role: spec.role, ...mutation, expectedRepoDigest: spec.reference }), /source authority (?:identity|RepoDigest) drifted/u);
     }
   }
+});
+
+test("binds transfer locators by exact image identity without treating tag RepoDigests as source authority", () => {
+  for (const spec of __testOnly.SELF_TEST_IMAGES) {
+    for (const repoDigests of [undefined, [], [spec.reference], [`cwt.local/custody@${spec.indexDigest}`], [spec.reference, `cwt.local/custody@${spec.indexDigest}`]]) {
+      const exact = selfTestInspection(spec, spec.reference);
+      exact.neutralInspection.RepoDigests = repoDigests;
+      exact.platformInspection.RepoDigests = repoDigests;
+      const identity = validateSelfTestTransferImageInspection({ role: spec.role, ...exact });
+      assert.equal(identity.indexDigest, spec.indexDigest);
+      assert.equal(identity.childDigest, spec.childDigest);
+    }
+    const exact = selfTestInspection(spec, spec.reference);
+    for (const mutate of [
+      (value) => { value.neutralInspection.Descriptor.digest = index; },
+      (value) => { value.nativeDescriptor.digest = child; },
+      (value) => { value.nativeDescriptor.platform.architecture = "amd64"; },
+      (value) => { value.platformInspection.Architecture = "amd64"; value.platformInspection.Variant = undefined; },
+      (value) => { value.platformInspection.RootFS.Layers[0] = index; },
+    ]) {
+      const mutation = structuredClone(exact); mutate(mutation);
+      assert.throws(() => validateSelfTestTransferImageInspection({ role: spec.role, ...mutation }), /transfer locator binding identity drifted/u);
+    }
+  }
+});
+
+test("uses source authority only for immutable source refs and transfer binding only after exact tag creation", () => {
+  const source = readFileSync(new URL("./preflight-release-compose.mjs", import.meta.url), "utf8");
+  const preparation = source.slice(source.indexOf("async function prepareSelfTestImageArchive"), source.indexOf("export function validateSelfTestOwnerImageSet"));
+  const sourceCalls = [...preparation.matchAll(/validateSelfTestSourceImageInspection\(\{[^;]+/gu)].map(([call]) => call);
+  const transferCalls = [...preparation.matchAll(/validateSelfTestTransferImageInspection\(\{[^;]+/gu)].map(([call]) => call);
+  const tagCreation = preparation.indexOf("for (const command of transfer.tag)");
+  const neutralTransferInspection = preparation.indexOf('["image", "inspect", transfer.tags[spec.role]]');
+  const platformTransferInspection = preparation.indexOf('["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, transfer.tags[spec.role]]');
+  const transferValidation = preparation.indexOf("validateSelfTestTransferImageInspection", tagCreation);
+  assert.equal(sourceCalls.length, 1);
+  assert.equal(sourceCalls[0].includes("expectedRepoDigest: spec.reference"), true);
+  assert.equal(sourceCalls[0].includes("transfer.tags"), false);
+  assert.equal(transferCalls.length, 1);
+  assert.equal(transferCalls[0].includes("expectedRepoDigest"), false);
+  assert.equal(transferCalls[0].includes("neutralInspection, platformInspection"), true);
+  assert.equal(transferCalls[0].includes("exactNativeDescriptor"), true);
+  assert.equal(preparation.indexOf("validateSelfTestSourceImageInspection") < tagCreation, true);
+  assert.equal(tagCreation < neutralTransferInspection, true);
+  assert.equal(tagCreation < platformTransferInspection, true);
+  assert.equal(neutralTransferInspection < transferValidation, true);
+  assert.equal(platformTransferInspection < transferValidation, true);
 });
 
 test("generates only deterministic role-bound custody tags and one exact save/load plan", () => {
@@ -330,7 +384,7 @@ test("requires both restored tags and both local RepoDigests before any owner ru
     (value) => { value.transferTags.utility = "cwt.local/custody:retargeted"; },
   ]) {
     const mutation = structuredClone({ images, transferTags: tags, token }); mutate(mutation);
-    assert.throws(() => validateSelfTestOwnerImageSet(mutation), /identity gate|identity drifted|agreement drifted/u);
+    assert.throws(() => validateSelfTestOwnerImageSet(mutation), /identity gate|identity drifted|RepoDigest drifted|agreement drifted/u);
   }
 });
 

@@ -573,16 +573,13 @@ function exactNativeDescriptor(inventory, role) {
   return native[0].Descriptor;
 }
 
-export function validateSelfTestImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest }) {
+function validateSelfTestImageIdentity({ role, neutralInspection, platformInspection, nativeDescriptor, stage }) {
   const spec = selfTestImageSpec(role);
   if (neutralInspection?.Descriptor?.digest !== spec.indexDigest || nativeDescriptor?.digest !== spec.childDigest ||
     nativeDescriptor?.platform?.os !== "linux" || nativeDescriptor?.platform?.architecture !== "arm64" || nativeDescriptor?.platform?.variant !== "v8" ||
     platformInspection?.Os !== "linux" || platformInspection?.Architecture !== "arm64" || platformInspection?.Variant !== "v8" ||
-    JSON.stringify(platformInspection?.RootFS?.Layers) !== JSON.stringify(spec.rootfsDiffIds) ||
-    !Array.isArray(neutralInspection?.RepoDigests) || !Array.isArray(platformInspection?.RepoDigests) ||
-    neutralInspection.RepoDigests.length !== 1 || platformInspection.RepoDigests.length !== 1 ||
-    neutralInspection.RepoDigests[0] !== expectedRepoDigest || platformInspection.RepoDigests[0] !== expectedRepoDigest) {
-    refuse(`self-test ${role} index/native inspection identity drifted`);
+    JSON.stringify(platformInspection?.RootFS?.Layers) !== JSON.stringify(spec.rootfsDiffIds)) {
+    refuse(`self-test ${role} ${stage} identity drifted`);
   }
   return Object.freeze({
     role,
@@ -595,6 +592,28 @@ export function validateSelfTestImageInspection({ role, neutralInspection, platf
     compressedLayers: spec.compressedLayers,
     rootfsDiffIds: spec.rootfsDiffIds,
   });
+}
+
+function validateSelfTestDigestBoundImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest, stage }) {
+  const identity = validateSelfTestImageIdentity({ role, neutralInspection, platformInspection, nativeDescriptor, stage });
+  if (!Array.isArray(neutralInspection?.RepoDigests) || !Array.isArray(platformInspection?.RepoDigests) ||
+    neutralInspection.RepoDigests.length !== 1 || platformInspection.RepoDigests.length !== 1 ||
+    neutralInspection.RepoDigests[0] !== expectedRepoDigest || platformInspection.RepoDigests[0] !== expectedRepoDigest) {
+    refuse(`self-test ${role} ${stage} RepoDigest drifted`);
+  }
+  return identity;
+}
+
+export function validateSelfTestSourceImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest }) {
+  return validateSelfTestDigestBoundImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest, stage: "source authority" });
+}
+
+export function validateSelfTestTransferImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor }) {
+  return validateSelfTestImageIdentity({ role, neutralInspection, platformInspection, nativeDescriptor, stage: "transfer locator binding" });
+}
+
+function validateSelfTestOwnerImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest }) {
+  return validateSelfTestDigestBoundImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest, stage: "owner-local authority" });
 }
 
 function archiveDigest(path) {
@@ -666,13 +685,13 @@ async function prepareSelfTestImageArchive(clients, archive, token) {
       const nativeDescriptor = exactNativeDescriptor(inventory, spec.role);
       const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.reference], { label: `Local self-test ${spec.role} index inspection` }));
       const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, spec.reference], { label: `Local self-test ${spec.role} native inspection` }));
-      inspections[spec.role] = validateSelfTestImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest: spec.reference });
+      inspections[spec.role] = validateSelfTestSourceImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest: spec.reference });
     }
     for (const command of transfer.tag) clients.outer(command, { label: "Exact source-bound self-test custody tag" });
     for (const spec of SELF_TEST_IMAGES) {
       const neutralInspection = parseInspection(clients.outer(["image", "inspect", transfer.tags[spec.role]], { label: `Outer ${spec.role} custody tag inspection` }));
       const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, transfer.tags[spec.role]], { label: `Outer ${spec.role} custody native inspection` }));
-      validateSelfTestImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor: exactNativeDescriptor(outerInventory.find((entry) => entry?.RepoDigests?.includes(spec.reference)), spec.role), expectedRepoDigest: spec.reference });
+      validateSelfTestTransferImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor: exactNativeDescriptor(outerInventory.find((entry) => entry?.RepoDigests?.includes(spec.reference)), spec.role) });
     }
     clients.outer(transfer.save, { label: "Exact two-tag non-CWT synthetic image archive" });
     const archiveIndex = archiveJson(archive, "index.json", "Synthetic image archive index");
@@ -1136,14 +1155,14 @@ export function validateSelfTestOwnerImageSet({ images, transferTags, token }) {
     const value = images[spec.role];
     const ownerReference = selfTestOwnerReference(spec.role);
     const nativeDescriptor = { digest: spec.childDigest, platform: { os: "linux", architecture: "arm64", variant: "v8" } };
-    const tagIdentity = validateSelfTestImageInspection({
+    const tagIdentity = validateSelfTestOwnerImageInspection({
       role: spec.role,
       neutralInspection: value?.tagNeutral,
       platformInspection: value?.tagPlatform,
       nativeDescriptor,
       expectedRepoDigest: ownerReference,
     });
-    const ownerIdentity = validateSelfTestImageInspection({
+    const ownerIdentity = validateSelfTestOwnerImageInspection({
       role: spec.role,
       neutralInspection: value?.ownerNeutral,
       platformInspection: value?.ownerPlatform,
