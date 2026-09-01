@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -292,12 +291,13 @@ function createSyntheticConfiguration(workspace, releaseId) {
       ANALYTICS_DRIVER: "disabled", FEATURE_REFINE_ADMIN: "false", FEATURE_SOURCE_DECLARATION: "false", FEATURE_AI: "false", FEATURE_SEO_ASSISTANT: "false", FEATURE_PRODUCT_IMPORT: "false", CWT_RELEASE_ID: releaseId,
     };
     writeFileSync(resolve(directory, "runtime.env"), `${Object.entries(runtime).map(([key, value]) => `${key}=${value}`).join("\n")}\n`, { mode: 0o444 });
-    chmodSync(directory, 0o555);
   }
-  chmodSync(resolve(root, "postgres"), 0o555);
   writeFileSync(resolve(root, ".cwt-release-validation"), "synthetic release validation\n", { mode: 0o444 });
-  chmodSync(root, 0o555);
   return root;
+}
+
+function removeExactSyntheticWorkspace(workspace) {
+  rmSync(workspace, { recursive: true, force: true });
 }
 
 function installSyntheticVmState(clients, configRoot, token) {
@@ -541,7 +541,7 @@ async function selfTest(args) {
     };
   } finally {
     if (ownerLoaded) { clients.owner(["image", "rm", tag, base], { allowFailure: true }); }
-    rmSync(workspace, { recursive: true, force: true });
+    removeExactSyntheticWorkspace(workspace);
   }
 }
 
@@ -594,7 +594,7 @@ async function validateRelease(args) {
     const environment = composeEnvironment({ qualified, indexDigest, childDigest: nativeChild, repositoryRoot });
     const compose = createComposeClient({ clients, ownerHost, project, repositoryRoot, composeFile: rootCompose, environment, workspace, configRoot });
     const normalized = JSON.parse(compose(["--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], { label: "owner Compose normalization" }).stdout);
-    validateComposeGraph(normalized);
+    validateComposeGraph(normalized, { projectName: project });
     for (const [service, expected] of Object.entries(EXPECTED_TMPFS_ARRAYS)) assert.deepEqual(normalized.services[service].tmpfs, expected);
 
     const mutationCompose = resolve(workspace, "compose.split-tmpfs.yaml");
@@ -604,9 +604,10 @@ async function validateRelease(args) {
     const stagingStart = source.indexOf("  valkey-staging:");
     if (stagingStart < 0 || source.slice(stagingStart).split(oldLine).length - 1 !== 1) refuse("split-tmpfs mutation anchor drifted");
     writeFileSync(mutationCompose, `${source.slice(0, stagingStart)}${source.slice(stagingStart).replace(`    tmpfs:\n${oldLine}`, replacement)}`);
-    const mutationComposeClient = createComposeClient({ clients, ownerHost, project: `${project}-mutation`, repositoryRoot, composeFile: mutationCompose, environment, workspace, configRoot });
+    const mutationProject = `${project}-mutation`;
+    const mutationComposeClient = createComposeClient({ clients, ownerHost, project: mutationProject, repositoryRoot, composeFile: mutationCompose, environment, workspace, configRoot });
     const mutated = JSON.parse(mutationComposeClient(["--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], { label: "mutated Compose normalization" }).stdout);
-    assert.throws(() => validateComposeGraph(mutated), /tmpfs authority drifted|split tmpfs option fragment/u);
+    assert.throws(() => validateComposeGraph(mutated, { projectName: mutationProject }), /tmpfs authority drifted|split tmpfs option fragment/u);
 
     gateOpen = true;
     await subjectOperation(() => compose(["up", "--detach", "--pull", "never", "--no-build", ...EXACT_SERVICES], { label: "authoritative root Compose up" }), "root Compose up failed"); composeStarted = true;
@@ -692,7 +693,7 @@ async function validateRelease(args) {
     if (imported && qualified && tag) clients.owner(["image", "rm", qualified, tag], { allowFailure: true });
     if (syntheticInstalled) { try { removeSyntheticVmState(clients, token, { allowFailure: true }); } catch {} }
     if (journalController) { try { stopJournalSink(clients, journalController, { allowFailure: true }); } catch {} }
-    rmSync(workspace, { recursive: true, force: true });
+    removeExactSyntheticWorkspace(workspace);
   }
 }
 
@@ -713,6 +714,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
 export const __testOnly = Object.freeze({
   EXACT_SERVICES,
   composeArgs,
+  createSyntheticConfiguration,
   directAppArgs,
+  removeExactSyntheticWorkspace,
   subjectFailure: (message = "subject") => new SubjectFailure(message),
 });

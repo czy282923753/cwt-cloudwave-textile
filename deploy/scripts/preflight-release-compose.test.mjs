@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -19,6 +22,11 @@ const ownerHost = "tcp://127.0.0.1:23751";
 const outerHost = "unix:///outer/docker.sock";
 const qualified = `cwt.local/release@${index}`;
 const tag = `cwt.local/release:${revision}`;
+
+function disposableWorkspace() {
+  const parent = mkdtempSync(resolve(tmpdir(), "cwt-release-finalizer-test-"));
+  return { parent, workspace: mkdtempSync(resolve(parent, "workspace-")) };
+}
 
 test("accepts only an exclusive owner containerd tuple", () => {
   assert.deepEqual(assertExclusiveStore(
@@ -73,4 +81,48 @@ test("keeps root Compose positive singular and direct roles digest-qualified wit
   assert.ok(args.includes(qualified));
   assert.equal(args.some((value) => value === "--publish" || String(value).startsWith("-p")), false);
   assert.equal(args.includes("--platform"), true);
+});
+
+test("successful synthetic workspace finalization returns the primary result and removes the exact workspace", () => {
+  const { parent, workspace } = disposableWorkspace();
+  const primaryResult = Object.freeze({ status: "primary-result" });
+  try {
+    const configRoot = __testOnly.createSyntheticConfiguration(workspace, revision);
+    for (const directory of [configRoot, resolve(configRoot, "postgres"), resolve(configRoot, "production"), resolve(configRoot, "staging")]) {
+      assert.equal(statSync(directory).mode & 0o777, 0o700);
+    }
+    for (const file of [
+      resolve(configRoot, ".cwt-release-validation"),
+      resolve(configRoot, "postgres/bootstrap-password"),
+      resolve(configRoot, "production/runtime.env"),
+      resolve(configRoot, "production/database-password"),
+      resolve(configRoot, "staging/runtime.env"),
+      resolve(configRoot, "staging/database-password"),
+    ]) assert.equal(statSync(file).mode & 0o777, 0o444);
+    const result = (() => {
+      try { return primaryResult; }
+      finally { __testOnly.removeExactSyntheticWorkspace(workspace); }
+    })();
+    assert.strictEqual(result, primaryResult);
+    assert.equal(existsSync(workspace), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("blocked pre-gate finalization rethrows the same primary error and leaves zero secret residue", () => {
+  const { parent, workspace } = disposableWorkspace();
+  const primaryError = new Error("synthetic blocked pre-gate assertion");
+  let caught;
+  try {
+    __testOnly.createSyntheticConfiguration(workspace, revision);
+    try {
+      try { throw primaryError; }
+      finally { __testOnly.removeExactSyntheticWorkspace(workspace); }
+    } catch (error) { caught = error; }
+    assert.strictEqual(caught, primaryError);
+    assert.equal(existsSync(workspace), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });

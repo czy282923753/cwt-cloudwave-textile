@@ -5,18 +5,44 @@ import { test } from "node:test";
 import { resolve } from "node:path";
 import { exactProtectedSecretFiles, validateComposeGraph } from "./preflight-compose-graph.mjs";
 
-function normalized() {
+function normalized(projectName) {
   const digestA = `sha256:${"a".repeat(64)}`;
   const digestB = `sha256:${"b".repeat(64)}`;
   const digestC = `sha256:${"c".repeat(64)}`;
-  return JSON.parse(execFileSync("docker", ["compose", "--file", resolve("compose.yaml"), "--profile", "staging", "--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], {
+  const project = projectName === undefined ? [] : ["--project-name", projectName];
+  return JSON.parse(execFileSync("docker", ["compose", ...project, "--file", resolve("compose.yaml"), "--profile", "staging", "--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], {
     encoding: "utf8",
     env: { ...process.env, CWT_IMAGE_REFERENCE: `cwt.invalid/app@${digestA}`, CWT_IMAGE_INDEX_DIGEST: digestA, CWT_IMAGE_CHILD_DIGEST: digestB, CWT_PROXY_IMAGE_REFERENCE: `cwt.invalid/proxy@${digestC}`, CWT_CLOUDFLARE_RANGES_FILE: resolve("deploy/proxy/cloudflare-ranges.lab.conf") },
   }));
 }
 
-test("accepts the frozen ten-service graph", () => {
-  assert.deepEqual(validateComposeGraph(normalized()), { services: 10, defaultBytes: 2080374784, stagingBytes: 1275068416, minimumStagingAvailableBytes: 1476395008 });
+test("accepts the default-project graph with exact default authority", () => {
+  const document = normalized();
+  assert.equal(document.name, "cwt");
+  assert.equal(document.secrets["postgres-bootstrap-password"].name, "cwt_postgres-bootstrap-password");
+  assert.deepEqual(validateComposeGraph(document), { services: 10, defaultBytes: 2080374784, stagingBytes: 1275068416, minimumStagingAvailableBytes: 1476395008 });
+});
+
+test("accepts actual dynamic Compose normalization only with its exact explicit authority", () => {
+  const projectName = "cwt-graph-dynamic-proof";
+  const document = normalized(projectName);
+  assert.equal(document.name, projectName);
+  for (const [subject, secret] of Object.entries(document.secrets)) assert.equal(secret.name, `${projectName}_${subject}`);
+  assert.deepEqual(validateComposeGraph(document, { projectName }), { services: 10, defaultBytes: 2080374784, stagingBytes: 1275068416, minimumStagingAvailableBytes: 1476395008 });
+});
+
+test("rejects an absent or mismatched requested project authority", () => {
+  const projectName = "cwt-graph-authority-proof";
+  const document = normalized(projectName);
+  assert.throws(() => validateComposeGraph(document, { projectName: "" }), /project authority is invalid/u);
+  assert.throws(() => validateComposeGraph(document, { projectName: "cwt-graph-other-proof" }), /project authority drifted/u);
+});
+
+test("rejects fixed cwt secret names under a dynamic project", () => {
+  const projectName = "cwt-graph-fixed-prefix-proof";
+  const document = normalized(projectName);
+  for (const [subject, secret] of Object.entries(document.secrets)) secret.name = `cwt_${subject}`;
+  assert.throws(() => validateComposeGraph(document, { projectName }), /top-level secret custody drifted/u);
 });
 
 test("matches every protected parser secret-file class to the root Compose closure one-to-one", () => {
@@ -48,6 +74,10 @@ for (const [name, mutate] of [
   ["runtime pnpm", (value) => { value.services["worker-staging"].command = ["pnpm", "ai:runs:process"]; }],
   ["Worker stop grace", (value) => { value.services["worker-staging"].stop_grace_period = "10s"; }],
   ["missing protected secret", (value) => { delete value.secrets["production-cos-access-key-id"]; }],
+  ["extra protected secret", (value) => { value.secrets["production-extra"] = { name: "cwt_production-extra", file: "/etc/cwt/production/extra" }; }],
+  ["wrong protected secret file", (value) => { value.secrets["postgres-bootstrap-password"].file = "/etc/cwt/postgres/wrong"; }],
+  ["protected service source drift", (value) => { value.services["web-production"].secrets[0].source = "production-auth-session-secret"; }],
+  ["protected service target drift", (value) => { value.services["worker-staging"].secrets[0].target = "/run/secrets/wrong"; }],
   ["cross-environment secret grant", (value) => {
     const secret = value.services["web-production"].secrets.find((entry) => entry.source === "production-cos-access-key-id");
     secret.source = "staging-cos-access-key-id"; secret.target = "/run/secrets/staging-cos-access-key-id";

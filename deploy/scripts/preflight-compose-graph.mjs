@@ -82,7 +82,7 @@ function secretSources(service) {
   return (service.secrets ?? []).map((secret) => secret.source);
 }
 
-function validateProtectedSecretClosure(document) {
+function validateProtectedSecretClosure(document, projectName) {
   const protectedRoles = {
     production: ["web-production", "worker-production", "scheduler-production"],
     staging: ["web-staging", "worker-staging", "scheduler-staging"],
@@ -113,7 +113,7 @@ function validateProtectedSecretClosure(document) {
   if (!same(Object.keys(document.secrets ?? {}), Object.keys(expectedTopLevel))) fail("top-level secret subject closure drifted");
   for (const [subject, file] of Object.entries(expectedTopLevel)) {
     const secret = document.secrets[subject];
-    if (secret?.file !== file || secret?.name !== `cwt_${subject}`) fail(`${subject} top-level secret custody drifted`);
+    if (secret?.file !== file || secret?.name !== `${projectName}_${subject}`) fail(`${subject} top-level secret custody drifted`);
   }
   if (!same(secretSources(document.services.postgres), ["postgres-bootstrap-password", "production-database-password", "staging-database-password"]) ||
     !same(secretSources(document.services["valkey-production"]), ["production-valkey-password"]) ||
@@ -121,15 +121,17 @@ function validateProtectedSecretClosure(document) {
     (document.services.proxy.secrets ?? []).length !== 0) fail("infrastructure secret grant drifted");
 }
 
-export function validateComposeGraph(document) {
+export function validateComposeGraph(document, { projectName = "cwt" } = {}) {
+  if (typeof projectName !== "string" || projectName.trim().length === 0) fail("project authority is invalid");
   if (!document || typeof document !== "object" || !document.services || !document.networks || !document.secrets) fail("invalid normalized document");
+  if (document.name !== projectName) fail("project authority drifted");
   const services = document.services;
   if (!same(Object.keys(services), exactServices)) fail("service set drifted");
   const defaults = Object.entries(services).filter(([, service]) => !service.profiles?.length).map(([name]) => name);
   const staging = Object.entries(services).filter(([, service]) => same(service.profiles ?? [], ["staging"])).map(([name]) => name);
   const productionAi = Object.entries(services).filter(([, service]) => same(service.profiles ?? [], ["production-ai"])).map(([name]) => name);
   if (!same(defaults, exactDefault) || !same(staging, exactStaging) || !same(productionAi, exactProductionAi)) fail("profile selection drifted");
-  validateProtectedSecretClosure(document);
+  validateProtectedSecretClosure(document, projectName);
   if (services["worker-production"].restart !== "no") fail("Production AI Worker must remain dormant and non-restarting");
   for (const [name, service] of Object.entries(services)) {
     if (service.logging?.driver !== "journald") fail(`${name} logging authority drifted`);
