@@ -594,7 +594,7 @@ export function createVolumeProjectionPlan({ resources, outerHost, configRoot, t
     "for file; do test -f \"$file\"; test \"$(stat -c %a \"$file\")\" = 444; done",
     `test \"$(find /target -type f | wc -l)\" -eq ${expectedConfig.length}`,
     "grep -qx 'synthetic release validation' /target/.cwt-release-validation",
-  ].join("; ");
+  ].join("\n");
   const storageScript = [
     "test -z \"$(find /target -mindepth 1 -print -quit)\"",
     "mkdir -p /target/production/media/public /target/production/media/private-inquiries /target/production/media/import /target/staging/media/public /target/staging/media/private-inquiries /target/staging/media/import /target/postgresql/data /target/backups/postgresql/production /target/backups/postgresql/staging",
@@ -608,7 +608,15 @@ export function createVolumeProjectionPlan({ resources, outerHost, configRoot, t
     "test -d /target/backups/postgresql/production",
     "test -d /target/backups/postgresql/staging",
   ].join("; ");
-  const journalScript = "helper_pid=$$; exec nsenter -t 1 -m -- socat UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork OPEN:/dev/null";
+  const journalScript = [
+    "helper_pid=$$",
+    "child_pid=",
+    "cleanup() { status=$?; trap - EXIT TERM INT; if test -n \"${child_pid:-}\"; then kill -TERM \"$child_pid\" 2>/dev/null || true; attempt=0; while kill -0 \"$child_pid\" 2>/dev/null; do attempt=$((attempt+1)); if test \"$attempt\" -ge 50; then kill -KILL \"$child_pid\" 2>/dev/null || true; break; fi; sleep 0.1; done; wait \"$child_pid\" 2>/dev/null || true; fi; exit \"$status\"; }",
+    "trap cleanup EXIT TERM INT",
+    "nsenter -t 1 -m -- socat UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork OPEN:/dev/null &",
+    "child_pid=$!",
+    "wait \"$child_pid\"",
+  ].join("\n");
   const exact = (args) => Object.freeze(["docker", "--host", outerHost, ...args]);
   const plan = Object.freeze({
     expectedConfig: Object.freeze(expectedConfig),
@@ -650,7 +658,10 @@ export function validateVolumeProjectionPlan(plan, { resources, outerHost, confi
   if (!config.includes(`type=bind,source=${configRoot},target=/payload,readonly`) || !config.includes(`source=${resources.configVolume},target=/target,volume-nocopy`) ||
     !storage.includes(`source=${resources.storageVolume},target=/target,volume-nocopy`) || config.includes("/srv/cwt") || storage.includes("/etc/cwt")) refuse("config/storage named-volume authority drifted");
   if (!journal.includes(`--name ${resources.journalHelper}`) || !journal.includes(`source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`) ||
-    !journal.includes("UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork") || journal.includes("UNIX-RECV:") || journal.includes("Mountpoint")) {
+    !journal.includes("helper_pid=$$") || !journal.includes("child_pid=$!") || !journal.includes("trap cleanup EXIT TERM INT") ||
+    !journal.includes("nsenter -t 1 -m -- socat UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork OPEN:/dev/null &") ||
+    !journal.includes("wait \"$child_pid\"") || !journal.includes("kill -TERM \"$child_pid\"") || !journal.includes("kill -KILL \"$child_pid\"") ||
+    journal.includes("exec nsenter") || journal.includes("UNIX-RECV:") || journal.includes("Mountpoint")) {
     refuse("journal helper authority drifted");
   }
   return true;

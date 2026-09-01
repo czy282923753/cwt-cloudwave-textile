@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -117,6 +118,16 @@ test("populates config/storage only through named volumes and freezes UNIX-RECVF
   assert.equal(journal.includes(`--name ${resources.journalHelper}`), true);
   assert.equal(journal.includes("--pid host"), true);
   assert.equal(journal.includes("UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork"), true);
+  assert.equal(journal.includes("helper_pid=$$"), true);
+  assert.equal(journal.includes("child_pid=$!"), true);
+  assert.equal(journal.includes("trap cleanup EXIT TERM INT"), true);
+  assert.equal(journal.includes("nsenter -t 1 -m -- socat UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork OPEN:/dev/null &"), true);
+  assert.equal(journal.includes("wait \"$child_pid\""), true);
+  assert.equal(journal.includes("kill -TERM \"$child_pid\""), true);
+  assert.equal(journal.includes("kill -KILL \"$child_pid\""), true);
+  assert.equal(journal.includes("exec nsenter"), false);
+  const syntax = spawnSync("/bin/sh", ["-n", "-c", plan.journalStart.at(-1)], { encoding: "utf8" });
+  assert.equal(syntax.status, 0, syntax.stderr);
   assert.equal(journal.includes("UNIX-RECV:"), false);
   assert.equal(journal.includes("Mountpoint"), false);
   assert.equal(plan.journalProbe.join(" ").includes(`source=${resources.journalVolume},target=/probe,readonly,volume-nocopy`), true);
@@ -127,6 +138,9 @@ test("rejects projection mutations for raw paths, wrong journal address type and
   for (const mutate of [
     (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("UNIX-RECVFROM:")); plan.journalStart[indexValue] = plan.journalStart[indexValue].replace("UNIX-RECVFROM:", "UNIX-RECV:"); },
     (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("UNIX-RECVFROM:")); plan.journalStart[indexValue] += " Mountpoint"; },
+    (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("nsenter -t 1")); plan.journalStart[indexValue] = plan.journalStart[indexValue].replace("nsenter -t 1", "exec nsenter -t 1"); },
+    (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("child_pid=$!")); plan.journalStart[indexValue] = plan.journalStart[indexValue].replace("child_pid=$!", "child_pid="); },
+    (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("trap cleanup")); plan.journalStart[indexValue] = plan.journalStart[indexValue].replace("trap cleanup EXIT TERM INT", "true"); },
     (plan) => { const indexValue = plan.configPopulate.findIndex((value) => value.includes(resources.configVolume)); plan.configPopulate[indexValue] = plan.configPopulate[indexValue].replace(",volume-nocopy", ""); },
   ]) {
     const source = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
