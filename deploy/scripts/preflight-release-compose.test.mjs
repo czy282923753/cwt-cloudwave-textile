@@ -16,7 +16,9 @@ import {
   ownerDockerArgs,
   ownerHelperArgs,
   ownerResources,
+  pinnedDindVersionProbeArgs,
   validateOwnerControllerPlan,
+  validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
   validateValidationPlan,
 } from "./preflight-release-compose.mjs";
@@ -66,6 +68,25 @@ test("pins one private DIND controller with exact resources and pull-never isola
   assert.equal(plan.controllerRun.join(" ").includes("nsenter"), false);
   assert.equal(plan.controllerRun.join(" ").includes("tcp://"), false);
   assert.equal(plan.readiness.slice(0, 4).join(" "), `docker --host ${outerHost} run`);
+});
+
+test("binds platform-aware inspect to the exact arm64 child while retaining the exact index RepoDigest", () => {
+  const exact = {
+    Descriptor: { digest: "sha256:48bd8cb4ce95d6c03004ee4fe06db27a49813fe0c3a55785a9bf06c941d9a9df" },
+    RepoDigests: ["docker@sha256:bfec1f5159c63a81ca6fdedbd81404d2c0e16378ed0feec3bb3fbf3998847659"],
+    Os: "linux", Architecture: "arm64", Variant: "v8",
+  };
+  assert.equal(validatePinnedDindPlatformInspection(exact), true);
+  assert.throws(() => validatePinnedDindPlatformInspection({ ...exact, Descriptor: { digest: "sha256:bfec1f5159c63a81ca6fdedbd81404d2c0e16378ed0feec3bb3fbf3998847659" } }), /identity drifted/u);
+  assert.throws(() => validatePinnedDindPlatformInspection({ ...exact, Descriptor: { digest: `sha256:${"0".repeat(64)}` } }), /identity drifted/u);
+  assert.throws(() => validatePinnedDindPlatformInspection({ ...exact, RepoDigests: [`docker@sha256:${"1".repeat(64)}`] }), /identity drifted/u);
+});
+
+test("probes embedded Docker through explicit dockerd entrypoint with only --version after the image", () => {
+  const args = pinnedDindVersionProbeArgs();
+  const imageIndex = args.indexOf(OWNER_DIND_REFERENCE);
+  assert.deepEqual(args.slice(0, imageIndex), ["run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "dockerd"]);
+  assert.deepEqual(args.slice(imageIndex + 1), ["--version"]);
 });
 
 test("projects repository, workspace, configuration, storage and journal at identical paths", () => {

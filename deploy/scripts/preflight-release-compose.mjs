@@ -324,15 +324,24 @@ function dockerInfo(client) {
   };
 }
 
+export function validatePinnedDindPlatformInspection(inspection) {
+  const indexDigest = OWNER_DIND_REFERENCE.split("@")[1];
+  if (inspection?.Descriptor?.digest !== OWNER_DIND_ARM64_CHILD || inspection.Os !== "linux" || inspection.Architecture !== "arm64" || inspection.Variant !== "v8" ||
+    !inspection.RepoDigests?.includes(`docker@${indexDigest}`)) refuse("pinned DIND index/platform identity drifted");
+  return true;
+}
+
+export function pinnedDindVersionProbeArgs() {
+  return Object.freeze(["run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "dockerd", OWNER_DIND_REFERENCE, "--version"]);
+}
+
 function verifyPinnedOwnerImages(clients, workspace) {
   for (const reference of [OWNER_HELPER_REFERENCE, SELF_TEST_BASE_REFERENCE, OWNER_DIND_REFERENCE]) {
     if (clients.outer(["image", "inspect", reference], { allowFailure: true }).status !== 0) refuse(`required pinned local image is absent: ${reference}`);
   }
   const child = parseInspection(clients.outer(["image", "inspect", "--platform", "linux/arm64/v8", OWNER_DIND_REFERENCE], { label: "Pinned DIND arm64 identity" }));
   const indexDigest = OWNER_DIND_REFERENCE.split("@")[1];
-  if (child.Descriptor?.digest !== indexDigest || child.Os !== "linux" || child.Architecture !== "arm64" || child.Variant !== "v8" || !child.RepoDigests?.includes(`docker@${indexDigest}`)) {
-    refuse("pinned DIND index/platform identity drifted");
-  }
+  validatePinnedDindPlatformInspection(child);
   const archive = resolve(workspace, "pinned-owner-dind.tar");
   clients.outer(["image", "save", "--output", archive, OWNER_DIND_REFERENCE], { label: "Pinned DIND local OCI inventory" });
   const archiveIndex = JSON.parse(run("tar", ["-xOf", archive, "index.json"], { label: "Pinned DIND archive index" }).stdout);
@@ -341,7 +350,7 @@ function verifyPinnedOwnerImages(clients, workspace) {
   if (!imageIndex.manifests?.some((descriptor) => descriptor.digest === OWNER_DIND_ARM64_CHILD && descriptor.platform?.os === "linux" && descriptor.platform?.architecture === "arm64" && descriptor.platform?.variant === "v8")) {
     refuse("pinned DIND archive arm64 child identity drifted");
   }
-  const version = clients.outer(["run", "--rm", "--pull", "never", "--network", "none", OWNER_DIND_REFERENCE, "dockerd", "--version"], { label: "Pinned DIND Docker version" });
+  const version = clients.outer(pinnedDindVersionProbeArgs(), { label: "Pinned DIND Docker version" });
   if (!/Docker version 29\.6\.2\b/u.test(version.stdout)) refuse("pinned DIND embedded Docker version drifted");
   return { indexDigest, arm64ChildDigest: OWNER_DIND_ARM64_CHILD, dockerVersion: "29.6.2" };
 }
