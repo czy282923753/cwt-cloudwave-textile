@@ -22,6 +22,8 @@ import {
   validateOwnerControllerPlan,
   validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
+  validateSelfTestComposeDefinition,
+  validateSelfTestServerState,
   validateValidationPlan,
   validateVolumeProjectionPlan,
 } from "./preflight-release-compose.mjs";
@@ -44,7 +46,7 @@ function disposableWorkspace() {
 }
 
 function mutableControllerPlan() {
-  const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace });
+  const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot });
   return {
     resources: { ...plan.resources },
     volumeCreate: plan.volumeCreate.map((command) => [...command]),
@@ -57,7 +59,7 @@ function mutableControllerPlan() {
 }
 
 test("pins one private DIND controller with exact resources and pull-never isolation", () => {
-  const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace });
+  const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot });
   assert.equal(plan.controllerRun.includes(OWNER_DIND_REFERENCE), true);
   assert.equal(plan.controllerRun.join(" ").includes("--pull never"), true);
   assert.equal(plan.controllerRun.join(" ").includes("--network none"), true);
@@ -95,15 +97,16 @@ test("probes embedded Docker through explicit dockerd entrypoint with only --ver
   assert.deepEqual(args.slice(imageIndex + 1), ["--version"]);
 });
 
-test("keeps macOS repository/workspace binds and projects Linux-only state through named volumes", () => {
-  const rendered = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace }).controllerRun.join(" ");
+test("keeps only the repository controller bind and projects Linux-only state through named volumes", () => {
+  const rendered = createOwnerControllerPlan({ token, outerHost, repositoryRoot }).controllerRun.join(" ");
   for (const expected of [
     `source=${repositoryRoot},target=${repositoryRoot},readonly`,
-    `source=${workspace},target=${workspace}`,
     `source=${resources.configVolume},target=/etc/cwt,readonly,volume-nocopy`,
     `source=${resources.storageVolume},target=/srv/cwt,volume-nocopy`,
     `source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`,
   ]) assert.equal(rendered.includes(expected), true);
+  assert.equal(rendered.includes(`source=${workspace},target=${workspace}`), false);
+  assert.equal(rendered.match(/type=bind,/gu)?.length, 1);
   for (const forbidden of ["type=bind,source=/etc/cwt", "type=bind,source=/srv/cwt", "type=bind,source=/run/systemd/journal"]) assert.equal(rendered.includes(forbidden), false);
 });
 
@@ -139,16 +142,12 @@ test("populates config/storage only through named volumes and freezes UNIX-RECVF
 test("keeps adversarial self-test paths and tokens as exact positional argv values", () => {
   const parent = mkdtempSync(resolve(tmpdir(), "cwt-shell-argv-test-"));
   const adversarialRepository = resolve(parent, "CWT space (paren) 'single' \"double\" 中文");
-  const adversarialBind = resolve(parent, "bind path （测试） 'quote' \"double\"");
   const adversarialStorage = resolve(parent, "storage proof (one) 'quote' 中文.proof");
   try {
     mkdirSync(adversarialRepository, { recursive: true });
-    mkdirSync(adversarialBind, { recursive: true });
     writeFileSync(resolve(adversarialRepository, "AGENTS.md"), "proof\n");
-    writeFileSync(resolve(adversarialBind, "index.html"), `${token}\n`);
     const plan = __testOnly.createSelfTestShellPlan({
       repositoryRoot: adversarialRepository,
-      bindRoot: adversarialBind,
       token,
       storageProof: adversarialStorage,
     });
@@ -156,27 +155,101 @@ test("keeps adversarial self-test paths and tokens as exact positional argv valu
     assert.equal(plan.namedVolumeProof.length, 8);
     assert.deepEqual(plan.namedVolumeProof.slice(0, 5), ["sh", "-eu", "-c", plan.namedVolumeProof[3], "sh"]);
     assert.deepEqual(plan.namedVolumeProof.slice(5), [adversarialRepository, token, adversarialStorage]);
-    assert.equal(plan.composeServer.length, 7);
-    assert.deepEqual(plan.composeServer.slice(5), [adversarialBind, token]);
+    assert.equal(plan.composeServer.length, 6);
+    assert.deepEqual(plan.composeServer.slice(5), [token]);
     assert.equal(plan.communication.length, 6);
     assert.deepEqual(plan.communication.slice(5), [token]);
     for (const command of Object.values(plan)) {
-      for (const value of [adversarialRepository, adversarialBind, adversarialStorage, token]) {
+      for (const value of [adversarialRepository, adversarialStorage, token]) {
         assert.equal(command[3].includes(value), false);
       }
       const syntax = spawnSync("/bin/sh", ["-n", "-c", command[3]], { encoding: "utf8" });
       assert.equal(syntax.status, 0, syntax.stderr);
     }
 
-    const executable = __testOnly.fixedShellArgs('test -f "$1/AGENTS.md"; test "$(cat "$2/index.html")" = "$3"; printf \'%s\\n\' "$3" > "$4"', [
-      adversarialRepository, adversarialBind, token, adversarialStorage,
+    const executable = __testOnly.fixedShellArgs('test -f "$1/AGENTS.md"; printf \'%s\\n\' "$2" > "$3"', [
+      adversarialRepository, token, adversarialStorage,
     ]);
-    assert.equal(executable.length, 9);
-    assert.deepEqual(executable.slice(5), [adversarialRepository, adversarialBind, token, adversarialStorage]);
+    assert.equal(executable.length, 8);
+    assert.deepEqual(executable.slice(5), [adversarialRepository, token, adversarialStorage]);
     const executed = spawnSync(executable[0], executable.slice(1), { encoding: "utf8" });
     assert.equal(executed.status, 0, executed.stderr);
     assert.equal(readFileSync(adversarialStorage, "utf8"), `${token}\n`);
   } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("generates one container-local healthy server with journald and no network bypass or published surface", () => {
+  const shellPlan = __testOnly.createSelfTestShellPlan({ repositoryRoot, token, storageProof: "/srv/cwt/staging/media/import/proof" });
+  const definition = __testOnly.createSelfTestComposeDefinition({ image: "cwt.local/custody:synthetic", command: shellPlan.composeServer });
+  assert.equal(validateSelfTestComposeDefinition(definition, { image: "cwt.local/custody:synthetic", command: shellPlan.composeServer }), true);
+  assert.equal(Object.hasOwn(definition.services.server, "volumes"), false);
+  assert.deepEqual(definition.services.server.healthcheck.test, ["CMD", "busybox", "wget", "-T", "2", "-qO-", "http://127.0.0.1:8080/index.html"]);
+  assert.deepEqual(__testOnly.SELF_TEST_SERVER_READINESS_ARGS, ["up", "--detach", "--wait", "--wait-timeout", "30", "--pull", "never", "--no-build", "server"]);
+  assert.deepEqual(definition.services.server.networks, ["private"]);
+  assert.deepEqual(definition.networks, { private: { internal: true } });
+  assert.deepEqual(definition.services.server.logging, { driver: "journald" });
+  for (const mutate of [
+    (value) => { value.services.server.volumes = [{ type: "bind", source: workspace, target: workspace }]; },
+    (value) => { value.services.server.ports = ["8080:8080"]; },
+    (value) => { value.services.server.network_mode = "host"; },
+    (value) => { value.services.server.extra_hosts = ["server:127.0.0.1"]; },
+    (value) => { value.services.server.dns = ["127.0.0.1"]; },
+    (value) => { value.services.server.networks = { private: { ipv4_address: "172.30.0.2" } }; },
+    (value) => { value.networks.second = { internal: true }; },
+    (value) => { value.networks.private.external = true; },
+  ]) {
+    const mutation = structuredClone(definition); mutate(mutation);
+    assert.throws(() => validateSelfTestComposeDefinition(mutation, { image: "cwt.local/custody:synthetic", command: shellPlan.composeServer }), /server authority drifted/u);
+  }
+});
+
+test("accepts only a running healthy server on the exact live internal network", () => {
+  const networkName = `${token}-compose_private`;
+  const serverId = "server-container-id";
+  const endpointId = "endpoint-id";
+  const server = {
+    Id: serverId,
+    State: { Running: true, Health: { Status: "healthy" } },
+    HostConfig: { LogConfig: { Type: "journald" }, PortBindings: {} },
+    NetworkSettings: {
+      Ports: {},
+      Networks: {
+        [networkName]: { NetworkID: "network-id", Aliases: [`${token}-compose-server-1`, "server"], EndpointID: endpointId, IPAddress: "172.30.0.2" },
+      },
+    },
+  };
+  const network = {
+    Id: "network-id", Name: networkName, Internal: true,
+    Containers: { [serverId]: { EndpointID: endpointId, IPv4Address: "172.30.0.2/16" } },
+  };
+  assert.deepEqual(validateSelfTestServerState({ server, network, networkName }), {
+    running: true, health: "healthy", network: networkName, alias: "server", endpointId, ipAddress: "172.30.0.2", logging: "journald", publishedPorts: 0,
+  });
+  for (const mutate of [
+    (value) => { value.server.State.Running = false; },
+    (value) => { value.server.State.Health.Status = "unhealthy"; },
+    (value) => { value.server.NetworkSettings.Networks[networkName].Aliases = [`${token}-compose-server-1`]; },
+    (value) => { value.server.NetworkSettings.Networks[networkName].EndpointID = ""; },
+    (value) => { value.server.NetworkSettings.Networks[networkName].IPAddress = ""; },
+    (value) => { value.server.NetworkSettings.Networks.second = { Aliases: ["server"], EndpointID: "other", IPAddress: "172.31.0.2" }; },
+    (value) => { value.server.HostConfig.LogConfig.Type = "json-file"; },
+    (value) => { value.server.HostConfig.PortBindings = { "8080/tcp": [{ HostPort: "8080" }] }; },
+  ]) {
+    const mutation = structuredClone({ server, network }); mutate(mutation);
+    assert.throws(() => validateSelfTestServerState({ ...mutation, networkName }), /not ready|identity drifted/u);
+  }
+});
+
+test("uses one bounded embedded-DNS retry lifecycle with per-attempt timeout and exact token result", () => {
+  const script = __testOnly.SELF_TEST_COMMUNICATION_SCRIPT;
+  assert.equal((script.match(/\bwhile\b/gu) ?? []).length, 1);
+  assert.equal((script.match(/busybox wget/gu) ?? []).length, 1);
+  assert.match(script, /wget -T 2 -qO- http:\/\/server:8080\/index\.html/u);
+  assert.match(script, /attempt.*-lt 10/u);
+  assert.match(script, /test "\$body" = "\$1"/u);
+  assert.match(script, /test "\$resolver" = 127\.0\.0\.11/u);
+  assert.equal(/http:\/\/[0-9]/u.test(script), false);
+  for (const forbidden of ["--dns", "extra_hosts", "/etc/hosts", "--add-host", "ipv4_address"]) assert.equal(script.includes(forbidden), false);
 });
 
 test("rejects projection mutations for raw paths, wrong journal address type and missing volume-nocopy", () => {
@@ -229,26 +302,27 @@ test("rejects controller mutations for shared mounts, missing paths or volumes, 
     (plan) => { plan.controllerRun.splice(plan.controllerRun.indexOf(OWNER_DIND_REFERENCE), 0, "--pid", "host"); },
     (plan) => { plan.controllerRun.splice(plan.controllerRun.indexOf(OWNER_DIND_REFERENCE), 0, "--publish", "2375:2375"); },
     (plan) => { plan.controllerRun[plan.controllerRun.indexOf("none")] = "host"; },
+    (plan) => { plan.controllerRun.splice(plan.controllerRun.indexOf(OWNER_DIND_REFERENCE), 0, "--mount", `type=bind,source=${workspace},target=${workspace}`); },
     (plan) => { plan.controllerRun.splice(plan.controllerRun.indexOf(OWNER_DIND_REFERENCE), 0, "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock"); },
     (plan) => { const indexValue = plan.controllerRun.findIndex((value) => value.includes("owner-containerd-data")); plan.controllerRun.splice(indexValue - 1, 2); },
     (plan) => { const indexValue = plan.controllerRun.findIndex((value) => value.includes("source=/srv/cwt")); plan.controllerRun.splice(indexValue - 1, 2); },
     (plan) => { plan.controllerRun[plan.controllerRun.findIndex((value) => value.startsWith("--host=unix://"))] = "--host=tcp://0.0.0.0:2375"; },
   ]) {
     const plan = mutableControllerPlan(); mutate(plan);
-    assert.throws(() => validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, workspace }), /controller plan|isolation boundary/u);
+    assert.throws(() => validateOwnerControllerPlan(plan, { outerHost, repositoryRoot }), /controller plan|isolation boundary/u);
   }
 });
 
 test("requires inspect and complete timestamped logs before exact controller removal", () => {
   const plan = mutableControllerPlan();
-  assert.equal(validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, workspace }), true);
+  assert.equal(validateOwnerControllerPlan(plan, { outerHost, repositoryRoot }), true);
   plan.diagnostics.pop();
-  assert.throws(() => validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, workspace }), /diagnostics or cleanup order/u);
+  assert.throws(() => validateOwnerControllerPlan(plan, { outerHost, repositoryRoot }), /diagnostics or cleanup order/u);
   const reordered = mutableControllerPlan();
   const waitIndex = reordered.cleanup.findIndex((command) => command.includes("wait"));
   const removeIndex = reordered.cleanup.findIndex((command) => command.includes("rm") && command.includes(resources.controller));
   [reordered.cleanup[waitIndex], reordered.cleanup[removeIndex]] = [reordered.cleanup[removeIndex], reordered.cleanup[waitIndex]];
-  assert.throws(() => validateOwnerControllerPlan(reordered, { outerHost, repositoryRoot, workspace }), /diagnostics or cleanup order/u);
+  assert.throws(() => validateOwnerControllerPlan(reordered, { outerHost, repositoryRoot }), /diagnostics or cleanup order/u);
 });
 
 test("plans every release image and Compose operation through the one private owner", () => {
@@ -292,6 +366,41 @@ test("cleanup never masks the primary error", async () => {
     return true;
   });
   assert.equal(await cleanupPreservingPrimary(undefined, async () => "clean"), "clean");
+});
+
+test("captures bounded server inspect, logs and network evidence before Compose teardown", () => {
+  const evidenceRoot = mkdtempSync(resolve(tmpdir(), "cwt-self-test-diagnostics-"));
+  const events = [];
+  const networkName = `${token}-compose_private`;
+  const serverId = "server-container-id";
+  const clients = {
+    owner(args) {
+      events.push(`owner:${args.join(" ")}`);
+      if (args[0] === "container" && args[1] === "inspect") return { status: 0, stdout: JSON.stringify([{ Id: serverId, State: { Running: true }, Config: {}, HostConfig: {}, NetworkSettings: {} }]), stderr: "" };
+      if (args[0] === "logs") return { status: 0, stdout: "synthetic server log\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") return { status: 0, stdout: JSON.stringify([{ Id: "network-id", Name: networkName, Driver: "bridge", Internal: true, Labels: {}, Containers: {} }]), stderr: "" };
+      if (args[0] === "network" && args[1] === "ls") return { status: 0, stdout: "", stderr: "" };
+      throw new Error(`unexpected owner command: ${args.join(" ")}`);
+    },
+  };
+  const compose = (args) => {
+    events.push(`compose:${args.join(" ")}`);
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const attempt = (action) => action();
+  try {
+    const diagnostics = __testOnly.finalizeSelfTestCompose({ clients, compose, evidenceRoot, networkName, serverId, attempt });
+    assert.match(diagnostics.serverInspectSha256, /^[0-9a-f]{64}$/u);
+    assert.match(diagnostics.serverLogSha256, /^[0-9a-f]{64}$/u);
+    assert.match(diagnostics.networkInspectSha256, /^[0-9a-f]{64}$/u);
+    for (const path of ["self-test-server-inspect.sanitized.json", "self-test-server.log", "self-test-network-inspect.sanitized.json"]) {
+      assert.equal(existsSync(resolve(evidenceRoot, path)), true);
+    }
+    const downIndex = events.indexOf("compose:down --remove-orphans");
+    assert.ok(downIndex > events.indexOf(`owner:container inspect ${serverId}`));
+    assert.ok(downIndex > events.indexOf(`owner:logs --timestamps --tail 200 ${serverId}`));
+    assert.ok(downIndex > events.indexOf(`owner:network inspect ${networkName}`));
+  } finally { rmSync(evidenceRoot, { recursive: true, force: true }); }
 });
 
 test("keeps root Compose positive singular and direct roles digest-qualified without published ports", () => {
