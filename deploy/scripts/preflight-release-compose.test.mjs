@@ -22,6 +22,8 @@ import {
   validateOwnerControllerPlan,
   validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
+  validateSelfTestImageArchiveMetadata,
+  validateSelfTestImageInspection,
   validateSelfTestComposeDefinition,
   validateSelfTestServerState,
   validateValidationPlan,
@@ -178,28 +180,78 @@ test("keeps adversarial self-test paths and tokens as exact positional argv valu
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
-test("generates one container-local healthy server with journald and no network bypass or published surface", () => {
+test("binds both exact synthetic repository indexes and native arm64 children before runtime", () => {
+  const [utility, server] = __testOnly.SELF_TEST_IMAGES;
+  assert.equal(utility.reference, "alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce");
+  assert.equal(server.reference, "nginx@sha256:09cc2702709e6388d979d8030e3ab4eb1ceb699b2dced26d7543e872a822e823");
+  assert.equal(__testOnly.SELF_TEST_NATIVE_PLATFORM, "linux/arm64/v8");
+  for (const image of [utility, server]) {
+    const indexDigest = image.reference.split("@")[1];
+    const neutralInspection = { Descriptor: { digest: indexDigest }, RepoDigests: [image.reference] };
+    const platformInspection = { Os: "linux", Architecture: "arm64", Variant: "v8", RepoDigests: [image.reference] };
+    assert.deepEqual(validateSelfTestImageInspection({ role: image.role, neutralInspection, platformInspection }), {
+      role: image.role, reference: image.reference, indexDigest, childDigest: image.childDigest,
+    });
+    assert.throws(() => validateSelfTestImageInspection({ role: image.role, neutralInspection: { ...neutralInspection, Descriptor: { digest: index } }, platformInspection }), /identity drifted/u);
+    assert.throws(() => validateSelfTestImageInspection({ role: image.role, neutralInspection, platformInspection: { ...platformInspection, Architecture: "amd64", Variant: undefined } }), /identity drifted/u);
+  }
+  const archiveIndex = { manifests: [utility, server].map((image) => ({ digest: image.reference.split("@")[1] })) };
+  const imageIndexes = Object.fromEntries([utility, server].map((image) => [image.reference.split("@")[1], {
+    manifests: [{ digest: image.childDigest, platform: { os: "linux", architecture: "arm64", variant: "v8" } }],
+  }]));
+  assert.equal(validateSelfTestImageArchiveMetadata({ archiveIndex, imageIndexes }), true);
+  imageIndexes[server.reference.split("@")[1]].manifests[0].digest = child;
+  assert.throws(() => validateSelfTestImageArchiveMetadata({ archiveIndex, imageIndexes }), /server archive native child identity drifted/u);
+});
+
+test("plans one exact two-image archive and owner load with complete reference cleanup", () => {
+  const archive = "/tmp/cwt-synthetic-images.tar";
+  const custodyTag = `cwt.local/custody:${token}`;
+  const plan = __testOnly.createSelfTestImageTransferPlan({ archive, tag: custodyTag });
+  assert.deepEqual(plan.save, ["image", "save", "--output", archive, __testOnly.SELF_TEST_UTILITY_REFERENCE, __testOnly.SELF_TEST_SERVER_REFERENCE]);
+  assert.deepEqual(plan.load, ["image", "load", "--input", archive]);
+  assert.deepEqual(plan.cleanup, ["image", "rm", custodyTag, __testOnly.SELF_TEST_UTILITY_REFERENCE, __testOnly.SELF_TEST_SERVER_REFERENCE]);
+  assert.deepEqual(plan.absence, [custodyTag, __testOnly.SELF_TEST_UTILITY_REFERENCE, __testOnly.SELF_TEST_SERVER_REFERENCE]);
+});
+
+test("generates one exact Nginx container-local healthy server with journald and no published surface", () => {
   const shellPlan = __testOnly.createSelfTestShellPlan({ repositoryRoot, token, storageProof: "/srv/cwt/staging/media/import/proof" });
-  const definition = __testOnly.createSelfTestComposeDefinition({ image: "cwt.local/custody:synthetic", command: shellPlan.composeServer });
-  assert.equal(validateSelfTestComposeDefinition(definition, { image: "cwt.local/custody:synthetic", command: shellPlan.composeServer }), true);
+  const definition = __testOnly.createSelfTestComposeDefinition({ image: __testOnly.SELF_TEST_SERVER_REFERENCE, command: shellPlan.composeServer });
+  assert.equal(validateSelfTestComposeDefinition(definition, { image: __testOnly.SELF_TEST_SERVER_REFERENCE, command: shellPlan.composeServer }), true);
+  assert.equal(definition.services.server.image, __testOnly.SELF_TEST_SERVER_REFERENCE);
+  assert.match(shellPlan.composeServer[3], /\/usr\/share\/nginx\/html\/index\.html/u);
+  assert.match(shellPlan.composeServer[3], /exec nginx -g 'daemon off;'/u);
+  assert.equal(shellPlan.composeServer[3].includes(token), false);
+  assert.equal(shellPlan.composeServer[3].includes("busybox"), false);
+  assert.equal(shellPlan.composeServer[3].includes("httpd"), false);
+  assert.equal(shellPlan.composeServer[3].includes("8080"), false);
   assert.equal(Object.hasOwn(definition.services.server, "volumes"), false);
-  assert.deepEqual(definition.services.server.healthcheck.test, ["CMD", "busybox", "wget", "-T", "2", "-qO-", "http://127.0.0.1:8080/index.html"]);
+  assert.deepEqual(definition.services.server.healthcheck.test, ["CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "2", "--output", "/dev/null", "http://127.0.0.1/index.html"]);
   assert.deepEqual(__testOnly.SELF_TEST_SERVER_READINESS_ARGS, ["up", "--detach", "--wait", "--wait-timeout", "30", "--pull", "never", "--no-build", "server"]);
   assert.deepEqual(definition.services.server.networks, ["private"]);
   assert.deepEqual(definition.networks, { private: { internal: true } });
   assert.deepEqual(definition.services.server.logging, { driver: "journald" });
   for (const mutate of [
     (value) => { value.services.server.volumes = [{ type: "bind", source: workspace, target: workspace }]; },
-    (value) => { value.services.server.ports = ["8080:8080"]; },
+    (value) => { value.services.server.ports = ["80:80"]; },
     (value) => { value.services.server.network_mode = "host"; },
     (value) => { value.services.server.extra_hosts = ["server:127.0.0.1"]; },
     (value) => { value.services.server.dns = ["127.0.0.1"]; },
     (value) => { value.services.server.networks = { private: { ipv4_address: "172.30.0.2" } }; },
     (value) => { value.networks.second = { internal: true }; },
     (value) => { value.networks.private.external = true; },
+    (value) => { value.services.server.image = "nginx:1.30.4"; },
   ]) {
     const mutation = structuredClone(definition); mutate(mutation);
-    assert.throws(() => validateSelfTestComposeDefinition(mutation, { image: "cwt.local/custody:synthetic", command: shellPlan.composeServer }), /server authority drifted/u);
+    assert.throws(() => validateSelfTestComposeDefinition(mutation, { image: __testOnly.SELF_TEST_SERVER_REFERENCE, command: shellPlan.composeServer }), /server authority drifted/u);
+  }
+  for (const source of [
+    `${shellPlan.composeServer[3]}; exec busybox httpd -f -p 8080`,
+    `${shellPlan.composeServer[3]}; printf '%s' ${token}`,
+  ]) {
+    const mutation = structuredClone(definition);
+    mutation.services.server.command[3] = source;
+    assert.throws(() => validateSelfTestComposeDefinition(mutation, { image: __testOnly.SELF_TEST_SERVER_REFERENCE, command: mutation.services.server.command }), /server authority drifted/u);
   }
 });
 
@@ -209,10 +261,11 @@ test("accepts only a running healthy server on the exact live internal network",
   const endpointId = "endpoint-id";
   const server = {
     Id: serverId,
+    Config: { Image: __testOnly.SELF_TEST_SERVER_REFERENCE },
     State: { Running: true, Health: { Status: "healthy" } },
     HostConfig: { LogConfig: { Type: "journald" }, PortBindings: {} },
     NetworkSettings: {
-      Ports: {},
+      Ports: { "80/tcp": null },
       Networks: {
         [networkName]: { NetworkID: "network-id", Aliases: [`${token}-compose-server-1`, "server"], EndpointID: endpointId, IPAddress: "172.30.0.2" },
       },
@@ -227,13 +280,16 @@ test("accepts only a running healthy server on the exact live internal network",
   });
   for (const mutate of [
     (value) => { value.server.State.Running = false; },
+    (value) => { value.server.Config.Image = "nginx:1.30.4"; },
     (value) => { value.server.State.Health.Status = "unhealthy"; },
     (value) => { value.server.NetworkSettings.Networks[networkName].Aliases = [`${token}-compose-server-1`]; },
     (value) => { value.server.NetworkSettings.Networks[networkName].EndpointID = ""; },
     (value) => { value.server.NetworkSettings.Networks[networkName].IPAddress = ""; },
     (value) => { value.server.NetworkSettings.Networks.second = { Aliases: ["server"], EndpointID: "other", IPAddress: "172.31.0.2" }; },
     (value) => { value.server.HostConfig.LogConfig.Type = "json-file"; },
-    (value) => { value.server.HostConfig.PortBindings = { "8080/tcp": [{ HostPort: "8080" }] }; },
+    (value) => { value.server.HostConfig.PortBindings = { "80/tcp": [{ HostPort: "8080" }] }; },
+    (value) => { value.server.NetworkSettings.Ports["80/tcp"] = [{ HostPort: "8080" }]; },
+    (value) => { value.server.NetworkSettings.Ports["8080/tcp"] = null; },
   ]) {
     const mutation = structuredClone({ server, network }); mutate(mutation);
     assert.throws(() => validateSelfTestServerState({ ...mutation, networkName }), /not ready|identity drifted/u);
@@ -244,11 +300,12 @@ test("uses one bounded embedded-DNS retry lifecycle with per-attempt timeout and
   const script = __testOnly.SELF_TEST_COMMUNICATION_SCRIPT;
   assert.equal((script.match(/\bwhile\b/gu) ?? []).length, 1);
   assert.equal((script.match(/busybox wget/gu) ?? []).length, 1);
-  assert.match(script, /wget -T 2 -qO- http:\/\/server:8080\/index\.html/u);
+  assert.match(script, /wget -T 2 -qO- http:\/\/server\/index\.html/u);
   assert.match(script, /attempt.*-lt 10/u);
   assert.match(script, /test "\$body" = "\$1"/u);
   assert.match(script, /test "\$resolver" = 127\.0\.0\.11/u);
   assert.equal(/http:\/\/[0-9]/u.test(script), false);
+  assert.equal(script.includes(":8080"), false);
   for (const forbidden of ["--dns", "extra_hosts", "/etc/hosts", "--add-host", "ipv4_address"]) assert.equal(script.includes(forbidden), false);
 });
 
@@ -396,6 +453,43 @@ test("captures bounded server inspect, logs and network evidence before Compose 
     for (const path of ["self-test-server-inspect.sanitized.json", "self-test-server.log", "self-test-network-inspect.sanitized.json"]) {
       assert.equal(existsSync(resolve(evidenceRoot, path)), true);
     }
+    const downIndex = events.indexOf("compose:down --remove-orphans");
+    assert.ok(downIndex > events.indexOf(`owner:container inspect ${serverId}`));
+    assert.ok(downIndex > events.indexOf(`owner:logs --timestamps --tail 200 ${serverId}`));
+    assert.ok(downIndex > events.indexOf(`owner:network inspect ${networkName}`));
+  } finally { rmSync(evidenceRoot, { recursive: true, force: true }); }
+});
+
+test("readiness failure captures server evidence before teardown and never creates the client", () => {
+  const evidenceRoot = mkdtempSync(resolve(tmpdir(), "cwt-self-test-readiness-failure-"));
+  const events = [];
+  const networkName = `${token}-compose_private`;
+  const serverId = "failed-server-container-id";
+  const clients = {
+    owner(args) {
+      events.push(`owner:${args.join(" ")}`);
+      if (args[0] === "container" && args[1] === "inspect") return { status: 0, stdout: JSON.stringify([{ Id: serverId, State: { Running: false }, Config: { Image: __testOnly.SELF_TEST_SERVER_REFERENCE }, HostConfig: {}, NetworkSettings: {} }]), stderr: "" };
+      if (args[0] === "logs") return { status: 0, stdout: "nginx readiness failure\n", stderr: "" };
+      if (args[0] === "network" && args[1] === "inspect") return { status: 0, stdout: JSON.stringify([{ Id: "network-id", Name: networkName, Driver: "bridge", Internal: true, Labels: {}, Containers: {} }]), stderr: "" };
+      if (args[0] === "network" && args[1] === "ls") return { status: 0, stdout: "", stderr: "" };
+      throw new Error(`unexpected owner command: ${args.join(" ")}`);
+    },
+  };
+  const compose = (args) => {
+    events.push(`compose:${args.join(" ")}`);
+    if (args[0] === "up") throw new Error("server did not become healthy");
+    if (args.join(" ") === "ps --all --quiet server") return { status: 0, stdout: `${serverId}\n`, stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  try {
+    assert.throws(() => __testOnly.proveSelfTestComposeCommunication({
+      clients, compose, networkName,
+      shellPlan: __testOnly.createSelfTestShellPlan({ repositoryRoot, token, storageProof: "/srv/cwt/staging/media/import/proof" }),
+      utilityTag: `cwt.local/custody:${token}`,
+    }), /did not become healthy/u);
+    const attempt = (action) => action();
+    __testOnly.finalizeSelfTestCompose({ clients, compose, evidenceRoot, networkName, serverId: undefined, attempt });
+    assert.equal(events.some((event) => event.startsWith("owner:run ")), false);
     const downIndex = events.indexOf("compose:down --remove-orphans");
     assert.ok(downIndex > events.indexOf(`owner:container inspect ${serverId}`));
     assert.ok(downIndex > events.indexOf(`owner:logs --timestamps --tail 200 ${serverId}`));
