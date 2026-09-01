@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 
@@ -22,14 +23,47 @@ export const OWNER_DIND_REFERENCE = "docker:29.6.2-dind@sha256:bfec1f5159c63a81c
 const OWNER_DIND_ARM64_CHILD = "sha256:48bd8cb4ce95d6c03004ee4fe06db27a49813fe0c3a55785a9bf06c941d9a9df";
 const OWNER_HELPER_REFERENCE = "docker:29.6.2-cli";
 const SELF_TEST_NATIVE_PLATFORM = "linux/arm64/v8";
+const SELF_TEST_CUSTODY_REPOSITORY = "cwt.local/custody";
 const SELF_TEST_UTILITY_REFERENCE = "alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce";
-const SELF_TEST_UTILITY_ARM64_CHILD = "sha256:2c9d26f410d032d5b1525aa8a873e238b05b90c4ae8618743d4311f0cc827e37";
 const SELF_TEST_SERVER_REFERENCE = "nginx@sha256:09cc2702709e6388d979d8030e3ab4eb1ceb699b2dced26d7543e872a822e823";
-const SELF_TEST_SERVER_ARM64_CHILD = "sha256:26db3ab39c95a9aa806b529097521325d618015a69676be736e6412cd0331817";
 const SELF_TEST_IMAGES = Object.freeze([
-  Object.freeze({ role: "utility", reference: SELF_TEST_UTILITY_REFERENCE, childDigest: SELF_TEST_UTILITY_ARM64_CHILD }),
-  Object.freeze({ role: "server", reference: SELF_TEST_SERVER_REFERENCE, childDigest: SELF_TEST_SERVER_ARM64_CHILD }),
+  Object.freeze({
+    role: "utility",
+    reference: SELF_TEST_UTILITY_REFERENCE,
+    indexDigest: "sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce",
+    childDigest: "sha256:2c9d26f410d032d5b1525aa8a873e238b05b90c4ae8618743d4311f0cc827e37",
+    configDigest: "sha256:2c15e55df5d63efb31b629a557df305130612a16feb029c93447e54dda2c4189",
+    compressedLayers: Object.freeze(["sha256:738128faa30f570583b0e57efd831e0e6a2a9aacf1be88c8f4c1ef8a5b7033cc"]),
+    rootfsDiffIds: Object.freeze(["sha256:03ba6f53ebfcc662cb046823a1858bd5029e4040d22dd34096868ddf7b5dd776"]),
+  }),
+  Object.freeze({
+    role: "server",
+    reference: SELF_TEST_SERVER_REFERENCE,
+    indexDigest: "sha256:09cc2702709e6388d979d8030e3ab4eb1ceb699b2dced26d7543e872a822e823",
+    childDigest: "sha256:26db3ab39c95a9aa806b529097521325d618015a69676be736e6412cd0331817",
+    configDigest: "sha256:36cde7007f72dc8406cf539ba3e16afd0f47ab04b2ed0f098a14637f716f2441",
+    compressedLayers: Object.freeze([
+      "sha256:bf7af0229701decd1b9f42143504fc8f69e5664c37e57001d198e731e4f86c2e",
+      "sha256:0fed669acb5d88fd00c1222b38ebfbcb6636159fb510cc5806c55cf2b7221539",
+      "sha256:e262069eea4f9104e28c25076718235aae9e3db60ca1696b9148c96d2b0228c9",
+      "sha256:f0e6b76bc26bca5af06e53492198c2a0b242abcaa9bcb4350735bb44504d63d0",
+      "sha256:b0231c9ece2d66d9b2063ed2249287309dfa6d8f20a3626d1cfe1a07fb196ef2",
+      "sha256:f4978e9dba23af7905118e12434ecea7c6c1a5e6ea7f0781ab9511a6980daaa1",
+      "sha256:ced25bc5fda830274c828367bc063dfb43f8ebaff2d8ad21cfccebaae0cfa9ee",
+    ]),
+    rootfsDiffIds: Object.freeze([
+      "sha256:41d6505109809884e681a97f978542a2d4d3506af0124f18b3f3a471edfcc9b7",
+      "sha256:d683c49b70715f888cb975283e7e95250416bc87a6ca6739e1934989023ab904",
+      "sha256:db335b632c473a46ce51fc29236bbaf83685edc76ef9c9107f695a4ee599afac",
+      "sha256:c3ce4ec12979db5e4ac7737fac37844da2b6a0a5616aab13b9a539bc3635651e",
+      "sha256:8a8f9f46ca1ce4865f046e797c0c39e77b6d33a50204fd70ed47573ec16a7af2",
+      "sha256:d6db5a260d03a3b2b26adcba5441ab3548a174ff73d857e039c957efd42751c5",
+      "sha256:2755abbf2dd923991c696e78b15b8b29f930eec121cf7404a6e6170214af49c9",
+    ]),
+  }),
 ]);
+const SELF_TEST_UTILITY_OWNER_REFERENCE = `${SELF_TEST_CUSTODY_REPOSITORY}@${SELF_TEST_IMAGES[0].indexDigest}`;
+const SELF_TEST_SERVER_OWNER_REFERENCE = `${SELF_TEST_CUSTODY_REPOSITORY}@${SELF_TEST_IMAGES[1].indexDigest}`;
 const CONFIG_SUBJECT_NAMES = [
   "database-password", "database-url", "auth-session-secret", "valkey-password", "cloudmersive-api-key", "smtp-password",
   "monitoring-dsn", "ai-api-key", "cos-access-key-id", "cos-secret-key", "backup-password", "database-url-unavailable",
@@ -144,7 +178,7 @@ export function validateSelfTestComposeDefinition(definition, { image, command }
   const exactHealthcheckKeys = ["interval", "retries", "start_period", "test", "timeout"];
   if (Object.keys(services).length !== 1 || Object.keys(networks).length !== 1 || !server ||
     JSON.stringify(Object.keys(server).sort()) !== JSON.stringify(exactServerKeys) ||
-    image !== SELF_TEST_SERVER_REFERENCE || server.image !== SELF_TEST_SERVER_REFERENCE ||
+    image !== SELF_TEST_SERVER_OWNER_REFERENCE || server.image !== SELF_TEST_SERVER_OWNER_REFERENCE ||
     !Array.isArray(command) || command.length !== 6 || JSON.stringify(command.slice(0, 5)) !== JSON.stringify(["sh", "-eu", "-c", SELF_TEST_SERVER_SCRIPT, "sh"]) ||
     !SAFE_TOKEN.test(command[5] ?? "") || SELF_TEST_SERVER_SCRIPT.includes(command[5]) || JSON.stringify(server.command) !== JSON.stringify(command) ||
     !Array.isArray(server.networks) || server.networks.length !== 1 || server.networks[0] !== "private" ||
@@ -158,7 +192,7 @@ export function validateSelfTestComposeDefinition(definition, { image, command }
   return true;
 }
 
-export function validateSelfTestServerState({ server, network, networkName, expectedImage = SELF_TEST_SERVER_REFERENCE }) {
+export function validateSelfTestServerState({ server, network, networkName, expectedImage = SELF_TEST_SERVER_OWNER_REFERENCE }) {
   if (typeof networkName !== "string" || networkName.length === 0 || !server?.Id || network?.Name !== networkName || network.Internal !== true) {
     refuse("non-CWT Compose server network identity drifted");
   }
@@ -170,7 +204,7 @@ export function validateSelfTestServerState({ server, network, networkName, expe
   const portEntries = Object.entries(ports);
   const publishedBindings = portEntries.filter(([, bindings]) => Array.isArray(bindings) && bindings.length > 0);
   const aliasCount = Array.isArray(aliases) ? aliases.filter((alias) => alias === "server").length : 0;
-  if (expectedImage !== SELF_TEST_SERVER_REFERENCE || server.Config?.Image !== SELF_TEST_SERVER_REFERENCE || server.State?.Running !== true || server.State?.Health?.Status !== "healthy" ||
+  if (expectedImage !== SELF_TEST_SERVER_OWNER_REFERENCE || server.Config?.Image !== SELF_TEST_SERVER_OWNER_REFERENCE || server.State?.Running !== true || server.State?.Health?.Status !== "healthy" ||
     server.HostConfig?.LogConfig?.Type !== "journald" || server.HostConfig?.PublishAllPorts === true || Object.keys(server.HostConfig?.PortBindings ?? {}).length !== 0 || publishedBindings.length !== 0 ||
     portEntries.length > 1 || portEntries.some(([port, bindings]) => port !== "80/tcp" || bindings !== null) ||
     Object.keys(attachments).length !== 1 || !attachment || attachment.NetworkID !== network.Id || aliasCount !== 1 ||
@@ -436,8 +470,33 @@ function run(program, args, options = {}) {
   return result;
 }
 
+function unixSocketJson(socketPath, path, label) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const requestValue = request({ socketPath, path, method: "GET" }, (response) => {
+      const chunks = []; let bytes = 0;
+      response.on("data", (chunk) => {
+        bytes += chunk.length;
+        if (bytes > 128 * 1024 * 1024) requestValue.destroy(new HarnessFailure(`${label} exceeded the bounded response size`));
+        else chunks.push(chunk);
+      });
+      response.on("end", () => {
+        if (response.statusCode !== 200) return rejectPromise(new HarnessFailure(`${label} failed with HTTP ${response.statusCode}`));
+        try { resolvePromise(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch (error) { rejectPromise(new HarnessFailure(`${label} returned invalid JSON: ${error.message}`)); }
+      });
+    });
+    requestValue.on("error", (error) => rejectPromise(error instanceof HarnessFailure ? error : new HarnessFailure(`${label} failed: ${error.message}`)));
+    requestValue.end();
+  });
+}
+
 function createDockerClients({ resources, outerHost, helperImage, repositoryRoot, releaseRoot, workspace }) {
   const outer = (args, options = {}) => run("docker", ["--host", outerHost, ...args], options);
+  const outerInventory = async () => {
+    if (!outerHost.startsWith("unix://")) refuse("outer Docker inventory requires the explicit Unix endpoint");
+    const value = await unixSocketJson(outerHost.slice("unix://".length), "/v1.55/images/json?all=1&manifests=1", "Outer Docker manifest inventory");
+    if (!Array.isArray(value)) refuse("outer Docker manifest inventory shape drifted");
+    return value;
+  };
   const mountMap = new Map([
     [repositoryRoot, repositoryRoot, true],
     [releaseRoot, releaseRoot, true],
@@ -449,7 +508,7 @@ function createDockerClients({ resources, outerHost, helperImage, repositoryRoot
     const command = ownerHelperArgs({ resources, outerHost, helperImage, mounts, volumes: helperVolumes, environment: helperEnvironment, args });
     return run(command[0], command.slice(1), runOptions);
   };
-  return { outer, owner, ownerHost: resources.ownerHost, resources };
+  return { outer, outerInventory, owner, ownerHost: resources.ownerHost, resources };
 }
 
 function dockerInfo(client) {
@@ -484,60 +543,163 @@ function selfTestImageSpec(role) {
   return spec;
 }
 
-export function validateSelfTestImageInspection({ role, neutralInspection, platformInspection }) {
+function selfTestOwnerReference(role) {
   const spec = selfTestImageSpec(role);
-  const indexDigest = spec.reference.split("@")[1];
-  if (neutralInspection?.Descriptor?.digest !== indexDigest || !neutralInspection.RepoDigests?.includes(spec.reference) ||
+  return `${SELF_TEST_CUSTODY_REPOSITORY}@${spec.indexDigest}`;
+}
+
+function selfTestTransferTags(token) {
+  if (!SAFE_TOKEN.test(token ?? "")) refuse("self-test transfer token is invalid");
+  return Object.freeze(Object.fromEntries(SELF_TEST_IMAGES.map(({ role }) => [role, `${SELF_TEST_CUSTODY_REPOSITORY}:${token}-${role}`])));
+}
+
+export function assertSelfTestImageReferencesAbsent({ check, phase, token }) {
+  if (typeof check !== "function" || !["outer", "owner"].includes(phase)) refuse("self-test collision gate inputs are invalid");
+  const tags = selfTestTransferTags(token);
+  const references = phase === "outer" ? Object.values(tags) : SELF_TEST_IMAGES.flatMap(({ role }) => [tags[role], selfTestOwnerReference(role)]);
+  for (const reference of references) {
+    if (check(reference)?.status === 0) refuse(`${phase} self-test image collision: ${reference}`);
+  }
+  return Object.freeze([...references]);
+}
+
+function exactNativeDescriptor(inventory, role) {
+  const spec = selfTestImageSpec(role);
+  const native = inventory?.Manifests?.filter((manifest) => manifest?.Kind === "image" && manifest?.Descriptor?.platform?.os === "linux" &&
+    manifest.Descriptor.platform.architecture === "arm64" && manifest.Descriptor.platform.variant === "v8") ?? [];
+  if (inventory?.Descriptor?.digest !== spec.indexDigest || native.length !== 1 || native[0].Descriptor.digest !== spec.childDigest || native[0].Available !== true) {
+    refuse(`self-test ${role} native child inventory identity drifted`);
+  }
+  return native[0].Descriptor;
+}
+
+export function validateSelfTestImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest }) {
+  const spec = selfTestImageSpec(role);
+  if (neutralInspection?.Descriptor?.digest !== spec.indexDigest || nativeDescriptor?.digest !== spec.childDigest ||
+    nativeDescriptor?.platform?.os !== "linux" || nativeDescriptor?.platform?.architecture !== "arm64" || nativeDescriptor?.platform?.variant !== "v8" ||
     platformInspection?.Os !== "linux" || platformInspection?.Architecture !== "arm64" || platformInspection?.Variant !== "v8" ||
-    !platformInspection.RepoDigests?.includes(spec.reference)) {
+    JSON.stringify(platformInspection?.RootFS?.Layers) !== JSON.stringify(spec.rootfsDiffIds) ||
+    !Array.isArray(neutralInspection?.RepoDigests) || !Array.isArray(platformInspection?.RepoDigests) ||
+    neutralInspection.RepoDigests.length !== 1 || platformInspection.RepoDigests.length !== 1 ||
+    neutralInspection.RepoDigests[0] !== expectedRepoDigest || platformInspection.RepoDigests[0] !== expectedRepoDigest) {
     refuse(`self-test ${role} index/native inspection identity drifted`);
   }
-  return Object.freeze({ role, reference: spec.reference, indexDigest, childDigest: spec.childDigest });
-}
-
-export function validateSelfTestImageArchiveMetadata({ archiveIndex, imageIndexes }) {
-  if (!Array.isArray(archiveIndex?.manifests) || typeof imageIndexes !== "object" || imageIndexes === null) {
-    refuse("self-test image archive metadata is invalid");
-  }
-  for (const spec of SELF_TEST_IMAGES) {
-    const indexDigest = spec.reference.split("@")[1];
-    const archivedIndex = imageIndexes[indexDigest];
-    if (!archiveIndex.manifests.some((descriptor) => descriptor.digest === indexDigest) || !Array.isArray(archivedIndex?.manifests) ||
-      !archivedIndex.manifests.some((descriptor) => descriptor.digest === spec.childDigest && descriptor.platform?.os === "linux" &&
-        descriptor.platform?.architecture === "arm64" && descriptor.platform?.variant === "v8")) {
-      refuse(`self-test ${spec.role} archive native child identity drifted`);
-    }
-  }
-  return true;
-}
-
-function createSelfTestImageTransferPlan({ archive, tag }) {
-  if (!isAbsolute(archive ?? "") || !tag?.startsWith("cwt.local/custody:") || tag.includes("@")) refuse("self-test image transfer inputs are invalid");
   return Object.freeze({
-    save: Object.freeze(["image", "save", "--output", archive, ...SELF_TEST_IMAGES.map(({ reference }) => reference)]),
-    load: Object.freeze(["image", "load", "--input", archive]),
-    cleanup: Object.freeze(["image", "rm", tag, ...SELF_TEST_IMAGES.map(({ reference }) => reference)]),
-    absence: Object.freeze([tag, ...SELF_TEST_IMAGES.map(({ reference }) => reference)]),
+    role,
+    sourceAuthority: spec.reference,
+    transferLocator: null,
+    ownerRuntimeReference: selfTestOwnerReference(role),
+    indexDigest: spec.indexDigest,
+    childDigest: spec.childDigest,
+    configDigest: spec.configDigest,
+    compressedLayers: spec.compressedLayers,
+    rootfsDiffIds: spec.rootfsDiffIds,
   });
 }
 
-function prepareSelfTestImageArchive(clients, archive, tag) {
-  const inspections = {};
-  for (const spec of SELF_TEST_IMAGES) {
-    const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.reference], { label: `Local self-test ${spec.role} index inspection` }));
-    const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, spec.reference], { label: `Local self-test ${spec.role} native inspection` }));
-    inspections[spec.role] = validateSelfTestImageInspection({ role: spec.role, neutralInspection, platformInspection });
+function archiveDigest(path) {
+  const match = String(path ?? "").match(/(?:^|\/)([0-9a-f]{64})(?:\.json)?$/u);
+  return match ? `sha256:${match[1]}` : undefined;
+}
+
+export function validateSelfTestImageArchiveMetadata({ archiveIndex, compatibilityManifest, imageIndexes, imageManifests, imageConfigs, transferTags }) {
+  if (!Array.isArray(archiveIndex?.manifests) || archiveIndex.manifests.length !== 2 || !Array.isArray(compatibilityManifest) || compatibilityManifest.length !== 2 ||
+    typeof imageIndexes !== "object" || imageIndexes === null || typeof imageManifests !== "object" || imageManifests === null ||
+    typeof imageConfigs !== "object" || imageConfigs === null || JSON.stringify(Object.keys(transferTags ?? {}).sort()) !== JSON.stringify(["server", "utility"])) {
+    refuse("self-test image archive metadata is invalid");
   }
-  const transfer = createSelfTestImageTransferPlan({ archive, tag });
-  clients.outer(transfer.save, { label: "Exact non-CWT synthetic image archive" });
-  const archiveIndex = JSON.parse(run("tar", ["-xOf", archive, "index.json"], { label: "Synthetic image archive index" }).stdout);
-  const imageIndexes = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => {
-    const indexDigest = spec.reference.split("@")[1];
-    const value = JSON.parse(run("tar", ["-xOf", archive, `blobs/sha256/${indexDigest.slice("sha256:".length)}`], { label: `Synthetic ${spec.role} image index` }).stdout);
-    return [indexDigest, value];
-  }));
-  validateSelfTestImageArchiveMetadata({ archiveIndex, imageIndexes });
-  return Object.freeze({ transfer, inspections: Object.freeze(inspections) });
+  for (const spec of SELF_TEST_IMAGES) {
+    const tag = transferTags[spec.role];
+    const top = archiveIndex.manifests.filter((descriptor) => descriptor.digest === spec.indexDigest);
+    const archivedIndex = imageIndexes[spec.indexDigest];
+    const native = archivedIndex?.manifests?.filter((descriptor) => descriptor.digest === spec.childDigest && descriptor.platform?.os === "linux" &&
+      descriptor.platform?.architecture === "arm64" && descriptor.platform?.variant === "v8") ?? [];
+    const manifest = imageManifests[spec.childDigest];
+    const config = imageConfigs[spec.configDigest];
+    const compatibility = compatibilityManifest.filter((entry) => Array.isArray(entry?.RepoTags) && entry.RepoTags.length === 1 && entry.RepoTags[0] === tag);
+    if (top.length !== 1 || top[0].annotations?.["org.opencontainers.image.ref.name"] !== tag || top[0].annotations?.["io.containerd.image.name"] !== tag ||
+      native.length !== 1 || manifest?.config?.digest !== spec.configDigest || JSON.stringify(manifest?.layers?.map(({ digest }) => digest)) !== JSON.stringify(spec.compressedLayers) ||
+      config?.os !== "linux" || config?.architecture !== "arm64" || JSON.stringify(config?.rootfs?.diff_ids) !== JSON.stringify(spec.rootfsDiffIds) ||
+      compatibility.length !== 1 || archiveDigest(compatibility[0].Config) !== spec.configDigest ||
+      JSON.stringify(compatibility[0].Layers?.map(archiveDigest)) !== JSON.stringify(spec.compressedLayers)) {
+      refuse(`self-test ${spec.role} archive identity drifted`);
+    }
+  }
+  const exactTags = SELF_TEST_IMAGES.map(({ role }) => transferTags[role]).sort();
+  const actualTags = compatibilityManifest.flatMap((entry) => entry.RepoTags ?? []).sort();
+  if (JSON.stringify(actualTags) !== JSON.stringify(exactTags)) refuse("self-test archive tags/images drifted");
+  return true;
+}
+
+function createSelfTestImageTransferPlan({ archive, token }) {
+  if (!isAbsolute(archive ?? "")) refuse("self-test image transfer inputs are invalid");
+  const tags = selfTestTransferTags(token);
+  const ownerReferences = Object.freeze(Object.fromEntries(SELF_TEST_IMAGES.map(({ role }) => [role, selfTestOwnerReference(role)])));
+  return Object.freeze({
+    tags,
+    ownerReferences,
+    tag: Object.freeze(SELF_TEST_IMAGES.map(({ role, reference }) => Object.freeze(["image", "tag", reference, tags[role]]))),
+    save: Object.freeze(["image", "save", "--output", archive, ...SELF_TEST_IMAGES.map(({ role }) => tags[role])]),
+    load: Object.freeze(["image", "load", "--input", archive]),
+    outerCleanup: Object.freeze(["image", "rm", ...SELF_TEST_IMAGES.map(({ role }) => tags[role])]),
+    ownerCleanup: Object.freeze(["image", "rm", ...SELF_TEST_IMAGES.map(({ role }) => tags[role])]),
+    ownerAbsence: Object.freeze(SELF_TEST_IMAGES.flatMap(({ role }) => [tags[role], ownerReferences[role]])),
+  });
+}
+
+function archiveJson(archive, path, label) {
+  return JSON.parse(run("tar", ["-xOf", archive, path], { label }).stdout);
+}
+
+async function prepareSelfTestImageArchive(clients, archive, token) {
+  const transfer = createSelfTestImageTransferPlan({ archive, token });
+  const inspections = {};
+  let primaryError; let prepared;
+  try {
+    assertSelfTestImageReferencesAbsent({
+      phase: "outer", token,
+      check: (reference) => clients.outer(["image", "inspect", reference], { allowFailure: true }),
+    });
+    const outerInventory = await clients.outerInventory();
+    for (const spec of SELF_TEST_IMAGES) {
+      const inventory = outerInventory.find((entry) => entry?.RepoDigests?.includes(spec.reference));
+      const nativeDescriptor = exactNativeDescriptor(inventory, spec.role);
+      const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.reference], { label: `Local self-test ${spec.role} index inspection` }));
+      const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, spec.reference], { label: `Local self-test ${spec.role} native inspection` }));
+      inspections[spec.role] = validateSelfTestImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest: spec.reference });
+    }
+    for (const command of transfer.tag) clients.outer(command, { label: "Exact source-bound self-test custody tag" });
+    for (const spec of SELF_TEST_IMAGES) {
+      const neutralInspection = parseInspection(clients.outer(["image", "inspect", transfer.tags[spec.role]], { label: `Outer ${spec.role} custody tag inspection` }));
+      const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, transfer.tags[spec.role]], { label: `Outer ${spec.role} custody native inspection` }));
+      validateSelfTestImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor: exactNativeDescriptor(outerInventory.find((entry) => entry?.RepoDigests?.includes(spec.reference)), spec.role), expectedRepoDigest: spec.reference });
+    }
+    clients.outer(transfer.save, { label: "Exact two-tag non-CWT synthetic image archive" });
+    const archiveIndex = archiveJson(archive, "index.json", "Synthetic image archive index");
+    const compatibilityManifest = archiveJson(archive, "manifest.json", "Synthetic Docker compatibility manifest");
+    const imageIndexes = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.indexDigest, archiveJson(archive, `blobs/sha256/${spec.indexDigest.slice(7)}`, `Synthetic ${spec.role} image index`)]));
+    const imageManifests = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.childDigest, archiveJson(archive, `blobs/sha256/${spec.childDigest.slice(7)}`, `Synthetic ${spec.role} native manifest`)]));
+    const imageConfigs = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.configDigest, archiveJson(archive, `blobs/sha256/${spec.configDigest.slice(7)}`, `Synthetic ${spec.role} image config`)]));
+    validateSelfTestImageArchiveMetadata({ archiveIndex, compatibilityManifest, imageIndexes, imageManifests, imageConfigs, transferTags: transfer.tags });
+    prepared = Object.freeze({ transfer, inspections: Object.freeze(inspections), archiveValidated: true });
+  } catch (error) { primaryError = error; }
+  let cleanupError;
+  try {
+    clients.outer(transfer.outerCleanup, { allowFailure: true });
+    for (const reference of Object.values(transfer.tags)) {
+      if (clients.outer(["image", "inspect", reference], { allowFailure: true }).status === 0) throw new HarnessFailure(`outer self-test transfer tag survived cleanup: ${reference}`);
+    }
+    for (const spec of SELF_TEST_IMAGES) {
+      const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.reference], { label: `Retained self-test ${spec.role} source inspection` }));
+      if (neutralInspection.Descriptor?.digest !== spec.indexDigest || !neutralInspection.RepoDigests?.includes(spec.reference)) throw new HarnessFailure(`outer self-test ${spec.role} source did not survive transfer cleanup`);
+    }
+  } catch (error) { cleanupError = error; }
+  if (primaryError) {
+    if (cleanupError) Object.defineProperty(primaryError, "cleanupFailure", { value: String(cleanupError?.message ?? cleanupError), enumerable: true });
+    throw primaryError;
+  }
+  if (cleanupError) throw cleanupError;
+  return prepared;
 }
 
 function verifyPinnedOwnerImages(clients, workspace) {
@@ -718,14 +880,14 @@ function finalizeSelfTestCompose({ clients, compose, evidenceRoot, networkName, 
   return diagnostics;
 }
 
-function proveSelfTestComposeCommunication({ clients, compose, networkName, shellPlan, utilityTag }) {
+function proveSelfTestComposeCommunication({ clients, compose, networkName, shellPlan, utilityReference }) {
   compose(SELF_TEST_SERVER_READINESS_ARGS, { label: "Non-CWT inner Compose readiness" });
   const serverId = compose(["ps", "--all", "--quiet", "server"], { label: "Non-CWT server identity" }).stdout.trim();
   if (!serverId) refuse("non-CWT Compose server is absent");
   const server = inspectContainer(clients, serverId);
   const network = JSON.parse(clients.owner(["network", "inspect", networkName], { label: "Non-CWT private network" }).stdout)[0];
-  const serverState = validateSelfTestServerState({ server, network, networkName, expectedImage: SELF_TEST_SERVER_REFERENCE });
-  const communication = clients.owner(["run", "--rm", "--pull", "never", "--network", networkName, utilityTag, ...shellPlan.communication], { label: "Non-CWT inner communication" });
+  const serverState = validateSelfTestServerState({ server, network, networkName, expectedImage: SELF_TEST_SERVER_OWNER_REFERENCE });
+  const communication = clients.owner(["run", "--rm", "--pull", "never", "--network", networkName, utilityReference, ...shellPlan.communication], { label: "Non-CWT inner communication" });
   if (communication.stdout !== "resolver=127.0.0.11\nresult=exact-token\n") refuse("non-CWT inner network communication result drifted");
   return Object.freeze({ serverId, serverState });
 }
@@ -965,6 +1127,38 @@ function ownerImageInspection(clients, reference, platform) {
   return parseInspection(clients.owner(args, { label: "Owner image inspection" }));
 }
 
+export function validateSelfTestOwnerImageSet({ images, transferTags, token }) {
+  if (JSON.stringify(Object.keys(images ?? {}).sort()) !== JSON.stringify(["server", "utility"]) ||
+    JSON.stringify(Object.keys(transferTags ?? {}).sort()) !== JSON.stringify(["server", "utility"]) || !SAFE_TOKEN.test(token ?? "")) {
+    refuse("complete two-image owner identity gate is absent");
+  }
+  return Object.freeze(Object.fromEntries(SELF_TEST_IMAGES.map((spec) => {
+    const value = images[spec.role];
+    const ownerReference = selfTestOwnerReference(spec.role);
+    const nativeDescriptor = { digest: spec.childDigest, platform: { os: "linux", architecture: "arm64", variant: "v8" } };
+    const tagIdentity = validateSelfTestImageInspection({
+      role: spec.role,
+      neutralInspection: value?.tagNeutral,
+      platformInspection: value?.tagPlatform,
+      nativeDescriptor,
+      expectedRepoDigest: ownerReference,
+    });
+    const ownerIdentity = validateSelfTestImageInspection({
+      role: spec.role,
+      neutralInspection: value?.ownerNeutral,
+      platformInspection: value?.ownerPlatform,
+      nativeDescriptor,
+      expectedRepoDigest: ownerReference,
+    });
+    if (transferTags[spec.role] !== `${SELF_TEST_CUSTODY_REPOSITORY}:${token}-${spec.role}` ||
+      value?.tagNeutral?.Descriptor?.digest !== value?.ownerNeutral?.Descriptor?.digest ||
+      value?.tagNeutral?.Id !== value?.ownerNeutral?.Id || tagIdentity.indexDigest !== ownerIdentity.indexDigest) {
+      refuse(`self-test ${spec.role} owner tag/reference agreement drifted`);
+    }
+    return [spec.role, Object.freeze({ ...ownerIdentity, transferLocator: transferTags[spec.role], ownerImageId: value.ownerNeutral.Id })];
+  })));
+}
+
 async function waitForComposeHealth(compose) {
   for (let attempt = 0; attempt < 240; attempt += 1) {
     const states = Object.fromEntries(EXACT_SERVICES.map((service) => {
@@ -1124,7 +1318,6 @@ async function selfTest(args) {
   const resources = ownerResources(token);
   const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot });
   const clients = createDockerClients({ resources, outerHost, helperImage: OWNER_HELPER_REFERENCE, repositoryRoot, releaseRoot: repositoryRoot, workspace });
-  const tag = `cwt.local/custody:${token}`;
   const archive = resolve(workspace, "synthetic-images.tar");
   const project = `${token}-compose`;
   let ownerLoaded = false; let ownerCleanupRequired = false;
@@ -1134,31 +1327,26 @@ async function selfTest(args) {
     const configRoot = createSyntheticConfiguration(workspace, "0".repeat(40));
     const pinned = verifyPinnedOwnerImages(clients, workspace);
     const projectionPlan = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
-    imagePreparation = prepareSelfTestImageArchive(clients, archive, tag);
+    imagePreparation = await prepareSelfTestImageArchive(clients, archive, token);
     ownerCleanupRequired = true;
     createOwnerVolumes(clients, plan);
     populateOwnerVolumes(clients, projectionPlan);
     startOwnerController(clients, plan);
     const { ownerInfo, isolation } = await waitForOwnerReady(clients);
-    const before = clients.owner(["image", "inspect", tag], { allowFailure: true });
-    if (before.status === 0) refuse("self-test tag pre-exists in owner");
+    assertSelfTestImageReferencesAbsent({
+      phase: "owner", token,
+      check: (reference) => clients.owner(["image", "inspect", reference], { allowFailure: true }),
+    });
+    if (clients.owner(["image", "ls", "--all", "--quiet"], { label: "Owner empty image-list precondition" }).stdout.trim() !== "") refuse("self-test owner image list is not empty before load");
     ownerLoaded = true;
     clients.owner(imagePreparation.transfer.load, { label: "Owner exact non-CWT image load" });
-    const ownerImages = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => {
-      const neutralInspection = ownerImageInspection(clients, spec.reference);
-      const platformInspection = ownerImageInspection(clients, spec.reference, SELF_TEST_NATIVE_PLATFORM);
-      const identity = validateSelfTestImageInspection({ role: spec.role, neutralInspection, platformInspection });
-      return [spec.role, Object.freeze({ ...identity, ownerImageId: neutralInspection.Id })];
-    }));
-    clients.owner(["image", "tag", SELF_TEST_UTILITY_REFERENCE, tag], { label: "owner non-CWT utility custody tag" });
-    const ownerTag = ownerImageInspection(clients, tag);
-    const outerInvisible = clients.outer(["image", "inspect", tag], { allowFailure: true });
-    if (outerInvisible.status === 0) refuse("outer endpoint can see isolated namespace tag");
-    const outerDeletion = clients.outer(["image", "rm", tag], { allowFailure: true });
-    if (outerDeletion.status === 0) refuse("outer endpoint deleted isolated namespace tag");
-    ownerImageInspection(clients, tag);
-    ownerImageInspection(clients, SELF_TEST_UTILITY_REFERENCE);
-    ownerImageInspection(clients, SELF_TEST_SERVER_REFERENCE);
+    const loadedInspections = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.role, Object.freeze({
+      tagNeutral: ownerImageInspection(clients, imagePreparation.transfer.tags[spec.role]),
+      tagPlatform: ownerImageInspection(clients, imagePreparation.transfer.tags[spec.role], SELF_TEST_NATIVE_PLATFORM),
+      ownerNeutral: ownerImageInspection(clients, imagePreparation.transfer.ownerReferences[spec.role]),
+      ownerPlatform: ownerImageInspection(clients, imagePreparation.transfer.ownerReferences[spec.role], SELF_TEST_NATIVE_PLATFORM),
+    })]));
+    const ownerImages = validateSelfTestOwnerImageSet({ images: loadedInspections, transferTags: imagePreparation.transfer.tags, token });
 
     const storageProof = `/srv/cwt/staging/media/import/${token}.proof`;
     const shellPlan = createSelfTestShellPlan({ repositoryRoot, token, storageProof });
@@ -1167,23 +1355,27 @@ async function selfTest(args) {
       "--mount", "type=bind,source=/etc/cwt/.cwt-release-validation,target=/proof/config,readonly",
       "--mount", `type=bind,source=${repositoryRoot},target=${repositoryRoot},readonly`,
       "--mount", "type=bind,source=/srv/cwt/staging/media/import,target=/srv/cwt/staging/media/import",
-      tag, ...shellPlan.namedVolumeProof,
+      SELF_TEST_UTILITY_OWNER_REFERENCE, ...shellPlan.namedVolumeProof,
     ], { label: "Named-volume config/storage/journal proof" });
 
     const composeFile = resolve(workspace, "self-test-compose.json");
-    writeFileSync(composeFile, json(createSelfTestComposeDefinition({ image: SELF_TEST_SERVER_REFERENCE, command: shellPlan.composeServer })), { mode: 0o444 });
+    writeFileSync(composeFile, json(createSelfTestComposeDefinition({ image: SELF_TEST_SERVER_OWNER_REFERENCE, command: shellPlan.composeServer })), { mode: 0o444 });
     compose = createComposeClient({ clients, project, repositoryRoot, composeFile, environment: {} });
     serverNetworkName = `${project}_private`;
-    const communicationProof = proveSelfTestComposeCommunication({ clients, compose, networkName: serverNetworkName, shellPlan, utilityTag: tag });
+    const communicationProof = proveSelfTestComposeCommunication({ clients, compose, networkName: serverNetworkName, shellPlan, utilityReference: SELF_TEST_UTILITY_OWNER_REFERENCE });
     serverId = communicationProof.serverId;
     result = {
       schemaVersion: 1, status: "passed", ownerToken: token,
       owner: { serverVersion: ownerInfo.serverVersion, snapshotter: ownerInfo.snapshotter, ...isolation, pinned },
-      images: {
-        utility: { ...ownerImages.utility, custodyTagImageId: ownerTag.Id },
-        server: ownerImages.server,
+      images: ownerImages,
+      custody: {
+        archiveCount: 1,
+        loadCount: 1,
+        outerTransferTagsRemovedBeforeOwnerLoad: true,
+        sourceAuthoritiesRetained: SELF_TEST_IMAGES.map(({ reference }) => reference),
+        transferLocators: imagePreparation.transfer.tags,
+        ownerRuntimeReferences: imagePreparation.transfer.ownerReferences,
       },
-      isolation: { outerInvisible: true, outerDeletionRefused: true, ownerRetainedAfterOuterAttempt: true },
       projection: { configVolume: true, storageVolume: true, journalVolume: true, configMode: "0444", storageOwner: "10001:10001", journalEmission: true, vmHostBinds: 0 },
       compose: { internalNetwork: true, containerLocalFixture: SELF_TEST_SERVER_ROOT, serverState: communicationProof.serverState, resolver: "127.0.0.11", boundedRetries: 10, innerCommunication: true },
     };
@@ -1199,10 +1391,11 @@ async function selfTest(args) {
         clients, compose, evidenceRoot, networkName: serverNetworkName ?? `${project}_private`, serverId, attempt,
       });
       if (ownerLoaded) attempt(() => {
-        clients.owner(imagePreparation.transfer.cleanup, { allowFailure: true });
-        for (const reference of imagePreparation.transfer.absence) {
+        clients.owner(imagePreparation.transfer.ownerCleanup, { label: "Owner exact custody-tag cleanup" });
+        for (const reference of imagePreparation.transfer.ownerAbsence) {
           if (clients.owner(["image", "inspect", reference], { allowFailure: true }).status === 0) throw new HarnessFailure(`owner self-test image survived cleanup: ${reference}`);
         }
+        if (clients.owner(["image", "ls", "--all", "--quiet"], { label: "Owner empty image-list cleanup proof" }).stdout.trim() !== "") throw new HarnessFailure("owner self-test image list survived cleanup");
         ownerLoaded = false;
       });
       let ownerDiagnostics;
@@ -1410,9 +1603,11 @@ export const __testOnly = Object.freeze({
   SELF_TEST_COMMUNICATION_SCRIPT,
   SELF_TEST_IMAGES,
   SELF_TEST_NATIVE_PLATFORM,
+  SELF_TEST_SERVER_OWNER_REFERENCE,
   SELF_TEST_SERVER_REFERENCE,
   SELF_TEST_SERVER_HEALTHCHECK,
   SELF_TEST_SERVER_READINESS_ARGS,
+  SELF_TEST_UTILITY_OWNER_REFERENCE,
   SELF_TEST_UTILITY_REFERENCE,
   captureSelfTestComposeDiagnostics,
   composeArgs,
@@ -1425,5 +1620,6 @@ export const __testOnly = Object.freeze({
   fixedShellArgs,
   proveSelfTestComposeCommunication,
   removeExactSyntheticWorkspace,
+  selfTestTransferTags,
   subjectFailure: (message = "subject") => new SubjectFailure(message),
 });
