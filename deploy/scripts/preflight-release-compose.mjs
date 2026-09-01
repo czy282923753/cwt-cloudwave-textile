@@ -54,6 +54,17 @@ const EXPECTED_WEB_HEALTH = [
   "CMD", "node", "-e",
   "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))",
 ];
+const SELF_TEST_NAMED_VOLUME_PROOF_SCRIPT = [
+  'test "$(cat /proof/config)" = "synthetic release validation"',
+  'test "$(stat -c %a /proof/config)" = 444',
+  'test -f "$1/AGENTS.md"',
+  'printf \'%s\\n\' "$2" > "$3"',
+  'test "$(stat -c %u:%g "$3")" = 10001:10001',
+  'printf \'%s\\n\' "$2-journal-proof"',
+  'rm "$3"',
+].join("; ");
+const SELF_TEST_SERVER_SCRIPT = 'test "$(cat "$1/index.html")" = "$2"; exec busybox httpd -f -p 8080 -h "$1"';
+const SELF_TEST_COMMUNICATION_SCRIPT = 'test "$(busybox wget -qO- http://server:8080/index.html)" = "$1"';
 
 class HarnessFailure extends Error {
   constructor(message) { super(message); this.name = "HarnessFailure"; }
@@ -67,6 +78,24 @@ function subjectRefuse(message) { throw new SubjectFailure(`Release subject fail
 function json(value) { return `${JSON.stringify(value, null, 2)}\n`; }
 function pause(milliseconds) { return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)); }
 function secret(bytes = 32) { return randomBytes(bytes).toString("hex"); }
+
+function fixedShellArgs(script, positional = []) {
+  if (typeof script !== "string" || script.length === 0 || !Array.isArray(positional) || positional.some((value) => typeof value !== "string")) {
+    refuse("fixed shell command inputs are invalid");
+  }
+  return Object.freeze(["sh", "-eu", "-c", script, "sh", ...positional]);
+}
+
+function createSelfTestShellPlan({ repositoryRoot, bindRoot, token, storageProof }) {
+  if (!isAbsolute(repositoryRoot ?? "") || !isAbsolute(bindRoot ?? "") || !isAbsolute(storageProof ?? "") || !SAFE_TOKEN.test(token ?? "")) {
+    refuse("self-test shell inputs are invalid");
+  }
+  return Object.freeze({
+    namedVolumeProof: fixedShellArgs(SELF_TEST_NAMED_VOLUME_PROOF_SCRIPT, [repositoryRoot, token, storageProof]),
+    composeServer: fixedShellArgs(SELF_TEST_SERVER_SCRIPT, [bindRoot, token]),
+    communication: fixedShellArgs(SELF_TEST_COMMUNICATION_SCRIPT, [token]),
+  });
+}
 
 export function digestQualifiedReference(repository, indexDigest) {
   if (repository !== "cwt.local/release" || !DIGEST.test(indexDigest ?? "")) refuse("Compose image identity is not the exact release repository@index");
@@ -598,7 +627,7 @@ export function createVolumeProjectionPlan({ resources, outerHost, configRoot, t
   const storageScript = [
     "test -z \"$(find /target -mindepth 1 -print -quit)\"",
     "mkdir -p /target/production/media/public /target/production/media/private-inquiries /target/production/media/import /target/staging/media/public /target/staging/media/private-inquiries /target/staging/media/import /target/postgresql/data /target/backups/postgresql/production /target/backups/postgresql/staging",
-    `: > /target/.${token}`,
+    ': > "/target/.$1"',
     "chown -R 10001:10001 /target/production /target/staging",
     "chmod -R 0700 /target/production /target/staging",
     "chown -R 999:999 /target/postgresql",
@@ -624,22 +653,22 @@ export function createVolumeProjectionPlan({ resources, outerHost, configRoot, t
       "run", "--rm", "--pull", "never", "--network", "none",
       "--mount", `type=bind,source=${configRoot},target=/payload,readonly`,
       "--mount", `type=volume,source=${resources.configVolume},target=/target,volume-nocopy`,
-      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", configScript,
+      SELF_TEST_BASE_REFERENCE, ...fixedShellArgs(configScript),
     ]),
     storagePopulate: exact([
       "run", "--rm", "--pull", "never", "--network", "none",
       "--mount", `type=volume,source=${resources.storageVolume},target=/target,volume-nocopy`,
-      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", storageScript,
+      SELF_TEST_BASE_REFERENCE, ...fixedShellArgs(storageScript, [token]),
     ]),
     journalStart: exact([
       "run", "--detach", "--name", resources.journalHelper, "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
       "--mount", `type=volume,source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`,
-      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", journalScript,
+      SELF_TEST_BASE_REFERENCE, ...fixedShellArgs(journalScript),
     ]),
     journalProbe: exact([
       "run", "--rm", "--pull", "never", "--network", "none",
       "--mount", `type=volume,source=${resources.journalVolume},target=/probe,readonly,volume-nocopy`,
-      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", "attempt=0; while ! test -S /probe/socket; do attempt=$((attempt+1)); test \"$attempt\" -lt 100; sleep 0.1; done",
+      SELF_TEST_BASE_REFERENCE, ...fixedShellArgs("attempt=0; while ! test -S /probe/socket; do attempt=$((attempt+1)); test \"$attempt\" -lt 100; sleep 0.1; done"),
     ]),
   });
   validateVolumeProjectionPlan(plan, { resources, outerHost, configRoot });
@@ -656,7 +685,10 @@ export function validateVolumeProjectionPlan(plan, { resources, outerHost, confi
   const storage = plan.storagePopulate.join(" ");
   const journal = plan.journalStart.join(" ");
   if (!config.includes(`type=bind,source=${configRoot},target=/payload,readonly`) || !config.includes(`source=${resources.configVolume},target=/target,volume-nocopy`) ||
-    !storage.includes(`source=${resources.storageVolume},target=/target,volume-nocopy`) || config.includes("/srv/cwt") || storage.includes("/etc/cwt")) refuse("config/storage named-volume authority drifted");
+    !storage.includes(`source=${resources.storageVolume},target=/target,volume-nocopy`) || config.includes("/srv/cwt") || storage.includes("/etc/cwt") ||
+    !storage.includes(': > "/target/.$1"') || storage.includes(`: > /target/.${resources.token}`) || plan.storagePopulate.at(-2) !== "sh" || plan.storagePopulate.at(-1) !== resources.token) {
+    refuse("config/storage named-volume authority drifted");
+  }
   if (!journal.includes(`--name ${resources.journalHelper}`) || !journal.includes(`source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`) ||
     !journal.includes("helper_pid=$$") || !journal.includes("child_pid=$!") || !journal.includes("trap cleanup EXIT TERM INT") ||
     !journal.includes("nsenter -t 1 -m -- socat UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork OPEN:/dev/null &") ||
@@ -882,16 +914,16 @@ async function selfTest(args) {
     ownerImageInspection(clients, `alpine@${baseDigest}`);
 
     const storageProof = `/srv/cwt/staging/media/import/${token}.proof`;
+    const bindRoot = resolve(workspace, "self-test-bind");
+    const shellPlan = createSelfTestShellPlan({ repositoryRoot, bindRoot, token, storageProof });
     clients.owner([
       "run", "--rm", "--pull", "never", "--network", "none", "--user", "10001:10001", "--log-driver", "journald",
       "--mount", "type=bind,source=/etc/cwt/.cwt-release-validation,target=/proof/config,readonly",
       "--mount", `type=bind,source=${repositoryRoot},target=${repositoryRoot},readonly`,
       "--mount", "type=bind,source=/srv/cwt/staging/media/import,target=/srv/cwt/staging/media/import",
-      tag, "sh", "-eu", "-c",
-      `test \"$(cat /proof/config)\" = \"synthetic release validation\"; test \"$(stat -c %a /proof/config)\" = 444; test -f ${repositoryRoot}/AGENTS.md; printf '%s\\n' ${token} > ${storageProof}; test \"$(stat -c %u:%g ${storageProof})\" = 10001:10001; echo ${token}-journal-proof; rm ${storageProof}`,
+      tag, ...shellPlan.namedVolumeProof,
     ], { label: "Named-volume config/storage/journal proof" });
 
-    const bindRoot = resolve(workspace, "self-test-bind");
     mkdirSync(bindRoot, { recursive: true, mode: 0o700 });
     writeFileSync(resolve(bindRoot, "index.html"), `${token}\n`, { mode: 0o444 });
     const composeFile = resolve(workspace, "self-test-compose.json");
@@ -899,7 +931,7 @@ async function selfTest(args) {
       services: {
         server: {
           image: tag,
-          command: ["sh", "-eu", "-c", `test \"$(cat ${bindRoot}/index.html)\" = \"${token}\"; exec busybox httpd -f -p 8080 -h ${bindRoot}`],
+          command: shellPlan.composeServer,
           volumes: [{ type: "bind", source: bindRoot, target: bindRoot, read_only: true }],
           networks: ["private"],
           logging: { driver: "journald" },
@@ -916,7 +948,7 @@ async function selfTest(args) {
     const network = JSON.parse(clients.owner(["network", "inspect", networkName], { label: "Non-CWT private network" }).stdout)[0];
     if (network.Internal !== true || server.HostConfig?.LogConfig?.Type !== "journald" || Object.keys(server.HostConfig?.PortBindings ?? {}).length !== 0 ||
       !server.Mounts?.some((mount) => mount.Source === bindRoot && mount.Destination === bindRoot && mount.RW === false)) refuse("non-CWT Compose path/network/log/port contract drifted");
-    const communication = clients.owner(["run", "--rm", "--pull", "never", "--network", networkName, tag, "sh", "-eu", "-c", `test \"$(busybox wget -qO- http://server:8080/index.html)\" = \"${token}\"`], { label: "Non-CWT inner communication" });
+    const communication = clients.owner(["run", "--rm", "--pull", "never", "--network", networkName, tag, ...shellPlan.communication], { label: "Non-CWT inner communication" });
     if (communication.status !== 0) refuse("non-CWT inner network communication failed");
     result = {
       schemaVersion: 1, status: "passed", ownerToken: token,
@@ -1145,8 +1177,10 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
 export const __testOnly = Object.freeze({
   EXACT_SERVICES,
   composeArgs,
+  createSelfTestShellPlan,
   createSyntheticConfiguration,
   directAppArgs,
+  fixedShellArgs,
   removeExactSyntheticWorkspace,
   subjectFailure: (message = "subject") => new SubjectFailure(message),
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
@@ -114,6 +114,9 @@ test("populates config/storage only through named volumes and freezes UNIX-RECVF
   assert.equal(plan.configPopulate.join(" ").includes(`type=bind,source=${configRoot},target=/payload,readonly`), true);
   assert.equal(plan.configPopulate.join(" ").includes(`source=${resources.configVolume},target=/target,volume-nocopy`), true);
   assert.equal(plan.storagePopulate.join(" ").includes(`source=${resources.storageVolume},target=/target,volume-nocopy`), true);
+  assert.deepEqual(plan.storagePopulate.slice(-2), ["sh", token]);
+  assert.equal(plan.storagePopulate.at(-3).includes(token), false);
+  assert.equal(plan.storagePopulate.at(-3).includes(': > "/target/.$1"'), true);
   const journal = plan.journalStart.join(" ");
   assert.equal(journal.includes(`--name ${resources.journalHelper}`), true);
   assert.equal(journal.includes("--pid host"), true);
@@ -131,6 +134,49 @@ test("populates config/storage only through named volumes and freezes UNIX-RECVF
   assert.equal(journal.includes("UNIX-RECV:"), false);
   assert.equal(journal.includes("Mountpoint"), false);
   assert.equal(plan.journalProbe.join(" ").includes(`source=${resources.journalVolume},target=/probe,readonly,volume-nocopy`), true);
+});
+
+test("keeps adversarial self-test paths and tokens as exact positional argv values", () => {
+  const parent = mkdtempSync(resolve(tmpdir(), "cwt-shell-argv-test-"));
+  const adversarialRepository = resolve(parent, "CWT space (paren) 'single' \"double\" 中文");
+  const adversarialBind = resolve(parent, "bind path （测试） 'quote' \"double\"");
+  const adversarialStorage = resolve(parent, "storage proof (one) 'quote' 中文.proof");
+  try {
+    mkdirSync(adversarialRepository, { recursive: true });
+    mkdirSync(adversarialBind, { recursive: true });
+    writeFileSync(resolve(adversarialRepository, "AGENTS.md"), "proof\n");
+    writeFileSync(resolve(adversarialBind, "index.html"), `${token}\n`);
+    const plan = __testOnly.createSelfTestShellPlan({
+      repositoryRoot: adversarialRepository,
+      bindRoot: adversarialBind,
+      token,
+      storageProof: adversarialStorage,
+    });
+
+    assert.equal(plan.namedVolumeProof.length, 8);
+    assert.deepEqual(plan.namedVolumeProof.slice(0, 5), ["sh", "-eu", "-c", plan.namedVolumeProof[3], "sh"]);
+    assert.deepEqual(plan.namedVolumeProof.slice(5), [adversarialRepository, token, adversarialStorage]);
+    assert.equal(plan.composeServer.length, 7);
+    assert.deepEqual(plan.composeServer.slice(5), [adversarialBind, token]);
+    assert.equal(plan.communication.length, 6);
+    assert.deepEqual(plan.communication.slice(5), [token]);
+    for (const command of Object.values(plan)) {
+      for (const value of [adversarialRepository, adversarialBind, adversarialStorage, token]) {
+        assert.equal(command[3].includes(value), false);
+      }
+      const syntax = spawnSync("/bin/sh", ["-n", "-c", command[3]], { encoding: "utf8" });
+      assert.equal(syntax.status, 0, syntax.stderr);
+    }
+
+    const executable = __testOnly.fixedShellArgs('test -f "$1/AGENTS.md"; test "$(cat "$2/index.html")" = "$3"; printf \'%s\\n\' "$3" > "$4"', [
+      adversarialRepository, adversarialBind, token, adversarialStorage,
+    ]);
+    assert.equal(executable.length, 9);
+    assert.deepEqual(executable.slice(5), [adversarialRepository, adversarialBind, token, adversarialStorage]);
+    const executed = spawnSync(executable[0], executable.slice(1), { encoding: "utf8" });
+    assert.equal(executed.status, 0, executed.stderr);
+    assert.equal(readFileSync(adversarialStorage, "utf8"), `${token}\n`);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
 test("rejects projection mutations for raw paths, wrong journal address type and missing volume-nocopy", () => {
