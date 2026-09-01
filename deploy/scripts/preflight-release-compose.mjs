@@ -616,40 +616,6 @@ function validateSelfTestOwnerImageInspection({ role, neutralInspection, platfor
   return validateSelfTestDigestBoundImageInspection({ role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest, stage: "owner-local authority" });
 }
 
-function archiveDigest(path) {
-  const match = String(path ?? "").match(/(?:^|\/)([0-9a-f]{64})(?:\.json)?$/u);
-  return match ? `sha256:${match[1]}` : undefined;
-}
-
-export function validateSelfTestImageArchiveMetadata({ archiveIndex, compatibilityManifest, imageIndexes, imageManifests, imageConfigs, transferTags }) {
-  if (!Array.isArray(archiveIndex?.manifests) || archiveIndex.manifests.length !== 2 || !Array.isArray(compatibilityManifest) || compatibilityManifest.length !== 2 ||
-    typeof imageIndexes !== "object" || imageIndexes === null || typeof imageManifests !== "object" || imageManifests === null ||
-    typeof imageConfigs !== "object" || imageConfigs === null || JSON.stringify(Object.keys(transferTags ?? {}).sort()) !== JSON.stringify(["server", "utility"])) {
-    refuse("self-test image archive metadata is invalid");
-  }
-  for (const spec of SELF_TEST_IMAGES) {
-    const tag = transferTags[spec.role];
-    const top = archiveIndex.manifests.filter((descriptor) => descriptor.digest === spec.indexDigest);
-    const archivedIndex = imageIndexes[spec.indexDigest];
-    const native = archivedIndex?.manifests?.filter((descriptor) => descriptor.digest === spec.childDigest && descriptor.platform?.os === "linux" &&
-      descriptor.platform?.architecture === "arm64" && descriptor.platform?.variant === "v8") ?? [];
-    const manifest = imageManifests[spec.childDigest];
-    const config = imageConfigs[spec.configDigest];
-    const compatibility = compatibilityManifest.filter((entry) => Array.isArray(entry?.RepoTags) && entry.RepoTags.length === 1 && entry.RepoTags[0] === tag);
-    if (top.length !== 1 || top[0].annotations?.["org.opencontainers.image.ref.name"] !== tag || top[0].annotations?.["io.containerd.image.name"] !== tag ||
-      native.length !== 1 || manifest?.config?.digest !== spec.configDigest || JSON.stringify(manifest?.layers?.map(({ digest }) => digest)) !== JSON.stringify(spec.compressedLayers) ||
-      config?.os !== "linux" || config?.architecture !== "arm64" || JSON.stringify(config?.rootfs?.diff_ids) !== JSON.stringify(spec.rootfsDiffIds) ||
-      compatibility.length !== 1 || archiveDigest(compatibility[0].Config) !== spec.configDigest ||
-      JSON.stringify(compatibility[0].Layers?.map(archiveDigest)) !== JSON.stringify(spec.compressedLayers)) {
-      refuse(`self-test ${spec.role} archive identity drifted`);
-    }
-  }
-  const exactTags = SELF_TEST_IMAGES.map(({ role }) => transferTags[role]).sort();
-  const actualTags = compatibilityManifest.flatMap((entry) => entry.RepoTags ?? []).sort();
-  if (JSON.stringify(actualTags) !== JSON.stringify(exactTags)) refuse("self-test archive tags/images drifted");
-  return true;
-}
-
 function createSelfTestImageTransferPlan({ archive, token }) {
   if (!isAbsolute(archive ?? "")) refuse("self-test image transfer inputs are invalid");
   const tags = selfTestTransferTags(token);
@@ -666,13 +632,8 @@ function createSelfTestImageTransferPlan({ archive, token }) {
   });
 }
 
-function archiveJson(archive, path, label) {
-  return JSON.parse(run("tar", ["-xOf", archive, path], { label }).stdout);
-}
-
-async function prepareSelfTestImageArchive(clients, archive, token) {
+async function prepareSelfTestImageTransfer(clients, archive, token) {
   const transfer = createSelfTestImageTransferPlan({ archive, token });
-  const inspections = {};
   let primaryError; let prepared;
   try {
     assertSelfTestImageReferencesAbsent({
@@ -685,7 +646,7 @@ async function prepareSelfTestImageArchive(clients, archive, token) {
       const nativeDescriptor = exactNativeDescriptor(inventory, spec.role);
       const neutralInspection = parseInspection(clients.outer(["image", "inspect", spec.reference], { label: `Local self-test ${spec.role} index inspection` }));
       const platformInspection = parseInspection(clients.outer(["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, spec.reference], { label: `Local self-test ${spec.role} native inspection` }));
-      inspections[spec.role] = validateSelfTestSourceImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest: spec.reference });
+      validateSelfTestSourceImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor, expectedRepoDigest: spec.reference });
     }
     for (const command of transfer.tag) clients.outer(command, { label: "Exact source-bound self-test custody tag" });
     for (const spec of SELF_TEST_IMAGES) {
@@ -694,13 +655,7 @@ async function prepareSelfTestImageArchive(clients, archive, token) {
       validateSelfTestTransferImageInspection({ role: spec.role, neutralInspection, platformInspection, nativeDescriptor: exactNativeDescriptor(outerInventory.find((entry) => entry?.RepoDigests?.includes(spec.reference)), spec.role) });
     }
     clients.outer(transfer.save, { label: "Exact two-tag non-CWT synthetic image archive" });
-    const archiveIndex = archiveJson(archive, "index.json", "Synthetic image archive index");
-    const compatibilityManifest = archiveJson(archive, "manifest.json", "Synthetic Docker compatibility manifest");
-    const imageIndexes = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.indexDigest, archiveJson(archive, `blobs/sha256/${spec.indexDigest.slice(7)}`, `Synthetic ${spec.role} image index`)]));
-    const imageManifests = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.childDigest, archiveJson(archive, `blobs/sha256/${spec.childDigest.slice(7)}`, `Synthetic ${spec.role} native manifest`)]));
-    const imageConfigs = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.configDigest, archiveJson(archive, `blobs/sha256/${spec.configDigest.slice(7)}`, `Synthetic ${spec.role} image config`)]));
-    validateSelfTestImageArchiveMetadata({ archiveIndex, compatibilityManifest, imageIndexes, imageManifests, imageConfigs, transferTags: transfer.tags });
-    prepared = Object.freeze({ transfer, inspections: Object.freeze(inspections), archiveValidated: true });
+    prepared = Object.freeze({ transfer });
   } catch (error) { primaryError = error; }
   let cleanupError;
   try {
@@ -1178,6 +1133,22 @@ export function validateSelfTestOwnerImageSet({ images, transferTags, token }) {
   })));
 }
 
+function loadSelfTestOwnerImages({ clients, transfer, token }) {
+  clients.owner(transfer.load, { label: "Owner exact non-CWT image load" });
+  const loadedInspections = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.role, Object.freeze({
+    tagNeutral: ownerImageInspection(clients, transfer.tags[spec.role]),
+    tagPlatform: ownerImageInspection(clients, transfer.tags[spec.role], SELF_TEST_NATIVE_PLATFORM),
+    ownerNeutral: ownerImageInspection(clients, transfer.ownerReferences[spec.role]),
+    ownerPlatform: ownerImageInspection(clients, transfer.ownerReferences[spec.role], SELF_TEST_NATIVE_PLATFORM),
+  })]));
+  const ownerImages = validateSelfTestOwnerImageSet({ images: loadedInspections, transferTags: transfer.tags, token });
+  const actualIds = clients.owner(["image", "ls", "--all", "--quiet", "--no-trunc"], { label: "Owner exact post-load image set" }).stdout
+    .split("\n").map((value) => value.trim()).filter(Boolean).sort();
+  const expectedIds = Object.values(ownerImages).map(({ ownerImageId }) => ownerImageId).sort();
+  if (JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) refuse("self-test owner image inventory drifted");
+  return ownerImages;
+}
+
 async function waitForComposeHealth(compose) {
   for (let attempt = 0; attempt < 240; attempt += 1) {
     const states = Object.fromEntries(EXACT_SERVICES.map((service) => {
@@ -1346,7 +1317,7 @@ async function selfTest(args) {
     const configRoot = createSyntheticConfiguration(workspace, "0".repeat(40));
     const pinned = verifyPinnedOwnerImages(clients, workspace);
     const projectionPlan = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
-    imagePreparation = await prepareSelfTestImageArchive(clients, archive, token);
+    imagePreparation = await prepareSelfTestImageTransfer(clients, archive, token);
     ownerCleanupRequired = true;
     createOwnerVolumes(clients, plan);
     populateOwnerVolumes(clients, projectionPlan);
@@ -1358,14 +1329,7 @@ async function selfTest(args) {
     });
     if (clients.owner(["image", "ls", "--all", "--quiet"], { label: "Owner empty image-list precondition" }).stdout.trim() !== "") refuse("self-test owner image list is not empty before load");
     ownerLoaded = true;
-    clients.owner(imagePreparation.transfer.load, { label: "Owner exact non-CWT image load" });
-    const loadedInspections = Object.fromEntries(SELF_TEST_IMAGES.map((spec) => [spec.role, Object.freeze({
-      tagNeutral: ownerImageInspection(clients, imagePreparation.transfer.tags[spec.role]),
-      tagPlatform: ownerImageInspection(clients, imagePreparation.transfer.tags[spec.role], SELF_TEST_NATIVE_PLATFORM),
-      ownerNeutral: ownerImageInspection(clients, imagePreparation.transfer.ownerReferences[spec.role]),
-      ownerPlatform: ownerImageInspection(clients, imagePreparation.transfer.ownerReferences[spec.role], SELF_TEST_NATIVE_PLATFORM),
-    })]));
-    const ownerImages = validateSelfTestOwnerImageSet({ images: loadedInspections, transferTags: imagePreparation.transfer.tags, token });
+    const ownerImages = loadSelfTestOwnerImages({ clients, transfer: imagePreparation.transfer, token });
 
     const storageProof = `/srv/cwt/staging/media/import/${token}.proof`;
     const shellPlan = createSelfTestShellPlan({ repositoryRoot, token, storageProof });
@@ -1638,6 +1602,8 @@ export const __testOnly = Object.freeze({
   finalizeSelfTestCompose,
   fixedShellArgs,
   proveSelfTestComposeCommunication,
+  loadSelfTestOwnerImages,
+  prepareSelfTestImageTransfer,
   removeExactSyntheticWorkspace,
   selfTestTransferTags,
   subjectFailure: (message = "subject") => new SubjectFailure(message),

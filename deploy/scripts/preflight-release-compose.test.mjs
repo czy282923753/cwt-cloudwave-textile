@@ -23,7 +23,6 @@ import {
   validateOwnerControllerPlan,
   validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
-  validateSelfTestImageArchiveMetadata,
   validateSelfTestSourceImageInspection,
   validateSelfTestTransferImageInspection,
   validateSelfTestOwnerImageSet,
@@ -59,27 +58,80 @@ function selfTestInspection(spec, repoDigest) {
   };
 }
 
-function selfTestArchiveFixture() {
-  const transferTags = __testOnly.selfTestTransferTags(token);
-  const archiveIndex = { manifests: __testOnly.SELF_TEST_IMAGES.map((spec) => ({
-    digest: spec.indexDigest,
-    annotations: { "org.opencontainers.image.ref.name": transferTags[spec.role], "io.containerd.image.name": transferTags[spec.role] },
-  })) };
-  const compatibilityManifest = __testOnly.SELF_TEST_IMAGES.map((spec) => ({
-    Config: `blobs/sha256/${spec.configDigest.slice(7)}`,
-    RepoTags: [transferTags[spec.role]],
-    Layers: spec.compressedLayers.map((digest) => `blobs/sha256/${digest.slice(7)}`),
-  }));
-  const imageIndexes = Object.fromEntries(__testOnly.SELF_TEST_IMAGES.map((spec) => [spec.indexDigest, {
-    manifests: [{ digest: spec.childDigest, platform: { os: "linux", architecture: "arm64", variant: "v8" } }],
-  }]));
-  const imageManifests = Object.fromEntries(__testOnly.SELF_TEST_IMAGES.map((spec) => [spec.childDigest, {
-    config: { digest: spec.configDigest }, layers: spec.compressedLayers.map((digest) => ({ digest })),
-  }]));
-  const imageConfigs = Object.fromEntries(__testOnly.SELF_TEST_IMAGES.map((spec) => [spec.configDigest, {
-    os: "linux", architecture: "arm64", rootfs: { diff_ids: [...spec.rootfsDiffIds] },
-  }]));
-  return { archiveIndex, compatibilityManifest, imageIndexes, imageManifests, imageConfigs, transferTags };
+function selfTestInventory(spec) {
+  return {
+    RepoDigests: [spec.reference],
+    Descriptor: { digest: spec.indexDigest },
+    Manifests: [{
+      Kind: "image",
+      Available: true,
+      Descriptor: { digest: spec.childDigest, platform: { os: "linux", architecture: "arm64", variant: "v8" } },
+    }],
+  };
+}
+
+function outerTransferClients({ saveError } = {}) {
+  const events = [];
+  const presentTags = new Set();
+  const tags = __testOnly.selfTestTransferTags(token);
+  const specFor = (reference) => __testOnly.SELF_TEST_IMAGES.find((spec) => reference === spec.reference || reference === tags[spec.role]);
+  const clients = {
+    outerInventory: async () => __testOnly.SELF_TEST_IMAGES.map(selfTestInventory),
+    outer(args) {
+      events.push([...args]);
+      if (args[0] === "image" && args[1] === "tag") { presentTags.add(args[3]); return { status: 0, stdout: "", stderr: "" }; }
+      if (args[0] === "image" && args[1] === "save") {
+        if (saveError) throw saveError;
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "image" && args[1] === "rm") {
+        for (const reference of args.slice(2)) presentTags.delete(reference);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "image" && args[1] === "inspect") {
+        const reference = args.at(-1);
+        const spec = specFor(reference);
+        if (!spec || (reference === tags[spec.role] && !presentTags.has(reference))) return { status: 1, stdout: "", stderr: "absent" };
+        const exact = selfTestInspection(spec, spec.reference);
+        const inspection = args.includes("--platform") ? exact.platformInspection : exact.neutralInspection;
+        return { status: 0, stdout: JSON.stringify([inspection]), stderr: "" };
+      }
+      throw new Error(`unexpected outer command: ${args.join(" ")}`);
+    },
+    owner(args) {
+      events.push(["owner", ...args]);
+      throw new Error("owner operation must not begin during outer transfer preparation");
+    },
+  };
+  return { clients, events, tags };
+}
+
+function ownerImageClients({ loadError, mutateInspection, extraImageIds = [] } = {}) {
+  const events = [];
+  const transfer = __testOnly.createSelfTestImageTransferPlan({ archive: "/tmp/cwt-synthetic-images.tar", token });
+  const clients = { owner(args) {
+    events.push([...args]);
+    if (args[0] === "image" && args[1] === "load") {
+      if (loadError) throw loadError;
+      return { status: 0, stdout: "Loaded image", stderr: "" };
+    }
+    if (args[0] === "image" && args[1] === "inspect") {
+      const reference = args.at(-1);
+      const spec = __testOnly.SELF_TEST_IMAGES.find((candidate) =>
+        reference === transfer.tags[candidate.role] || reference === transfer.ownerReferences[candidate.role]);
+      if (!spec) throw new Error(`unexpected owner image reference: ${reference}`);
+      const exact = selfTestInspection(spec, transfer.ownerReferences[spec.role]);
+      const inspection = structuredClone(args.includes("--platform") ? exact.platformInspection : exact.neutralInspection);
+      mutateInspection?.({ args, reference, role: spec.role, inspection });
+      return { status: 0, stdout: JSON.stringify([inspection]), stderr: "" };
+    }
+    if (args.join(" ") === "image ls --all --quiet --no-trunc") {
+      const ids = [...__testOnly.SELF_TEST_IMAGES.map(({ indexDigest }) => indexDigest), ...extraImageIds];
+      return { status: 0, stdout: `${ids.join("\n")}\n`, stderr: "" };
+    }
+    throw new Error(`runtime operation began before owner image authority: ${args.join(" ")}`);
+  } };
+  return { clients, events, transfer };
 }
 
 function disposableWorkspace() {
@@ -288,29 +340,6 @@ test("binds transfer locators by exact image identity without treating tag RepoD
   }
 });
 
-test("uses source authority only for immutable source refs and transfer binding only after exact tag creation", () => {
-  const source = readFileSync(new URL("./preflight-release-compose.mjs", import.meta.url), "utf8");
-  const preparation = source.slice(source.indexOf("async function prepareSelfTestImageArchive"), source.indexOf("export function validateSelfTestOwnerImageSet"));
-  const sourceCalls = [...preparation.matchAll(/validateSelfTestSourceImageInspection\(\{[^;]+/gu)].map(([call]) => call);
-  const transferCalls = [...preparation.matchAll(/validateSelfTestTransferImageInspection\(\{[^;]+/gu)].map(([call]) => call);
-  const tagCreation = preparation.indexOf("for (const command of transfer.tag)");
-  const neutralTransferInspection = preparation.indexOf('["image", "inspect", transfer.tags[spec.role]]');
-  const platformTransferInspection = preparation.indexOf('["image", "inspect", "--platform", SELF_TEST_NATIVE_PLATFORM, transfer.tags[spec.role]]');
-  const transferValidation = preparation.indexOf("validateSelfTestTransferImageInspection", tagCreation);
-  assert.equal(sourceCalls.length, 1);
-  assert.equal(sourceCalls[0].includes("expectedRepoDigest: spec.reference"), true);
-  assert.equal(sourceCalls[0].includes("transfer.tags"), false);
-  assert.equal(transferCalls.length, 1);
-  assert.equal(transferCalls[0].includes("expectedRepoDigest"), false);
-  assert.equal(transferCalls[0].includes("neutralInspection, platformInspection"), true);
-  assert.equal(transferCalls[0].includes("exactNativeDescriptor"), true);
-  assert.equal(preparation.indexOf("validateSelfTestSourceImageInspection") < tagCreation, true);
-  assert.equal(tagCreation < neutralTransferInspection, true);
-  assert.equal(tagCreation < platformTransferInspection, true);
-  assert.equal(neutralTransferInspection < transferValidation, true);
-  assert.equal(platformTransferInspection < transferValidation, true);
-});
-
 test("generates only deterministic role-bound custody tags and one exact save/load plan", () => {
   const archive = "/tmp/cwt-synthetic-images.tar";
   const tags = __testOnly.selfTestTransferTags(token);
@@ -329,6 +358,31 @@ test("generates only deterministic role-bound custody tags and one exact save/lo
   assert.equal(plan.save.includes(__testOnly.SELF_TEST_SERVER_REFERENCE), false);
 });
 
+test("saves the exact two source-bound tags once and removes them before owner work", async () => {
+  const archive = "/tmp/cwt-synthetic-images.tar";
+  const { clients, events, tags } = outerTransferClients();
+  const prepared = await __testOnly.prepareSelfTestImageTransfer(clients, archive, token);
+  assert.deepEqual(prepared.transfer.tags, tags);
+  const saves = events.filter((args) => args[0] === "image" && args[1] === "save");
+  assert.deepEqual(saves, [["image", "save", "--output", archive, tags.utility, tags.server]]);
+  assert.equal(events.some((args) => args[0] === "owner"), false);
+  for (const tagValue of Object.values(tags)) {
+    const tagIndex = events.findIndex((args) => args[0] === "image" && args[1] === "tag" && args[3] === tagValue);
+    const boundInspectionIndex = events.findIndex((args, indexValue) => indexValue > tagIndex && args[0] === "image" && args[1] === "inspect" && args.at(-1) === tagValue);
+    assert.ok(tagIndex >= 0 && boundInspectionIndex > tagIndex && boundInspectionIndex < events.indexOf(saves[0]));
+  }
+  assert.ok(events.findIndex((args) => args[0] === "image" && args[1] === "rm") > events.indexOf(saves[0]));
+});
+
+test("blocks owner creation when the single standard image save fails", async () => {
+  const failure = new Error("standard image save failed");
+  const { clients, events, tags } = outerTransferClients({ saveError: failure });
+  await assert.rejects(() => __testOnly.prepareSelfTestImageTransfer(clients, "/tmp/cwt-synthetic-images.tar", token), (error) => error === failure);
+  assert.equal(events.filter((args) => args[0] === "image" && args[1] === "save").length, 1);
+  assert.equal(events.some((args) => args[0] === "owner"), false);
+  assert.deepEqual(events.find((args) => args[0] === "image" && args[1] === "rm"), ["image", "rm", tags.utility, tags.server]);
+});
+
 test("refuses collisions for both outer tags and all four owner tag/qualified references", () => {
   const tags = __testOnly.selfTestTransferTags(token);
   const outer = assertSelfTestImageReferencesAbsent({ check: () => ({ status: 1 }), phase: "outer", token });
@@ -341,27 +395,6 @@ test("refuses collisions for both outer tags and all four owner tag/qualified re
         phase, token, check: (reference) => ({ status: reference === collision ? 0 : 1 }),
       }), /image collision/u);
     }
-  }
-});
-
-test("accepts only the exact named two-image archive and rejects naming or frozen DAG mutations", () => {
-  const exact = selfTestArchiveFixture();
-  assert.equal(validateSelfTestImageArchiveMetadata(exact), true);
-  const mutations = [
-    (value) => { value.compatibilityManifest[0].RepoTags = null; },
-    (value) => { delete value.archiveIndex.manifests[0].annotations["org.opencontainers.image.ref.name"]; },
-    (value) => { value.archiveIndex.manifests[0].annotations["io.containerd.image.name"] = __testOnly.SELF_TEST_UTILITY_REFERENCE; },
-    (value) => { value.compatibilityManifest[0].RepoTags = [__testOnly.SELF_TEST_UTILITY_REFERENCE]; },
-    (value) => { value.archiveIndex.manifests.push(structuredClone(value.archiveIndex.manifests[0])); },
-    (value) => { value.imageIndexes[__testOnly.SELF_TEST_IMAGES[0].indexDigest].manifests[0].digest = child; },
-    (value) => { value.imageManifests[__testOnly.SELF_TEST_IMAGES[1].childDigest].config.digest = index; },
-    (value) => { value.imageManifests[__testOnly.SELF_TEST_IMAGES[1].childDigest].layers.reverse(); },
-    (value) => { value.compatibilityManifest[1].Layers.reverse(); },
-    (value) => { value.imageConfigs[__testOnly.SELF_TEST_IMAGES[1].configDigest].rootfs.diff_ids.reverse(); },
-  ];
-  for (const mutate of mutations) {
-    const mutation = structuredClone(exact); mutate(mutation);
-    assert.throws(() => validateSelfTestImageArchiveMetadata(mutation), /archive/u);
   }
 });
 
@@ -386,6 +419,32 @@ test("requires both restored tags and both local RepoDigests before any owner ru
     const mutation = structuredClone({ images, transferTags: tags, token }); mutate(mutation);
     assert.throws(() => validateSelfTestOwnerImageSet(mutation), /identity gate|identity drifted|RepoDigest drifted|agreement drifted/u);
   }
+});
+
+test("loads once and opens owner authority only for the exact two loaded image IDs", () => {
+  const { clients, events, transfer } = ownerImageClients();
+  const images = __testOnly.loadSelfTestOwnerImages({ clients, transfer, token });
+  assert.deepEqual(Object.keys(images).sort(), ["server", "utility"]);
+  assert.deepEqual(events[0], transfer.load);
+  assert.equal(events.filter((args) => args[0] === "image" && args[1] === "load").length, 1);
+  assert.deepEqual(events.at(-1), ["image", "ls", "--all", "--quiet", "--no-trunc"]);
+  assert.equal(events.some((args) => args[0] === "run" || args[0] === "compose"), false);
+});
+
+test("blocks runtime on load failure, loaded identity drift or any extra owner image", () => {
+  const loadFailure = ownerImageClients({ loadError: new Error("standard image load failed") });
+  assert.throws(() => __testOnly.loadSelfTestOwnerImages({ clients: loadFailure.clients, transfer: loadFailure.transfer, token }), /standard image load failed/u);
+  assert.deepEqual(loadFailure.events, [loadFailure.transfer.load]);
+
+  const identityFailure = ownerImageClients({ mutateInspection: ({ reference, role, inspection }) => {
+    if (role === "server" && reference.includes("@") && !inspection.RootFS) inspection.RepoDigests = [__testOnly.SELF_TEST_SERVER_REFERENCE];
+  } });
+  assert.throws(() => __testOnly.loadSelfTestOwnerImages({ clients: identityFailure.clients, transfer: identityFailure.transfer, token }), /RepoDigest drifted/u);
+  assert.equal(identityFailure.events.some((args) => args[0] === "run" || args[0] === "compose"), false);
+
+  const extraFailure = ownerImageClients({ extraImageIds: [index] });
+  assert.throws(() => __testOnly.loadSelfTestOwnerImages({ clients: extraFailure.clients, transfer: extraFailure.transfer, token }), /owner image inventory drifted/u);
+  assert.equal(extraFailure.events.some((args) => args[0] === "run" || args[0] === "compose"), false);
 });
 
 test("generates one exact Nginx container-local healthy server with journald and no published surface", () => {
