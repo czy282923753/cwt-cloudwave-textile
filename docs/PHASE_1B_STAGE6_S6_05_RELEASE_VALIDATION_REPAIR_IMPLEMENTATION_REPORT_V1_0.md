@@ -6,11 +6,15 @@ Status: **IMPLEMENTATION IN PROGRESS — post-emission evidence closure pending*
 
 Role: **Fresh Technical Implementer; no self-approval**
 
-Technical Escalation Candidate: `6a8f3ceea1d1369a9e3b1306d756be075eba3a6a`, tree `85d67f4ef31a887f90a98efbf2fbfb8beae3a876`, parent `32835fcd84dde6842e4e577be8186933f340aae5`.
+Correction baseline and exact rollback: `54e62a266b4201b589037e623618094329d02f88`, tree `465beaaf17a9b6e0a88053126841b51fa2f2e95e`, sole parent `07b6156b4e6a0ba1d4d30087fb76df98fc964163`.
+
+Accepted private-DIND addendum: Git object `f97c3ae67f35aa4680a2d5d5ea9cf8e45e93c6c6`, document SHA-256 `aca0366f6bfc8524ad3af9df97ebf3eb664cfecd76621d77487f3cf97f658d4f`.
 
 ## 1. Bounded replacement
 
-The repair replaces the accidental split custody path with one versioned release validator, one explicit disposable owner endpoint and one exclusive containerd store tuple. The validator reuses `verifyReleaseRecord` and `validateComposeGraph`; it adds no release record, lifecycle state, database table, daemon service, lease, retry controller, Product authority or second topology.
+The correction replaces the external owner-host and host-network owner-helper path with one validator-owned ephemeral private DIND controller. The controller is pinned to `docker:29.6.2-dind@sha256:bfec1f5159c63a81ca6fdedbd81404d2c0e16378ed0feec3bb3fbf3998847659`, joins outer `--network none`, publishes no port, mounts no outer Docker/containerd socket and owns private Docker/containerd data plus one run-unique Unix API volume. The validator reuses `verifyReleaseRecord` and `validateComposeGraph`; it adds no release record, lifecycle state, database table, persistent daemon service, lease, retry controller, Product authority or second topology.
+
+Every owner/helper operation mounts the one API volume and addresses `unix:///run/cwt-owner-api/docker.sock`. Host-network `nsenter`, TCP owner transport, external `--owner-host`, shared containerd and compatibility mode are removed. Conventional `moby` / `plugins.moby` namespaces are accepted only when the containerd address is under the run-unique private exec root and differs from outer containerd. Repository, workspace, `/etc/cwt`, `/srv/cwt` and `/run/systemd/journal` are projected at the same paths.
 
 Compose authority is `Q=cwt.local/release@I`, where `I` is the emitted OCI index. The annotation-created tag remains a repository association only. The owner holds the reference through consumer teardown and performs image cleanup only after zero Compose containers and networks.
 
@@ -18,20 +22,20 @@ The validator opens one subject gate only after exact release-record, no-revocat
 
 ## 2. Exact implementation scope
 
-Implementation and evidence closure are restricted to the ten paths frozen in the repair plan. The only AI-architecture change is the exact `deploy/scripts/preflight-release-compose.mjs` non-AI tooling classification plus mechanically updated sealed hashes. No wildcard, AI capability, Provider authority, package/lock/workspace, Compose, Dockerfile, application, Schema or Migration change is permitted.
+This correction Candidate is restricted to exactly six paths: the validator, its focused test, host README, operations runbook, this pending report and the pending evidence manifest. No AI-classification, wildcard, AI capability, Provider authority, package/lock/workspace, Compose, Dockerfile, Build Once, image verifier, Compose graph, application, Product, Schema, Migration, historical evidence or release-lifecycle change is permitted.
 
 ## 3. Pre-emission custody result
 
-The non-CWT custody self-test used an existing pinned small base in a run-unique isolated containerd namespace. It proved outer invisibility, outer deletion refusal, owner retention after the outer attempt, digest-qualified owner resolution and owner-only image cleanup. The disposable controller, daemon process, mount and exact data/exec roots were then removed. Final post-emission identities and the complete gate ledger will be written only after the sole successor Build Once and authoritative validation pass.
+Pending at source-commit time. After the exact Candidate is committed, the authorized sequence is: seed and verify the one exact DIND reference; run exactly one non-CWT Alpine reproduction; retain first-run controller inspect/log evidence and log SHA; prove private Unix API/store, outer invisibility, owner-only import, internal Compose networking, same-path bind, journald, no published port, inner communication and zero exact residue; then run every frozen source gate. No CWT subject or Build Once is authorized in this correction task.
 
 ## 4. Complexity and rollback
 
-Responsibility moves to the one correct owner boundary. The old dual-client reference ownership and duplicate positive runtime path are not retained. Persistent complexity is unchanged; the added code is an ephemeral orchestration and proof boundary. Rollback is the frozen Technical Escalation Candidate and never changes, restores or un-revokes any historical subject.
+Responsibility moves to the validator boundary that already owns workspace, Synthetic state, command planning and cleanup. The external owner endpoint, host-network owner helper and shared-containerd parameter path are not retained. Persistent complexity is unchanged; three temporary volumes and one bounded controller lifecycle replace two failed external-daemon patterns. Controller diagnostics precede exact removal, consumer teardown precedes image cleanup, and cleanup cannot mask the primary error. Rollback is exactly `54e62a266b4201b589037e623618094329d02f88` and never changes, restores or un-revokes any historical subject.
 
 ## 5. Pending closure fields
 
-- implementation commit/tree/parent and exact path diff;
-- complete pre-emission gate ledger;
+- correction commit/tree/sole parent and exact six-path diff;
+- exact DIND seed/platform/version verification, sole non-CWT reproduction and complete source-gate ledger;
 - sole Build Once output root and successor OCI/release identities;
 - same-owner direct/runtime/root-Compose results and gate-open classification;
 - complete cleanup and unchanged historical revocation ledger;

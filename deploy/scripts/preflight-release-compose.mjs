@@ -18,6 +18,10 @@ import { sha256File, verifyReleaseRecord } from "./preflight-image.mjs";
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const RELEASE = /^[0-9a-f]{40}$/u;
 const SAFE_TOKEN = /^[a-z0-9][a-z0-9-]{7,63}$/u;
+export const OWNER_DIND_REFERENCE = "docker:29.6.2-dind@sha256:bfec1f5159c63a81ca6fdedbd81404d2c0e16378ed0feec3bb3fbf3998847659";
+const OWNER_DIND_ARM64_CHILD = "sha256:48bd8cb4ce95d6c03004ee4fe06db27a49813fe0c3a55785a9bf06c941d9a9df";
+const OWNER_HELPER_REFERENCE = "docker:29.6.2-cli";
+const SELF_TEST_BASE_REFERENCE = "alpine:3.22";
 const EXACT_SERVICES = ["postgres", "valkey-production", "valkey-staging", "web-production", "web-staging"];
 const APP_SERVICES = ["web-production", "web-staging"];
 const DEPENDENCY_REFERENCES = [
@@ -64,27 +68,138 @@ export function digestQualifiedReference(repository, indexDigest) {
   return `${repository}@${indexDigest}`;
 }
 
-export function assertExclusiveStore(owner, outer) {
+export function ownerResources(token) {
+  if (!SAFE_TOKEN.test(token ?? "")) refuse("owner run token is invalid");
+  const apiRoot = "/run/cwt-owner-api";
+  const execRoot = `/run/cwt-owner-exec-${token}`;
+  return Object.freeze({
+    token,
+    controller: `${token}-owner-dind`,
+    apiVolume: `${token}-owner-api`,
+    dockerDataVolume: `${token}-owner-docker-data`,
+    containerdDataVolume: `${token}-owner-containerd-data`,
+    apiRoot,
+    ownerHost: `unix://${apiRoot}/docker.sock`,
+    execRoot,
+    pidFile: `/run/cwt-owner-${token}.pid`,
+  });
+}
+
+export function assertExclusiveStore(owner, outer, expectedOwnerExecRoot) {
   for (const [label, value] of [["owner", owner], ["outer", outer]]) {
     if (!value || typeof value !== "object" || typeof value.address !== "string" || !value.address.startsWith("/") ||
       typeof value.containersNamespace !== "string" || value.containersNamespace.length === 0 ||
       typeof value.pluginsNamespace !== "string" || value.pluginsNamespace.length === 0) refuse(`${label} containerd store identity is incomplete`);
   }
-  const ownerTuple = `${owner.address}\0${owner.containersNamespace}`;
-  const outerTuple = `${outer.address}\0${outer.containersNamespace}`;
-  if (ownerTuple === outerTuple || owner.containersNamespace === "moby" || owner.pluginsNamespace === "plugins.moby") {
+  const ownerTuple = `${owner.address}\0${owner.containersNamespace}\0${owner.pluginsNamespace}`;
+  const outerTuple = `${outer.address}\0${outer.containersNamespace}\0${outer.pluginsNamespace}`;
+  const conventional = owner.containersNamespace === "moby" && owner.pluginsNamespace === "plugins.moby";
+  const privateAddress = typeof expectedOwnerExecRoot === "string" && owner.address.startsWith(`${expectedOwnerExecRoot}/`);
+  if (ownerTuple === outerTuple || owner.address === outer.address || !privateAddress || !conventional) {
     refuse("validation owner shares the outer containerd store/namespace");
   }
   return Object.freeze({
-    socketIdentityClass: owner.address === outer.address ? "shared-socket-isolated-namespace" : "private-containerd-socket",
+    socketIdentityClass: "private-containerd-socket",
+    containerdAddressClass: "run-unique-exec-root",
     namespace: owner.containersNamespace,
+    pluginsNamespace: owner.pluginsNamespace,
   });
 }
 
 export function ownerDockerArgs(ownerHost, args) {
-  if (typeof ownerHost !== "string" || !/^(?:tcp|unix):\/\//u.test(ownerHost)) refuse("owner Docker endpoint must be explicit");
+  if (typeof ownerHost !== "string" || !ownerHost.startsWith("unix:///run/cwt-owner-api/")) refuse("owner Docker endpoint must be the private Unix socket");
   if (!Array.isArray(args) || args.length === 0) refuse("owner Docker command is empty");
   return Object.freeze(["docker", "--host", ownerHost, ...args]);
+}
+
+function samePathMount(path, readOnly = false) {
+  return `type=bind,source=${path},target=${path}${readOnly ? ",readonly" : ""}`;
+}
+
+export function createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace }) {
+  const resources = ownerResources(token);
+  if (typeof outerHost !== "string" || !outerHost.startsWith("unix://") || !isAbsolute(repositoryRoot ?? "") || !isAbsolute(workspace ?? "")) {
+    refuse("owner controller inputs are invalid");
+  }
+  const volumes = [resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume];
+  const controllerRun = [
+    "docker", "--host", outerHost, "run", "--detach", "--name", resources.controller,
+    "--pull", "never", "--network", "none", "--privileged",
+    "--mount", `type=volume,source=${resources.apiVolume},target=${resources.apiRoot}`,
+    "--mount", `type=volume,source=${resources.dockerDataVolume},target=/var/lib/docker`,
+    "--mount", `type=volume,source=${resources.containerdDataVolume},target=/var/lib/containerd`,
+    "--mount", samePathMount(repositoryRoot, true),
+    "--mount", samePathMount(workspace),
+    "--mount", samePathMount("/etc/cwt", true),
+    "--mount", samePathMount("/srv/cwt"),
+    "--mount", samePathMount("/run/systemd/journal"),
+    "--env", "DOCKER_TLS_CERTDIR=", OWNER_DIND_REFERENCE, "dockerd",
+    `--host=${resources.ownerHost}`, "--data-root=/var/lib/docker", `--exec-root=${resources.execRoot}`, `--pidfile=${resources.pidFile}`,
+  ];
+  const diagnostics = [
+    ["docker", "--host", outerHost, "inspect", resources.controller],
+    ["docker", "--host", outerHost, "logs", "--timestamps", resources.controller],
+  ];
+  const cleanup = [
+    ["docker", "--host", outerHost, "stop", "--time", "20", resources.controller],
+    ["docker", "--host", outerHost, "wait", resources.controller],
+    ["docker", "--host", outerHost, "rm", resources.controller],
+    ...volumes.map((name) => ["docker", "--host", outerHost, "volume", "rm", name]),
+  ];
+  const plan = Object.freeze({
+    resources,
+    volumeCreate: Object.freeze(volumes.map((name) => Object.freeze(["docker", "--host", outerHost, "volume", "create", "--name", name]))),
+    controllerRun: Object.freeze(controllerRun),
+    readiness: Object.freeze(ownerHelperArgs({ resources, outerHost, helperImage: OWNER_HELPER_REFERENCE, mounts: [], args: ["info"] })),
+    diagnostics: Object.freeze(diagnostics.map((command) => Object.freeze(command))),
+    cleanup: Object.freeze(cleanup.map((command) => Object.freeze(command))),
+    finalization: Object.freeze([...diagnostics, ...cleanup].map((command) => Object.freeze(command))),
+  });
+  validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, workspace });
+  return plan;
+}
+
+export function validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, workspace }) {
+  const { resources } = plan ?? {};
+  const runArgs = plan?.controllerRun ?? [];
+  const rendered = runArgs.join(" ");
+  const required = [
+    "--pull never", "--network none", "--privileged", OWNER_DIND_REFERENCE,
+    `source=${resources?.apiVolume},target=${resources?.apiRoot}`,
+    `source=${resources?.dockerDataVolume},target=/var/lib/docker`,
+    `source=${resources?.containerdDataVolume},target=/var/lib/containerd`,
+    `source=${repositoryRoot},target=${repositoryRoot},readonly`, `source=${workspace},target=${workspace}`,
+    "source=/etc/cwt,target=/etc/cwt,readonly", "source=/srv/cwt,target=/srv/cwt",
+    "source=/run/systemd/journal,target=/run/systemd/journal",
+    `--host=${resources?.ownerHost}`, `--exec-root=${resources?.execRoot}`, `--pidfile=${resources?.pidFile}`,
+  ];
+  if (!Array.isArray(runArgs) || runArgs.slice(0, 3).join(" ") !== `docker --host ${outerHost}` || required.some((value) => !rendered.includes(value))) {
+    refuse("private DIND controller plan is incomplete");
+  }
+  if (runArgs.includes("--rm") || runArgs.includes("--pid") || runArgs.includes("host") || runArgs.includes("--publish") || runArgs.includes("-p") ||
+    rendered.includes("docker.sock,target") || rendered.includes("containerd.sock") || rendered.includes("--bridge=") || rendered.includes("--iptables") || rendered.includes("nsenter") || /tcp:\/\//u.test(rendered)) {
+    refuse("private DIND controller plan escapes its isolation boundary");
+  }
+  const diagnostics = plan.diagnostics.flat().join(" ");
+  const cleanup = plan.cleanup.flat().join(" ");
+  const expectedFinalization = [...plan.diagnostics, ...plan.cleanup].map((command) => command.join("\0"));
+  const actualFinalization = (plan.finalization ?? []).map((command) => command.join("\0"));
+  const diagnosticLogIndex = actualFinalization.findIndex((command) => command.includes(`logs\0--timestamps\0${resources.controller}`));
+  const controllerRemovalIndex = actualFinalization.findIndex((command) => command.endsWith(`rm\0${resources.controller}`));
+  if (!diagnostics.includes(`inspect ${resources.controller}`) || !diagnostics.includes(`logs --timestamps ${resources.controller}`) ||
+    cleanup.indexOf(`rm ${resources.controller}`) < cleanup.indexOf(`wait ${resources.controller}`) ||
+    JSON.stringify(actualFinalization) !== JSON.stringify(expectedFinalization) || diagnosticLogIndex < 0 || controllerRemovalIndex < diagnosticLogIndex) refuse("owner diagnostics or cleanup order is invalid");
+  return true;
+}
+
+export function ownerHelperArgs({ resources, outerHost, helperImage = OWNER_HELPER_REFERENCE, mounts = [], environment = {}, args }) {
+  if (!resources?.ownerHost?.startsWith("unix://") || typeof outerHost !== "string" || !outerHost.startsWith("unix://") || !Array.isArray(args) || args.length === 0) refuse("owner helper plan is invalid");
+  const mountArgs = [
+    "--mount", `type=volume,source=${resources.apiVolume},target=${resources.apiRoot}`,
+    ...mounts.flatMap(([path, readOnly = false]) => ["--mount", samePathMount(path, readOnly)]),
+  ];
+  const envArgs = Object.entries(environment).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+  return ["docker", "--host", outerHost, "run", "--rm", "--pull", "never", "--network", "none", ...mountArgs, ...envArgs, helperImage, "docker", "--host", resources.ownerHost, ...args];
 }
 
 export function createValidationPlan({ ownerHost, outerHost, releaseId, indexDigest, childDigest, project }) {
@@ -175,24 +290,23 @@ function run(program, args, options = {}) {
   return result;
 }
 
-function createDockerClients({ ownerHost, outerHost, helperImage, repositoryRoot, releaseRoot, workspace }) {
+function createDockerClients({ resources, outerHost, helperImage, repositoryRoot, releaseRoot, workspace }) {
   const outer = (args, options = {}) => run("docker", ["--host", outerHost, ...args], options);
   const mountMap = new Map([
     [repositoryRoot, repositoryRoot, true],
     [releaseRoot, releaseRoot, true],
     [workspace, workspace, false],
+    ["/etc/cwt", "/etc/cwt", true],
+    ["/srv/cwt", "/srv/cwt", false],
+    ["/run/systemd/journal", "/run/systemd/journal", false],
   ].map((entry) => [entry[1], entry]));
-  const mounts = [...mountMap.values()];
+  const mounts = [...mountMap.values()].map(([path,, readOnly]) => [path, readOnly]);
   const owner = (args, options = {}) => {
-    const mountArgs = mounts.flatMap(([source, target, readOnly]) => ["--mount", `type=bind,source=${source},target=${target}${readOnly ? ",readonly" : ""}`]);
-    const command = [
-      "run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-      ...mountArgs,
-      helperImage, "nsenter", "-t", "1", "-n", "--", "docker", "--host", ownerHost, ...args,
-    ];
-    return outer(command, options);
+    const { helperEnvironment = {}, ...runOptions } = options;
+    const command = ownerHelperArgs({ resources, outerHost, helperImage, mounts, environment: helperEnvironment, args });
+    return run(command[0], command.slice(1), runOptions);
   };
-  return { outer, owner };
+  return { outer, owner, ownerHost: resources.ownerHost, resources };
 }
 
 function dockerInfo(client) {
@@ -210,6 +324,120 @@ function dockerInfo(client) {
   };
 }
 
+function verifyPinnedOwnerImages(clients, workspace) {
+  for (const reference of [OWNER_HELPER_REFERENCE, SELF_TEST_BASE_REFERENCE, OWNER_DIND_REFERENCE]) {
+    if (clients.outer(["image", "inspect", reference], { allowFailure: true }).status !== 0) refuse(`required pinned local image is absent: ${reference}`);
+  }
+  const child = parseInspection(clients.outer(["image", "inspect", "--platform", "linux/arm64/v8", OWNER_DIND_REFERENCE], { label: "Pinned DIND arm64 identity" }));
+  const indexDigest = OWNER_DIND_REFERENCE.split("@")[1];
+  if (child.Descriptor?.digest !== indexDigest || child.Os !== "linux" || child.Architecture !== "arm64" || child.Variant !== "v8" || !child.RepoDigests?.includes(`docker@${indexDigest}`)) {
+    refuse("pinned DIND index/platform identity drifted");
+  }
+  const archive = resolve(workspace, "pinned-owner-dind.tar");
+  clients.outer(["image", "save", "--output", archive, OWNER_DIND_REFERENCE], { label: "Pinned DIND local OCI inventory" });
+  const archiveIndex = JSON.parse(run("tar", ["-xOf", archive, "index.json"], { label: "Pinned DIND archive index" }).stdout);
+  if (!archiveIndex.manifests?.some((descriptor) => descriptor.digest === indexDigest)) refuse("pinned DIND archive omitted the exact index");
+  const imageIndex = JSON.parse(run("tar", ["-xOf", archive, `blobs/sha256/${indexDigest.slice("sha256:".length)}`], { label: "Pinned DIND image index" }).stdout);
+  if (!imageIndex.manifests?.some((descriptor) => descriptor.digest === OWNER_DIND_ARM64_CHILD && descriptor.platform?.os === "linux" && descriptor.platform?.architecture === "arm64" && descriptor.platform?.variant === "v8")) {
+    refuse("pinned DIND archive arm64 child identity drifted");
+  }
+  const version = clients.outer(["run", "--rm", "--pull", "never", "--network", "none", OWNER_DIND_REFERENCE, "dockerd", "--version"], { label: "Pinned DIND Docker version" });
+  if (!/Docker version 29\.6\.2\b/u.test(version.stdout)) refuse("pinned DIND embedded Docker version drifted");
+  return { indexDigest, arm64ChildDigest: OWNER_DIND_ARM64_CHILD, dockerVersion: "29.6.2" };
+}
+
+function assertOwnerResourcesAbsent(clients) {
+  const { resources } = clients;
+  if (clients.outer(["container", "inspect", resources.controller], { allowFailure: true }).status === 0) refuse("owner controller pre-exists");
+  for (const name of [resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume]) {
+    if (clients.outer(["volume", "inspect", name], { allowFailure: true }).status === 0) refuse(`owner volume pre-exists: ${name}`);
+  }
+}
+
+function startOwnerController(clients, plan) {
+  assertOwnerResourcesAbsent(clients);
+  for (const command of plan.volumeCreate) run(command[0], command.slice(1), { label: "Owner volume create" });
+  const started = run(plan.controllerRun[0], plan.controllerRun.slice(1), { label: "Private DIND controller start" });
+  if (!started.stdout.trim()) refuse("private DIND controller did not start");
+}
+
+async function waitForOwnerReady(clients) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const stateResult = clients.outer(["container", "inspect", "--format", "{{json .State}}", clients.resources.controller], { allowFailure: true });
+    if (stateResult.status === 0) {
+      const state = JSON.parse(stateResult.stdout);
+      if (state.Running !== true) refuse(`private DIND controller exited before readiness (${state.ExitCode ?? "unknown"})`);
+      if (clients.owner(["info"], { allowFailure: true }).status === 0) {
+        const ownerInfo = dockerInfo(clients.owner);
+        const outerInfo = dockerInfo((args, options) => clients.outer(args, options));
+        if (ownerInfo.serverVersion !== "29.6.2" || ownerInfo.snapshotter !== true) refuse("private DIND version or containerd snapshotter drifted");
+        const isolation = assertExclusiveStore(ownerInfo.store, outerInfo.store, clients.resources.execRoot);
+        return { ownerInfo, outerInfo, isolation };
+      }
+    }
+    await pause(1000);
+  }
+  refuse("private DIND did not become ready within 60 seconds");
+}
+
+function captureOwnerDiagnostics(clients, evidenceRoot) {
+  const inspectResult = clients.outer(["container", "inspect", clients.resources.controller], { allowFailure: true });
+  const logsResult = clients.outer(["logs", "--timestamps", clients.resources.controller], { allowFailure: true });
+  let state = { available: false };
+  if (inspectResult.status === 0) {
+    const inspected = JSON.parse(inspectResult.stdout)[0];
+    state = {
+      available: true,
+      state: inspected.State?.Status ?? "unknown",
+      running: inspected.State?.Running === true,
+      exitCode: inspected.State?.ExitCode ?? null,
+      error: String(inspected.State?.Error ?? "").slice(0, 500),
+      image: inspected.Config?.Image ?? null,
+      networkMode: inspected.HostConfig?.NetworkMode ?? null,
+      privileged: inspected.HostConfig?.Privileged === true,
+    };
+  }
+  const inspectPath = resolve(evidenceRoot, "owner-dind-inspect.sanitized.json");
+  const logPath = resolve(evidenceRoot, "owner-dind.log");
+  if (!existsSync(inspectPath)) writeFileSync(inspectPath, json(state), { flag: "wx", mode: 0o400 });
+  if (!existsSync(logPath)) writeFileSync(logPath, `${logsResult.stdout}${logsResult.stderr}`, { flag: "wx", mode: 0o400 });
+  const logSha256 = sha256File(logPath);
+  const sidecar = resolve(evidenceRoot, "owner-dind.log.sha256");
+  if (!existsSync(sidecar)) writeFileSync(sidecar, `${logSha256}  owner-dind.log\n`, { flag: "wx", mode: 0o400 });
+  return { inspect: state, logSha256 };
+}
+
+function cleanupOwnerInfrastructure(clients, evidenceRoot) {
+  const diagnostics = captureOwnerDiagnostics(clients, evidenceRoot);
+  const containerPresent = clients.outer(["container", "inspect", clients.resources.controller], { allowFailure: true }).status === 0;
+  if (containerPresent) {
+    if (diagnostics.inspect.running) clients.outer(["stop", "--time", "20", clients.resources.controller], { label: "Private DIND controller stop" });
+    clients.outer(["wait", clients.resources.controller], { label: "Private DIND controller wait" });
+    clients.outer(["rm", clients.resources.controller], { label: "Private DIND controller removal" });
+  }
+  for (const name of [clients.resources.apiVolume, clients.resources.dockerDataVolume, clients.resources.containerdDataVolume]) {
+    if (clients.outer(["volume", "inspect", name], { allowFailure: true }).status === 0) clients.outer(["volume", "rm", name], { label: `Owner volume removal ${name}` });
+  }
+  if (clients.outer(["container", "inspect", clients.resources.controller], { allowFailure: true }).status === 0) throw new HarnessFailure("private DIND controller survived cleanup");
+  for (const name of [clients.resources.apiVolume, clients.resources.dockerDataVolume, clients.resources.containerdDataVolume]) {
+    if (clients.outer(["volume", "inspect", name], { allowFailure: true }).status === 0) throw new HarnessFailure(`owner volume survived cleanup: ${name}`);
+  }
+  return diagnostics;
+}
+
+export async function cleanupPreservingPrimary(primaryError, cleanup) {
+  let cleanupError;
+  let result;
+  try { result = await cleanup(); } catch (error) { cleanupError = error; }
+  if (primaryError) {
+    if (cleanupError) Object.defineProperty(primaryError, "cleanupFailure", { value: String(cleanupError?.message ?? cleanupError), enumerable: true });
+    throw primaryError;
+  }
+  if (cleanupError) throw cleanupError;
+  return result;
+}
+
 function composeEnvironment({ qualified, indexDigest, childDigest, repositoryRoot }) {
   return {
     CWT_IMAGE_REFERENCE: qualified,
@@ -219,30 +447,20 @@ function composeEnvironment({ qualified, indexDigest, childDigest, repositoryRoo
   };
 }
 
-function composeArgs({ project, repositoryRoot, composeFile, environment, args }) {
-  const env = Object.entries(environment).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
-  return [
-    "run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-    "--mount", `type=bind,source=${repositoryRoot},target=${repositoryRoot},readonly`,
-    ...env,
-    "docker:29.6.2-cli", "nsenter", "-t", "1", "-n", "--", "docker", "--host", "<owner-host>",
-    "compose", "--project-name", project, "--project-directory", repositoryRoot, "--file", composeFile, "--profile", "staging", ...args,
-  ];
+function composeArgs({ resources, outerHost, project, repositoryRoot, composeFile, environment, args }) {
+  return ownerHelperArgs({
+    resources, outerHost,
+    mounts: [[repositoryRoot, true], ["/etc/cwt", true], ["/srv/cwt"], ["/run/systemd/journal"]],
+    environment,
+    args: ["compose", "--project-name", project, "--project-directory", repositoryRoot, "--file", composeFile, "--profile", "staging", ...args],
+  });
 }
 
-function createComposeClient({ clients, ownerHost, project, repositoryRoot, composeFile, environment, workspace, configRoot }) {
+function createComposeClient({ clients, project, repositoryRoot, composeFile, environment }) {
   return (args, options = {}) => {
-    const env = Object.entries(environment).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
-    const command = [
-      "run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-      "--mount", `type=bind,source=${repositoryRoot},target=${repositoryRoot},readonly`,
-      "--mount", `type=bind,source=${workspace},target=${workspace}`,
-      ...(configRoot ? ["--mount", `type=bind,source=${configRoot},target=/etc/cwt,readonly`] : []),
-      ...env,
-      "docker:29.6.2-cli", "nsenter", "-t", "1", "-n", "--", "docker", "--host", ownerHost,
+    return clients.owner([
       "compose", "--project-name", project, "--project-directory", repositoryRoot, "--file", composeFile, "--profile", "staging", ...args,
-    ];
-    return clients.outer(command, options);
+    ], { ...options, helperEnvironment: environment });
   };
 }
 
@@ -398,15 +616,9 @@ function directAppArgs({ name, platform, qualified, environment = "staging", mis
   ];
 }
 
-function runDirectContainer(clients, args, { backendNetwork, databaseNetwork, ingressNetwork, configRoot }) {
+function runDirectContainer(clients, args, { backendNetwork, databaseNetwork, ingressNetwork }) {
   const normalized = args.map((value) => value === "<backend-network>" ? backendNetwork : value);
-  const mountArgs = ["--mount", `type=bind,source=${configRoot},target=/etc/cwt,readonly`];
-  const command = [
-    "run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-    ...mountArgs, "docker:29.6.2-cli", "nsenter", "-t", "1", "-n", "--", "docker", "--host", clients.ownerHost,
-    ...normalized,
-  ];
-  const result = clients.outer(command, { label: "Direct exact-subject container start" });
+  const result = clients.owner(normalized, { label: "Direct exact-subject container start" });
   const id = result.stdout.trim();
   if (!id) subjectRefuse("direct exact-subject container did not start");
   if (databaseNetwork) clients.owner(["network", "connect", databaseNetwork, id], { label: "Direct database network connect" });
@@ -443,7 +655,7 @@ async function probeDirectWeb(clients, id, expectedStatus, expectedFailedCompone
   subjectRefuse(`direct Web probe did not reach expected status ${expectedStatus}`);
 }
 
-async function runDirectMatrix({ clients, qualified, nativePlatform, nativeChild, nonNativePlatform, nonNativeChild, project, configRoot, token }) {
+async function runDirectMatrix({ clients, qualified, nativePlatform, nativeChild, nonNativePlatform, nonNativeChild, project, token }) {
   const networks = {
     backend: `${project}_staging-backend`, database: `${project}_staging-database`, ingress: `${project}_staging-ingress`,
   };
@@ -453,7 +665,7 @@ async function runDirectMatrix({ clients, qualified, nativePlatform, nativeChild
     let container;
     try {
       container = runDirectContainer(clients, directAppArgs({ name, platform, qualified, overrides, missingImport }), {
-        backendNetwork: networks.backend, databaseNetwork: networks.database, ingressNetwork: networks.ingress, configRoot,
+        backendNetwork: networks.backend, databaseNetwork: networks.database, ingressNetwork: networks.ingress,
       });
       const result = await probeDirectWeb(clients, container, expectedStatus, failedComponent);
       cases.push({ id, platform, childDigest: platform === nativePlatform ? nativeChild : nonNativeChild, ...result });
@@ -477,7 +689,7 @@ async function runDirectMatrix({ clients, qualified, nativePlatform, nativeChild
     const name = `${token}-${role.id}`; let container;
     try {
       container = runDirectContainer(clients, directAppArgs({ name, platform: nativePlatform, qualified, command: role.command }), {
-        backendNetwork: networks.backend, databaseNetwork: networks.database, configRoot,
+        backendNetwork: networks.backend, databaseNetwork: networks.database,
       });
       await pause(2000);
       clients.owner(["stop", "--signal", "SIGTERM", "--time", "20", container], { label: `${role.id} stop` });
@@ -490,8 +702,7 @@ async function runDirectMatrix({ clients, qualified, nativePlatform, nativeChild
   {
     const foreground = directAppArgs({ name: oneShotName, platform: nativePlatform, qualified, command: ["node", "--conditions=react-server", "--import=tsx", "/app/scripts/check-work-health.ts"], detached: false });
     const normalized = foreground.map((value) => value === "<backend-network>" ? networks.database : value);
-    const command = ["run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host", "--mount", `type=bind,source=${configRoot},target=/etc/cwt,readonly`, "docker:29.6.2-cli", "nsenter", "-t", "1", "-n", "--", "docker", "--host", clients.ownerHost, ...normalized];
-    const result = clients.outer(command, { allowFailure: true });
+    const result = clients.owner(normalized, { allowFailure: true });
     if (result.status !== 2 || !result.stdout.includes("Work health:")) subjectRefuse("one-shot work-health signal drifted");
     roles.push({ id: "work-health-one-shot", exitCode: 2, signal: "observed-unhealthy-missing-backup" });
   }
@@ -499,50 +710,114 @@ async function runDirectMatrix({ clients, qualified, nativePlatform, nativeChild
 }
 
 async function selfTest(args) {
-  const ownerHost = args["owner-host"]; const outerHost = args["outer-host"];
-  const token = args.token;
-  if (!SAFE_TOKEN.test(token ?? "") || ownerHost === outerHost) refuse("self-test owner/token identity is invalid");
-  const base = args.base ?? "alpine:3.22";
-  const helperImage = args["helper-image"] ?? "docker:29.6.2-cli";
+  const outerHost = args["outer-host"]; const token = args.token;
+  if (!SAFE_TOKEN.test(token ?? "") || typeof outerHost !== "string" || !outerHost.startsWith("unix://") || args["owner-host"] !== undefined || args.base !== undefined || args["helper-image"] !== undefined) {
+    refuse("self-test requires one private DIND owner and an explicit outer Unix endpoint");
+  }
+  const evidenceRoot = resolve(args.evidence);
+  if (!isAbsolute(args.evidence ?? "") || existsSync(evidenceRoot)) refuse("self-test evidence output must be an absent absolute path");
   const repositoryRoot = resolve(process.cwd());
   const workspace = mkdtempSync(resolve(tmpdir(), `cwt-release-custody-${token}-`));
-  const clients = createDockerClients({ ownerHost, outerHost, helperImage, repositoryRoot, releaseRoot: repositoryRoot, workspace });
-  clients.ownerHost = ownerHost;
+  mkdirSync(evidenceRoot, { recursive: false, mode: 0o700 });
+  const resources = ownerResources(token);
+  const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace });
+  const clients = createDockerClients({ resources, outerHost, helperImage: OWNER_HELPER_REFERENCE, repositoryRoot, releaseRoot: repositoryRoot, workspace });
   const tag = `cwt.local/custody:${token}`;
   const archive = resolve(workspace, "base.tar");
-  let ownerLoaded = false;
+  const project = `${token}-compose`;
+  let ownerLoaded = false; let controllerAttempted = false; let syntheticInstalled = false; let journalController;
+  let compose; let primaryError; let result;
   try {
-    const ownerInfo = dockerInfo(clients.owner); const outerInfo = dockerInfo((command, options) => clients.outer(command, options));
-    const isolation = assertExclusiveStore(ownerInfo.store, outerInfo.store);
+    const configRoot = createSyntheticConfiguration(workspace, "0".repeat(40));
+    installSyntheticVmState(clients, configRoot, token); syntheticInstalled = true;
+    journalController = startJournalSink(clients, token);
+    const pinned = verifyPinnedOwnerImages(clients, workspace);
+    controllerAttempted = true;
+    startOwnerController(clients, plan);
+    const { ownerInfo, isolation } = await waitForOwnerReady(clients);
     const before = clients.owner(["image", "inspect", tag], { allowFailure: true });
     if (before.status === 0) refuse("self-test tag pre-exists in owner");
-    clients.outer(["image", "save", "--output", archive, base], { label: "non-CWT base archive" });
+    clients.outer(["image", "save", "--output", archive, SELF_TEST_BASE_REFERENCE], { label: "non-CWT base archive" });
     clients.owner(["image", "load", "--input", archive], { label: "owner non-CWT image load" }); ownerLoaded = true;
-    const baseInspection = ownerImageInspection(clients, base);
+    const baseInspection = ownerImageInspection(clients, SELF_TEST_BASE_REFERENCE);
     const baseDigest = baseInspection.Descriptor?.digest;
     if (!DIGEST.test(baseDigest ?? "")) refuse("self-test base digest is unavailable");
-    clients.owner(["image", "tag", base, tag], { label: "owner non-CWT tag" });
+    clients.owner(["image", "tag", SELF_TEST_BASE_REFERENCE, tag], { label: "owner non-CWT tag" });
     const ownerTag = ownerImageInspection(clients, tag);
     const outerInvisible = clients.outer(["image", "inspect", tag], { allowFailure: true });
     if (outerInvisible.status === 0) refuse("outer endpoint can see isolated namespace tag");
     const outerDeletion = clients.outer(["image", "rm", tag], { allowFailure: true });
     if (outerDeletion.status === 0) refuse("outer endpoint deleted isolated namespace tag");
     ownerImageInspection(clients, tag);
-    ownerImageInspection(clients, `${base.split(":")[0]}@${baseDigest}`);
-    clients.owner(["image", "rm", tag], { label: "owner non-CWT tag cleanup" });
-    clients.owner(["image", "rm", base], { allowFailure: true }); ownerLoaded = false;
-    if (clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) refuse("owner self-test tag survived cleanup");
-    return {
+    ownerImageInspection(clients, `alpine@${baseDigest}`);
+
+    const bindRoot = resolve(workspace, "self-test-bind");
+    mkdirSync(bindRoot, { recursive: true, mode: 0o700 });
+    writeFileSync(resolve(bindRoot, "index.html"), `${token}\n`, { mode: 0o444 });
+    const composeFile = resolve(workspace, "self-test-compose.json");
+    writeFileSync(composeFile, json({
+      services: {
+        server: {
+          image: tag,
+          command: ["sh", "-eu", "-c", `test \"$(cat ${bindRoot}/index.html)\" = \"${token}\"; exec busybox httpd -f -p 8080 -h ${bindRoot}`],
+          volumes: [{ type: "bind", source: bindRoot, target: bindRoot, read_only: true }],
+          networks: ["private"],
+          logging: { driver: "journald" },
+        },
+      },
+      networks: { private: { internal: true } },
+    }), { mode: 0o444 });
+    compose = createComposeClient({ clients, project, repositoryRoot, composeFile, environment: {} });
+    compose(["up", "--detach", "--pull", "never", "--no-build", "server"], { label: "Non-CWT inner Compose up" });
+    const serverId = compose(["ps", "--all", "--quiet", "server"], { label: "Non-CWT server identity" }).stdout.trim();
+    if (!serverId) refuse("non-CWT Compose server is absent");
+    const server = inspectContainer(clients, serverId);
+    const networkName = `${project}_private`;
+    const network = JSON.parse(clients.owner(["network", "inspect", networkName], { label: "Non-CWT private network" }).stdout)[0];
+    if (network.Internal !== true || server.HostConfig?.LogConfig?.Type !== "journald" || Object.keys(server.HostConfig?.PortBindings ?? {}).length !== 0 ||
+      !server.Mounts?.some((mount) => mount.Source === bindRoot && mount.Destination === bindRoot && mount.RW === false)) refuse("non-CWT Compose path/network/log/port contract drifted");
+    const communication = clients.owner(["run", "--rm", "--pull", "never", "--network", networkName, tag, "sh", "-eu", "-c", `test \"$(busybox wget -qO- http://server:8080/index.html)\" = \"${token}\"`], { label: "Non-CWT inner communication" });
+    if (communication.status !== 0) refuse("non-CWT inner network communication failed");
+    result = {
       schemaVersion: 1, status: "passed", ownerToken: token,
-      owner: { serverVersion: ownerInfo.serverVersion, snapshotter: ownerInfo.snapshotter, ...isolation },
-      base: { reference: base, descriptorDigest: baseDigest, ownerImageId: ownerTag.Id },
+      owner: { serverVersion: ownerInfo.serverVersion, snapshotter: ownerInfo.snapshotter, ...isolation, pinned },
+      base: { reference: SELF_TEST_BASE_REFERENCE, descriptorDigest: baseDigest, ownerImageId: ownerTag.Id },
       isolation: { outerInvisible: true, outerDeletionRefused: true, ownerRetainedAfterOuterAttempt: true },
-      cleanup: { ownerReferencesAbsent: true, workspaceRemoved: true },
+      compose: { internalNetwork: true, samePathBind: true, journald: true, publishedPorts: 0, innerCommunication: true },
     };
-  } finally {
-    if (ownerLoaded) { clients.owner(["image", "rm", tag, base], { allowFailure: true }); }
-    removeExactSyntheticWorkspace(workspace);
+  } catch (error) { primaryError = error; }
+
+  let diagnostics;
+  try {
+    diagnostics = await cleanupPreservingPrimary(primaryError, async () => {
+      const failures = [];
+      const attempt = (action) => { try { return action(); } catch (error) { failures.push(String(error?.message ?? error)); return undefined; } };
+      if (compose) attempt(() => compose(["down", "--remove-orphans"], { label: "Non-CWT inner Compose down" }));
+      if (compose) {
+        attempt(() => { if (compose(["ps", "--all", "--quiet"], { allowFailure: true }).stdout.trim() !== "") throw new HarnessFailure("non-CWT Compose consumers survived cleanup"); });
+        attempt(() => { if (clients.owner(["network", "ls", "--quiet", "--filter", `label=com.docker.compose.project=${project}`], { allowFailure: true }).stdout.trim() !== "") throw new HarnessFailure("non-CWT Compose network survived cleanup"); });
+      }
+      if (ownerLoaded) attempt(() => {
+        clients.owner(["image", "rm", tag, SELF_TEST_BASE_REFERENCE], { allowFailure: true }); ownerLoaded = false;
+        if (clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) throw new HarnessFailure("owner self-test tag survived cleanup");
+      });
+      let captured;
+      if (controllerAttempted) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
+      if (syntheticInstalled) attempt(() => { removeSyntheticVmState(clients, token, { label: "Synthetic VM state cleanup" }); syntheticInstalled = false; });
+      if (journalController) attempt(() => { stopJournalSink(clients, journalController, { label: "disposable journal sink cleanup" }); journalController = undefined; });
+      attempt(() => removeExactSyntheticWorkspace(workspace));
+      if (failures.length > 0) throw new HarnessFailure(`self-test cleanup failed: ${failures.join(" | ")}`);
+      return captured;
+    });
+  } catch (error) {
+    const failure = { schemaVersion: 1, status: "blocked", message: String(error?.message ?? error).slice(0, 3000), cleanupFailure: error?.cleanupFailure ?? null };
+    writeFileSync(resolve(evidenceRoot, "self-test-blocked.json"), json(failure), { flag: "wx", mode: 0o400 });
+    throw error;
   }
+  const outcome = { ...result, diagnostics: { ownerLogSha256: diagnostics.logSha256 }, cleanup: { controller: 0, volumes: 0, socket: 0, compose: 0, syntheticState: 0, workspaceRemoved: true, ownerReferencesAbsent: true } };
+  writeFileSync(resolve(evidenceRoot, "self-test.json"), json(outcome), { flag: "wx", mode: 0o400 });
+  writeFileSync(resolve(evidenceRoot, "self-test.json.sha256"), `${sha256File(resolve(evidenceRoot, "self-test.json"))}  self-test.json\n`, { flag: "wx", mode: 0o400 });
+  return outcome;
 }
 
 async function validateRelease(args) {
@@ -551,30 +826,37 @@ async function validateRelease(args) {
   const ociRoot = absoluteExisting(args.oci, "OCI root", "directory");
   const evidenceRoot = resolve(args.evidence);
   if (!isAbsolute(args.evidence ?? "") || existsSync(evidenceRoot)) refuse("evidence output must be an absent absolute path");
-  const ownerHost = args["owner-host"]; const outerHost = args["outer-host"]; const token = args.token;
-  if (!SAFE_TOKEN.test(token ?? "") || ownerHost === outerHost) refuse("validation owner/token identity is invalid");
-  const helperImage = args["helper-image"] ?? "docker:29.6.2-cli";
+  const outerHost = args["outer-host"]; const token = args.token;
+  if (!SAFE_TOKEN.test(token ?? "") || typeof outerHost !== "string" || !outerHost.startsWith("unix://") || args["owner-host"] !== undefined || args["helper-image"] !== undefined) {
+    refuse("validation requires one private DIND owner and an explicit outer Unix endpoint");
+  }
   const releaseRoot = dirname(releasePath);
   const workspace = mkdtempSync(resolve(tmpdir(), `cwt-release-validation-${token}-`));
   mkdirSync(evidenceRoot, { recursive: false, mode: 0o700 });
-  const clients = createDockerClients({ ownerHost, outerHost, helperImage, repositoryRoot, releaseRoot, workspace });
-  clients.ownerHost = ownerHost;
+  const resources = ownerResources(token);
+  const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace });
+  const clients = createDockerClients({ resources, outerHost, helperImage: OWNER_HELPER_REFERENCE, repositoryRoot, releaseRoot, workspace });
   const rootCompose = resolve(repositoryRoot, "compose.yaml");
-  let gateOpen = false; let cleanupPhase = false; let imported = false; let composeStarted = false; let syntheticInstalled = false; let journalController;
+  let gateOpen = false; let cleanupPhase = false; let imported = false; let dependencyImported = false; let syntheticInstalled = false; let journalController; let controllerAttempted = false;
   let qualified; let tag; let indexDigest; let releaseId; let nativeChild; let nativePlatform; let project;
-  let outcome;
+  let outcome; let compose; let mutationComposeClient; let primaryError; let failureClassification;
   try {
     const verified = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     releaseId = verified.record.releaseId; indexDigest = verified.inventory.indexDigest;
-    const outerInfo = dockerInfo((command, options) => clients.outer(command, options));
-    const ownerInfo = dockerInfo(clients.owner); const isolation = assertExclusiveStore(ownerInfo.store, outerInfo.store);
+    const configRoot = createSyntheticConfiguration(workspace, releaseId);
+    installSyntheticVmState(clients, configRoot, token); syntheticInstalled = true;
+    journalController = startJournalSink(clients, token);
+    const pinned = verifyPinnedOwnerImages(clients, workspace);
+    controllerAttempted = true;
+    startOwnerController(clients, plan);
+    const { ownerInfo, isolation } = await waitForOwnerReady(clients);
     nativePlatform = `linux/${JSON.parse(clients.owner(["version", "--format", "{{json .Server.Arch}}"], { label: "owner platform" }).stdout)}`;
     const native = verified.inventory.children.find((child) => child.platform === nativePlatform);
     const nonNative = verified.inventory.children.find((child) => child.platform !== nativePlatform);
     if (!native || !nonNative) refuse("validation owner platform is outside the exact two-child release");
     nativeChild = native.manifestDigest; qualified = digestQualifiedReference("cwt.local/release", indexDigest); tag = `cwt.local/release:${releaseId}`;
     project = `cwt-${token}`;
-    createValidationPlan({ ownerHost, outerHost, releaseId, indexDigest, childDigest: nativeChild, project });
+    createValidationPlan({ ownerHost: resources.ownerHost, outerHost, releaseId, indexDigest, childDigest: nativeChild, project });
     if (clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) refuse("release tag pre-exists in validation owner");
 
     const archive = resolve(workspace, "subject.oci.tar"); createOciArchive(ociRoot, archive);
@@ -587,12 +869,9 @@ async function validateRelease(args) {
 
     const dependencyArchive = resolve(workspace, "dependencies.tar");
     clients.outer(["image", "save", "--output", dependencyArchive, ...DEPENDENCY_REFERENCES], { label: "pinned dependency archive" });
-    clients.owner(["image", "load", "--input", dependencyArchive], { label: "owner dependency import" });
-    const configRoot = createSyntheticConfiguration(workspace, releaseId);
-    installSyntheticVmState(clients, configRoot, token); syntheticInstalled = true;
-    journalController = startJournalSink(clients, token);
+    clients.owner(["image", "load", "--input", dependencyArchive], { label: "owner dependency import" }); dependencyImported = true;
     const environment = composeEnvironment({ qualified, indexDigest, childDigest: nativeChild, repositoryRoot });
-    const compose = createComposeClient({ clients, ownerHost, project, repositoryRoot, composeFile: rootCompose, environment, workspace, configRoot });
+    compose = createComposeClient({ clients, project, repositoryRoot, composeFile: rootCompose, environment });
     const normalized = JSON.parse(compose(["--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], { label: "owner Compose normalization" }).stdout);
     validateComposeGraph(normalized, { projectName: project });
     for (const [service, expected] of Object.entries(EXPECTED_TMPFS_ARRAYS)) assert.deepEqual(normalized.services[service].tmpfs, expected);
@@ -605,12 +884,12 @@ async function validateRelease(args) {
     if (stagingStart < 0 || source.slice(stagingStart).split(oldLine).length - 1 !== 1) refuse("split-tmpfs mutation anchor drifted");
     writeFileSync(mutationCompose, `${source.slice(0, stagingStart)}${source.slice(stagingStart).replace(`    tmpfs:\n${oldLine}`, replacement)}`);
     const mutationProject = `${project}-mutation`;
-    const mutationComposeClient = createComposeClient({ clients, ownerHost, project: mutationProject, repositoryRoot, composeFile: mutationCompose, environment, workspace, configRoot });
+    mutationComposeClient = createComposeClient({ clients, project: mutationProject, repositoryRoot, composeFile: mutationCompose, environment });
     const mutated = JSON.parse(mutationComposeClient(["--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"], { label: "mutated Compose normalization" }).stdout);
     assert.throws(() => validateComposeGraph(mutated, { projectName: mutationProject }), /tmpfs authority drifted|split tmpfs option fragment/u);
 
     gateOpen = true;
-    await subjectOperation(() => compose(["up", "--detach", "--pull", "never", "--no-build", ...EXACT_SERVICES], { label: "authoritative root Compose up" }), "root Compose up failed"); composeStarted = true;
+    await subjectOperation(() => compose(["up", "--detach", "--pull", "never", "--no-build", ...EXACT_SERVICES], { label: "authoritative root Compose up" }), "root Compose up failed");
     const healthStates = await subjectOperation(() => waitForComposeHealth(compose), "root Compose health failed");
     const inspections = Object.fromEntries(EXACT_SERVICES.map((service) => [service, inspectContainer(clients, serviceContainer(compose, service))]));
     for (const service of ["postgres", "valkey-production", "valkey-staging"]) {
@@ -636,7 +915,7 @@ async function validateRelease(args) {
     }
     for (const value of Object.values(inspections)) if (Object.keys(value.HostConfig.PortBindings ?? {}).length !== 0) subjectRefuse("application/dependency port was published");
 
-    const direct = await runDirectMatrix({ clients, qualified, nativePlatform, nativeChild, nonNativePlatform: nonNative.platform, nonNativeChild: nonNative.manifestDigest, project, configRoot, token });
+    const direct = await runDirectMatrix({ clients, qualified, nativePlatform, nativeChild, nonNativePlatform: nonNative.platform, nonNativeChild: nonNative.manifestDigest, project, token });
 
     const negative = mutationComposeClient(["create", "--pull", "never", "valkey-staging"], { allowFailure: true });
     if (negative.status === 0 || !/invalid mount path|mount path must be absolute/u.test(`${negative.stderr}\n${negative.stdout}`)) subjectRefuse("split-tmpfs Compose mutation was not rejected");
@@ -645,17 +924,15 @@ async function validateRelease(args) {
     mutationComposeClient(["down", "--remove-orphans"], { allowFailure: true });
 
     cleanupPhase = true;
-    compose(["down", "--remove-orphans"], { label: "authoritative root Compose down" }); composeStarted = false;
+    compose(["down", "--remove-orphans"], { label: "authoritative root Compose down" });
     if (compose(["ps", "--all", "--quiet"], { allowFailure: true }).stdout.trim() !== "") throw new HarnessFailure("Compose consumers remain after teardown");
     const remainingNetworks = clients.owner(["network", "ls", "--quiet", "--filter", `label=com.docker.compose.project=${project}`], { label: "owner zero-network proof" }).stdout.trim();
     if (remainingNetworks !== "") throw new HarnessFailure("Compose networks remain after teardown");
     clients.owner(["image", "rm", qualified, tag], { allowFailure: true }); imported = false;
-    for (const reference of DEPENDENCY_REFERENCES) clients.owner(["image", "rm", reference], { allowFailure: true });
+    for (const reference of DEPENDENCY_REFERENCES) clients.owner(["image", "rm", reference], { allowFailure: true }); dependencyImported = false;
     if (clients.owner(["image", "inspect", qualified], { allowFailure: true }).status === 0 || clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) {
       throw new HarnessFailure("release reference remains after owner-only cleanup");
     }
-    removeSyntheticVmState(clients, token, { label: "Synthetic VM state cleanup" }); syntheticInstalled = false;
-    stopJournalSink(clients, journalController, { label: "disposable journal sink cleanup" }); journalController = undefined;
     const final = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     if (final.state !== "built" || existsSync(resolve(releaseRoot, "transitions/001-staging-validated.json")) || existsSync(resolve(releaseRoot, "transitions/002-promotion-authorized.json"))) {
       throw new HarnessFailure("release lifecycle changed during validation");
@@ -663,38 +940,54 @@ async function validateRelease(args) {
     outcome = {
       schemaVersion: 1, status: "passed", gateOpen: true, failureClass: null,
       release: { releaseId, indexDigest, qualifiedReference: qualified, nativePlatform, nativeChildDigest: nativeChild, nonNativePlatform: nonNative.platform, nonNativeChildDigest: nonNative.manifestDigest, releaseRecordSha256: sha256File(releasePath), finalState: "built", revoked: false, transitioned: false },
-      owner: { ownerToken: token, serverVersion: ownerInfo.serverVersion, containerdSnapshotter: ownerInfo.snapshotter, ...isolation },
+      owner: { ownerToken: token, serverVersion: ownerInfo.serverVersion, containerdSnapshotter: ownerInfo.snapshotter, ...isolation, pinned },
       rootCompose: { path: "compose.yaml", sha256: sha256File(rootCompose), positiveRuns: 1, files: ["compose.yaml"], overrides: 0, services: healthStates, networks: networkEvidence, exactTmpfs: "pass", hostnameAndLoopbackHealth: "pass", exactImageIdentity: "pass", publishedPorts: 0 },
       directRuntime: direct,
       mutation: { splitTmpfsRejected: true, composeCreateExitNonzero: true, zeroRunningContainers: true },
       isolation: { externalProviderCalls: 0, secretValuesRecorded: false, syntheticProtectedConfiguration: true },
-      cleanup: { consumers: 0, networks: 0, ownerReleaseReferences: 0, syntheticVmStateRemoved: true },
+      cleanup: { consumers: 0, networks: 0, ownerReleaseReferences: 0 },
     };
-    writeFileSync(resolve(evidenceRoot, "release-compose-validation.json"), json(outcome), { flag: "wx", mode: 0o444 });
-    writeFileSync(resolve(evidenceRoot, "release-compose-validation.json.sha256"), `${sha256File(resolve(evidenceRoot, "release-compose-validation.json"))}  release-compose-validation.json\n`, { flag: "wx", mode: 0o444 });
-    return outcome;
   } catch (error) {
-    const classification = classifyValidationFailure(error, { gateOpen, cleanup: cleanupPhase });
-    const failure = { schemaVersion: 1, status: "blocked", gateOpen, ...classification, message: String(error?.message ?? "unknown").slice(0, 3000) };
-    try { writeFileSync(resolve(evidenceRoot, "release-compose-validation-blocked.json"), json(failure), { flag: "wx", mode: 0o444 }); } catch {}
-    if (classification.revoke && releaseId && indexDigest) {
+    primaryError = error;
+    failureClassification = classifyValidationFailure(error, { gateOpen, cleanup: cleanupPhase });
+    if (failureClassification.revoke && releaseId && indexDigest) {
       run(process.execPath, [resolve(repositoryRoot, "deploy/scripts/preflight-image.mjs"), "revoke", "--release", releasePath, "--oci", ociRoot, "--index", indexDigest, "--reason", "post_emission_gate_failed"], { label: "immutable subject revocation" });
     }
-    throw error;
-  } finally {
-    cleanupPhase = true;
-    if (project && composeStarted && qualified && nativeChild) {
-      try {
-        const environment = composeEnvironment({ qualified, indexDigest, childDigest: nativeChild, repositoryRoot });
-        const compose = createComposeClient({ clients, ownerHost, project, repositoryRoot, composeFile: rootCompose, environment, workspace, configRoot: resolve(workspace, "cwt-config") });
-        compose(["down", "--remove-orphans"], { allowFailure: true });
-      } catch {}
-    }
-    if (imported && qualified && tag) clients.owner(["image", "rm", qualified, tag], { allowFailure: true });
-    if (syntheticInstalled) { try { removeSyntheticVmState(clients, token, { allowFailure: true }); } catch {} }
-    if (journalController) { try { stopJournalSink(clients, journalController, { allowFailure: true }); } catch {} }
-    removeExactSyntheticWorkspace(workspace);
   }
+
+  let diagnostics;
+  try {
+    diagnostics = await cleanupPreservingPrimary(primaryError, async () => {
+      cleanupPhase = true;
+      const failures = [];
+      const attempt = (action) => { try { return action(); } catch (error) { failures.push(String(error?.message ?? error)); return undefined; } };
+      if (compose) attempt(() => compose(["down", "--remove-orphans"], { allowFailure: true }));
+      if (mutationComposeClient) attempt(() => mutationComposeClient(["down", "--remove-orphans"], { allowFailure: true }));
+      let zeroConsumers = true;
+      if (compose) {
+        attempt(() => { if (compose(["ps", "--all", "--quiet"], { allowFailure: true }).stdout.trim() !== "") { zeroConsumers = false; throw new HarnessFailure("Compose consumers remain during final cleanup"); } });
+        attempt(() => { if (clients.owner(["network", "ls", "--quiet", "--filter", `label=com.docker.compose.project=${project}`], { allowFailure: true }).stdout.trim() !== "") { zeroConsumers = false; throw new HarnessFailure("Compose networks remain during final cleanup"); } });
+      }
+      if (zeroConsumers && imported && qualified && tag) attempt(() => { clients.owner(["image", "rm", qualified, tag], { allowFailure: true }); imported = false; });
+      if (zeroConsumers && dependencyImported) attempt(() => { for (const reference of DEPENDENCY_REFERENCES) clients.owner(["image", "rm", reference], { allowFailure: true }); dependencyImported = false; });
+      let captured;
+      if (controllerAttempted) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
+      if (syntheticInstalled) attempt(() => { removeSyntheticVmState(clients, token, { label: "Synthetic VM state cleanup" }); syntheticInstalled = false; });
+      if (journalController) attempt(() => { stopJournalSink(clients, journalController, { label: "disposable journal sink cleanup" }); journalController = undefined; });
+      attempt(() => removeExactSyntheticWorkspace(workspace));
+      if (failures.length > 0) throw new HarnessFailure(`release validator cleanup failed: ${failures.join(" | ")}`);
+      return captured;
+    });
+  } catch (error) {
+    const classification = failureClassification ?? classifyValidationFailure(error, { gateOpen, cleanup: true });
+    const failure = { schemaVersion: 1, status: "blocked", gateOpen, ...classification, message: String(error?.message ?? "unknown").slice(0, 3000), cleanupFailure: error?.cleanupFailure ?? null };
+    try { writeFileSync(resolve(evidenceRoot, "release-compose-validation-blocked.json"), json(failure), { flag: "wx", mode: 0o400 }); } catch {}
+    throw error;
+  }
+  outcome.cleanup = { ...outcome.cleanup, controller: 0, volumes: 0, socket: 0, syntheticVmStateRemoved: true, workspaceRemoved: true, ownerLogSha256: diagnostics.logSha256 };
+  writeFileSync(resolve(evidenceRoot, "release-compose-validation.json"), json(outcome), { flag: "wx", mode: 0o400 });
+  writeFileSync(resolve(evidenceRoot, "release-compose-validation.json.sha256"), `${sha256File(resolve(evidenceRoot, "release-compose-validation.json"))}  release-compose-validation.json\n`, { flag: "wx", mode: 0o400 });
+  return outcome;
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href) {
