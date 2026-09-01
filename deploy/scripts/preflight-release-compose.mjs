@@ -22,6 +22,11 @@ export const OWNER_DIND_REFERENCE = "docker:29.6.2-dind@sha256:bfec1f5159c63a81c
 const OWNER_DIND_ARM64_CHILD = "sha256:48bd8cb4ce95d6c03004ee4fe06db27a49813fe0c3a55785a9bf06c941d9a9df";
 const OWNER_HELPER_REFERENCE = "docker:29.6.2-cli";
 const SELF_TEST_BASE_REFERENCE = "alpine:3.22";
+const CONFIG_SUBJECT_NAMES = [
+  "database-password", "database-url", "auth-session-secret", "valkey-password", "cloudmersive-api-key", "smtp-password",
+  "monitoring-dsn", "ai-api-key", "cos-access-key-id", "cos-secret-key", "backup-password", "database-url-unavailable",
+  "valkey-password-wrong", "runtime.env",
+];
 const EXACT_SERVICES = ["postgres", "valkey-production", "valkey-staging", "web-production", "web-staging"];
 const APP_SERVICES = ["web-production", "web-staging"];
 const DEPENDENCY_REFERENCES = [
@@ -78,6 +83,10 @@ export function ownerResources(token) {
     apiVolume: `${token}-owner-api`,
     dockerDataVolume: `${token}-owner-docker-data`,
     containerdDataVolume: `${token}-owner-containerd-data`,
+    configVolume: `${token}-owner-config`,
+    storageVolume: `${token}-owner-storage`,
+    journalVolume: `${token}-owner-journal`,
+    journalHelper: `${token}-journal-sink`,
     apiRoot,
     ownerHost: `unix://${apiRoot}/docker.sock`,
     execRoot,
@@ -121,18 +130,21 @@ export function createOwnerControllerPlan({ token, outerHost, repositoryRoot, wo
   if (typeof outerHost !== "string" || !outerHost.startsWith("unix://") || !isAbsolute(repositoryRoot ?? "") || !isAbsolute(workspace ?? "")) {
     refuse("owner controller inputs are invalid");
   }
-  const volumes = [resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume];
+  const volumes = [
+    resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume,
+    resources.configVolume, resources.storageVolume, resources.journalVolume,
+  ];
   const controllerRun = [
     "docker", "--host", outerHost, "run", "--detach", "--name", resources.controller,
     "--pull", "never", "--network", "none", "--privileged",
     "--mount", `type=volume,source=${resources.apiVolume},target=${resources.apiRoot}`,
     "--mount", `type=volume,source=${resources.dockerDataVolume},target=/var/lib/docker`,
     "--mount", `type=volume,source=${resources.containerdDataVolume},target=/var/lib/containerd`,
+    "--mount", `type=volume,source=${resources.configVolume},target=/etc/cwt,readonly,volume-nocopy`,
+    "--mount", `type=volume,source=${resources.storageVolume},target=/srv/cwt,volume-nocopy`,
+    "--mount", `type=volume,source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`,
     "--mount", samePathMount(repositoryRoot, true),
     "--mount", samePathMount(workspace),
-    "--mount", samePathMount("/etc/cwt", true),
-    "--mount", samePathMount("/srv/cwt"),
-    "--mount", samePathMount("/run/systemd/journal"),
     "--env", "DOCKER_TLS_CERTDIR=", OWNER_DIND_REFERENCE, "dockerd",
     `--host=${resources.ownerHost}`, "--data-root=/var/lib/docker", `--exec-root=${resources.execRoot}`, `--pidfile=${resources.pidFile}`,
   ];
@@ -144,6 +156,7 @@ export function createOwnerControllerPlan({ token, outerHost, repositoryRoot, wo
     ["docker", "--host", outerHost, "stop", "--time", "20", resources.controller],
     ["docker", "--host", outerHost, "wait", resources.controller],
     ["docker", "--host", outerHost, "rm", resources.controller],
+    ["docker", "--host", outerHost, "rm", "--force", resources.journalHelper],
     ...volumes.map((name) => ["docker", "--host", outerHost, "volume", "rm", name]),
   ];
   const plan = Object.freeze({
@@ -168,16 +181,19 @@ export function validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, w
     `source=${resources?.apiVolume},target=${resources?.apiRoot}`,
     `source=${resources?.dockerDataVolume},target=/var/lib/docker`,
     `source=${resources?.containerdDataVolume},target=/var/lib/containerd`,
+    `source=${resources?.configVolume},target=/etc/cwt,readonly,volume-nocopy`,
+    `source=${resources?.storageVolume},target=/srv/cwt,volume-nocopy`,
+    `source=${resources?.journalVolume},target=/run/systemd/journal,volume-nocopy`,
     `source=${repositoryRoot},target=${repositoryRoot},readonly`, `source=${workspace},target=${workspace}`,
-    "source=/etc/cwt,target=/etc/cwt,readonly", "source=/srv/cwt,target=/srv/cwt",
-    "source=/run/systemd/journal,target=/run/systemd/journal",
     `--host=${resources?.ownerHost}`, `--exec-root=${resources?.execRoot}`, `--pidfile=${resources?.pidFile}`,
   ];
   if (!Array.isArray(runArgs) || runArgs.slice(0, 3).join(" ") !== `docker --host ${outerHost}` || required.some((value) => !rendered.includes(value))) {
     refuse("private DIND controller plan is incomplete");
   }
   if (runArgs.includes("--rm") || runArgs.includes("--pid") || runArgs.includes("host") || runArgs.includes("--publish") || runArgs.includes("-p") ||
-    rendered.includes("docker.sock,target") || rendered.includes("containerd.sock") || rendered.includes("--bridge=") || rendered.includes("--iptables") || rendered.includes("nsenter") || /tcp:\/\//u.test(rendered)) {
+    rendered.includes("docker.sock,target") || rendered.includes("containerd.sock") || rendered.includes("type=bind,source=/etc/cwt") ||
+    rendered.includes("type=bind,source=/srv/cwt") || rendered.includes("type=bind,source=/run/systemd/journal") ||
+    rendered.includes("--bridge=") || rendered.includes("--iptables") || rendered.includes("nsenter") || /tcp:\/\//u.test(rendered)) {
     refuse("private DIND controller plan escapes its isolation boundary");
   }
   const diagnostics = plan.diagnostics.flat().join(" ");
@@ -186,17 +202,21 @@ export function validateOwnerControllerPlan(plan, { outerHost, repositoryRoot, w
   const actualFinalization = (plan.finalization ?? []).map((command) => command.join("\0"));
   const diagnosticLogIndex = actualFinalization.findIndex((command) => command.includes(`logs\0--timestamps\0${resources.controller}`));
   const controllerRemovalIndex = actualFinalization.findIndex((command) => command.endsWith(`rm\0${resources.controller}`));
+  const helperRemovalIndex = actualFinalization.findIndex((command) => command.endsWith(`rm\0--force\0${resources.journalHelper}`));
+  const journalVolumeRemovalIndex = actualFinalization.findIndex((command) => command.endsWith(`volume\0rm\0${resources.journalVolume}`));
   if (!diagnostics.includes(`inspect ${resources.controller}`) || !diagnostics.includes(`logs --timestamps ${resources.controller}`) ||
     cleanup.indexOf(`rm ${resources.controller}`) < cleanup.indexOf(`wait ${resources.controller}`) ||
-    JSON.stringify(actualFinalization) !== JSON.stringify(expectedFinalization) || diagnosticLogIndex < 0 || controllerRemovalIndex < diagnosticLogIndex) refuse("owner diagnostics or cleanup order is invalid");
+    JSON.stringify(actualFinalization) !== JSON.stringify(expectedFinalization) || diagnosticLogIndex < 0 || controllerRemovalIndex < diagnosticLogIndex ||
+    helperRemovalIndex < controllerRemovalIndex || journalVolumeRemovalIndex < helperRemovalIndex) refuse("owner diagnostics or cleanup order is invalid");
   return true;
 }
 
-export function ownerHelperArgs({ resources, outerHost, helperImage = OWNER_HELPER_REFERENCE, mounts = [], environment = {}, args }) {
+export function ownerHelperArgs({ resources, outerHost, helperImage = OWNER_HELPER_REFERENCE, mounts = [], volumes = [], environment = {}, args }) {
   if (!resources?.ownerHost?.startsWith("unix://") || typeof outerHost !== "string" || !outerHost.startsWith("unix://") || !Array.isArray(args) || args.length === 0) refuse("owner helper plan is invalid");
   const mountArgs = [
     "--mount", `type=volume,source=${resources.apiVolume},target=${resources.apiRoot}`,
     ...mounts.flatMap(([path, readOnly = false]) => ["--mount", samePathMount(path, readOnly)]),
+    ...volumes.flatMap(([source, target, readOnly = false]) => ["--mount", `type=volume,source=${source},target=${target}${readOnly ? ",readonly" : ""},volume-nocopy`]),
   ];
   const envArgs = Object.entries(environment).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
   return ["docker", "--host", outerHost, "run", "--rm", "--pull", "never", "--network", "none", ...mountArgs, ...envArgs, helperImage, "docker", "--host", resources.ownerHost, ...args];
@@ -296,14 +316,11 @@ function createDockerClients({ resources, outerHost, helperImage, repositoryRoot
     [repositoryRoot, repositoryRoot, true],
     [releaseRoot, releaseRoot, true],
     [workspace, workspace, false],
-    ["/etc/cwt", "/etc/cwt", true],
-    ["/srv/cwt", "/srv/cwt", false],
-    ["/run/systemd/journal", "/run/systemd/journal", false],
   ].map((entry) => [entry[1], entry]));
   const mounts = [...mountMap.values()].map(([path,, readOnly]) => [path, readOnly]);
   const owner = (args, options = {}) => {
-    const { helperEnvironment = {}, ...runOptions } = options;
-    const command = ownerHelperArgs({ resources, outerHost, helperImage, mounts, environment: helperEnvironment, args });
+    const { helperEnvironment = {}, helperVolumes = [], ...runOptions } = options;
+    const command = ownerHelperArgs({ resources, outerHost, helperImage, mounts, volumes: helperVolumes, environment: helperEnvironment, args });
     return run(command[0], command.slice(1), runOptions);
   };
   return { outer, owner, ownerHost: resources.ownerHost, resources };
@@ -358,14 +375,18 @@ function verifyPinnedOwnerImages(clients, workspace) {
 function assertOwnerResourcesAbsent(clients) {
   const { resources } = clients;
   if (clients.outer(["container", "inspect", resources.controller], { allowFailure: true }).status === 0) refuse("owner controller pre-exists");
-  for (const name of [resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume]) {
+  if (clients.outer(["container", "inspect", resources.journalHelper], { allowFailure: true }).status === 0) refuse("journal helper pre-exists");
+  for (const name of [resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume, resources.configVolume, resources.storageVolume, resources.journalVolume]) {
     if (clients.outer(["volume", "inspect", name], { allowFailure: true }).status === 0) refuse(`owner volume pre-exists: ${name}`);
   }
 }
 
-function startOwnerController(clients, plan) {
+function createOwnerVolumes(clients, plan) {
   assertOwnerResourcesAbsent(clients);
   for (const command of plan.volumeCreate) run(command[0], command.slice(1), { label: "Owner volume create" });
+}
+
+function startOwnerController(clients, plan) {
   const started = run(plan.controllerRun[0], plan.controllerRun.slice(1), { label: "Private DIND controller start" });
   if (!started.stdout.trim()) refuse("private DIND controller did not start");
 }
@@ -414,7 +435,29 @@ function captureOwnerDiagnostics(clients, evidenceRoot) {
   const logSha256 = sha256File(logPath);
   const sidecar = resolve(evidenceRoot, "owner-dind.log.sha256");
   if (!existsSync(sidecar)) writeFileSync(sidecar, `${logSha256}  owner-dind.log\n`, { flag: "wx", mode: 0o400 });
-  return { inspect: state, logSha256 };
+  const helperInspectResult = clients.outer(["container", "inspect", clients.resources.journalHelper], { allowFailure: true });
+  const helperLogsResult = clients.outer(["logs", "--timestamps", clients.resources.journalHelper], { allowFailure: true });
+  let helperState = { available: false };
+  if (helperInspectResult.status === 0) {
+    const inspected = JSON.parse(helperInspectResult.stdout)[0];
+    helperState = {
+      available: true,
+      state: inspected.State?.Status ?? "unknown",
+      running: inspected.State?.Running === true,
+      exitCode: inspected.State?.ExitCode ?? null,
+      image: inspected.Config?.Image ?? null,
+      networkMode: inspected.HostConfig?.NetworkMode ?? null,
+      pidMode: inspected.HostConfig?.PidMode ?? null,
+    };
+  }
+  const helperInspectPath = resolve(evidenceRoot, "owner-journal-helper-inspect.sanitized.json");
+  const helperLogPath = resolve(evidenceRoot, "owner-journal-helper.log");
+  if (!existsSync(helperInspectPath)) writeFileSync(helperInspectPath, json(helperState), { flag: "wx", mode: 0o400 });
+  if (!existsSync(helperLogPath)) writeFileSync(helperLogPath, `${helperLogsResult.stdout}${helperLogsResult.stderr}`, { flag: "wx", mode: 0o400 });
+  const helperLogSha256 = sha256File(helperLogPath);
+  const helperSidecar = resolve(evidenceRoot, "owner-journal-helper.log.sha256");
+  if (!existsSync(helperSidecar)) writeFileSync(helperSidecar, `${helperLogSha256}  owner-journal-helper.log\n`, { flag: "wx", mode: 0o400 });
+  return { inspect: state, logSha256, journalHelperInspect: helperState, journalHelperLogSha256: helperLogSha256 };
 }
 
 function cleanupOwnerInfrastructure(clients, evidenceRoot) {
@@ -425,11 +468,21 @@ function cleanupOwnerInfrastructure(clients, evidenceRoot) {
     clients.outer(["wait", clients.resources.controller], { label: "Private DIND controller wait" });
     clients.outer(["rm", clients.resources.controller], { label: "Private DIND controller removal" });
   }
-  for (const name of [clients.resources.apiVolume, clients.resources.dockerDataVolume, clients.resources.containerdDataVolume]) {
+  if (clients.outer(["container", "inspect", clients.resources.journalHelper], { allowFailure: true }).status === 0) {
+    clients.outer(["rm", "--force", clients.resources.journalHelper], { label: "Journal helper removal" });
+  }
+  for (const name of [
+    clients.resources.apiVolume, clients.resources.dockerDataVolume, clients.resources.containerdDataVolume,
+    clients.resources.configVolume, clients.resources.storageVolume, clients.resources.journalVolume,
+  ]) {
     if (clients.outer(["volume", "inspect", name], { allowFailure: true }).status === 0) clients.outer(["volume", "rm", name], { label: `Owner volume removal ${name}` });
   }
   if (clients.outer(["container", "inspect", clients.resources.controller], { allowFailure: true }).status === 0) throw new HarnessFailure("private DIND controller survived cleanup");
-  for (const name of [clients.resources.apiVolume, clients.resources.dockerDataVolume, clients.resources.containerdDataVolume]) {
+  if (clients.outer(["container", "inspect", clients.resources.journalHelper], { allowFailure: true }).status === 0) throw new HarnessFailure("journal helper survived cleanup");
+  for (const name of [
+    clients.resources.apiVolume, clients.resources.dockerDataVolume, clients.resources.containerdDataVolume,
+    clients.resources.configVolume, clients.resources.storageVolume, clients.resources.journalVolume,
+  ]) {
     if (clients.outer(["volume", "inspect", name], { allowFailure: true }).status === 0) throw new HarnessFailure(`owner volume survived cleanup: ${name}`);
   }
   return diagnostics;
@@ -459,7 +512,8 @@ function composeEnvironment({ qualified, indexDigest, childDigest, repositoryRoo
 function composeArgs({ resources, outerHost, project, repositoryRoot, composeFile, environment, args }) {
   return ownerHelperArgs({
     resources, outerHost,
-    mounts: [[repositoryRoot, true], ["/etc/cwt", true], ["/srv/cwt"], ["/run/systemd/journal"]],
+    mounts: [[repositoryRoot, true]],
+    volumes: [[resources.configVolume, "/etc/cwt", true]],
     environment,
     args: ["compose", "--project-name", project, "--project-directory", repositoryRoot, "--file", composeFile, "--profile", "staging", ...args],
   });
@@ -469,15 +523,8 @@ function createComposeClient({ clients, project, repositoryRoot, composeFile, en
   return (args, options = {}) => {
     return clients.owner([
       "compose", "--project-name", project, "--project-directory", repositoryRoot, "--file", composeFile, "--profile", "staging", ...args,
-    ], { ...options, helperEnvironment: environment });
+    ], { ...options, helperEnvironment: environment, helperVolumes: [[clients.resources.configVolume, "/etc/cwt", true]] });
   };
-}
-
-function vmShell(clients, script, options = {}) {
-  return clients.outer([
-    "run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-    "alpine:3.22", "nsenter", "-t", "1", "-m", "--", "sh", "-eu", "-c", script,
-  ], options);
 }
 
 function createSyntheticConfiguration(workspace, releaseId) {
@@ -527,32 +574,94 @@ function removeExactSyntheticWorkspace(workspace) {
   rmSync(workspace, { recursive: true, force: true });
 }
 
-function installSyntheticVmState(clients, configRoot, token) {
-  clients.outer([
-    "run", "--rm", "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-    "--mount", `type=bind,source=${configRoot},target=/payload,readonly`, "alpine:3.22", "sh", "-eu", "-c",
-    `nsenter -t 1 -m -- sh -eu -c 'test ! -e /etc/cwt; test ! -e /srv/cwt; mkdir /etc/cwt /srv/cwt'; tar -C /payload -cf - . | nsenter -t 1 -m -- tar -C /etc/cwt -xf -; nsenter -t 1 -m -- sh -eu -c 'mkdir -p /srv/cwt/production/media/public /srv/cwt/production/media/private-inquiries /srv/cwt/production/media/import /srv/cwt/staging/media/public /srv/cwt/staging/media/private-inquiries /srv/cwt/staging/media/import /srv/cwt/postgresql/data /srv/cwt/backups/postgresql/production /srv/cwt/backups/postgresql/staging; : > /srv/cwt/.${token}; chown -R 10001:10001 /srv/cwt/production /srv/cwt/staging; chmod -R 0700 /srv/cwt/production /srv/cwt/staging; chown -R 999:999 /srv/cwt/postgresql; chmod -R 0700 /srv/cwt/postgresql'`,
-  ], { label: "Synthetic VM state install" });
+export function createVolumeProjectionPlan({ resources, outerHost, configRoot, token }) {
+  if (!resources || token !== resources.token || typeof outerHost !== "string" || !outerHost.startsWith("unix://") || !isAbsolute(configRoot ?? "")) {
+    refuse("volume projection inputs are invalid");
+  }
+  const expectedConfig = [
+    ".cwt-release-validation", "postgres/bootstrap-password",
+    ...["production", "staging"].flatMap((environment) => CONFIG_SUBJECT_NAMES.map((name) => `${environment}/${name}`)),
+  ];
+  const expectedArgs = expectedConfig.map((path) => `/target/${path}`).join(" ");
+  const configScript = [
+    "test -f /payload/.cwt-release-validation",
+    "test -z \"$(find /target -mindepth 1 -print -quit)\"",
+    "cp -a /payload/. /target/",
+    "chmod 0700 /target /target/postgres /target/production /target/staging",
+    "find /target -type f -exec chmod 0444 {} +",
+    `set -- ${expectedArgs}`,
+    `test \"$#\" -eq ${expectedConfig.length}`,
+    "for file; do test -f \"$file\"; test \"$(stat -c %a \"$file\")\" = 444; done",
+    `test \"$(find /target -type f | wc -l)\" -eq ${expectedConfig.length}`,
+    "grep -qx 'synthetic release validation' /target/.cwt-release-validation",
+  ].join("; ");
+  const storageScript = [
+    "test -z \"$(find /target -mindepth 1 -print -quit)\"",
+    "mkdir -p /target/production/media/public /target/production/media/private-inquiries /target/production/media/import /target/staging/media/public /target/staging/media/private-inquiries /target/staging/media/import /target/postgresql/data /target/backups/postgresql/production /target/backups/postgresql/staging",
+    `: > /target/.${token}`,
+    "chown -R 10001:10001 /target/production /target/staging",
+    "chmod -R 0700 /target/production /target/staging",
+    "chown -R 999:999 /target/postgresql",
+    "chmod -R 0700 /target/postgresql",
+    "for path in /target/production /target/staging; do test \"$(stat -c %u:%g:%a \"$path\")\" = 10001:10001:700; done",
+    "test \"$(stat -c %u:%g:%a /target/postgresql)\" = 999:999:700",
+    "test -d /target/backups/postgresql/production",
+    "test -d /target/backups/postgresql/staging",
+  ].join("; ");
+  const journalScript = "helper_pid=$$; exec nsenter -t 1 -m -- socat UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork OPEN:/dev/null";
+  const exact = (args) => Object.freeze(["docker", "--host", outerHost, ...args]);
+  const plan = Object.freeze({
+    expectedConfig: Object.freeze(expectedConfig),
+    configPopulate: exact([
+      "run", "--rm", "--pull", "never", "--network", "none",
+      "--mount", `type=bind,source=${configRoot},target=/payload,readonly`,
+      "--mount", `type=volume,source=${resources.configVolume},target=/target,volume-nocopy`,
+      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", configScript,
+    ]),
+    storagePopulate: exact([
+      "run", "--rm", "--pull", "never", "--network", "none",
+      "--mount", `type=volume,source=${resources.storageVolume},target=/target,volume-nocopy`,
+      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", storageScript,
+    ]),
+    journalStart: exact([
+      "run", "--detach", "--name", resources.journalHelper, "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
+      "--mount", `type=volume,source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`,
+      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", journalScript,
+    ]),
+    journalProbe: exact([
+      "run", "--rm", "--pull", "never", "--network", "none",
+      "--mount", `type=volume,source=${resources.journalVolume},target=/probe,readonly,volume-nocopy`,
+      SELF_TEST_BASE_REFERENCE, "sh", "-eu", "-c", "attempt=0; while ! test -S /probe/socket; do attempt=$((attempt+1)); test \"$attempt\" -lt 100; sleep 0.1; done",
+    ]),
+  });
+  validateVolumeProjectionPlan(plan, { resources, outerHost, configRoot });
+  return plan;
 }
 
-function startJournalSink(clients, token) {
-  const name = `${token}-journal`;
-  const result = clients.outer([
-    "run", "--detach", "--name", name, "--pull", "never", "--network", "none", "--privileged", "--pid", "host",
-    "alpine:3.22", "nsenter", "-t", "1", "-m", "--", "sh", "-eu", "-c",
-    "test ! -e /run/systemd/journal; mkdir -p /run/systemd/journal; exec socat UNIX-RECVFROM:/run/systemd/journal/socket,fork OPEN:/dev/null",
-  ], { label: "disposable journal sink" });
-  if (!result.stdout.trim()) refuse("disposable journal sink did not start");
-  return name;
+export function validateVolumeProjectionPlan(plan, { resources, outerHost, configRoot }) {
+  for (const command of [plan?.configPopulate, plan?.storagePopulate, plan?.journalStart, plan?.journalProbe]) {
+    if (!Array.isArray(command) || command.slice(0, 3).join(" ") !== `docker --host ${outerHost}` || command.includes("tcp://") || !command.includes("--pull") || !command.includes("never")) {
+      refuse("volume projection command plan is invalid");
+    }
+  }
+  const config = plan.configPopulate.join(" ");
+  const storage = plan.storagePopulate.join(" ");
+  const journal = plan.journalStart.join(" ");
+  if (!config.includes(`type=bind,source=${configRoot},target=/payload,readonly`) || !config.includes(`source=${resources.configVolume},target=/target,volume-nocopy`) ||
+    !storage.includes(`source=${resources.storageVolume},target=/target,volume-nocopy`) || config.includes("/srv/cwt") || storage.includes("/etc/cwt")) refuse("config/storage named-volume authority drifted");
+  if (!journal.includes(`--name ${resources.journalHelper}`) || !journal.includes(`source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`) ||
+    !journal.includes("UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork") || journal.includes("UNIX-RECV:") || journal.includes("Mountpoint")) {
+    refuse("journal helper authority drifted");
+  }
+  return true;
 }
 
-function stopJournalSink(clients, name, options = {}) {
-  if (name) clients.outer(["rm", "--force", name], options);
-  return vmShell(clients, "if test -e /run/systemd/journal; then rm -rf /run/systemd/journal; fi; test ! -e /run/systemd/journal", options);
-}
-
-function removeSyntheticVmState(clients, token, options = {}) {
-  return vmShell(clients, `if test -e /etc/cwt; then test -f /etc/cwt/.cwt-release-validation; rm -rf /etc/cwt; fi; if test -e /srv/cwt; then test -f /srv/cwt/.${token}; rm -rf /srv/cwt; fi; test ! -e /etc/cwt; test ! -e /srv/cwt`, options);
+function populateOwnerVolumes(clients, projectionPlan) {
+  run(projectionPlan.configPopulate[0], projectionPlan.configPopulate.slice(1), { label: "Synthetic config volume population" });
+  run(projectionPlan.storagePopulate[0], projectionPlan.storagePopulate.slice(1), { label: "Synthetic storage volume population" });
+  const helper = run(projectionPlan.journalStart[0], projectionPlan.journalStart.slice(1), { label: "Disposable journal helper start" });
+  if (!helper.stdout.trim()) refuse("disposable journal helper did not start");
+  run(projectionPlan.journalProbe[0], projectionPlan.journalProbe.slice(1), { label: "Volume-backed journal socket readiness" });
 }
 
 function createOciArchive(ociRoot, archive) {
@@ -734,14 +843,15 @@ async function selfTest(args) {
   const tag = `cwt.local/custody:${token}`;
   const archive = resolve(workspace, "base.tar");
   const project = `${token}-compose`;
-  let ownerLoaded = false; let controllerAttempted = false; let syntheticInstalled = false; let journalController;
+  let ownerLoaded = false; let ownerCleanupRequired = false;
   let compose; let primaryError; let result;
   try {
     const configRoot = createSyntheticConfiguration(workspace, "0".repeat(40));
-    installSyntheticVmState(clients, configRoot, token); syntheticInstalled = true;
-    journalController = startJournalSink(clients, token);
     const pinned = verifyPinnedOwnerImages(clients, workspace);
-    controllerAttempted = true;
+    const projectionPlan = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
+    ownerCleanupRequired = true;
+    createOwnerVolumes(clients, plan);
+    populateOwnerVolumes(clients, projectionPlan);
     startOwnerController(clients, plan);
     const { ownerInfo, isolation } = await waitForOwnerReady(clients);
     const before = clients.owner(["image", "inspect", tag], { allowFailure: true });
@@ -759,6 +869,16 @@ async function selfTest(args) {
     if (outerDeletion.status === 0) refuse("outer endpoint deleted isolated namespace tag");
     ownerImageInspection(clients, tag);
     ownerImageInspection(clients, `alpine@${baseDigest}`);
+
+    const storageProof = `/srv/cwt/staging/media/import/${token}.proof`;
+    clients.owner([
+      "run", "--rm", "--pull", "never", "--network", "none", "--user", "10001:10001", "--log-driver", "journald",
+      "--mount", "type=bind,source=/etc/cwt/.cwt-release-validation,target=/proof/config,readonly",
+      "--mount", `type=bind,source=${repositoryRoot},target=${repositoryRoot},readonly`,
+      "--mount", "type=bind,source=/srv/cwt/staging/media/import,target=/srv/cwt/staging/media/import",
+      tag, "sh", "-eu", "-c",
+      `test \"$(cat /proof/config)\" = \"synthetic release validation\"; test \"$(stat -c %a /proof/config)\" = 444; test -f ${repositoryRoot}/AGENTS.md; printf '%s\\n' ${token} > ${storageProof}; test \"$(stat -c %u:%g ${storageProof})\" = 10001:10001; echo ${token}-journal-proof; rm ${storageProof}`,
+    ], { label: "Named-volume config/storage/journal proof" });
 
     const bindRoot = resolve(workspace, "self-test-bind");
     mkdirSync(bindRoot, { recursive: true, mode: 0o700 });
@@ -792,6 +912,7 @@ async function selfTest(args) {
       owner: { serverVersion: ownerInfo.serverVersion, snapshotter: ownerInfo.snapshotter, ...isolation, pinned },
       base: { reference: SELF_TEST_BASE_REFERENCE, descriptorDigest: baseDigest, ownerImageId: ownerTag.Id },
       isolation: { outerInvisible: true, outerDeletionRefused: true, ownerRetainedAfterOuterAttempt: true },
+      projection: { configVolume: true, storageVolume: true, journalVolume: true, configMode: "0444", storageOwner: "10001:10001", journalEmission: true, vmHostBinds: 0 },
       compose: { internalNetwork: true, samePathBind: true, journald: true, publishedPorts: 0, innerCommunication: true },
     };
   } catch (error) { primaryError = error; }
@@ -811,9 +932,7 @@ async function selfTest(args) {
         if (clients.owner(["image", "inspect", tag], { allowFailure: true }).status === 0) throw new HarnessFailure("owner self-test tag survived cleanup");
       });
       let captured;
-      if (controllerAttempted) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
-      if (syntheticInstalled) attempt(() => { removeSyntheticVmState(clients, token, { label: "Synthetic VM state cleanup" }); syntheticInstalled = false; });
-      if (journalController) attempt(() => { stopJournalSink(clients, journalController, { label: "disposable journal sink cleanup" }); journalController = undefined; });
+      if (ownerCleanupRequired) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
       attempt(() => removeExactSyntheticWorkspace(workspace));
       if (failures.length > 0) throw new HarnessFailure(`self-test cleanup failed: ${failures.join(" | ")}`);
       return captured;
@@ -823,7 +942,7 @@ async function selfTest(args) {
     writeFileSync(resolve(evidenceRoot, "self-test-blocked.json"), json(failure), { flag: "wx", mode: 0o400 });
     throw error;
   }
-  const outcome = { ...result, diagnostics: { ownerLogSha256: diagnostics.logSha256 }, cleanup: { controller: 0, volumes: 0, socket: 0, compose: 0, syntheticState: 0, workspaceRemoved: true, ownerReferencesAbsent: true } };
+  const outcome = { ...result, diagnostics: { ownerLogSha256: diagnostics.logSha256, journalHelperLogSha256: diagnostics.journalHelperLogSha256 }, cleanup: { controller: 0, journalHelper: 0, volumes: 0, socket: 0, compose: 0, workspaceRemoved: true, ownerReferencesAbsent: true } };
   writeFileSync(resolve(evidenceRoot, "self-test.json"), json(outcome), { flag: "wx", mode: 0o400 });
   writeFileSync(resolve(evidenceRoot, "self-test.json.sha256"), `${sha256File(resolve(evidenceRoot, "self-test.json"))}  self-test.json\n`, { flag: "wx", mode: 0o400 });
   return outcome;
@@ -846,17 +965,18 @@ async function validateRelease(args) {
   const plan = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace });
   const clients = createDockerClients({ resources, outerHost, helperImage: OWNER_HELPER_REFERENCE, repositoryRoot, releaseRoot, workspace });
   const rootCompose = resolve(repositoryRoot, "compose.yaml");
-  let gateOpen = false; let cleanupPhase = false; let imported = false; let dependencyImported = false; let syntheticInstalled = false; let journalController; let controllerAttempted = false;
+  let gateOpen = false; let cleanupPhase = false; let imported = false; let dependencyImported = false; let ownerCleanupRequired = false;
   let qualified; let tag; let indexDigest; let releaseId; let nativeChild; let nativePlatform; let project;
   let outcome; let compose; let mutationComposeClient; let primaryError; let failureClassification;
   try {
     const verified = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     releaseId = verified.record.releaseId; indexDigest = verified.inventory.indexDigest;
     const configRoot = createSyntheticConfiguration(workspace, releaseId);
-    installSyntheticVmState(clients, configRoot, token); syntheticInstalled = true;
-    journalController = startJournalSink(clients, token);
     const pinned = verifyPinnedOwnerImages(clients, workspace);
-    controllerAttempted = true;
+    const projectionPlan = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
+    ownerCleanupRequired = true;
+    createOwnerVolumes(clients, plan);
+    populateOwnerVolumes(clients, projectionPlan);
     startOwnerController(clients, plan);
     const { ownerInfo, isolation } = await waitForOwnerReady(clients);
     nativePlatform = `linux/${JSON.parse(clients.owner(["version", "--format", "{{json .Server.Arch}}"], { label: "owner platform" }).stdout)}`;
@@ -980,9 +1100,7 @@ async function validateRelease(args) {
       if (zeroConsumers && imported && qualified && tag) attempt(() => { clients.owner(["image", "rm", qualified, tag], { allowFailure: true }); imported = false; });
       if (zeroConsumers && dependencyImported) attempt(() => { for (const reference of DEPENDENCY_REFERENCES) clients.owner(["image", "rm", reference], { allowFailure: true }); dependencyImported = false; });
       let captured;
-      if (controllerAttempted) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
-      if (syntheticInstalled) attempt(() => { removeSyntheticVmState(clients, token, { label: "Synthetic VM state cleanup" }); syntheticInstalled = false; });
-      if (journalController) attempt(() => { stopJournalSink(clients, journalController, { label: "disposable journal sink cleanup" }); journalController = undefined; });
+      if (ownerCleanupRequired) captured = attempt(() => cleanupOwnerInfrastructure(clients, evidenceRoot));
       attempt(() => removeExactSyntheticWorkspace(workspace));
       if (failures.length > 0) throw new HarnessFailure(`release validator cleanup failed: ${failures.join(" | ")}`);
       return captured;
@@ -993,7 +1111,7 @@ async function validateRelease(args) {
     try { writeFileSync(resolve(evidenceRoot, "release-compose-validation-blocked.json"), json(failure), { flag: "wx", mode: 0o400 }); } catch {}
     throw error;
   }
-  outcome.cleanup = { ...outcome.cleanup, controller: 0, volumes: 0, socket: 0, syntheticVmStateRemoved: true, workspaceRemoved: true, ownerLogSha256: diagnostics.logSha256 };
+  outcome.cleanup = { ...outcome.cleanup, controller: 0, journalHelper: 0, volumes: 0, socket: 0, namedVolumeStateRemoved: true, workspaceRemoved: true, ownerLogSha256: diagnostics.logSha256, journalHelperLogSha256: diagnostics.journalHelperLogSha256 };
   writeFileSync(resolve(evidenceRoot, "release-compose-validation.json"), json(outcome), { flag: "wx", mode: 0o400 });
   writeFileSync(resolve(evidenceRoot, "release-compose-validation.json.sha256"), `${sha256File(resolve(evidenceRoot, "release-compose-validation.json"))}  release-compose-validation.json\n`, { flag: "wx", mode: 0o400 });
   return outcome;

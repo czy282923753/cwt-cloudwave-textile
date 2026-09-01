@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
@@ -11,6 +11,7 @@ import {
   classifyValidationFailure,
   cleanupPreservingPrimary,
   createOwnerControllerPlan,
+  createVolumeProjectionPlan,
   createValidationPlan,
   digestQualifiedReference,
   ownerDockerArgs,
@@ -21,6 +22,7 @@ import {
   validatePinnedDindPlatformInspection,
   validateResolvedIdentity,
   validateValidationPlan,
+  validateVolumeProjectionPlan,
 } from "./preflight-release-compose.mjs";
 
 const index = `sha256:${"a".repeat(64)}`;
@@ -62,7 +64,10 @@ test("pins one private DIND controller with exact resources and pull-never isola
   assert.equal(plan.controllerRun.includes("--rm"), false);
   assert.equal(plan.controllerRun.includes("--pid"), false);
   assert.equal(plan.controllerRun.some((value) => value === "--publish" || value === "-p"), false);
-  assert.deepEqual(plan.volumeCreate.map((command) => command.at(-1)), [resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume]);
+  assert.deepEqual(plan.volumeCreate.map((command) => command.at(-1)), [
+    resources.apiVolume, resources.dockerDataVolume, resources.containerdDataVolume,
+    resources.configVolume, resources.storageVolume, resources.journalVolume,
+  ]);
   assert.equal(plan.controllerRun.join(" ").includes(`--exec-root=${resources.execRoot}`), true);
   assert.equal(plan.controllerRun.join(" ").includes("containerd.sock"), false);
   assert.equal(plan.controllerRun.join(" ").includes("nsenter"), false);
@@ -89,15 +94,46 @@ test("probes embedded Docker through explicit dockerd entrypoint with only --ver
   assert.deepEqual(args.slice(imageIndex + 1), ["--version"]);
 });
 
-test("projects repository, workspace, configuration, storage and journal at identical paths", () => {
+test("keeps macOS repository/workspace binds and projects Linux-only state through named volumes", () => {
   const rendered = createOwnerControllerPlan({ token, outerHost, repositoryRoot, workspace }).controllerRun.join(" ");
   for (const expected of [
     `source=${repositoryRoot},target=${repositoryRoot},readonly`,
     `source=${workspace},target=${workspace}`,
-    "source=/etc/cwt,target=/etc/cwt,readonly",
-    "source=/srv/cwt,target=/srv/cwt",
-    "source=/run/systemd/journal,target=/run/systemd/journal",
+    `source=${resources.configVolume},target=/etc/cwt,readonly,volume-nocopy`,
+    `source=${resources.storageVolume},target=/srv/cwt,volume-nocopy`,
+    `source=${resources.journalVolume},target=/run/systemd/journal,volume-nocopy`,
   ]) assert.equal(rendered.includes(expected), true);
+  for (const forbidden of ["type=bind,source=/etc/cwt", "type=bind,source=/srv/cwt", "type=bind,source=/run/systemd/journal"]) assert.equal(rendered.includes(forbidden), false);
+});
+
+test("populates config/storage only through named volumes and freezes UNIX-RECVFROM journal helper authority", () => {
+  const configRoot = "/tmp/cwt-config-payload";
+  const plan = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
+  assert.equal(plan.expectedConfig.length, 30);
+  assert.equal(plan.configPopulate.join(" ").includes(`type=bind,source=${configRoot},target=/payload,readonly`), true);
+  assert.equal(plan.configPopulate.join(" ").includes(`source=${resources.configVolume},target=/target,volume-nocopy`), true);
+  assert.equal(plan.storagePopulate.join(" ").includes(`source=${resources.storageVolume},target=/target,volume-nocopy`), true);
+  const journal = plan.journalStart.join(" ");
+  assert.equal(journal.includes(`--name ${resources.journalHelper}`), true);
+  assert.equal(journal.includes("--pid host"), true);
+  assert.equal(journal.includes("UNIX-RECVFROM:/proc/${helper_pid}/root/run/systemd/journal/socket,fork"), true);
+  assert.equal(journal.includes("UNIX-RECV:"), false);
+  assert.equal(journal.includes("Mountpoint"), false);
+  assert.equal(plan.journalProbe.join(" ").includes(`source=${resources.journalVolume},target=/probe,readonly,volume-nocopy`), true);
+});
+
+test("rejects projection mutations for raw paths, wrong journal address type and missing volume-nocopy", () => {
+  const configRoot = "/tmp/cwt-config-payload";
+  for (const mutate of [
+    (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("UNIX-RECVFROM:")); plan.journalStart[indexValue] = plan.journalStart[indexValue].replace("UNIX-RECVFROM:", "UNIX-RECV:"); },
+    (plan) => { const indexValue = plan.journalStart.findIndex((value) => value.includes("UNIX-RECVFROM:")); plan.journalStart[indexValue] += " Mountpoint"; },
+    (plan) => { const indexValue = plan.configPopulate.findIndex((value) => value.includes(resources.configVolume)); plan.configPopulate[indexValue] = plan.configPopulate[indexValue].replace(",volume-nocopy", ""); },
+  ]) {
+    const source = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
+    const plan = { ...source, configPopulate: [...source.configPopulate], storagePopulate: [...source.storagePopulate], journalStart: [...source.journalStart], journalProbe: [...source.journalProbe] };
+    mutate(plan);
+    assert.throws(() => validateVolumeProjectionPlan(plan, { resources, outerHost, configRoot }), /authority drifted/u);
+  }
 });
 
 test("every owner helper mounts only the run API transport and contains no nsenter or TCP endpoint", () => {
@@ -206,6 +242,8 @@ test("keeps root Compose positive singular and direct roles digest-qualified wit
   const compose = __testOnly.composeArgs({ resources, outerHost, project: "cwt-release-proof", repositoryRoot, composeFile: `${repositoryRoot}/compose.yaml`, environment: {}, args: ["up", "--pull", "never", "--no-build"] });
   assert.equal(compose.join(" ").includes("nsenter"), false);
   assert.equal(compose.join(" ").includes(`source=${resources.apiVolume},target=${resources.apiRoot}`), true);
+  assert.equal(compose.join(" ").includes(`source=${resources.configVolume},target=/etc/cwt,readonly,volume-nocopy`), true);
+  assert.equal(compose.join(" ").includes("type=bind,source=/etc/cwt"), false);
 });
 
 test("synthetic workspace finalization preserves success and primary failure without residue", () => {
@@ -215,6 +253,9 @@ test("synthetic workspace finalization preserves success and primary failure wit
     const configRoot = __testOnly.createSyntheticConfiguration(localWorkspace, revision);
     for (const directory of [configRoot, resolve(configRoot, "postgres"), resolve(configRoot, "production"), resolve(configRoot, "staging")]) assert.equal(statSync(directory).mode & 0o777, 0o700);
     assert.match(readFileSync(resolve(configRoot, ".cwt-release-validation"), "utf8"), /synthetic release validation/u);
+    const actualFiles = readdirSync(configRoot, { recursive: true }).filter((path) => statSync(resolve(configRoot, path)).isFile()).sort();
+    const projection = createVolumeProjectionPlan({ resources, outerHost, configRoot, token });
+    assert.deepEqual(actualFiles, [...projection.expectedConfig].sort());
     const result = (() => { try { return primaryResult; } finally { __testOnly.removeExactSyntheticWorkspace(localWorkspace); } })();
     assert.strictEqual(result, primaryResult);
     assert.equal(existsSync(localWorkspace), false);
