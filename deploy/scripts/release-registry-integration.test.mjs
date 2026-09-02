@@ -7,6 +7,7 @@ import {
   __testOnly,
   canonicalGhcrRepository,
   createRegistryCommandPlan,
+  isVerifiedAnonymousGhcrDenial,
   validateOrasIdentity,
   validateRegistryDescriptor,
   validateReleaseIdentity,
@@ -56,6 +57,54 @@ test("uses ORAS digest-rooted layout copy and exact GHCR descriptor verification
   for (const forbidden of ["docker save", "docker load", "docker-archive", "temporary-transfer", "buildx imagetools", "--platform"]) {
     assert.equal(rendered.includes(forbidden), false);
   }
+});
+
+test("accepts only the pinned ORAS anonymous GHCR token denial bound to an authenticated exact digest", () => {
+  const digestReference = `${REPOSITORY}@${INDEX}`;
+  const tokenUrl = "https://ghcr.io/token?scope=repository%3Aczy282923753%2Fcwt-cloudwave-textile%3Apull&service=ghcr.io";
+  const realOrasDenial = {
+    status: 1,
+    signal: null,
+    error: undefined,
+    stdout: "",
+    stderr: `Error response from registry: GET "${tokenUrl}": response status code 403: Forbidden\n`,
+  };
+  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference, authenticatedDigest: INDEX }), true);
+
+  const failures = [
+    { name: "public anonymous success", result: { ...realOrasDenial, status: 0, stderr: "", stdout: `{\"digest\":\"${INDEX}\"}\n` } },
+    { name: "spawn error", result: { ...realOrasDenial, error: new Error("spawn failed") } },
+    { name: "signal termination", result: { ...realOrasDenial, status: null, signal: "SIGTERM" } },
+    { name: "unexpected nonzero exit", result: { ...realOrasDenial, status: 2 } },
+    { name: "empty output", result: { ...realOrasDenial, stderr: "" } },
+    { name: "stdout contamination", result: { ...realOrasDenial, stdout: "unexpected" } },
+    { name: "malformed output", result: { ...realOrasDenial, stderr: `${realOrasDenial.stderr}\n` } },
+    { name: "bare registry first-hop 401", result: { ...realOrasDenial, stderr: `Error response from registry: GET "https://ghcr.io/v2/${REPOSITORY.slice("ghcr.io/".length)}/manifests/${INDEX}": response status code 401: Unauthorized\n` } },
+    { name: "generic forbidden", result: { ...realOrasDenial, stderr: "Error response from registry: 403 Forbidden\n" } },
+    { name: "structured denied text", result: { ...realOrasDenial, stderr: "Error response from registry: denied: requested access to the resource is denied\n" } },
+    { name: "not found", result: { ...realOrasDenial, stderr: "Error response from registry: not found\n" } },
+    { name: "DNS failure", result: { ...realOrasDenial, stderr: "Error: dial tcp: lookup ghcr.io: no such host\n" } },
+    { name: "TLS failure", result: { ...realOrasDenial, stderr: "Error: tls: failed to verify certificate\n" } },
+    { name: "timeout", result: { ...realOrasDenial, stderr: "Error: context deadline exceeded\n" } },
+    { name: "wrong token host", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("https://ghcr.io/token", "https://example.com/token") } },
+    { name: "wrong repository scope", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("cwt-cloudwave-textile", "missing-repository") } },
+    { name: "reordered token parameters", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("scope=repository%3Aczy282923753%2Fcwt-cloudwave-textile%3Apull&service=ghcr.io", "service=ghcr.io&scope=repository%3Aczy282923753%2Fcwt-cloudwave-textile%3Apull") } },
+    { name: "extra token parameter", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("&service=ghcr.io", "&service=ghcr.io&account=anonymous") } },
+  ];
+  for (const { name, result } of failures) {
+    assert.equal(isVerifiedAnonymousGhcrDenial(result, { digestReference, authenticatedDigest: INDEX }), false, name);
+  }
+  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference, authenticatedDigest: `sha256:${"c".repeat(64)}` }), false, "wrong authenticated digest");
+  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference: `${REPOSITORY}@sha256:${"c".repeat(64)}`, authenticatedDigest: INDEX }), false, "wrong requested digest");
+  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference: `ghcr.io/czy282923753/missing-repository@${INDEX}`, authenticatedDigest: INDEX }), false, "repository mismatch");
+});
+
+test("keeps the anonymous probe credential-free and digest-rooted", () => {
+  const source = readFileSync(resolve("deploy/scripts/release-registry-integration.mjs"), "utf8");
+  const probe = source.slice(source.indexOf("function provePrivate"), source.indexOf("function publish"));
+  assert.match(probe, /writeFileSync\(anonymousConfig, '\{"auths":\{\}\}\\n'/u);
+  assert.match(probe, /"manifest", "fetch", "--descriptor", "--registry-config", anonymousConfig, digestReference/u);
+  assert.doesNotMatch(probe, /authFile|GHCR_TOKEN|github\.token|Authorization/u);
 });
 
 test("requires one first-attempt job-scoped Tencent Singapore Runner identity", () => {

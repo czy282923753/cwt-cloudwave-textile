@@ -20,6 +20,7 @@ const RELEASE = /^[0-9a-f]{40}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const GITHUB_REPOSITORY = /^[a-z0-9](?:[a-z0-9-]{0,38})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/u;
 const RUNNER_NONCE = /^[0-9a-f]{32}$/u;
+const GHCR_DIGEST_REFERENCE = /^(?<repository>ghcr\.io\/[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,99})@(?<digest>sha256:[0-9a-f]{64})$/u;
 const OCI_INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json";
 const ORAS_IDENTITY = Object.freeze({
   version: "1.3.3",
@@ -137,6 +138,26 @@ export function validateRegistryDescriptor(descriptor, indexDigest) {
   return true;
 }
 
+export function isVerifiedAnonymousGhcrDenial(result, { digestReference, authenticatedDigest }) {
+  const reference = GHCR_DIGEST_REFERENCE.exec(digestReference ?? "");
+  if (!reference || reference.groups.digest !== authenticatedDigest ||
+    result?.status !== 1 || result?.signal !== null || result?.error != null ||
+    result?.stdout !== "" || typeof result?.stderr !== "string") {
+    return false;
+  }
+
+  const prefix = 'Error response from registry: GET "';
+  const suffix = '": response status code 403: Forbidden\n';
+  if (!result.stderr.startsWith(prefix) || !result.stderr.endsWith(suffix)) return false;
+  const requestUrlText = result.stderr.slice(prefix.length, -suffix.length);
+  if (requestUrlText.includes('"') || requestUrlText.includes("\n") || requestUrlText.includes("\r")) return false;
+
+  const expectedTokenUrl = new URL("https://ghcr.io/token");
+  expectedTokenUrl.searchParams.set("scope", `repository:${reference.groups.repository.slice("ghcr.io/".length)}:pull`);
+  expectedTokenUrl.searchParams.set("service", "ghcr.io");
+  return requestUrlText === expectedTokenUrl.href;
+}
+
 export function createRegistryCommandPlan({ orasPath, authFile, ociRoot, repository, releaseId, indexDigest, outputRoot }) {
   if (!isAbsolute(orasPath ?? "") || !isAbsolute(authFile ?? "") || !isAbsolute(ociRoot ?? "") ||
     !RELEASE.test(releaseId ?? "") || !DIGEST.test(indexDigest ?? "") || !/^ghcr\.io\/[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,99}$/u.test(repository ?? "")) {
@@ -207,14 +228,14 @@ function verifiedRelease({ releasePath, ociRoot, releaseId, indexDigest }) {
   return result;
 }
 
-function provePrivate(binary, digestReference) {
+function provePrivate(binary, digestReference, authenticatedDigest) {
   const temporary = mkdtempSync(join(tmpdir(), "cwt-ghcr-anonymous-"));
   try {
     const anonymousConfig = join(temporary, "config.json");
     writeFileSync(anonymousConfig, '{"auths":{}}\n', { flag: "wx", mode: 0o600 });
     chmodSync(anonymousConfig, 0o600);
     const result = run(binary, ["manifest", "fetch", "--descriptor", "--registry-config", anonymousConfig, digestReference], { allowFailure: true });
-    if (result.status === 0 || !/(denied|unauthorized|authentication required)/iu.test(`${result.stderr ?? ""}${result.stdout ?? ""}`)) {
+    if (!isVerifiedAnonymousGhcrDenial(result, { digestReference, authenticatedDigest })) {
       refuse("ghcr_privacy_unproven", "GHCR subject did not prove authenticated-only access.");
     }
   } finally {
@@ -239,8 +260,9 @@ function publish(values) {
   });
   run(orasPath, plan.publish);
   validateRegistryDescriptor(parseJson(run(orasPath, plan.tagDescriptor).stdout, "registry_descriptor_invalid", "Registry descriptor is invalid."), values["index-digest"]);
-  validateRegistryDescriptor(parseJson(run(orasPath, plan.digestDescriptor).stdout, "registry_descriptor_invalid", "Registry descriptor is invalid."), values["index-digest"]);
-  provePrivate(orasPath, plan.digestReference);
+  const digestDescriptor = parseJson(run(orasPath, plan.digestDescriptor).stdout, "registry_descriptor_invalid", "Registry descriptor is invalid.");
+  validateRegistryDescriptor(digestDescriptor, values["index-digest"]);
+  provePrivate(orasPath, plan.digestReference, digestDescriptor.digest);
   return { status: "PASS", releaseId: values["release-id"], indexDigest: values["index-digest"], reference: plan.digestReference, mutableTagIsAuthority: false };
 }
 
