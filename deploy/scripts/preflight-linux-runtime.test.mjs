@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { resolve } from "node:path";
 
 import {
   __testOnly,
   createDockerEnvironment,
+  createGitIdentityEnvironment,
   createRuntimeCommandPlan,
   decideCompatibility,
   parseDigestReference,
@@ -97,10 +99,11 @@ test("matches actual Runner versions to one reviewed compatibility profile and f
 });
 
 test("fixes every Docker invocation to the standard local Unix socket despite a remote current context", () => {
-  const environment = { DOCKER_CONFIG: "/run/cwt-registry-credentials" };
+  const environment = { DOCKER_CONFIG: "/run/cwt-registry-credentials", SUDO_UID: "1000" };
   const clean = createDockerEnvironment(environment, { dockerConfigPresent: true, localSocketIsUnix: true });
   assert.equal(clean.DOCKER_CONFIG, environment.DOCKER_CONFIG);
   assert.equal(clean.DOCKER_HOST, "unix:///var/run/docker.sock");
+  assert.equal("SUDO_UID" in clean, false);
   assert.equal("DOCKER_CONTEXT" in clean, false);
   assert.throws(() => createDockerEnvironment(environment, { dockerConfigPresent: true, localSocketIsUnix: false }), /local Docker Unix socket/u);
   for (const selector of ["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "COMPOSE_PROJECT_NAME"]) {
@@ -109,6 +112,156 @@ test("fixes every Docker invocation to the standard local Unix socket despite a 
       localSocketIsUnix: true,
     }), /Caller Docker or Compose authority/u);
   }
+});
+
+test("binds Git's sudo ownership bridge to root, one canonical repository owner, and Git-only child state", () => {
+  const expected = {
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    HOME: "/root",
+    LANG: "C",
+    LC_ALL: "C",
+    TZ: "UTC",
+    GIT_OPTIONAL_LOCKS: "0",
+    SUDO_UID: "1000",
+  };
+  assert.deepEqual(createGitIdentityEnvironment({
+    effectiveUid: 0,
+    repositoryOwnerUid: 1000,
+    environment: { SUDO_UID: "1000", DOCKER_CONFIG: "/run/secret", GHCR_TOKEN: "secret" },
+  }), expected);
+  assert.deepEqual(createGitIdentityEnvironment({
+    effectiveUid: 0,
+    repositoryOwnerUid: 0,
+    environment: {},
+  }), Object.fromEntries(Object.entries(expected).filter(([name]) => name !== "SUDO_UID")));
+  for (const sudoUid of ["", "0", "00", "01000", "+1000", "1000 ", "4294967295", "99999999999"]) {
+    assert.throws(() => createGitIdentityEnvironment({
+      effectiveUid: 0,
+      repositoryOwnerUid: sudoUid === "0" ? 0 : 1000,
+      environment: { SUDO_UID: sudoUid },
+    }), /sudo-origin UID|ownership bridge facts/u);
+  }
+  assert.throws(() => createGitIdentityEnvironment({
+    effectiveUid: 0,
+    repositoryOwnerUid: 1000,
+    environment: {},
+  }), /requires the exact sudo-origin ownership bridge/u);
+  assert.throws(() => createGitIdentityEnvironment({
+    effectiveUid: 0,
+    repositoryOwnerUid: 1001,
+    environment: { SUDO_UID: "1000" },
+  }), /does not own the canonical repository/u);
+  assert.throws(() => createGitIdentityEnvironment({
+    effectiveUid: 1000,
+    repositoryOwnerUid: 1000,
+    environment: { SUDO_UID: "1000" },
+  }), /ownership bridge facts/u);
+
+  const repositoryRoot = realpathSync(resolve("."));
+  assert.equal(__testOnly.exactRepositoryRoot(repositoryRoot), repositoryRoot);
+  const temporaryRoot = realpathSync(mkdtempSync(resolve(tmpdir(), "cwt-source-path-")));
+  try {
+    const link = resolve(temporaryRoot, "repository-link");
+    symlinkSync(repositoryRoot, link);
+    assert.throws(() => __testOnly.exactCanonicalDirectory(link, "repository", "repository_invalid"), /canonical non-symlink/u);
+    assert.throws(() => __testOnly.exactRepositoryRoot(temporaryRoot), /checkout containing this validator/u);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test("executes exact read-only Git identity checks across sudo without widening Git ownership policy", () => {
+  const sourceRoot = realpathSync(resolve("."));
+  const probe = String.raw`
+    import { execFileSync, spawnSync } from "node:child_process";
+    import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+    const { __testOnly } = await import("file:///cwt/deploy/scripts/preflight-linux-runtime.mjs");
+    const git = (repository, args) => execFileSync("git", ["-C", repository, ...args], { encoding: "utf8" }).trim();
+    const createRepository = (path, ownerUid) => {
+      mkdirSync(path);
+      git(path, ["init", "-q"]);
+      git(path, ["config", "user.name", "CWT F-01"]);
+      git(path, ["config", "user.email", "f01@invalid.example"]);
+      execFileSync("sh", ["-ceu", ": > proof && git add proof && git commit -qm initial"], { cwd: path });
+      const head = git(path, ["rev-parse", "HEAD"]);
+      execFileSync("chown", ["-R", String(ownerUid) + ":" + String(ownerUid), path]);
+      return head;
+    };
+    const rejectCode = (action) => {
+      try { action(); return "unexpected-pass"; } catch (error) { return error.code ?? "missing-code"; }
+    };
+    const globalSafeDirectory = () => {
+      const result = spawnSync("git", ["config", "--global", "--get-all", "safe.directory"], { encoding: "utf8" });
+      return { status: result.status, stdout: result.stdout };
+    };
+    const before = globalSafeDirectory();
+    const runnerRepository = "/tmp/runner-repository";
+    const runnerHead = createRepository(runnerRepository, 1000);
+    process.env.SUDO_UID = "1000";
+    __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead);
+    const wrongCommit = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, "a".repeat(40)));
+    writeFileSync(runnerRepository + "/dirty", "dirty");
+    const dirtyWorktree = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
+    rmSync(runnerRepository + "/dirty");
+    delete process.env.SUDO_UID;
+    const missing = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
+    process.env.SUDO_UID = "malformed";
+    const malformed = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
+    process.env.SUDO_UID = "0";
+    const rootOrigin = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
+    process.env.SUDO_UID = "1001";
+    const incorrect = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
+    const otherRepository = "/tmp/other-repository";
+    const otherHead = createRepository(otherRepository, 1001);
+    process.env.SUDO_UID = "1000";
+    const differentOwner = rejectCode(() => __testOnly.verifyRepositoryIdentity(otherRepository, otherHead));
+    symlinkSync(runnerRepository, "/tmp/runner-repository-link");
+    const symlink = rejectCode(() => __testOnly.verifyRepositoryIdentity("/tmp/runner-repository-link", runnerHead));
+    const arbitraryPath = rejectCode(() => __testOnly.exactRepositoryRoot(runnerRepository));
+    const rootRepository = "/tmp/root-repository";
+    const rootHead = createRepository(rootRepository, 0);
+    delete process.env.SUDO_UID;
+    __testOnly.verifyRepositoryIdentity(rootRepository, rootHead);
+    const after = globalSafeDirectory();
+    process.stdout.write(JSON.stringify({
+      matchingOwner: "PASS",
+      rootNormalOwnership: "PASS",
+      wrongCommit,
+      dirtyWorktree,
+      missing,
+      malformed,
+      rootOrigin,
+      incorrect,
+      differentOwner,
+      symlink,
+      arbitraryPath,
+      globalSafeDirectoryUnchanged: JSON.stringify(before) === JSON.stringify(after),
+    }));
+  `;
+  const result = JSON.parse(execFileSync("docker", [
+    "run", "--rm", "--pull", "never", "--network", "none", "--volume", `${sourceRoot}:/cwt:ro`,
+    "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", probe,
+  ], { encoding: "utf8" }));
+  assert.deepEqual(result, {
+    matchingOwner: "PASS",
+    rootNormalOwnership: "PASS",
+    wrongCommit: "source_identity_mismatch",
+    dirtyWorktree: "source_identity_mismatch",
+    missing: "source_owner_bridge_missing",
+    malformed: "source_owner_bridge_invalid",
+    rootOrigin: "source_owner_bridge_invalid",
+    incorrect: "source_owner_bridge_mismatch",
+    differentOwner: "source_owner_bridge_mismatch",
+    symlink: "repository_invalid",
+    arbitraryPath: "repository_source_mismatch",
+    globalSafeDirectoryUnchanged: true,
+  });
+
+  const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
+  assert.match(source, /run\("git", \["rev-parse", "HEAD"\][^\n]+env: gitEnv/u);
+  assert.match(source, /run\("git", \["status", "--porcelain=v1"\][^\n]+env: gitEnv/u);
+  assert.doesNotMatch(source, /run\("docker"[^\n]+env: gitEnv/u);
+  assert.doesNotMatch(source, /safe\.directory|safe-directory/u);
 });
 
 test("requires a root native Ubuntu amd64 host Engine and rejects DIND/container cgroups", () => {

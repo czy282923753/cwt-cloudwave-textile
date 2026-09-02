@@ -27,6 +27,19 @@ const STORAGE_ROOT = "/srv/cwt";
 const LOCAL_DOCKER_HOST = "unix:///var/run/docker.sock";
 const LOCAL_DOCKER_SOCKET = "/var/run/docker.sock";
 const DEFAULT_PROFILE = resolve(dirname(fileURLToPath(import.meta.url)), "../runtime-validation/linux-amd64-compatibility.v1.json");
+const SOURCE_REPOSITORY_ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), "../.."));
+const MAX_LINUX_UID = 0xffff_fffe;
+const SANITIZED_CHILD_ENVIRONMENT = Object.freeze({
+  PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  HOME: "/root",
+  LANG: "C",
+  LC_ALL: "C",
+  TZ: "UTC",
+});
+const GIT_IDENTITY_ENVIRONMENT = Object.freeze({
+  ...SANITIZED_CHILD_ENVIRONMENT,
+  GIT_OPTIONAL_LOCKS: "0",
+});
 const REVOKED_SUBJECTS = Object.freeze([
   Object.freeze({
     releaseId: "fe6e5b057aa7054d42f02f76d31858d3f71be3a9",
@@ -113,6 +126,52 @@ function exactExistingPath(path, kind, code) {
   return absolute;
 }
 
+function exactCanonicalDirectory(path, kind, code) {
+  if (!isAbsolute(path ?? "") || resolve(path) !== path) refuse(code, `${kind} must use one canonical absolute path.`);
+  let canonical;
+  let stat;
+  try {
+    stat = lstatSync(path);
+    canonical = realpathSync(path);
+  } catch {
+    refuse(code, `${kind} is unavailable.`);
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory() || canonical !== path) {
+    refuse(code, `${kind} must use one canonical non-symlink directory.`);
+  }
+  return canonical;
+}
+
+function exactRepositoryRoot(path) {
+  const canonical = exactCanonicalDirectory(path, "repository", "repository_invalid");
+  if (canonical !== SOURCE_REPOSITORY_ROOT) {
+    refuse("repository_source_mismatch", "Repository must be the canonical checkout containing this validator.");
+  }
+  return canonical;
+}
+
+export function createGitIdentityEnvironment({ effectiveUid, repositoryOwnerUid, environment }) {
+  if (effectiveUid !== 0 || !Number.isInteger(repositoryOwnerUid) || repositoryOwnerUid < 0 ||
+    repositoryOwnerUid > MAX_LINUX_UID || !environment || typeof environment !== "object") {
+    refuse("source_owner_bridge_invalid", "Source ownership bridge facts are invalid.");
+  }
+  const rawSudoUid = environment.SUDO_UID;
+  if (rawSudoUid === undefined) {
+    if (repositoryOwnerUid !== 0) {
+      refuse("source_owner_bridge_missing", "A non-root repository requires the exact sudo-origin ownership bridge.");
+    }
+    return GIT_IDENTITY_ENVIRONMENT;
+  }
+  if (typeof rawSudoUid !== "string" || !/^[1-9][0-9]{0,9}$/u.test(rawSudoUid)) {
+    refuse("source_owner_bridge_invalid", "The sudo-origin UID is invalid.");
+  }
+  const sudoUid = Number(rawSudoUid);
+  if (!Number.isSafeInteger(sudoUid) || sudoUid > MAX_LINUX_UID || sudoUid !== repositoryOwnerUid) {
+    refuse("source_owner_bridge_mismatch", "The sudo-origin UID does not own the canonical repository.");
+  }
+  return Object.freeze({ ...GIT_IDENTITY_ENVIRONMENT, SUDO_UID: rawSudoUid });
+}
+
 export function parseDigestReference(value) {
   if (typeof value !== "string" || value.length > 512 || value.trim() !== value || value.includes("\\") || value.includes("//")) {
     refuse("image_reference_invalid", "Image input must be one exact OCI repository digest reference.");
@@ -178,11 +237,7 @@ export function createDockerEnvironment(environment, { dockerConfigPresent, loca
     }
   }
   return Object.freeze({
-    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    HOME: "/root",
-    LANG: "C",
-    LC_ALL: "C",
-    TZ: "UTC",
+    ...SANITIZED_CHILD_ENVIRONMENT,
     DOCKER_CONFIG: dockerConfig,
     DOCKER_HOST: LOCAL_DOCKER_HOST,
   });
@@ -550,9 +605,15 @@ function validateProjectServiceSet(compose, dockerEnv) {
   }
 }
 
-function verifyRepositoryIdentity(repositoryRoot, releaseId, dockerEnv) {
-  const head = run("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, env: dockerEnv, label: "source_identity" }).stdout.trim();
-  const status = run("git", ["status", "--porcelain=v1"], { cwd: repositoryRoot, env: dockerEnv, label: "source_cleanliness" }).stdout;
+function verifyRepositoryIdentity(repositoryRoot, releaseId) {
+  const canonicalRoot = exactCanonicalDirectory(repositoryRoot, "repository", "repository_invalid");
+  const gitEnv = createGitIdentityEnvironment({
+    effectiveUid: typeof process.getuid === "function" ? process.getuid() : -1,
+    repositoryOwnerUid: lstatSync(canonicalRoot).uid,
+    environment: process.env,
+  });
+  const head = run("git", ["rev-parse", "HEAD"], { cwd: canonicalRoot, env: gitEnv, label: "source_identity" }).stdout.trim();
+  const status = run("git", ["status", "--porcelain=v1"], { cwd: canonicalRoot, env: gitEnv, label: "source_cleanliness" }).stdout;
   if (head !== releaseId || status !== "") refuse("source_identity_mismatch", "Runner checkout must be the clean exact release source identity.");
 }
 
@@ -600,7 +661,7 @@ function writeOutcome(evidenceRoot, outcome) {
 }
 
 async function validate(args) {
-  const repositoryRoot = exactExistingPath(args.repository ?? process.cwd(), "repository", "repository_invalid");
+  const repositoryRoot = exactRepositoryRoot(args.repository ?? process.cwd());
   const releasePath = exactExistingPath(args.release, "release record", "release_record_invalid");
   const ociRoot = exactExistingPath(args.oci, "OCI root", "oci_evidence_invalid");
   const profilePath = exactExistingPath(DEFAULT_PROFILE, "compatibility profile", "compatibility_profile_invalid");
@@ -637,7 +698,7 @@ async function validate(args) {
     ensureNotHistorical(release.record, release.inventory.indexDigest);
     child = release.inventory.children.find((candidate) => candidate.platform === "linux/amd64");
     if (!child) refuse("linux_amd64_child_missing", "Release evidence has no exact linux/amd64 child.");
-    verifyRepositoryIdentity(repositoryRoot, release.record.releaseId, dockerEnv);
+    verifyRepositoryIdentity(repositoryRoot, release.record.releaseId);
     runner = captureRunner(profilePath, dockerEnv);
     hostPlan = prepareSyntheticHost(release.record.releaseId);
     composeEnv = composeEnvironment(dockerEnv, reference, child.manifestDigest, repositoryRoot);
@@ -804,4 +865,7 @@ export const __testOnly = Object.freeze({
   parseArguments,
   parseOsRelease,
   sha256,
+  exactCanonicalDirectory,
+  exactRepositoryRoot,
+  verifyRepositoryIdentity,
 });
