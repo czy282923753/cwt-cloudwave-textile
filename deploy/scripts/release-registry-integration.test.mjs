@@ -59,44 +59,45 @@ test("uses ORAS digest-rooted layout copy and exact GHCR descriptor verification
   }
 });
 
-test("accepts only the pinned ORAS anonymous GHCR token denial bound to an authenticated exact digest", () => {
+test("accepts the live pinned ORAS authorization semantics only in the authenticated exact GHCR context", () => {
   const digestReference = `${REPOSITORY}@${INDEX}`;
-  const tokenUrl = "https://ghcr.io/token?scope=repository%3Aczy282923753%2Fcwt-cloudwave-textile%3Apull&service=ghcr.io";
-  const realOrasDenial = {
+  const liveOrasDenial = {
     status: 1,
     signal: null,
     error: undefined,
     stdout: "",
-    stderr: `Error response from registry: GET "${tokenUrl}": response status code 403: Forbidden\n`,
+    stderr: "Error response from registry: unauthorized: authentication required\n",
   };
-  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference, authenticatedDigest: INDEX }), true);
+  const context = { repository: REPOSITORY, digestReference, authenticatedDigest: INDEX };
+  assert.equal(isVerifiedAnonymousGhcrDenial(liveOrasDenial, context), true);
 
   const failures = [
-    { name: "public anonymous success", result: { ...realOrasDenial, status: 0, stderr: "", stdout: `{\"digest\":\"${INDEX}\"}\n` } },
-    { name: "spawn error", result: { ...realOrasDenial, error: new Error("spawn failed") } },
-    { name: "signal termination", result: { ...realOrasDenial, status: null, signal: "SIGTERM" } },
-    { name: "unexpected nonzero exit", result: { ...realOrasDenial, status: 2 } },
-    { name: "empty output", result: { ...realOrasDenial, stderr: "" } },
-    { name: "stdout contamination", result: { ...realOrasDenial, stdout: "unexpected" } },
-    { name: "malformed output", result: { ...realOrasDenial, stderr: `${realOrasDenial.stderr}\n` } },
-    { name: "bare registry first-hop 401", result: { ...realOrasDenial, stderr: `Error response from registry: GET "https://ghcr.io/v2/${REPOSITORY.slice("ghcr.io/".length)}/manifests/${INDEX}": response status code 401: Unauthorized\n` } },
-    { name: "generic forbidden", result: { ...realOrasDenial, stderr: "Error response from registry: 403 Forbidden\n" } },
-    { name: "structured denied text", result: { ...realOrasDenial, stderr: "Error response from registry: denied: requested access to the resource is denied\n" } },
-    { name: "not found", result: { ...realOrasDenial, stderr: "Error response from registry: not found\n" } },
-    { name: "DNS failure", result: { ...realOrasDenial, stderr: "Error: dial tcp: lookup ghcr.io: no such host\n" } },
-    { name: "TLS failure", result: { ...realOrasDenial, stderr: "Error: tls: failed to verify certificate\n" } },
-    { name: "timeout", result: { ...realOrasDenial, stderr: "Error: context deadline exceeded\n" } },
-    { name: "wrong token host", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("https://ghcr.io/token", "https://example.com/token") } },
-    { name: "wrong repository scope", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("cwt-cloudwave-textile", "missing-repository") } },
-    { name: "reordered token parameters", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("scope=repository%3Aczy282923753%2Fcwt-cloudwave-textile%3Apull&service=ghcr.io", "service=ghcr.io&scope=repository%3Aczy282923753%2Fcwt-cloudwave-textile%3Apull") } },
-    { name: "extra token parameter", result: { ...realOrasDenial, stderr: realOrasDenial.stderr.replace("&service=ghcr.io", "&service=ghcr.io&account=anonymous") } },
+    { name: "public anonymous success", result: { ...liveOrasDenial, status: 0, stderr: "", stdout: `{\"digest\":\"${INDEX}\"}\n` } },
+    { name: "spawn error", result: { ...liveOrasDenial, error: new Error("spawn failed") } },
+    { name: "signal termination", result: { ...liveOrasDenial, status: null, signal: "SIGTERM" } },
+    { name: "unexpected nonzero exit", result: { ...liveOrasDenial, status: 2 } },
+    { name: "empty output", result: { ...liveOrasDenial, stderr: "" } },
+    { name: "stdout contamination", result: { ...liveOrasDenial, stdout: "unexpected" } },
+    { name: "multiline output", result: { ...liveOrasDenial, stderr: `${liveOrasDenial.stderr}second line\n` } },
+    { name: "oversized output", result: { ...liveOrasDenial, stderr: `Error response from registry: unauthorized: ${"a".repeat(220)}\n` } },
+    { name: "bare registry first-hop 401", result: { ...liveOrasDenial, stderr: `Error response from registry: GET "https://ghcr.io/v2/${REPOSITORY.slice("ghcr.io/".length)}/manifests/${INDEX}": response status code 401: Unauthorized\n` } },
+    { name: "prior unverified token 403 assumption", result: { ...liveOrasDenial, stderr: "Error response from registry: GET \"https://ghcr.io/token\": response status code 403: Forbidden\n" } },
+    { name: "generic forbidden", result: { ...liveOrasDenial, stderr: "Error response from registry: forbidden: authentication required\n" } },
+    { name: "structured denied text", result: { ...liveOrasDenial, stderr: "Error response from registry: denied: requested access to the resource is denied\n" } },
+    { name: "not found", result: { ...liveOrasDenial, stderr: "Error response from registry: not_found: manifest unknown\n" } },
+    { name: "ambiguous authorization", result: { ...liveOrasDenial, stderr: "Error response from registry: unauthorized: access denied\n" } },
+    { name: "DNS failure", result: { ...liveOrasDenial, stderr: "Error: dial tcp: lookup ghcr.io: no such host\n" } },
+    { name: "TLS failure", result: { ...liveOrasDenial, stderr: "Error: tls: failed to verify certificate\n" } },
+    { name: "timeout", result: { ...liveOrasDenial, stderr: "Error: context deadline exceeded\n" } },
   ];
   for (const { name, result } of failures) {
-    assert.equal(isVerifiedAnonymousGhcrDenial(result, { digestReference, authenticatedDigest: INDEX }), false, name);
+    assert.equal(isVerifiedAnonymousGhcrDenial(result, context), false, name);
   }
-  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference, authenticatedDigest: `sha256:${"c".repeat(64)}` }), false, "wrong authenticated digest");
-  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference: `${REPOSITORY}@sha256:${"c".repeat(64)}`, authenticatedDigest: INDEX }), false, "wrong requested digest");
-  assert.equal(isVerifiedAnonymousGhcrDenial(realOrasDenial, { digestReference: `ghcr.io/czy282923753/missing-repository@${INDEX}`, authenticatedDigest: INDEX }), false, "repository mismatch");
+  assert.equal(isVerifiedAnonymousGhcrDenial(liveOrasDenial, { ...context, authenticatedDigest: `sha256:${"c".repeat(64)}` }), false, "wrong authenticated digest");
+  assert.equal(isVerifiedAnonymousGhcrDenial(liveOrasDenial, { ...context, digestReference: `${REPOSITORY}@sha256:${"c".repeat(64)}` }), false, "wrong requested digest");
+  assert.equal(isVerifiedAnonymousGhcrDenial(liveOrasDenial, { ...context, repository: "ghcr.io/czy282923753/missing-repository" }), false, "wrong repository context");
+  assert.equal(isVerifiedAnonymousGhcrDenial(liveOrasDenial, { ...context, digestReference: `ghcr.io/czy282923753/missing-repository@${INDEX}` }), false, "wrong requested repository");
+  assert.equal(isVerifiedAnonymousGhcrDenial(liveOrasDenial, { ...context, digestReference: `docker.io/czy282923753/cwt-cloudwave-textile@${INDEX}` }), false, "wrong registry host");
 });
 
 test("keeps the anonymous probe credential-free and digest-rooted", () => {

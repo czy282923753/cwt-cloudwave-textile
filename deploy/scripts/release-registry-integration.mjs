@@ -21,6 +21,7 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const GITHUB_REPOSITORY = /^[a-z0-9](?:[a-z0-9-]{0,38})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/u;
 const RUNNER_NONCE = /^[0-9a-f]{32}$/u;
 const GHCR_DIGEST_REFERENCE = /^(?<repository>ghcr\.io\/[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,99})@(?<digest>sha256:[0-9a-f]{64})$/u;
+const ORAS_REGISTRY_ERROR = /^Error response from registry: (?<code>[a-z][a-z0-9_]{0,31}): (?<message>[a-z][a-z0-9 ]{0,127})\n$/u;
 const OCI_INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json";
 const ORAS_IDENTITY = Object.freeze({
   version: "1.3.3",
@@ -138,24 +139,16 @@ export function validateRegistryDescriptor(descriptor, indexDigest) {
   return true;
 }
 
-export function isVerifiedAnonymousGhcrDenial(result, { digestReference, authenticatedDigest }) {
+export function isVerifiedAnonymousGhcrDenial(result, { repository, digestReference, authenticatedDigest }) {
   const reference = GHCR_DIGEST_REFERENCE.exec(digestReference ?? "");
-  if (!reference || reference.groups.digest !== authenticatedDigest ||
+  if (!reference || reference.groups.repository !== repository || reference.groups.digest !== authenticatedDigest ||
     result?.status !== 1 || result?.signal !== null || result?.error != null ||
-    result?.stdout !== "" || typeof result?.stderr !== "string") {
+    result?.stdout !== "" || typeof result?.stderr !== "string" || result.stderr.length > 256) {
     return false;
   }
 
-  const prefix = 'Error response from registry: GET "';
-  const suffix = '": response status code 403: Forbidden\n';
-  if (!result.stderr.startsWith(prefix) || !result.stderr.endsWith(suffix)) return false;
-  const requestUrlText = result.stderr.slice(prefix.length, -suffix.length);
-  if (requestUrlText.includes('"') || requestUrlText.includes("\n") || requestUrlText.includes("\r")) return false;
-
-  const expectedTokenUrl = new URL("https://ghcr.io/token");
-  expectedTokenUrl.searchParams.set("scope", `repository:${reference.groups.repository.slice("ghcr.io/".length)}:pull`);
-  expectedTokenUrl.searchParams.set("service", "ghcr.io");
-  return requestUrlText === expectedTokenUrl.href;
+  const registryError = ORAS_REGISTRY_ERROR.exec(result.stderr);
+  return registryError?.groups.code === "unauthorized" && registryError.groups.message === "authentication required";
 }
 
 export function createRegistryCommandPlan({ orasPath, authFile, ociRoot, repository, releaseId, indexDigest, outputRoot }) {
@@ -228,14 +221,14 @@ function verifiedRelease({ releasePath, ociRoot, releaseId, indexDigest }) {
   return result;
 }
 
-function provePrivate(binary, digestReference, authenticatedDigest) {
+function provePrivate(binary, repository, digestReference, authenticatedDigest) {
   const temporary = mkdtempSync(join(tmpdir(), "cwt-ghcr-anonymous-"));
   try {
     const anonymousConfig = join(temporary, "config.json");
     writeFileSync(anonymousConfig, '{"auths":{}}\n', { flag: "wx", mode: 0o600 });
     chmodSync(anonymousConfig, 0o600);
     const result = run(binary, ["manifest", "fetch", "--descriptor", "--registry-config", anonymousConfig, digestReference], { allowFailure: true });
-    if (!isVerifiedAnonymousGhcrDenial(result, { digestReference, authenticatedDigest })) {
+    if (!isVerifiedAnonymousGhcrDenial(result, { repository, digestReference, authenticatedDigest })) {
       refuse("ghcr_privacy_unproven", "GHCR subject did not prove authenticated-only access.");
     }
   } finally {
@@ -262,7 +255,7 @@ function publish(values) {
   validateRegistryDescriptor(parseJson(run(orasPath, plan.tagDescriptor).stdout, "registry_descriptor_invalid", "Registry descriptor is invalid."), values["index-digest"]);
   const digestDescriptor = parseJson(run(orasPath, plan.digestDescriptor).stdout, "registry_descriptor_invalid", "Registry descriptor is invalid.");
   validateRegistryDescriptor(digestDescriptor, values["index-digest"]);
-  provePrivate(orasPath, plan.digestReference, digestDescriptor.digest);
+  provePrivate(orasPath, repository, plan.digestReference, digestDescriptor.digest);
   return { status: "PASS", releaseId: values["release-id"], indexDigest: values["index-digest"], reference: plan.digestReference, mutableTagIsAuthority: false };
 }
 
