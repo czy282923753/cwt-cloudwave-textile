@@ -472,7 +472,8 @@
               "deploy/scripts/preflight-linux-runtime.mjs",
               "deploy/scripts/preflight-proxy-config.mjs",
               "deploy/scripts/preflight-proxy-ranges.mjs",
-              "deploy/scripts/preflight-release-compose.mjs"
+              "deploy/scripts/preflight-release-compose.mjs",
+              "deploy/scripts/release-registry-integration.mjs"
             ],
             "testSemantic": false
           },
@@ -1397,7 +1398,7 @@
         "/phaseCSyntheticAuthority",
         "/phaseCSyntheticMutationProbeIds"
       ],
-        "sha256": "ed6834f4ddec54093ff4d1676a05c10eef40aecb0026e44823f79bd0a08b45b2"
+        "sha256": "77cf87f7f583f8eaf98433cdb88601ddde8a42a203680788d891300f8f9a7a3e"
     },
     "profileVersion": "1.0.0",
     "proofArtifactContracts": {

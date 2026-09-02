@@ -1,0 +1,142 @@
+name: CWT authorized Build Once and private GHCR publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact 40-character release source commit; dispatch this workflow from the same commit
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cwt-build-once-${{ inputs.release_commit }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: One trusted Build Once and exact-digest GHCR publication
+    environment: cwt-stage6-build-once
+    runs-on: [self-hosted, macOS, ARM64, cwt-trusted-build-once]
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 120
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      RELEASE_COMMIT: ${{ inputs.release_commit }}
+    steps:
+      - name: Check out the exact authorized release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_commit }}
+
+      - name: Refuse automatic, rerun, ambiguous, or wrong-source execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          [[ "$RUNNER_ENVIRONMENT" == "self-hosted" ]]
+          [[ "$RUNNER_OS" == "macOS" ]]
+          [[ "$RUNNER_ARCH" == "ARM64" ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$RELEASE_COMMIT" ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_COMMIT" ]]
+          [[ -z "$(git status --porcelain=v1)" ]]
+
+      - name: Install exact pnpm
+        uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install exact Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install hash-pinned patched ORAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          oras_root="$RUNNER_TEMP/cwt-oras-1.3.3"
+          archive="$RUNNER_TEMP/oras_1.3.3_darwin_arm64.tar.gz"
+          [[ ! -e "$oras_root" ]]
+          mkdir -m 700 "$oras_root"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$archive" \
+            https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_darwin_arm64.tar.gz
+          echo "f33fc12753c54172b0d0d19eaa0318d3f90fe9b094d96e8b259c881713c92e1c  $archive" | shasum -a 256 --check --strict
+          tar -xzf "$archive" -C "$oras_root" oras
+          chmod 500 "$oras_root/oras"
+          echo "CWT_ORAS=$oras_root/oras" >> "$GITHUB_ENV"
+
+      - name: Verify accepted Build Once tool boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm env:check
+          [[ "$(docker buildx version | awk '{print $2}')" == "v0.35.0-desktop.2" ]]
+          docker scout version >/dev/null
+          "$CWT_ORAS" version
+
+      - name: Install exact project dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Execute the one accepted Build Once authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_root="$RUNNER_TEMP/cwt-release-$RELEASE_COMMIT"
+          [[ ! -e "$release_root" ]]
+          echo "CWT_RELEASE_ROOT=$release_root" >> "$GITHUB_ENV"
+          pnpm build:release-once -- --output "$release_root"
+
+      - name: Authenticate to private GHCR without credential arguments
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth_root="$RUNNER_TEMP/cwt-ghcr-auth"
+          [[ ! -e "$auth_root" ]]
+          mkdir -m 700 "$auth_root"
+          printf '%s' "$GHCR_TOKEN" | "$CWT_ORAS" login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin \
+            --registry-config "$auth_root/config.json"
+          chmod 600 "$auth_root/config.json"
+          echo "CWT_REGISTRY_AUTH=$auth_root/config.json" >> "$GITHUB_ENV"
+
+      - name: Publish the exact OCI subject and prove its GHCR digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          index_digest="$(node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(value.oci.indexDigest)' "$CWT_RELEASE_ROOT/release.json")"
+          node deploy/scripts/release-registry-integration.mjs publish \
+            --oras "$CWT_ORAS" \
+            --auth "$CWT_REGISTRY_AUTH" \
+            --release "$CWT_RELEASE_ROOT/release.json" \
+            --oci "$CWT_RELEASE_ROOT/subject.oci" \
+            --github-repository "$GITHUB_REPOSITORY" \
+            --release-id "$RELEASE_COMMIT" \
+            --index-digest "$index_digest"
+
+      - name: Retain only detached digest-bound evidence for the separately authorized runtime run
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cwt-release-evidence-${{ inputs.release_commit }}
+          path: |
+            ${{ runner.temp }}/cwt-release-${{ inputs.release_commit }}/release.json
+            ${{ runner.temp }}/cwt-release-${{ inputs.release_commit }}/evidence
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false

@@ -1,0 +1,143 @@
+name: CWT authorized exact-digest Linux Runtime Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Exact 40-character Build Once release commit; dispatch this workflow from the same commit
+        required: true
+        type: string
+      index_digest:
+        description: Exact lowercase sha256 OCI index digest published by the accepted release run
+        required: true
+        type: string
+      evidence_run_id:
+        description: Successful Build Once workflow run ID holding the detached evidence artifact
+        required: true
+        type: string
+      runner_nonce:
+        description: Unique 128-bit lowercase hex nonce bound to the one externally provisioned Tencent Singapore Runner
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: cwt-runtime-${{ inputs.release_commit }}-${{ inputs.index_digest }}
+  cancel-in-progress: false
+
+jobs:
+  exact-digest-runtime-validation:
+    name: One Tencent Singapore ephemeral linux/amd64 Runtime Validation
+    environment: cwt-stage6-runtime-validation
+    runs-on: [self-hosted, linux, x64, cwt-tencent-singapore, cwt-single-use, "cwt-job-${{ inputs.runner_nonce }}"]
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      RELEASE_COMMIT: ${{ inputs.release_commit }}
+      INDEX_DIGEST: ${{ inputs.index_digest }}
+      EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+      RUNNER_NONCE: ${{ inputs.runner_nonce }}
+    steps:
+      - name: Check out the exact authorized release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_commit }}
+
+      - name: Verify the unique Tencent Singapore Runner binding before GHCR access
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$INDEX_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$EVIDENCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RUNNER_NONCE" =~ ^[0-9a-f]{32}$ ]]
+          [[ "$GITHUB_SHA" == "$RELEASE_COMMIT" ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_COMMIT" ]]
+          [[ -z "$(git status --porcelain=v1)" ]]
+          node deploy/scripts/release-registry-integration.mjs verify-runner \
+            --event "$GITHUB_EVENT_NAME" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --environment "$RUNNER_ENVIRONMENT" \
+            --os "$RUNNER_OS" \
+            --arch "$RUNNER_ARCH" \
+            --name "$RUNNER_NAME" \
+            --nonce "$RUNNER_NONCE"
+
+      - name: Install exact Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.14.0
+
+      - name: Install hash-pinned patched ORAS
+        shell: bash
+        run: |
+          set -euo pipefail
+          oras_root="$RUNNER_TEMP/cwt-oras-1.3.3"
+          archive="$RUNNER_TEMP/oras_1.3.3_linux_amd64.tar.gz"
+          [[ ! -e "$oras_root" ]]
+          mkdir -m 700 "$oras_root"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output "$archive" \
+            https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_linux_amd64.tar.gz
+          echo "9ce999f8d2de03fc03968b29d743077a58783e545e5eaa53917ca177352d0e59  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$oras_root" oras
+          chmod 500 "$oras_root/oras"
+          echo "CWT_ORAS=$oras_root/oras" >> "$GITHUB_ENV"
+
+      - name: Download detached evidence from the explicit successful release run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cwt-release-evidence-${{ inputs.release_commit }}
+          path: ${{ runner.temp }}/cwt-release-evidence
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.evidence_run_id }}
+
+      - name: Authenticate to private GHCR without credential arguments
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth_root="$RUNNER_TEMP/cwt-ghcr-auth"
+          [[ ! -e "$auth_root" ]]
+          mkdir -m 700 "$auth_root"
+          printf '%s' "$GHCR_TOKEN" | "$CWT_ORAS" login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin \
+            --registry-config "$auth_root/config.json"
+          chmod 600 "$auth_root/config.json"
+          echo "DOCKER_CONFIG=$auth_root" >> "$GITHUB_ENV"
+          echo "CWT_REGISTRY_AUTH=$auth_root/config.json" >> "$GITHUB_ENV"
+
+      - name: Materialize read-only OCI evidence from the same GHCR digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          node deploy/scripts/release-registry-integration.mjs materialize \
+            --oras "$CWT_ORAS" \
+            --auth "$CWT_REGISTRY_AUTH" \
+            --release "$RUNNER_TEMP/cwt-release-evidence/release.json" \
+            --output "$RUNNER_TEMP/cwt-runtime-subject.oci" \
+            --github-repository "$GITHUB_REPOSITORY" \
+            --release-id "$RELEASE_COMMIT" \
+            --index-digest "$INDEX_DIGEST"
+
+      - name: Run the sole accepted Linux Runtime Validation authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_path="$(command -v node)"
+          sudo --preserve-env=DOCKER_CONFIG "$node_path" deploy/scripts/preflight-linux-runtime.mjs validate \
+            --release "$RUNNER_TEMP/cwt-release-evidence/release.json" \
+            --oci "$RUNNER_TEMP/cwt-runtime-subject.oci" \
+            --image "ghcr.io/$GITHUB_REPOSITORY@$INDEX_DIGEST" \
+            --evidence "$RUNNER_TEMP/cwt-runtime-outcome" \
+            --token "cwt-$RUNNER_NONCE" \
+            --repository "$GITHUB_WORKSPACE"
