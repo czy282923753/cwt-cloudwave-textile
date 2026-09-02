@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "authority": {
+    "runnerClass": "cwt-controlled-vm-backed-single-use-ephemeral",
+    "osId": "ubuntu",
+    "osVersion": "24.04",
+    "architecture": "amd64",
+    "dockerMode": "host-engine",
+    "dindAllowed": false,
+    "sharedOrPersistentRunnerAllowed": false
+  },
+  "profiles": [
+    {
+      "id": "ubuntu-24.04-amd64-docker-29.6.2-compose-5.3.1",
+      "dockerEngine": "29.6.2",
+      "dockerCompose": "5.3.1"
+    }
+  ]
+}

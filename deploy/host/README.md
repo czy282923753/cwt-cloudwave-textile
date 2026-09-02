@@ -56,7 +56,34 @@ Rollback may disable only an optional external monitoring adapter. It may not di
 
 ## Local exact-subject release validation
 
-`deploy/scripts/preflight-release-compose.mjs` is the one versioned local/Synthetic post-emission validator. It is not a protected-host activation path. Given one explicit `--outer-host` Unix endpoint and one safe run token, the validator creates and owns exactly one ephemeral private DIND controller from `docker:29.6.2-dind@sha256:bfec1f5159c63a81ca6fdedbd81404d2c0e16378ed0feec3bb3fbf3998847659`. The controller is privileged but joins outer `--network none`, publishes no port, mounts no host Docker/containerd socket and uses six run-exact named volumes for its Unix API, Docker data, containerd data, Synthetic configuration, Synthetic storage and journal socket. It is never started with `--rm`, so first-run inspect/log evidence survives until exact cleanup.
+### Validation Simplification V1.1 Linux Runner entry
+
+`deploy/scripts/preflight-linux-runtime.mjs` is the sole provider-neutral entry boundary prepared for a future Formal Runtime Validation run on one CWT-controlled, VM-backed, single-use ephemeral Ubuntu 24.04 LTS native `linux/amd64` CI Runner. The enclosing approved CI lifecycle must create an independent VM for that run and destroy it after this entry has attempted teardown. This repository does not select a Provider, provision a Runner, acquire Registry credentials or prove VM destruction.
+
+The entry requires host Docker Engine and the standard Compose plugin, rejects DIND/containerized/shared Runner state, records actual OS/architecture/Engine/Compose identities and matches them to `deploy/runtime-validation/linux-amd64-compatibility.v1.json`. Version changes update the one reviewed compatibility authority; they do not create a second runtime path. Credentials enter only through an absolute runtime `DOCKER_CONFIG` and are never accepted as CLI arguments or written to evidence.
+
+The exact invocation contract is:
+
+```text
+node deploy/scripts/preflight-linux-runtime.mjs validate \
+  --release /protected/release-evidence/release.json \
+  --oci /protected/release-evidence/subject.oci \
+  --image private-registry.example/cwt/application@sha256:<exact-index> \
+  --evidence /protected/validation-evidence/<absent-run-directory> \
+  --token <run-unique-safe-token>
+```
+
+The OCI layout is read-only input to the existing `preflight-image.mjs` evidence authority; it is never loaded into Docker and is not an image-transfer route. The CWT subject enters the host Engine only through the private Registry exact-digest pull. The entry rejects tags and malformed references and contains no save/load, OCI tar, temporary-tag or host-transfer fallback.
+
+After existing image/evidence/lifecycle, Compose-graph and public-bundle authorities pass, the entry uses the unchanged root `compose.yaml`, real `/etc/cwt/staging/runtime.env`, real-shaped secret mounts and isolated Synthetic storage. It starts only `postgres`, `valkey-staging` and `web-staging`, applies the existing migration set through a disposable `web-staging` Compose run, and requires service Health, live/readiness `200`, root `200`, noindex, exact index/`linux/amd64` child, non-root/read-only execution and zero published ports. Output is only sanitized `PASS` or `NOT_PASS`; there is no automatic retry, classifier, revocation or lifecycle transition.
+
+This entry is implementation-only until its required independent Review passes and a later run is separately authorized. It makes no Build Once, Registry custody, Provider, Runner provisioning/destruction, Runtime Validation, promotion or protected-environment claim.
+
+### Frozen Private DIND compatibility surface
+
+`deploy/scripts/preflight-release-compose.mjs` is the retained versioned local/Synthetic post-emission validator described by the frozen prior record. It is not a protected-host activation path. Given one explicit `--outer-host` Unix endpoint and one safe run token, the validator creates and owns exactly one ephemeral private DIND controller from `docker:29.6.2-dind@sha256:bfec1f5159c63a81ca6fdedbd81404d2c0e16378ed0feec3bb3fbf3998847659`. The controller is privileged but joins outer `--network none`, publishes no port, mounts no host Docker/containerd socket and uses six run-exact named volumes for its Unix API, Docker data, containerd data, Synthetic configuration, Synthetic storage and journal socket. It is never started with `--rm`, so first-run inspect/log evidence survives until exact cleanup.
+
+The Private DIND surface is **FROZEN / NO FURTHER EVOLUTION**. Validation Simplification V1.1 does not invoke, patch, expand or use it for new evidence. It is not declared deprecated or removed by this implementation. Any later state change and one bounded cleanup require implementation completion, one Fresh Independent Implementation / Operations / Security Review `PASS`, one successful real exact-digest Linux Runtime Validation and separate authorization.
 
 All owner helpers mount the run-unique API volume and only the additional named volume genuinely needed by their operation; they address `unix:///run/cwt-owner-api/docker.sock`. There is no external `--owner-host`, TCP listener, host-network owner `nsenter`, context fallback or compatibility path. Repository and workspace remain the only macOS binds. Pinned network-none population helpers copy configuration from the workspace into the config volume and create storage closure in the storage volume; the controller mounts them with `volume-nocopy` at `/etc/cwt` read-only and `/srv/cwt` read-write. No raw Docker volume Mountpoint is accessed.
 
