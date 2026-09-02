@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { resolve } from "node:path";
 
 import {
   __testOnly,
+  createDockerEnvironment,
   createRuntimeCommandPlan,
   decideCompatibility,
   parseDigestReference,
   syntheticHostPlan,
+  unixModeAllowsRead,
   validateNativeHostFacts,
   validatePulledImageIdentity,
 } from "./preflight-linux-runtime.mjs";
+import { exactProtectedSecretFiles, validateComposeGraph } from "./preflight-compose-graph.mjs";
 
 const INDEX = `sha256:${"a".repeat(64)}`;
 const CHILD = `sha256:${"b".repeat(64)}`;
@@ -32,6 +36,24 @@ function profile() {
     },
     profiles: [{ id: "initial", dockerEngine: "29.6.2", dockerCompose: "5.3.1" }],
   };
+}
+
+function normalizedCompose(projectName) {
+  const proxyDigest = `sha256:${"d".repeat(64)}`;
+  return JSON.parse(execFileSync("docker", [
+    "compose", "--project-name", projectName, "--file", resolve("compose.yaml"), "--profile", "staging", "--profile", "production-ai",
+    "config", "--format", "json", "--no-env-resolution", "--no-path-resolution",
+  ], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      CWT_IMAGE_REFERENCE: REFERENCE,
+      CWT_IMAGE_INDEX_DIGEST: INDEX,
+      CWT_IMAGE_CHILD_DIGEST: CHILD,
+      CWT_PROXY_IMAGE_REFERENCE: `registry.cwt.invalid/cloudwave/proxy@${proxyDigest}`,
+      CWT_CLOUDFLARE_RANGES_FILE: resolve("deploy/proxy/cloudflare-ranges.lab.conf"),
+    },
+  }));
 }
 
 test("accepts only a private repository at one lowercase sha256 index digest", () => {
@@ -74,6 +96,21 @@ test("matches actual Runner versions to one reviewed compatibility profile and f
   assert.throws(() => decideCompatibility(invalid, actual), /profile is invalid/u);
 });
 
+test("fixes every Docker invocation to the standard local Unix socket despite a remote current context", () => {
+  const environment = { DOCKER_CONFIG: "/run/cwt-registry-credentials" };
+  const clean = createDockerEnvironment(environment, { dockerConfigPresent: true, localSocketIsUnix: true });
+  assert.equal(clean.DOCKER_CONFIG, environment.DOCKER_CONFIG);
+  assert.equal(clean.DOCKER_HOST, "unix:///var/run/docker.sock");
+  assert.equal("DOCKER_CONTEXT" in clean, false);
+  assert.throws(() => createDockerEnvironment(environment, { dockerConfigPresent: true, localSocketIsUnix: false }), /local Docker Unix socket/u);
+  for (const selector of ["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "COMPOSE_PROJECT_NAME"]) {
+    assert.throws(() => createDockerEnvironment({ ...environment, [selector]: "remote" }, {
+      dockerConfigPresent: true,
+      localSocketIsUnix: true,
+    }), /Caller Docker or Compose authority/u);
+  }
+});
+
 test("requires a root native Ubuntu amd64 host Engine and rejects DIND/container cgroups", () => {
   const input = {
     uid: 0,
@@ -108,6 +145,11 @@ test("keeps real-shaped runtime.env, secret-file and isolated staging storage co
   const plan = syntheticHostPlan(RELEASE);
   assert.equal(plan.configRoot, "/etc/cwt");
   assert.equal(plan.storageRoot, "/srv/cwt");
+  assert.equal(plan.configDirectoryMode, 0o700);
+  assert.equal(plan.secretFileMode, 0o444);
+  assert.equal(plan.runtimeEnvMode, 0o400);
+  assert.equal(plan.ownerUid, 0);
+  assert.equal(plan.ownerGid, 0);
   assert.equal(plan.configFiles.includes("staging/runtime.env"), true);
   for (const requirement of ["database-url", "auth-session-secret", "valkey-password", "cloudmersive-api-key", "smtp-password", "monitoring-dsn", "ai-api-key", "cos-access-key-id", "cos-secret-key", "backup-password"]) {
     assert.equal(plan.configFiles.includes(`staging/${requirement}`), true);
@@ -123,6 +165,41 @@ test("keeps real-shaped runtime.env, secret-file and isolated staging storage co
   assert.equal(runtime.DATABASE_URL, "");
   assert.equal(runtime.AUTH_SESSION_SECRET, "");
   assert.equal(runtime.CWT_RELEASE_ID, RELEASE);
+  for (const uid of [999, 10001]) {
+    assert.equal(unixModeAllowsRead({ mode: plan.secretFileMode, ownerUid: 0, ownerGid: 0, uid }), true);
+    assert.equal(unixModeAllowsRead({ mode: plan.runtimeEnvMode, ownerUid: 0, ownerGid: 0, uid }), false);
+  }
+  assert.equal(unixModeAllowsRead({ mode: plan.runtimeEnvMode, ownerUid: 0, ownerGid: 0, uid: 0 }), true);
+  const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
+  assert.match(source, /chownSync\(path, 0, 0\);\n  chmodSync\(path, 0o444\)/u);
+  assert.match(source, /function secureRootDirectory[\s\S]*chmodSync\(path, 0o700\)/u);
+  assert.match(source, /runtime\.env"\), 0, 0\);\n      chmodSync\(resolve\(root, "runtime\.env"\), 0o400\)/u);
+
+  const projectName = "cwt-remediation-secret-proof";
+  const compose = normalizedCompose(projectName);
+  validateComposeGraph(compose, { projectName });
+  assert.equal(compose.services.postgres.user, "999:999");
+  assert.equal(compose.services["valkey-staging"].user, "999:999");
+  assert.equal(compose.services["web-staging"].user, "10001:10001");
+  assert.deepEqual(compose.services["web-staging"].env_file, [{ path: "/etc/cwt/staging/runtime.env" }]);
+  assert.deepEqual(compose.services.postgres.secrets.map((entry) => entry.source), [
+    "postgres-bootstrap-password", "production-database-password", "staging-database-password",
+  ]);
+  assert.deepEqual(compose.services["valkey-staging"].secrets.map((entry) => entry.source), ["staging-valkey-password"]);
+  assert.deepEqual(compose.services["web-staging"].secrets.map((entry) => entry.source).sort(),
+    exactProtectedSecretFiles.map((entry) => `staging-${entry.subjectSuffix}`).sort());
+});
+
+test("rejects caller profile substitution and retains only the repository-tracked compatibility path", () => {
+  const required = [
+    "validate", "--release", "/release.json", "--oci", "/subject.oci", "--image", REFERENCE,
+    "--evidence", "/evidence", "--token", "runtime-proof",
+  ];
+  assert.equal(__testOnly.parseArguments(required).profile, undefined);
+  assert.throws(() => __testOnly.parseArguments([...required, "--profile", "/tmp/unreviewed.json"]), /arguments are invalid/u);
+  const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
+  assert.match(source, /exactExistingPath\(DEFAULT_PROFILE, "compatibility profile"/u);
+  assert.doesNotMatch(source, /args\.profile/u);
 });
 
 test("binds the pulled index, selected linux/amd64 child, revision and non-root image user", () => {

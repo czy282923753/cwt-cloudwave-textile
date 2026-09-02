@@ -24,6 +24,8 @@ const SAFE_TOKEN = /^[a-z][a-z0-9-]{5,47}$/u;
 const EXACT_SERVICES = Object.freeze(["postgres", "valkey-staging", "web-staging"]);
 const CONFIG_ROOT = "/etc/cwt";
 const STORAGE_ROOT = "/srv/cwt";
+const LOCAL_DOCKER_HOST = "unix:///var/run/docker.sock";
+const LOCAL_DOCKER_SOCKET = "/var/run/docker.sock";
 const DEFAULT_PROFILE = resolve(dirname(fileURLToPath(import.meta.url)), "../runtime-validation/linux-amd64-compatibility.v1.json");
 const REVOKED_SUBJECTS = Object.freeze([
   Object.freeze({
@@ -65,6 +67,13 @@ function parseJson(value, code, message) {
 }
 
 function run(program, args, { cwd, env, input, label, allowFailure = false } = {}) {
+  if (program === "docker" && env?.DOCKER_HOST !== LOCAL_DOCKER_HOST) {
+    refuse("docker_endpoint_unbound", "Docker invocation is not bound to the standard local Unix socket.");
+  }
+  if (program === "docker" && args.some((value) => ["--context", "-c", "--host", "-H"].includes(value) ||
+    value.startsWith("--context=") || value.startsWith("--host=") || /^-H./u.test(value))) {
+    refuse("docker_endpoint_override_forbidden", "Docker CLI endpoint overrides are forbidden.");
+  }
   const result = spawnSync(program, args, {
     cwd,
     env,
@@ -155,12 +164,15 @@ export function decideCompatibility(profile, actual) {
   return Object.freeze({ profileId: accepted.id, ...actual });
 }
 
-function cleanDockerEnvironment() {
-  const dockerConfig = process.env.DOCKER_CONFIG;
-  if (!isAbsolute(dockerConfig ?? "") || !existsSync(resolve(dockerConfig, "config.json"))) {
+export function createDockerEnvironment(environment, { dockerConfigPresent, localSocketIsUnix }) {
+  const dockerConfig = environment.DOCKER_CONFIG;
+  if (!isAbsolute(dockerConfig ?? "") || dockerConfigPresent !== true) {
     refuse("docker_credentials_unavailable", "Runtime Docker credential injection is unavailable.");
   }
-  for (const name of Object.keys(process.env)) {
+  if (localSocketIsUnix !== true) {
+    refuse("local_docker_socket_unavailable", "The standard local Docker Unix socket is unavailable.");
+  }
+  for (const name of Object.keys(environment)) {
     if ((name.startsWith("DOCKER_") && name !== "DOCKER_CONFIG") || name.startsWith("COMPOSE_")) {
       refuse("caller_docker_state_forbidden", "Caller Docker or Compose authority is forbidden.");
     }
@@ -172,6 +184,19 @@ function cleanDockerEnvironment() {
     LC_ALL: "C",
     TZ: "UTC",
     DOCKER_CONFIG: dockerConfig,
+    DOCKER_HOST: LOCAL_DOCKER_HOST,
+  });
+}
+
+function cleanDockerEnvironment() {
+  const dockerConfig = process.env.DOCKER_CONFIG;
+  let localSocketIsUnix = false;
+  try {
+    localSocketIsUnix = lstatSync(LOCAL_DOCKER_SOCKET).isSocket();
+  } catch {}
+  return createDockerEnvironment(process.env, {
+    dockerConfigPresent: isAbsolute(dockerConfig ?? "") && existsSync(resolve(dockerConfig, "config.json")),
+    localSocketIsUnix,
   });
 }
 
@@ -215,8 +240,26 @@ function captureRunner(profilePath, dockerEnv) {
 }
 
 function writeSecret(path, value) {
-  writeFileSync(path, `${value}\n`, { flag: "wx", mode: 0o400 });
-  chmodSync(path, 0o400);
+  writeFileSync(path, `${value}\n`, { flag: "wx", mode: 0o444 });
+  chownSync(path, 0, 0);
+  chmodSync(path, 0o444);
+}
+
+function secureRootDirectory(path) {
+  mkdirSync(path, { mode: 0o700 });
+  chownSync(path, 0, 0);
+  chmodSync(path, 0o700);
+}
+
+export function unixModeAllowsRead({ mode, ownerUid, ownerGid, uid, gids = [] }) {
+  if (!Number.isInteger(mode) || !Number.isInteger(ownerUid) || !Number.isInteger(ownerGid) || !Number.isInteger(uid) ||
+    !Array.isArray(gids) || gids.some((gid) => !Number.isInteger(gid))) {
+    refuse("unix_mode_input_invalid", "Unix file-mode input is invalid.");
+  }
+  if (uid === 0) return true;
+  if (uid === ownerUid) return (mode & 0o400) !== 0;
+  if (gids.includes(ownerGid)) return (mode & 0o040) !== 0;
+  return (mode & 0o004) !== 0;
 }
 
 function secret(bytes = 32) {
@@ -287,6 +330,11 @@ export function syntheticHostPlan(releaseId, { configRoot = CONFIG_ROOT, storage
   return Object.freeze({
     configRoot,
     storageRoot,
+    configDirectoryMode: 0o700,
+    secretFileMode: 0o444,
+    runtimeEnvMode: 0o400,
+    ownerUid: 0,
+    ownerGid: 0,
     configFiles: Object.freeze([...new Set(configFiles)].sort()),
     stagingStorage: Object.freeze([
       `${storageRoot}/staging/media/public`,
@@ -303,13 +351,13 @@ function prepareSyntheticHost(releaseId) {
     refuse("runner_not_single_use_clean", "Runner contains pre-existing CWT configuration or storage state.");
   }
   try {
-    mkdirSync(plan.configRoot, { mode: 0o700 });
-    mkdirSync(resolve(plan.configRoot, "postgres"), { mode: 0o700 });
+    secureRootDirectory(plan.configRoot);
+    secureRootDirectory(resolve(plan.configRoot, "postgres"));
     mkdirSync(plan.storageRoot, { mode: 0o700 });
     writeSecret(resolve(plan.configRoot, "postgres/bootstrap-password"), secret());
     for (const environment of ["production", "staging"]) {
       const root = resolve(plan.configRoot, environment);
-      mkdirSync(root, { mode: 0o700 });
+      secureRootDirectory(root);
       const databasePassword = secret();
       const values = {
         "database-password": databasePassword,
@@ -330,6 +378,8 @@ function prepareSyntheticHost(releaseId) {
         flag: "wx",
         mode: 0o400,
       });
+      chownSync(resolve(root, "runtime.env"), 0, 0);
+      chmodSync(resolve(root, "runtime.env"), 0o400);
     }
     for (const path of plan.stagingStorage) {
       mkdirSync(path, { recursive: true, mode: 0o700 });
@@ -515,7 +565,7 @@ function ensureNotHistorical(record, indexDigest) {
 function parseArguments(argv) {
   if (argv[0] !== "validate" || argv.length % 2 !== 1) refuse("arguments_invalid", "Validation arguments are invalid.");
   const values = {};
-  const allowed = new Set(["release", "oci", "image", "evidence", "token", "profile", "repository"]);
+  const allowed = new Set(["release", "oci", "image", "evidence", "token", "repository"]);
   for (let index = 1; index < argv.length; index += 2) {
     const key = argv[index]?.replace(/^--/u, "");
     const value = argv[index + 1];
@@ -553,7 +603,9 @@ async function validate(args) {
   const repositoryRoot = exactExistingPath(args.repository ?? process.cwd(), "repository", "repository_invalid");
   const releasePath = exactExistingPath(args.release, "release record", "release_record_invalid");
   const ociRoot = exactExistingPath(args.oci, "OCI root", "oci_evidence_invalid");
-  const profilePath = exactExistingPath(args.profile ?? DEFAULT_PROFILE, "compatibility profile", "compatibility_profile_invalid");
+  const profilePath = exactExistingPath(DEFAULT_PROFILE, "compatibility profile", "compatibility_profile_invalid");
+  const trackedProfilePath = realpathSync(resolve(repositoryRoot, "deploy/runtime-validation/linux-amd64-compatibility.v1.json"));
+  if (profilePath !== trackedProfilePath) refuse("compatibility_profile_untracked", "Compatibility profile must come from the exact release checkout.");
   const reference = parseDigestReference(args.image);
   if (!SAFE_TOKEN.test(args.token ?? "")) refuse("token_invalid", "Run token is invalid.");
   const evidenceRoot = prepareEvidence(args.evidence, repositoryRoot);
@@ -574,7 +626,6 @@ async function validate(args) {
   const cleanup = { composeConsumers: false, composeNetworks: false, pulledReferences: false, hostPaths: false, runnerDestruction: "enclosing-ci-lifecycle" };
   try {
     dockerEnv = cleanDockerEnvironment();
-    runner = captureRunner(profilePath, dockerEnv);
     try {
       release = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     } catch {
@@ -587,6 +638,7 @@ async function validate(args) {
     child = release.inventory.children.find((candidate) => candidate.platform === "linux/amd64");
     if (!child) refuse("linux_amd64_child_missing", "Release evidence has no exact linux/amd64 child.");
     verifyRepositoryIdentity(repositoryRoot, release.record.releaseId, dockerEnv);
+    runner = captureRunner(profilePath, dockerEnv);
     hostPlan = prepareSyntheticHost(release.record.releaseId);
     composeEnv = composeEnvironment(dockerEnv, reference, child.manifestDigest, repositoryRoot);
     const normalized = parseJson(run("docker", plan.normalize, {
@@ -744,9 +796,12 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
 export const __testOnly = Object.freeze({
   CONFIG_ROOT,
   STORAGE_ROOT,
+  LOCAL_DOCKER_HOST,
+  LOCAL_DOCKER_SOCKET,
   EXACT_SERVICES,
   REVOKED_SUBJECTS,
   runtimeEnvironment,
+  parseArguments,
   parseOsRelease,
   sha256,
 });
