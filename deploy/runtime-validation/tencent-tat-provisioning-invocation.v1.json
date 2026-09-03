@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "provider": "Tencent Automation Assistant",
+  "operation": "ExecuteCommand",
+  "timeoutSeconds": 600,
+  "retainedOrdinaryOutputCeilingBytes": 24576,
+  "successOutputBudgetBytes": 1024,
+  "failureDiagnosticTailBytes": 4096,
+  "completionAuthority": {
+    "terminalStatus": "SUCCESS",
+    "processExitCode": 0,
+    "marker": "CWT_PRE_REGISTRATION_OK",
+    "markerRole": "corroborating_only"
+  }
+}

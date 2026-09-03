@@ -12,7 +12,10 @@ readonly CWT_CONTAINERD_PACKAGE_VERSION="2.3.4-1~ubuntu.24.04~noble"
 readonly CWT_RUNNER_ARCHIVE_SHA256="70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
 readonly CWT_RUNNER_ARCHIVE_URL="https://github.com/actions/runner/releases/download/v${CWT_RUNNER_VERSION}/actions-runner-linux-x64-${CWT_RUNNER_VERSION}.tar.gz"
 readonly CWT_RUNNER_ROOT="/opt/cwt-actions-runner"
+readonly CWT_FAILURE_DIAGNOSTIC_TAIL_BYTES=4096
 CWT_PROVISION_WORK_ROOT=""
+CWT_PROVISION_LOG=""
+CWT_PROVISION_LOG_ACTIVE=0
 
 cwt_trim_space() {
   local value="$1"
@@ -167,7 +170,6 @@ cwt_install_runner() {
   CWT_PROVISION_WORK_ROOT="$(mktemp -d /tmp/cwt-runner-provision.XXXXXX)"
   [[ "$CWT_PROVISION_WORK_ROOT" == /tmp/cwt-runner-provision.* && ! -L "$CWT_PROVISION_WORK_ROOT" ]]
   archive="${CWT_PROVISION_WORK_ROOT}/actions-runner.tar.gz"
-  trap cwt_cleanup EXIT
 
   curl --fail --silent --show-error --location "$CWT_RUNNER_ARCHIVE_URL" --output "$archive"
   actual_sha="$(sha256sum "$archive")"
@@ -206,15 +208,78 @@ cwt_install_runner() {
 
 cwt_cleanup() {
   if [[ -n "${CWT_PROVISION_WORK_ROOT:-}" ]]; then
+    if [[ "$CWT_PROVISION_WORK_ROOT" == /tmp/cwt-runner-provision.* && ! -L "$CWT_PROVISION_WORK_ROOT" ]]; then
+      rm -rf -- "$CWT_PROVISION_WORK_ROOT" || true
+    fi
+    CWT_PROVISION_WORK_ROOT=""
+  fi
+  if [[ -n "${CWT_PROVISION_LOG:-}" ]]; then
+    if [[ "$CWT_PROVISION_LOG" == /tmp/cwt-runner-provision-log.* && ! -L "$CWT_PROVISION_LOG" ]]; then
+      rm -f -- "$CWT_PROVISION_LOG" || true
+    fi
+    CWT_PROVISION_LOG=""
+  fi
+}
+
+cwt_emit_failure_diagnostic() {
+  local status="$1"
+
+  printf 'CWT_PROVISION_NOT_PASS reason=verbose_phase_failed exit_code=%s diagnostic_tail_bytes=%s\n' \
+    "$status" "$CWT_FAILURE_DIAGNOSTIC_TAIL_BYTES" >&2
+  if [[ -r "${CWT_PROVISION_LOG:-}" ]]; then
+    tail -c "$CWT_FAILURE_DIAGNOSTIC_TAIL_BYTES" "$CWT_PROVISION_LOG" \
+      | LC_ALL=C tr -cd '\11\12\15\40-\176' >&2 || true
+    printf '\n' >&2
+  fi
+}
+
+cwt_on_exit() {
+  local status="$1"
+
+  trap - EXIT
+  set +e
+  if [[ "${CWT_PROVISION_LOG_ACTIVE:-0}" -eq 1 ]]; then
+    exec 1>&3 2>&4
+    exec 3>&- 4>&-
+    CWT_PROVISION_LOG_ACTIVE=0
+    cwt_emit_failure_diagnostic "$status"
+  fi
+  cwt_cleanup
+  exit "$status"
+}
+
+cwt_start_logging() {
+  umask 077
+  CWT_PROVISION_LOG="$(mktemp /tmp/cwt-runner-provision-log.XXXXXX)"
+  [[ "$CWT_PROVISION_LOG" == /tmp/cwt-runner-provision-log.* && ! -L "$CWT_PROVISION_LOG" ]]
+  chmod 0600 "$CWT_PROVISION_LOG"
+  exec 3>&1 4>&2
+  exec >"$CWT_PROVISION_LOG" 2>&1
+  CWT_PROVISION_LOG_ACTIVE=1
+  trap 'cwt_on_exit $?' EXIT
+}
+
+cwt_finish_logging() {
+  exec 1>&3 2>&4
+  exec 3>&- 4>&-
+  CWT_PROVISION_LOG_ACTIVE=0
+  if [[ -n "$CWT_PROVISION_WORK_ROOT" ]]; then
+    [[ "$CWT_PROVISION_WORK_ROOT" == /tmp/cwt-runner-provision.* && ! -L "$CWT_PROVISION_WORK_ROOT" ]]
     rm -rf -- "$CWT_PROVISION_WORK_ROOT"
     CWT_PROVISION_WORK_ROOT=""
   fi
+  [[ "$CWT_PROVISION_LOG" == /tmp/cwt-runner-provision-log.* && ! -L "$CWT_PROVISION_LOG" ]]
+  rm -f -- "$CWT_PROVISION_LOG"
+  CWT_PROVISION_LOG=""
+  trap - EXIT
 }
 
 cwt_main() {
   cwt_require_fresh_host "$@"
+  cwt_start_logging
   cwt_install_exact_docker
   cwt_install_runner
+  cwt_finish_logging
   printf 'CWT_PRE_REGISTRATION_OK os=ubuntu-24.04 arch=amd64 docker=%s compose=%s runner=%s runner_tree_owner=ubuntu diag_write_probe=PASS docker_user_probe=PASS\n' \
     "$CWT_DOCKER_ENGINE_VERSION" "$CWT_DOCKER_COMPOSE_VERSION" "$CWT_RUNNER_VERSION"
 }
