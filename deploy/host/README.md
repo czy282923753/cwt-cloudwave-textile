@@ -81,6 +81,14 @@ This entry is implementation-only until its required independent Review passes a
 
 ## Manual Build Once, private GHCR publication and Tencent runtime binding
 
+### Sole pre-registration Ubuntu host payload
+
+`deploy/runtime-validation/provision-ubuntu-amd64-runner.sh` is the sole reviewed pre-registration setup payload for a future separately authorized Tencent Automation Assistant execution. Submit the exact reviewed file bytes unchanged as one zero-argument Bash command; do not reconstruct, prefix, append or replace any part of the payload in the console.
+
+The payload accepts only a fresh Ubuntu 24.04 native `amd64` host and installs the exact reviewed Docker Engine `29.6.2`, Compose `5.3.1` and Actions Runner `2.337.0` identities. It fully captures Docker's signed Noble package catalog before built-in parsing, requires exactly one match for each complete package version, verifies the Runner archive SHA-256, converges the complete Runner tree to `ubuntu:ubuntu`, and performs actual `ubuntu` `_diag` create/check/remove and Docker access probes. Only `CWT_PRE_REGISTRATION_OK ...` authorizes the separately controlled registration step.
+
+The payload contains no credential input, Runner registration, Runner launch, workflow dispatch, Registry login, cloud provisioning/destruction, retry, fallback, DIND or SSH path. Registration-token acquisition/transmission, the one ephemeral registration, workflow dispatch and mandatory teardown remain separate Owner-confirmed operator actions. A setup failure is terminal for that VM execution and does not authorize editing or rerunning the payload in place.
+
 `.github/workflows/cwt-release-publish.yml` and `.github/workflows/cwt-runtime-validation.yml` are separate manual-only controllers. They never run on Push, Pull Request or Schedule, and the Runtime workflow is not chained from the release workflow. Both GitHub Environments must be configured with the Owner-approved protection policy before use. A real run remains separately authorized external work.
 
 The release workflow runs only on a self-hosted macOS ARM64 Runner carrying the `cwt-trusted-build-once` label and the existing accepted Docker Desktop Buildx `0.35.0-desktop.2`/Docker Scout boundary. It accepts the exact dispatch/source commit, refuses a workflow rerun, invokes the existing Build Once authority once, and uses hash-pinned ORAS `1.3.3` to copy `subject.oci@sha256:<index>` directly to the repository-bound `ghcr.io/<github-owner>/<github-repository>:<release-commit>`. The tag is convenience only. Publication succeeds only when both the tag descriptor and `repository@sha256:<index>` descriptor preserve the exact OCI index and an anonymous descriptor read is rejected. The workflow uploads only detached release/evidence files for the later separately authorized run; it does not use a Docker archive, save/load, temporary transfer tag, rebuild or subject repair.
