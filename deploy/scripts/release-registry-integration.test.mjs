@@ -21,6 +21,22 @@ const AUTH = "/run/cwt-ghcr/config.json";
 const ORAS = "/opt/cwt-tools/oras";
 const OCI = "/tmp/cwt-release/subject.oci";
 
+function assertRuntimeNodeSetupOrdering(workflow) {
+  const setupMarker = "      - name: Install exact Node.js\n";
+  const ghcrMarker = "      - name: Authenticate to private GHCR without credential arguments\n";
+  const setupIndex = workflow.indexOf(setupMarker);
+  const ghcrIndex = workflow.indexOf(ghcrMarker);
+  assert.notEqual(setupIndex, -1, "Runtime workflow must retain the exact Node setup step");
+  assert.equal(workflow.indexOf(setupMarker, setupIndex + setupMarker.length), -1, "Runtime workflow must have one Node setup authority");
+  assert.notEqual(ghcrIndex, -1, "Runtime workflow must retain its private GHCR boundary");
+  assert.ok(setupIndex < ghcrIndex, "Exact Node setup must occur before private GHCR access");
+
+  const preGhcr = workflow.slice(0, ghcrIndex);
+  for (const command of preGhcr.matchAll(/^\s+node\s+[^-]/gmu)) {
+    assert.ok(setupIndex < command.index, "Exact Node setup must precede every Node-dependent pre-GHCR command");
+  }
+}
+
 test("binds registry identity to the exact lowercase GitHub repository", () => {
   assert.equal(canonicalGhcrRepository("czy282923753/cwt-cloudwave-textile"), REPOSITORY);
   for (const invalid of ["CZY282923753/cwt-cloudwave-textile", "owner", "owner/repo/extra", "owner/repo:tag", "docker.io/owner/repo"]) {
@@ -168,4 +184,19 @@ test("release and runtime workflows remain manual, separated and fail-closed", (
   assert.doesNotMatch(runtimeWorkflow, /^\s{6}GHCR_TOKEN:/mu);
   assert.doesNotMatch(runtimeWorkflow, /build:release-once/u);
   assert.doesNotMatch(runtimeWorkflow, /:[a-z0-9._-]+"?\s*\\?\n\s*--image/u);
+});
+
+test("runtime workflow establishes exact Node before every Node-dependent pre-GHCR step", () => {
+  const runtimeWorkflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  assertRuntimeNodeSetupOrdering(runtimeWorkflow);
+
+  const setupBlock = runtimeWorkflow.match(/      - name: Install exact Node\.js\n        uses: actions\/setup-node@[0-9a-f]{40}[^\n]*\n        with:\n          node-version: 24\.14\.0\n\n/u)?.[0];
+  assert.ok(setupBlock, "Expected the pinned exact Node setup block");
+  const causalMutation = runtimeWorkflow
+    .replace(setupBlock, "")
+    .replace("      - name: Install hash-pinned patched ORAS\n", `${setupBlock}      - name: Install hash-pinned patched ORAS\n`);
+  assert.throws(
+    () => assertRuntimeNodeSetupOrdering(causalMutation),
+    /precede every Node-dependent pre-GHCR command/u,
+  );
 });

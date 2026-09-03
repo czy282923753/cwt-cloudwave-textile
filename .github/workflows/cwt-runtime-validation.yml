@@ -49,6 +49,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.release_commit }}
 
+      - name: Install exact Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.14.0
+
       - name: Verify the unique Tencent Singapore Runner binding before GHCR access
         shell: bash
         run: |
@@ -68,11 +73,6 @@ jobs:
             --arch "$RUNNER_ARCH" \
             --name "$RUNNER_NAME" \
             --nonce "$RUNNER_NONCE"
-
-      - name: Install exact Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: 24.14.0
 
       - name: Install hash-pinned patched ORAS
         shell: bash
