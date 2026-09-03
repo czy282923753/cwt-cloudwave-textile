@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
@@ -20,6 +21,8 @@ const REPOSITORY = "ghcr.io/czy282923753/cwt-cloudwave-textile";
 const AUTH = "/run/cwt-ghcr/config.json";
 const ORAS = "/opt/cwt-tools/oras";
 const OCI = "/tmp/cwt-release/subject.oci";
+const FROZEN_RELEASE = "7e6ef0ad9fd00975da93789421c0d24ec9226e82";
+const REVIEWED_WORKFLOW_CONTROL = "5bfbea04597a405061f7760f8b5db8517b69dcfa";
 
 function assertRuntimeNodeSetupOrdering(workflow) {
   const setupMarker = "      - name: Install exact Node.js\n";
@@ -35,6 +38,21 @@ function assertRuntimeNodeSetupOrdering(workflow) {
   for (const command of preGhcr.matchAll(/^\s+node\s+[^-]/gmu)) {
     assert.ok(setupIndex < command.index, "Exact Node setup must precede every Node-dependent pre-GHCR command");
   }
+}
+
+function runRuntimeIdentityBinding(workflow, { workflowCommit, githubSha, releaseCommit, checkoutCommit }) {
+  const start = workflow.indexOf("          if [[ ! \"$WORKFLOW_COMMIT\"");
+  const end = workflow.indexOf("          fi\n", start);
+  const binding = start >= 0 && end >= 0 ? workflow.slice(start, end + "          fi\n".length) : "";
+  assert.ok(binding, "Expected the exact workflow-control and release identity binding");
+  return spawnSync("bash", ["-u", "-o", "pipefail", "-c", binding.replace(/^ {10}/gmu, "")], {
+    env: {
+      CHECKOUT_COMMIT: checkoutCommit,
+      GITHUB_SHA: githubSha,
+      RELEASE_COMMIT: releaseCommit,
+      WORKFLOW_COMMIT: workflowCommit,
+    },
+  });
 }
 
 test("binds registry identity to the exact lowercase GitHub repository", () => {
@@ -153,6 +171,24 @@ test("requires one first-attempt job-scoped Tencent Singapore Runner identity", 
   ]) assert.throws(() => validateRuntimeRunnerBinding({ ...exact, ...mutation }), /Runner|nonce/u);
 });
 
+test("binds distinct exact workflow-control and frozen release identities before GHCR", () => {
+  const runtimeWorkflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  const exact = {
+    workflowCommit: REVIEWED_WORKFLOW_CONTROL,
+    githubSha: REVIEWED_WORKFLOW_CONTROL,
+    releaseCommit: FROZEN_RELEASE,
+    checkoutCommit: FROZEN_RELEASE,
+  };
+  assert.equal(runRuntimeIdentityBinding(runtimeWorkflow, exact).status, 0);
+  assert.notEqual(runRuntimeIdentityBinding(runtimeWorkflow, { ...exact, githubSha: "c".repeat(40) }).status, 0);
+  assert.notEqual(runRuntimeIdentityBinding(runtimeWorkflow, { ...exact, checkoutCommit: "d".repeat(40) }).status, 0);
+  assert.notEqual(runRuntimeIdentityBinding(runtimeWorkflow, {
+    ...exact,
+    releaseCommit: REVIEWED_WORKFLOW_CONTROL,
+    checkoutCommit: REVIEWED_WORKFLOW_CONTROL,
+  }).status, 0);
+});
+
 test("release and runtime workflows remain manual, separated and fail-closed", () => {
   const releaseWorkflow = readFileSync(resolve(".github/workflows/cwt-release-publish.yml"), "utf8");
   const runtimeWorkflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
@@ -184,6 +220,10 @@ test("release and runtime workflows remain manual, separated and fail-closed", (
   assert.doesNotMatch(runtimeWorkflow, /^\s{6}GHCR_TOKEN:/mu);
   assert.doesNotMatch(runtimeWorkflow, /build:release-once/u);
   assert.doesNotMatch(runtimeWorkflow, /:[a-z0-9._-]+"?\s*\\?\n\s*--image/u);
+  assert.match(runtimeWorkflow, /WORKFLOW_COMMIT: \$\{\{ inputs\.workflow_commit \}\}/u);
+  assert.match(runtimeWorkflow, /ref: \$\{\{ inputs\.release_commit \}\}/u);
+  assert.match(runtimeWorkflow, /CHECKOUT_COMMIT="\$\(git rev-parse HEAD\)"/u);
+  assert.doesNotMatch(runtimeWorkflow, /\[\[\s+"?\$GITHUB_SHA"?\s+==\s+"?\$RELEASE_COMMIT"?\s+\]\]/u);
 });
 
 test("runtime workflow establishes exact Node before every Node-dependent pre-GHCR step", () => {

@@ -3,8 +3,12 @@ name: CWT authorized exact-digest Linux Runtime Validation
 on:
   workflow_dispatch:
     inputs:
+      workflow_commit:
+        description: Exact 40-character reviewed workflow-control commit resolved by the selected dispatch ref; distinct from the release
+        required: true
+        type: string
       release_commit:
-        description: Exact 40-character Build Once release commit; dispatch this workflow from the same commit
+        description: Exact 40-character Build Once release commit checked out as the immutable subject; distinct from workflow control
         required: true
         type: string
       index_digest:
@@ -38,6 +42,7 @@ jobs:
     timeout-minutes: 60
     env:
       CI: "1"
+      WORKFLOW_COMMIT: ${{ inputs.workflow_commit }}
       RELEASE_COMMIT: ${{ inputs.release_commit }}
       INDEX_DIGEST: ${{ inputs.index_digest }}
       EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
@@ -58,12 +63,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          CHECKOUT_COMMIT="$(git rev-parse HEAD)"
+          if [[ ! "$WORKFLOW_COMMIT" =~ ^[0-9a-f]{40}$ ||
+                ! "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ||
+                "$GITHUB_SHA" != "$WORKFLOW_COMMIT" ||
+                "$CHECKOUT_COMMIT" != "$RELEASE_COMMIT" ||
+                "$WORKFLOW_COMMIT" == "$RELEASE_COMMIT" ]]; then
+            exit 1
+          fi
           [[ "$INDEX_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$EVIDENCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$RUNNER_NONCE" =~ ^[0-9a-f]{32}$ ]]
-          [[ "$GITHUB_SHA" == "$RELEASE_COMMIT" ]]
-          [[ "$(git rev-parse HEAD)" == "$RELEASE_COMMIT" ]]
           [[ -z "$(git status --porcelain=v1)" ]]
           node deploy/scripts/release-registry-integration.mjs verify-runner \
             --event "$GITHUB_EVENT_NAME" \
