@@ -63,9 +63,21 @@ function fixture(options = {}) {
     children.push({ mediaType: "application/vnd.oci.image.manifest.v1+json", ...manifest, platform: { os: "linux", architecture } });
   }
   const subject = put({ schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: children });
+  const subjectDescriptor = {
+    mediaType: "application/vnd.oci.image.index.v1+json",
+    ...subject,
+    annotations: { "org.opencontainers.image.ref.name": releaseId },
+  };
+  const topLevelDescriptors = {
+    subject: subjectDescriptor,
+    amd64: children[0],
+    arm64: children[1],
+    irrelevant: { ...children[0], annotations: { "org.opencontainers.image.ref.name": "irrelevant-store-reference" } },
+  };
+  const topLevelOrder = options.topLevelOrder ?? ["subject", "amd64", "arm64"];
   writeFileSync(resolve(layout, "oci-layout"), json({ imageLayoutVersion: "1.0.0" }));
-  writeFileSync(resolve(layout, "index.json"), json({ schemaVersion: 2, manifests: [{ mediaType: "application/vnd.oci.image.index.v1+json", ...subject }] }));
-  const inventory = inventoryOciLayout(layout); const evidenceRoot = resolve(root, "evidence"); mkdirSync(evidenceRoot);
+  writeFileSync(resolve(layout, "index.json"), json({ schemaVersion: 2, manifests: topLevelOrder.map((name) => topLevelDescriptors[name]) }));
+  const inventory = inventoryOciLayout(layout, subject.digest); const evidenceRoot = resolve(root, "evidence"); mkdirSync(evidenceRoot);
   const descriptors = [];
   for (const child of inventory.children) {
     const architecture = child.platform.split("/")[1];
@@ -81,8 +93,42 @@ function fixture(options = {}) {
   }
   const releasePath = resolve(root, "release.json");
   writeFileSync(releasePath, json({ schemaVersion: 1, releaseId, source: { commit: releaseId, tree, epoch: 1788134400, archiveSha256 }, oci: { indexDigest: inventory.indexDigest, platformOrder: ["linux/amd64", "linux/arm64"], children: inventory.children }, tools: { node: "24.14.0", pnpm: "11.9.0", next: "16.2.12", tsx: "4.23.1", supercronic: "0.2.48", buildx: "0.35.0-desktop.2", dockerfileFrontend: "docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d", nodeBase: "node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8" }, frameworkSchemas: inventory.children.map((child) => ({ platform: child.platform, schema: { nextVersion: "16.2.12", preview: { idLength: 32, signingKeyLength: 64, encryptionKeyLength: 64 }, serverActions: { encryptionKeyLength: 44, nodeActionCount: 87, edgeActionCount: 0 } } })), evidence: descriptors, retention: { registryPrivate: true, immutableNoOverwrite: true, noEarlyDeletion: true, leastReadAudited: true, completeProtectedReplica: true, totalLossDisposition: "NEW_RELEASE_REQUIRED" }, state: "built" }));
-  return { root, layout, releasePath, inventory };
+  return { root, layout, releasePath, inventory, subjectDigest: subject.digest };
 }
+
+test("verifies an exact OCI index in ORAS-shaped multi-descriptor entry points regardless of store-reference order", () => {
+  for (const topLevelOrder of [
+    ["subject", "amd64", "arm64"],
+    ["arm64", "subject", "amd64"],
+    ["amd64", "arm64", "irrelevant", "subject"],
+  ]) {
+    const value = fixture({ topLevelOrder });
+    const result = verifyReleaseRecord({ releasePath: value.releasePath, ociRoot: value.layout });
+    assert.equal(result.inventory.indexDigest, value.subjectDigest);
+    assert.equal(result.state, "built");
+  }
+});
+
+test("fails closed when the exact OCI index descriptor is missing, duplicated, wrong-media, or blob-mismatched", () => {
+  for (const kind of ["missing", "duplicate", "wrong-media", "blob-mismatch"]) {
+    const value = fixture();
+    const indexPath = resolve(value.layout, "index.json");
+    const rootIndex = JSON.parse(readFileSync(indexPath, "utf8"));
+    const subject = rootIndex.manifests.find((descriptor) => descriptor.digest === value.subjectDigest);
+    if (kind === "missing") rootIndex.manifests = rootIndex.manifests.filter((descriptor) => descriptor.digest !== value.subjectDigest);
+    if (kind === "duplicate") rootIndex.manifests.push({ ...subject });
+    if (kind === "wrong-media") subject.mediaType = "application/vnd.oci.image.manifest.v1+json";
+    if (kind === "blob-mismatch") writeFileSync(resolve(value.layout, "blobs/sha256", value.subjectDigest.slice(7)), json({ schemaVersion: 2, manifests: [] }));
+    else writeFileSync(indexPath, json(rootIndex));
+    assert.throws(
+      () => inventoryOciLayout(value.layout, value.subjectDigest),
+      kind === "wrong-media" ? /subject media type drifted/u
+        : kind === "blob-mismatch" ? /blob digest mismatch/u
+          : /exact accepted subject once/u,
+      kind,
+    );
+  }
+});
 
 test("verifies built -> staging_validated -> promotion_authorized for one exact digest", () => {
   const value = fixture();

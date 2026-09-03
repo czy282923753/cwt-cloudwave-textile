@@ -93,6 +93,25 @@ test("uses ORAS digest-rooted layout copy and exact GHCR descriptor verification
   }
 });
 
+test("keeps trusted publish verification, makes materialization transport-only, and retains the sole ordered Runtime authority", () => {
+  const integration = readFileSync(resolve("deploy/scripts/release-registry-integration.mjs"), "utf8");
+  const publish = integration.slice(integration.indexOf("function publish"), integration.indexOf("function materialize"));
+  const materialize = integration.slice(integration.indexOf("function materialize"), integration.indexOf("function main"));
+  assert.match(publish, /verifiedRelease\(/u);
+  assert.doesNotMatch(materialize, /verifiedRelease\(|verifyReleaseRecord\(/u);
+  assert.match(materialize, /validateRegistryDescriptor[\s\S]*run\(orasPath, plan\.materialize\)/u);
+
+  const runtimeWorkflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  const materializeStep = runtimeWorkflow.indexOf("      - name: Materialize read-only OCI evidence from the same GHCR digest\n");
+  const runtimeStep = runtimeWorkflow.indexOf("      - name: Run the sole accepted Linux Runtime Validation authority\n");
+  assert.ok(materializeStep >= 0 && runtimeStep > materializeStep);
+  assert.equal(runtimeWorkflow.slice(materializeStep, runtimeStep).match(/release-registry-integration\.mjs materialize/gu)?.length, 1);
+  assert.match(runtimeWorkflow.slice(runtimeStep), /preflight-linux-runtime\.mjs validate/u);
+
+  const runtimeValidator = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
+  assert.equal(runtimeValidator.match(/verifyReleaseRecord\(/gu)?.length, 1);
+});
+
 test("accepts the live pinned ORAS authorization semantics only in the authenticated exact GHCR context", () => {
   const digestReference = `${REPOSITORY}@${INDEX}`;
   const liveOrasDenial = {

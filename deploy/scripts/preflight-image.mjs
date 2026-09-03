@@ -37,15 +37,18 @@ function blob(root, digest) {
   return { bytes, json: JSON.parse(bytes.toString("utf8")), path };
 }
 
-export function inventoryOciLayout(inputRoot) {
+export function inventoryOciLayout(inputRoot, expectedIndexDigest) {
+  if (!DIGEST.test(expectedIndexDigest ?? "")) fail("expected OCI index digest is invalid");
   const root = realpathSync(inputRoot);
   const layout = readJson(resolve(root, "oci-layout"));
   if (layout.imageLayoutVersion !== "1.0.0") fail("OCI layout version drifted");
   const rootIndexBytes = readFileSync(resolve(root, "index.json"));
   const rootIndex = JSON.parse(rootIndexBytes.toString("utf8"));
-  if (!Array.isArray(rootIndex.manifests) || rootIndex.manifests.length !== 1) fail("OCI root index must name one accepted subject");
-  const subjectDescriptor = rootIndex.manifests[0];
-  if (!DIGEST.test(subjectDescriptor.digest)) fail("OCI subject digest is invalid");
+  if (!Array.isArray(rootIndex.manifests)) fail("OCI root index manifests are invalid");
+  const subjectDescriptors = rootIndex.manifests.filter((descriptor) => descriptor?.digest === expectedIndexDigest);
+  if (subjectDescriptors.length !== 1) fail("OCI root index must name the exact accepted subject once");
+  const subjectDescriptor = subjectDescriptors[0];
+  if (subjectDescriptor.mediaType !== "application/vnd.oci.image.index.v1+json") fail("OCI subject media type drifted");
   const subject = blob(root, subjectDescriptor.digest);
   if (!Array.isArray(subject.json.manifests) || subject.json.manifests.length !== 2) fail("OCI subject must contain exactly two children");
   const children = subject.json.manifests.map((descriptor) => {
@@ -260,7 +263,7 @@ export function verifyReleaseRecord({ releasePath, ociRoot, requireState = "buil
   if (record.schemaVersion !== 1 || record.state !== "built" || !RELEASE.test(record.releaseId)) fail("release record identity drifted");
   if (!record.source || record.source.commit !== record.releaseId || !/^[0-9a-f]{40}$/u.test(record.source.tree) ||
     !Number.isSafeInteger(record.source.epoch) || !/^[0-9a-f]{64}$/u.test(record.source.archiveSha256)) fail("source identity drifted");
-  const inventory = inventoryOciLayout(ociRoot);
+  const inventory = inventoryOciLayout(ociRoot, record.oci?.indexDigest);
   if (record.oci.indexDigest !== inventory.indexDigest || JSON.stringify(record.oci.children) !== JSON.stringify(inventory.children) ||
     JSON.stringify(record.oci.platformOrder) !== JSON.stringify(PLATFORM_ORDER)) fail("recorded OCI graph differs from exact layout");
   if (inventory.children.some((child) => child.releaseId !== record.releaseId)) fail("source/image release ID mismatch");

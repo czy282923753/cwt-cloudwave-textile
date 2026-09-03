@@ -278,7 +278,6 @@ function materialize(values) {
   try {
     validateRegistryDescriptor(parseJson(run(orasPath, plan.digestDescriptor).stdout, "registry_descriptor_invalid", "Registry descriptor is invalid."), values["index-digest"]);
     run(orasPath, plan.materialize);
-    verifiedRelease({ releasePath, ociRoot, releaseId: values["release-id"], indexDigest: values["index-digest"] });
   } catch (error) {
     if (existsSync(ociRoot)) rmSync(ociRoot, { recursive: true, force: true });
     throw error;

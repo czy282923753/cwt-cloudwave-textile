@@ -117,7 +117,7 @@ try {
   subjectEmitted = true;
   emittedIndexDigest = JSON.parse(readFileSync(resolve(layout, "index.json"), "utf8"))?.manifests?.[0]?.digest;
   if (!/^sha256:[0-9a-f]{64}$/u.test(emittedIndexDigest ?? "")) fail("emitted OCI subject identity is invalid");
-  const inventory = inventoryOciLayout(layout);
+  const inventory = inventoryOciLayout(layout, emittedIndexDigest);
   if (inventory.children.some((child) => child.releaseId !== releaseId)) fail("built child release identity differs from source");
   const evidenceRoot = resolve(outputRoot, "evidence"); mkdirSync(evidenceRoot);
   const descriptors = []; const frameworkSchemas = []; const forbiddenEvidenceStrings = [];
