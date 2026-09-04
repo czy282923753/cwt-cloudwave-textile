@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "provider": "Tencent Automation Assistant",
+  "operation": "RunCommand",
+  "commandType": "SHELL",
+  "username": "ubuntu",
+  "workingDirectory": "/home/ubuntu",
+  "timeoutSeconds": 600,
+  "saveCommand": false,
+  "outputCosEnabled": false
+}
