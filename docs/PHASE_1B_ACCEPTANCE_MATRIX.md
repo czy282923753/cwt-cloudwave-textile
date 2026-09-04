@@ -1,16 +1,17 @@
 # CWT Phase 1B acceptance matrix
 
-Status: **Stage 4A Phase A–C accepted; Phase D accepted with Owner-accepted residual risk / frozen; Phase E pre-entry needs Owner decision; all other Stage and external-action gates remain separate**
-Baseline: `phase-1a-postgres-stage2c-approved-2026-08-03` → `9e8437ca22ecfd114babda49e13c676bbc6a8899`
-Matrix date: **2026-08-05**
+Status: **Phase 1B Stage 6 is Partial / HOLD; Stage 5 remains the latest accepted and tagged baseline; Stage 6 has no accepted checkpoint; Production Ready is No**
+Accepted baseline: `phase-1b-stage5-approved-2026-08-30` → `a200838be34c8834a00bdcf6d1819da96e2ad26c` (tree `00438c32997f9be7d753dfca8325c1765bd90146`)
+Unaccepted Stage 6 convergence inputs: published inventory `506d92bf396bae52d7d8e54dabc46345036e4f86`; reviewed registration closure `acfec4182a41c4504a9b85cfaced517b60cd4ea7`; append-only Operator-evidence line `31b17ec04105334e64975900a09c8176ca26b717`
+Matrix current-state date: **2026-09-05**
 
 ## 1. Purpose and use
 
-This matrix translates the approved Phase 1B frozen decisions into testable release gates. It does not mark Phase 1B as implemented or Production Ready. Each future Stage must attach reproducible evidence to the applicable rows and must stop when a required gate fails.
+This matrix translates the approved Phase 1B frozen decisions into testable release gates. It does not mark Phase 1B, Stage 6 or Production readiness complete. Stage 6 remains `Partial / HOLD`: its source/evidence convergence requires fresh independent Review, successful Runtime evidence is absent, S6-06 and S6-07 remain open, and no Stage 6 acceptance/freeze ref exists. Each future gate must attach reproducible evidence to the applicable rows and must stop when a required gate fails.
 
-Current authorization is recorded in the [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md). DeepSeek `PD-04` through `PD-07` are non-blocking reference evaluations under that decision; their unresolved evidence is not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized.
+The [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) records an earlier bounded authorization; it is not the current project-state authority. At that checkpoint, DeepSeek `PD-04` through `PD-07` were non-blocking reference evaluations whose unresolved evidence was not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized unless a later exact Owner decision explicitly authorizes them.
 
-The exact accepted Stage 4A checkpoints are Phase A `717cbac284350ec23f786ee239a354085ee0d827`, Phase B `cc5715f4a9eb07293bf932cfbd822bfa6bf14a45`, Phase C `9006b638ed51f981f7477829086244627c488d6b`, and Phase D freeze `de51dff2b519f1ecacfb73e067c9d68361939c29`. Phase D remains **ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK** and is not reopened. The [Phase E Pre-Entry Exact Design / Owner Decision V1.0](./PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md) is **NEEDS_OWNER_DECISION** because exact Production Prompt v1 prose and named Product/Content/SEO reviewer authority are absent. Rows for Phase E remain planned and no Phase E implementation or Phase F external validation has started. The complete Stage 4A checkpoint still requires later Owner acceptance.
+The exact historical Stage 4A checkpoints are Phase A `717cbac284350ec23f786ee239a354085ee0d827`, Phase B `cc5715f4a9eb07293bf932cfbd822bfa6bf14a45`, Phase C `9006b638ed51f981f7477829086244627c488d6b`, and Phase D freeze `de51dff2b519f1ecacfb73e067c9d68361939c29`. Phase D remains **ACCEPTED_WITH_OWNER_ACCEPTED_RESIDUAL_RISK** and is not reopened. At the 2026-08-05 checkpoint, the [Phase E Pre-Entry Exact Design / Owner Decision V1.0](./PHASE_1B_STAGE4A_PHASE_E_PRE_ENTRY_EXACT_DESIGN_OWNER_DECISION_V1_0.md) was **NEEDS_OWNER_DECISION** because exact Production Prompt v1 prose and named Product/Content/SEO reviewer authority were absent; Phase E rows were planned, Phase F external validation had not started, and the complete Stage 4A checkpoint still required later Owner acceptance. This paragraph preserves that chronology and does not supersede the accepted Stage 5 baseline above.
 
 Execution-state labels in this matrix are separate from the Discovery gap-status labels:
 
@@ -291,4 +292,4 @@ For each future Stage, retain:
 - formal Product/Company/media approval records;
 - known limitations, rollback boundary, and explicit stop/go decision.
 
-This matrix does not itself grant authority. The separate Owner record authorizes bounded Stage 4A P1-02A development, and the Phase A acceptance record closes only the exact Phase A sub-gate. No row authorizes Provider calls, credentials, external configuration, Staging/Production deployment, Production data, Production AI, Deploy, Publish, Index, formal import, or Push.
+This matrix does not itself grant authority. Historical Owner records and acceptance records authorize or close only their exact bounded work. The current Stage 6 convergence Candidate and its evidence do not authorize Provider calls, credentials, external configuration, VM/Runner creation, workflow dispatch, Registry mutation, Staging/Production deployment, Production data, Production AI, Deploy, Publish, Index, formal import, Push, S6-06, S6-07, Stage 7 or Stage 8.

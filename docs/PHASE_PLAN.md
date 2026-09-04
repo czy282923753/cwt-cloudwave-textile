@@ -1,5 +1,18 @@
 # Phase plan
 
+## Current project state — 2026-09-05
+
+- Current phase: **Phase 1B Stage 6 — Partial / HOLD**
+- Latest accepted and tagged baseline: **Phase 1B Stage 5**, `phase-1b-stage5-approved-2026-08-30` → `a200838be34c8834a00bdcf6d1819da96e2ad26c`
+- Stage 6 accepted checkpoint or tag: **None**
+- Stage 6 source state: published implementation inventory `506d92bf396bae52d7d8e54dabc46345036e4f86`, reviewed local registration closure `acfec4182a41c4504a9b85cfaced517b60cd4ea7`, and append-only Operator-evidence line `31b17ec04105334e64975900a09c8176ca26b717` are converged on this local Candidate pending fresh independent Review; none is an accepted Stage 6 baseline
+- Runtime state: provisioning evidence exists, but the latest registration source returned HTTP 404; no Runner was created, no Runtime workflow was dispatched, and teardown completed with zero recorded attempt residue
+- Remaining Stage 6 gates: immutable registration-payload materialization Review, separately authorized Runtime Validation, S6-06, S6-07, and explicit acceptance/freeze
+- Production Ready: **No**
+- Real-product status: **Waiting for Real Product Data Validation**
+
+The dated Phase 1A and earlier Phase 1B entries below remain historical chronology. They do not override this current-state boundary or authorize external action, Stage 7, Stage 8, Deploy, Publish or Index.
+
 ## Phase 1A
 
 A0–A13: frozen docs; project/version and Refine validation; schema/migrations; auth/roles/audit; asset security; products/taxonomy/applications; content/authors/revisions/facts; routes/SEO/publishing; Fabric Library; public templates; inquiries/contacts/CRM; events/attribution; 10–15 synthetic noindex fixtures and complete local quality validation.
@@ -39,7 +52,7 @@ Real product authenticity and final product SEO review remain `Waiting for Real 
 
 ## Phase 1B
 
-Status: **Paused**. Phase 1A local acceptance does not authorize Phase 1B work.
+Status: **Stage 6 is Partial / HOLD**. Stage 5 remains the latest accepted and tagged baseline; no Stage 6 Candidate, evidence commit, OCI digest or bounded Review is final Stage 6 acceptance. Production, protected Staging, S6-06, S6-07, Stage 7, Stage 8, formal data, Deploy, Publish and Index remain separately gated.
 
 Basic Excel import with template, preview, row validation, error reporting, duplicate protection; 30–50 reviewed products; initial real topic clusters/content; production integrations and launch readiness.
 
