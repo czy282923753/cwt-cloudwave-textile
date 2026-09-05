@@ -64,7 +64,13 @@ If execution stops after the enum preflight commits, Journal 0010 plus correctly
 
 ## Backups and restore
 
-Production PostgreSQL point-in-time recovery, object versioning/lifecycle, backup ownership, retention, encryption, and a restore rehearsal require the selected providers. Deployment is blocked until a documented restore exercise proves recovery to an isolated environment. Do not treat a provider's “backup enabled” indicator as a restore test.
+Daily local PostgreSQL recovery and weekly offsite complete-set recovery solve different failures. The daily custom dump covers database state and retains seven valid local slots; it does not establish the matching historical originals or survive host loss. The weekly set couples a database snapshot with its original files, private Inquiry files, non-secret deployment configuration and path/permission metadata. Four validated weekly snapshots are retained. A daily database restore with current media must explicitly revalidate missing/changed objects; never describe it as daily whole-site recovery.
+
+The local S6-06 tools and executable rehearsal are documented in [deploy/backup/README.md](../deploy/backup/README.md). Completion is emitted only after integrity and durability checks. A failed job exits nonzero; retain prior valid sets, inspect the redacted scheduler failure and run the independent monitoring/work-health path. Do not manually fix a completion marker. Corrupt/unknown slots remain available for investigation and count toward disk usage, not valid retention. Remove them only after an explicit operator disposition with verified remaining recovery sets.
+
+The current weekly executable verifies encryption and complete read-back in a local Restic repository only. Production COS delivery, private repository policy, egress, independent alerts, host failure recovery and target-host timing remain External Validation Required. Restore into protected Staging and any Web/Worker activation stay behind the existing lifecycle/Access gate. The executable local restore uses a network-none Linux Synthetic lab with a Unix-socket-only temporary PostgreSQL target and never starts Web/Worker.
+
+Before launch, the Owner must set the acceptable database loss window, complete-site/host-loss window and recovery duration (RPO/RTO), name the recovery operator and decide whether the approved daily/weekly cadence meets those targets. No business targets or higher frequency are inferred here. Measure recovery time and disk headroom against the unchanged 2 vCPU/4 GB/60 GB limits; O-18 relocation scope is unchanged. Deployment remains blocked until the authorized documented restore exercise meets those decisions; a “backup enabled” indicator is not restore proof.
 
 ## Upload and scan incidents
 

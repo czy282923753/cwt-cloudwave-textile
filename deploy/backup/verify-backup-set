@@ -1,0 +1,8 @@
+#!/bin/sh
+. "$(dirname -- "$0")/common.sh"
+postgres_tools
+node "$backup_bin/files.mjs" verify "${1:?Backup set directory is required}"
+(cd -- "$1" && sha256sum --check --status SHA256SUMS) || refuse checksum
+pg_restore --list "$1/database.dump" >/dev/null 2>&1 || refuse dump-catalog
+pg_restore --file=/dev/null "$1/database.dump" 2>/dev/null || refuse dump-payload
+echo 'Backup set verified.'

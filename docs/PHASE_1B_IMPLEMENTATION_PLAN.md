@@ -537,7 +537,7 @@ No formal customer/Product data is used unless separately authorized.
 
 Files/modules: approved deployment/runtime artifacts from Stage 6 plus redacted validation reports and acceptance evidence; provider configuration is external and secrets never enter the repository.
 
-Schema/Migration: no new Stage 7 Migration; validate and apply only the reviewed `0000`–`0021` chain in the isolated Staging databases.
+Schema/Migration: no new Stage 7 Migration. Resolve the complete reviewed Migration chain from the final accepted Candidate and its Journal (currently `0000`–`0022`, including Stage 5 `0022`); validate both Fresh and representative Upgrade paths, repeatability and data/relationship preservation in isolated Staging databases. Do not hard-code an earlier terminal Migration or rewrite historical artifacts.
 
 Security/release invariants: Staging remains access-protected, noindex, formal-analytics-disabled, recipient-overridden, Synthetic-only, and unable to read Production databases, media, secrets, or Admin identities.
 
@@ -551,7 +551,7 @@ Rollback boundary: destroy/recreate isolated Staging; Production remains untouch
 
 ### Stage 8 — Formal Product/media acceptance and launch readiness
 
-Inputs: separately authorized real Product data and rights-approved media, accepted Staging/providers/restore.
+Inputs: separately authorized real Product data and rights-approved media, accepted Staging/providers/restore. Prepare the reusable [first-launch content checklist](./STAGE8_FIRST_LAUNCH_CONTENT_CHECKLIST.md) early; preparation does not authorize formal import, Publish, Index or launch.
 
 Outputs:
 

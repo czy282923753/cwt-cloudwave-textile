@@ -106,3 +106,17 @@ for (const [name, mutate] of [
   const value = normalized(); mutate(value);
   assert.throws(() => validateComposeGraph(value), /refused/u);
 });
+
+for (const role of ["web-production", "worker-production", "web-staging", "worker-staging"]) {
+  test(`refuses backup mount on ${role}`, () => {
+    const document = normalized();
+    document.services[role].volumes ??= [];
+    document.services[role].volumes.push({type: "bind", source: "/srv/cwt/backups/postgresql/production", target: "/backup"});
+    assert.throws(() => validateComposeGraph(document), /cannot mount backups/u);
+  });
+}
+test("requires writable scheduler backup root for daily and one-shot operations", () => {
+  const document = normalized();
+  document.services["scheduler-production"].volumes.find(entry => entry.target.includes("/backups/postgresql/")).read_only = true;
+  assert.throws(() => validateComposeGraph(document), /backup work\/completion mount drifted/u);
+});

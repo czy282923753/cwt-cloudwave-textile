@@ -137,7 +137,7 @@ services:
       - /srv/cwt/production/media/public:/srv/cwt/production/media/public
       - /srv/cwt/production/media/private-inquiries:/srv/cwt/production/media/private-inquiries
       - /srv/cwt/production/media/import:/srv/cwt/production/media/import
-      - /srv/cwt/backups/postgresql/production:/srv/cwt/backups/postgresql/production:ro
+      - /srv/cwt/backups/postgresql/production:/srv/cwt/backups/postgresql/production
     networks: [production-backend, production-database]
 
   postgres:
@@ -232,7 +232,7 @@ services:
       - /srv/cwt/staging/media/public:/srv/cwt/staging/media/public
       - /srv/cwt/staging/media/private-inquiries:/srv/cwt/staging/media/private-inquiries
       - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
-      - /srv/cwt/backups/postgresql/staging:/srv/cwt/backups/postgresql/staging:ro
+      - /srv/cwt/backups/postgresql/staging:/srv/cwt/backups/postgresql/staging
     networks: [staging-backend, staging-database]
 
   valkey-staging:

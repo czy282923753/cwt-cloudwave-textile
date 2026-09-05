@@ -1,3 +1,6 @@
 */1 * * * * /app/deploy/schedule/run-one-at-a-time.sh production node --conditions=react-server --import=tsx /app/scripts/process-notification-outbox.ts
 */5 * * * * /app/deploy/schedule/run-one-at-a-time.sh production node --conditions=react-server --import=tsx /app/scripts/process-object-cleanup.ts
 17 2 * * * /app/deploy/schedule/run-one-at-a-time.sh production node --conditions=react-server --import=tsx /app/scripts/enforce-retention.ts --execute
+31 3 * * * /app/deploy/schedule/run-one-at-a-time.sh production /app/deploy/backup/backup-postgresql
+43 4 * * 0 /app/deploy/schedule/run-one-at-a-time.sh production /app/deploy/backup/backup-weekly
+*/5 * * * * /app/deploy/schedule/run-one-at-a-time.sh production node --conditions=react-server --import=tsx /app/scripts/check-work-health.ts

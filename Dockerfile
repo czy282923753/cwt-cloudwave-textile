@@ -2,9 +2,20 @@
 
 ARG NODE_IMAGE=node:24.14.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8
 
-FROM ${NODE_IMAGE} AS dependency-acquisition
+# Tool acquisition is outside the network-none final build and enters the existing dependency bundle.
+FROM postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382 AS backup-postgresql-tools
+RUN mkdir -p /backup-root/usr/local/bin \
+  && for tool in pg_dump pg_restore psql; do \
+    cp /usr/lib/postgresql/18/bin/$tool /backup-root/usr/local/bin/$tool; \
+    ldd /usr/lib/postgresql/18/bin/$tool; \
+  done > /tmp/backup-libraries \
+  && awk '/=> \// { print $3 } /^[[:space:]]*\// { print $1 }' /tmp/backup-libraries | sort -u | \
+    while read library; do mkdir -p "/backup-root$(dirname "$library")"; cp -L "$library" "/backup-root$library"; done
+
+FROM node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b AS dependency-acquisition
 ARG TARGETARCH
 WORKDIR /workspace
+COPY --from=backup-postgresql-tools /backup-root /dependency/backup-root
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack enable \
   && corepack prepare pnpm@11.9.0 --activate \
@@ -16,6 +27,7 @@ RUN corepack enable \
   && cp -a "$(dirname "$(dirname "${PNPM_ENTRY}")")/." /dependency/pnpm/
 RUN TARGETARCH="${TARGETARCH}" node <<'EOF'
 const { createHash } = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 (async () => {
 async function fetchBytesWithRetry(url) {
@@ -45,6 +57,14 @@ if (createHash("sha256").update(bytes).digest("hex") !== identity.sha256) {
 mkdirSync("/dependency/bin", { recursive: true });
 writeFileSync("/dependency/bin/supercronic", bytes);
 chmodSync("/dependency/bin/supercronic", 0o555);
+const resticHashes = {
+  amd64: "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c",
+  arm64: "a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465",
+};
+const resticBytes = await fetchBytesWithRetry(`https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_${process.env.TARGETARCH}.bz2`);
+if (createHash("sha256").update(resticBytes).digest("hex") !== resticHashes[process.env.TARGETARCH]) throw new Error("Restic checksum mismatch.");
+writeFileSync("/dependency/backup-root/usr/local/bin/restic", execFileSync("bzip2", ["--decompress", "--stdout"], { input: resticBytes, maxBuffer: 128 * 1024 * 1024 }));
+chmodSync("/dependency/backup-root/usr/local/bin/restic", 0o555);
 })().catch((error) => { console.error(error.message); process.exit(1); });
 EOF
 
@@ -96,6 +116,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
   && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg \
   && groupadd --gid 10001 cwt \
   && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin cwt
+COPY --from=dependency-input /backup-root/ /
 COPY --from=dependency-input --chmod=0555 /bin/supercronic /usr/local/bin/supercronic
 COPY --from=build --chown=10001:10001 /app/.next/standalone ./.next/standalone
 COPY --from=build --chown=10001:10001 /app/.next/static ./.next/standalone/.next/static
@@ -108,6 +129,14 @@ COPY --from=build --chown=10001:10001 /app/package.json /app/tsconfig.json ./
 COPY --from=build --chown=10001:10001 /app/scripts ./scripts
 COPY --from=build --chown=10001:10001 /app/src ./src
 COPY --from=build --chown=10001:10001 /app/deploy/schedule ./deploy/schedule
+COPY --from=build --chown=10001:10001 /app/deploy/backup ./deploy/backup
+COPY --from=build --chown=10001:10001 /app/deploy/proxy/nginx.conf ./deploy/proxy/nginx.conf
+COPY --from=build --chown=10001:10001 /app/compose.yaml ./compose.yaml
+RUN pg_dump --version | grep -Eq 'PostgreSQL\) 18\.' \
+  && pg_restore --version | grep -Eq 'PostgreSQL\) 18\.' \
+  && psql --version | grep -Eq 'PostgreSQL\) 18\.' \
+  && restic version | grep -q '^restic 0.19.1 ' \
+  && command -v flock && command -v sha256sum
 RUN test "$(node --version)" = "v24.14.0" \
   && test "$(node -p "require('tsx/package.json').version")" = "4.23.1" \
   && for path in \

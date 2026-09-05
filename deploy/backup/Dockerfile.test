@@ -1,0 +1,22 @@
+# Disposable local test tooling only. Never an immutable CWT release subject.
+FROM node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b AS tools
+ARG TARGETARCH
+RUN TARGETARCH="$TARGETARCH" node <<'JS'
+const {execFileSync} = require('node:child_process');
+const {createHash} = require('node:crypto');
+const {writeFileSync} = require('node:fs');
+(async () => {
+  const hashes = {amd64: 'f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c', arm64: 'a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465'};
+  const response = await fetch(`https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_${process.env.TARGETARCH}.bz2`);
+  if (!response.ok) throw new Error('Tool download failed');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (createHash('sha256').update(bytes).digest('hex') !== hashes[process.env.TARGETARCH]) throw new Error('Tool checksum mismatch');
+  writeFileSync('/usr/local/bin/restic', execFileSync('bzip2', ['-dc'], {input: bytes, maxBuffer: 128 * 1024 * 1024}), {mode: 0o555});
+})().catch(() => {process.stderr.write('Local test-tool acquisition failed.\n'); process.exit(1);});
+JS
+FROM postgres:18.4@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a
+COPY --from=tools /usr/local/bin/node /usr/local/bin/node
+COPY --from=tools /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=tools /usr/local/bin/restic /usr/local/bin/restic
+RUN ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack && corepack enable \
+  && node --version && pg_dump --version && restic version

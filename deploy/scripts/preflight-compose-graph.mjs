@@ -167,12 +167,15 @@ export function validateComposeGraph(document, { projectName = "cwt" } = {}) {
   for (const [name, service] of Object.entries(services)) {
     if ((service.tmpfs ?? []).some((entry) => standaloneTmpfsOption.test(entry))) fail(`${name} contains a split tmpfs option fragment`);
   }
+  for (const name of ["web-production", "web-staging", "worker-production", "worker-staging"]) {
+    if ((services[name].volumes ?? []).some(volume => [volume.source, volume.target].some(path => path === "/srv/cwt/backups" || path?.startsWith("/srv/cwt/backups/")))) fail(`${name} cannot mount backups`);
+  }
   for (const environment of ["production", "staging"]) {
     const scheduler = services[`scheduler-${environment}`];
     const target = `/srv/cwt/backups/postgresql/${environment}`;
     const backupMounts = (scheduler.volumes ?? []).filter((volume) => volume.target?.startsWith("/srv/cwt/backups/postgresql/"));
-    if (backupMounts.length !== 1 || backupMounts[0].source !== target || backupMounts[0].target !== target || backupMounts[0].read_only !== true) {
-      fail(`${environment} backup-completion evidence mount drifted`);
+    if (backupMounts.length !== 1 || backupMounts[0].source !== target || backupMounts[0].target !== target || backupMounts[0].read_only === true) {
+      fail(`${environment} backup work/completion mount drifted`);
     }
   }
   for (const [name, command] of Object.entries(exactCommands)) {

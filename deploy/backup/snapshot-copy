@@ -1,0 +1,4 @@
+#!/bin/sh
+. "$(dirname -- "$0")/common.sh"
+pg_dump -Fc --compress=gzip:6 --no-owner --no-acl --snapshot="$CWT_BACKUP_SNAPSHOT" --file=database.dump 2>/dev/null || refuse dump
+node "$backup_bin/files.mjs" copy-objects "$PWD"

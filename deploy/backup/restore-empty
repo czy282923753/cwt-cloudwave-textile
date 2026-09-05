@@ -1,0 +1,32 @@
+#!/bin/sh
+# Only a network-none Synthetic lab is supported by this local restore entry point.
+. "$(dirname -- "$0")/common.sh"
+source_set=${1:?Completed weekly set directory is required}
+target=${2:?Empty restore root is required}
+postgres_tools
+: "${PGUSER:?A dedicated restore user is required}"
+export PGPORT=5432
+# Connection is a local Unix socket to a dedicated empty rehearsal database.
+case "${PGHOST:-}" in /*) ;; *) refuse restore-socket ;; esac
+case "${PGDATABASE:-}" in cwt_restore_*) ;; *) refuse restore-database-name ;; esac
+case "${PGDATABASE:-}${PGUSER:-}" in *[!a-zA-Z0-9_]*|'') refuse restore-identity ;; esac
+unset DATABASE_URL_FILE PGSERVICE PGSERVICEFILE PGOPTIONS BACKUP_ENVIRONMENT
+"$backup_bin/verify-backup-set" "$source_set" >/dev/null
+node "$backup_bin/restore-files.mjs" prepare "$source_set" "$target"
+# Do not restore ACLs, source roles or database-level settings into the new identity.
+empty=$(psql -XAtq -v ON_ERROR_STOP=1 <<'SQL' 2>/dev/null
+SELECT NOT EXISTS (SELECT FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%')
+AND NOT EXISTS (SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public')
+AND NOT EXISTS (SELECT FROM pg_roles WHERE rolname=current_user AND (rolsuper OR rolcreatedb OR rolcreaterole))
+AND NOT EXISTS (SELECT FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid());
+SQL
+) || refuse restore-database
+test "$empty" = t || refuse nonempty-or-privileged-restore
+pg_restore --single-transaction --exit-on-error --no-owner --no-acl --dbname="$PGDATABASE" "$source_set/database.dump" >/dev/null 2>&1 || refuse restore-database
+node "$backup_bin/restore-files.mjs" copy "$source_set" "$target"
+psql -XAtq -v ON_ERROR_STOP=1 -f "$backup_bin/objects.sql" >"$target/restored-objects.jsonl" 2>/dev/null || refuse restore-inventory
+cmp -s "$source_set/objects.jsonl" "$target/restored-objects.jsonl" || refuse restore-database-media-mismatch
+# A clean environment prevents inherited Production transports/settings or secrets.
+env -i PATH="$PATH" PGHOST="$PGHOST" PGDATABASE="$PGDATABASE" PGUSER="$PGUSER" PGPASSWORD="${PGPASSWORD:-}" \
+  CWT_RESTORE_ROOT="$target" node --conditions=react-server --import=tsx "$backup_bin/restore-verify.ts" || refuse restored-readiness
+echo 'Synthetic restore verified. No Web or Worker was started; network isolation remains required.'

@@ -38,7 +38,7 @@ test("keeps direct Node/tsx roles and package-manager-free schedules", () => {
   const staging = readFileSync("deploy/schedule/staging.crontab", "utf8");
   assert.doesNotMatch(`${compose}\n${production}\n${staging}`, /(?:^|[\s,["'])pnpm(?:$|[\s,\]"'])/mu);
   for (const document of [production, staging]) {
-    assert.equal((document.match(/node --conditions=react-server --import=tsx/gu) ?? []).length, 3);
+    assert.equal((document.match(/node --conditions=react-server --import=tsx/gu) ?? []).length, 4);
   }
   assert.match(compose, /profiles: \[production-ai\][\s\S]*restart: "no"/u);
 });
