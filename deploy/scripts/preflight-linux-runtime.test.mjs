@@ -158,108 +158,197 @@ test("binds Git's sudo ownership bridge to root, one canonical repository owner,
   }), /ownership bridge facts/u);
 
   const repositoryRoot = realpathSync(resolve("."));
-  assert.equal(__testOnly.exactRepositoryRoot(repositoryRoot), repositoryRoot);
   const temporaryRoot = realpathSync(mkdtempSync(resolve(tmpdir(), "cwt-source-path-")));
   try {
     const link = resolve(temporaryRoot, "repository-link");
     symlinkSync(repositoryRoot, link);
     assert.throws(() => __testOnly.exactCanonicalDirectory(link, "repository", "repository_invalid"), /canonical non-symlink/u);
-    assert.throws(() => __testOnly.exactRepositoryRoot(temporaryRoot), /checkout containing this validator/u);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
 });
 
-test("executes exact read-only Git identity checks across sudo without widening Git ownership policy", () => {
+test("executes mixed-revision preparation, transport and sole image authority under root and sudo ownership", () => {
   const sourceRoot = realpathSync(resolve("."));
-  const probe = String.raw`
-    import { execFileSync, spawnSync } from "node:child_process";
-    import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-    const { __testOnly } = await import("file:///cwt/deploy/scripts/preflight-linux-runtime.mjs");
-    const git = (repository, args) => execFileSync("git", ["-C", repository, ...args], { encoding: "utf8" }).trim();
-    const createRepository = (path, ownerUid) => {
-      mkdirSync(path);
-      git(path, ["init", "-q"]);
-      git(path, ["config", "user.name", "CWT F-01"]);
-      git(path, ["config", "user.email", "f01@invalid.example"]);
-      execFileSync("sh", ["-ceu", ": > proof && git add proof && git commit -qm initial"], { cwd: path });
-      const head = git(path, ["rev-parse", "HEAD"]);
-      execFileSync("chown", ["-R", String(ownerUid) + ":" + String(ownerUid), path]);
-      return head;
-    };
-    const rejectCode = (action) => {
-      try { action(); return "unexpected-pass"; } catch (error) { return error.code ?? "missing-code"; }
-    };
-    const globalSafeDirectory = () => {
-      const result = spawnSync("git", ["config", "--global", "--get-all", "safe.directory"], { encoding: "utf8" });
-      return { status: result.status, stdout: result.stdout };
-    };
-    const before = globalSafeDirectory();
-    const runnerRepository = "/tmp/runner-repository";
-    const runnerHead = createRepository(runnerRepository, 1000);
-    process.env.SUDO_UID = "1000";
-    __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead);
-    const wrongCommit = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, "a".repeat(40)));
-    writeFileSync(runnerRepository + "/dirty", "dirty");
-    const dirtyWorktree = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
-    rmSync(runnerRepository + "/dirty");
-    delete process.env.SUDO_UID;
-    const missing = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
-    process.env.SUDO_UID = "malformed";
-    const malformed = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
-    process.env.SUDO_UID = "0";
-    const rootOrigin = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
-    process.env.SUDO_UID = "1001";
-    const incorrect = rejectCode(() => __testOnly.verifyRepositoryIdentity(runnerRepository, runnerHead));
-    const otherRepository = "/tmp/other-repository";
-    const otherHead = createRepository(otherRepository, 1001);
-    process.env.SUDO_UID = "1000";
-    const differentOwner = rejectCode(() => __testOnly.verifyRepositoryIdentity(otherRepository, otherHead));
-    symlinkSync(runnerRepository, "/tmp/runner-repository-link");
-    const symlink = rejectCode(() => __testOnly.verifyRepositoryIdentity("/tmp/runner-repository-link", runnerHead));
-    const arbitraryPath = rejectCode(() => __testOnly.exactRepositoryRoot(runnerRepository));
-    const rootRepository = "/tmp/root-repository";
-    const rootHead = createRepository(rootRepository, 0);
-    delete process.env.SUDO_UID;
-    __testOnly.verifyRepositoryIdentity(rootRepository, rootHead);
-    const after = globalSafeDirectory();
-    process.stdout.write(JSON.stringify({
-      matchingOwner: "PASS",
-      rootNormalOwnership: "PASS",
-      wrongCommit,
-      dirtyWorktree,
-      missing,
-      malformed,
-      rootOrigin,
-      incorrect,
-      differentOwner,
-      symlink,
-      arbitraryPath,
-      globalSafeDirectoryUnchanged: JSON.stringify(before) === JSON.stringify(after),
-    }));
-  `;
-  const result = JSON.parse(execFileSync("docker", [
-    "run", "--rm", "--pull", "never", "--network", "none", "--volume", `${sourceRoot}:/cwt:ro`,
-    "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", probe,
-  ], { encoding: "utf8" }));
-  assert.deepEqual(result, {
-    matchingOwner: "PASS",
-    rootNormalOwnership: "PASS",
-    wrongCommit: "source_identity_mismatch",
-    dirtyWorktree: "source_identity_mismatch",
-    missing: "source_owner_bridge_missing",
-    malformed: "source_owner_bridge_invalid",
-    rootOrigin: "source_owner_bridge_invalid",
-    incorrect: "source_owner_bridge_mismatch",
-    differentOwner: "source_owner_bridge_mismatch",
-    symlink: "repository_invalid",
-    arbitraryPath: "repository_source_mismatch",
-    globalSafeDirectoryUnchanged: true,
-  });
-
+  const scratch = realpathSync(mkdtempSync(resolve(tmpdir(), "cwt-mixed-runtime-")));
+  const frozen = "7e6ef0ad9fd00975da93789421c0d24ec9226e82";
+  try {
+    const exporter = resolve(scratch, "exporter");
+    execFileSync("git", ["clone", "--quiet", "--shared", "--no-checkout", sourceRoot, exporter]);
+    execFileSync("git", ["-C", exporter, "checkout", "--quiet", "--detach", frozen]);
+    execFileSync("git", ["-C", exporter, "bundle", "create", resolve(scratch, "subject.bundle"), "HEAD"]);
+    const probe = String.raw`
+      import assert from "node:assert/strict";
+      import { execFileSync, spawnSync } from "node:child_process";
+      import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+      import { createHash } from "node:crypto";
+      const tools = "/tmp/runtime-tools", subject = "/tmp/release-subject";
+      const frozen = "7e6ef0ad9fd00975da93789421c0d24ec9226e82";
+      delete process.env.SUDO_UID;
+      delete process.env.DOCKER_CONFIG;
+      const git = (path, args) => execFileSync("git", ["-C", path, ...args], { encoding: "utf8" }).trim();
+      const globalPolicy = () => {
+        const result = spawnSync("git", ["config", "--global", "--get-all", "safe.directory"], { encoding: "utf8" });
+        return { status: result.status, stdout: result.stdout };
+      };
+      const before = globalPolicy();
+      execFileSync("git", ["clone", "-q", "--no-checkout", "/fixture/subject.bundle", subject]);
+      git(subject, ["checkout", "-q", "--detach", frozen]);
+      mkdirSync(tools);
+      cpSync("/cwt/deploy", tools + "/deploy", { recursive: true });
+      const profileRelative = "/deploy/runtime-validation/linux-amd64-compatibility.v1.json";
+      const fixedProfile = JSON.parse(readFileSync(tools + profileRelative));
+      fixedProfile.profiles[0].id += "-synthetic-reviewed";
+      writeFileSync(tools + profileRelative, JSON.stringify(fixedProfile));
+      writeFileSync(tools + "/compose.yaml", "SYNTHETIC TOOLS COMPOSE MUST NOT BE SELECTED");
+      mkdirSync(tools + "/drizzle");
+      writeFileSync(tools + "/drizzle/synthetic.sql", "SYNTHETIC TOOLS SQL MUST NOT BE SELECTED");
+      git(tools, ["init", "-q"]);
+      const commit = () => {
+        git(tools, ["add", "."]);
+        git(tools, ["-c", "user.name=Synthetic", "-c", "user.email=synthetic@invalid.example", "commit", "-qm", "synthetic reviewed tools"]);
+        return git(tools, ["rev-parse", "HEAD"]);
+      };
+      const toolsCommit = commit();
+      const { prepareRuntimeInputs, __testOnly: checks } = await import("file://" + tools + "/deploy/scripts/preflight-linux-runtime.mjs");
+      const index = "sha256:89e04e7201694e6f202c71cceb368622cc2d584136a7eedfaee9044a45023e8a";
+      const header = { releaseId: frozen, source: { commit: frozen }, oci: { indexDigest: index }, state: "built" };
+      writeFileSync("/tmp/release.json", JSON.stringify(header));
+      mkdirSync("/tmp/subject.oci");
+      const args = { repository: subject, "tools-commit": toolsCommit, release: "/tmp/release.json", oci: "/tmp/subject.oci",
+        image: "ghcr.io/czy282923753/cwt-cloudwave-textile@" + index, evidence: "/tmp/runtime-outcome", token: "runtime-proof" };
+      const rejects = (action, code) => assert.throws(action, (error) => error.code === code);
+      const proveInputs = () => {
+        const prepared = prepareRuntimeInputs(args);
+        assert.equal(prepared.toolsRoot, tools);
+        assert.equal(prepared.repositoryRoot, subject);
+        assert.equal(prepared.reference.indexDigest, index);
+        assert.deepEqual(prepared.tools, { commit: toolsCommit, compatibilityProfileSha256: createHash("sha256").update(readFileSync(tools + profileRelative)).digest("hex") });
+        assert.equal(prepared.profile.profiles[0].id, fixedProfile.profiles[0].id);
+        assert.notDeepEqual(readFileSync(tools + profileRelative), readFileSync(subject + profileRelative));
+        for (const command of Object.values(prepared.plan)) {
+          if (!Array.isArray(command)) continue;
+          if (command[0] === "compose") {
+            assert.equal(command[command.indexOf("--project-directory") + 1], subject);
+            assert.equal(command[command.indexOf("--file") + 1], subject + "/compose.yaml");
+          }
+        }
+        assert.ok(prepared.plan.migrate.includes(subject + "/drizzle:/app/drizzle:ro"));
+        assert.ok(JSON.stringify(prepared.plan.migrate).includes("/app/scripts/migrate.ts"));
+        assert.equal(existsSync(args.evidence), false);
+      };
+      proveInputs();
+      // Both real Git roots are exercised in each supported owner role.
+      for (const uid of [0, 1000]) {
+        for (const root of [tools, subject]) execFileSync("chown", ["-R", String(uid) + ":" + String(uid), root]);
+        if (uid === 0) delete process.env.SUDO_UID; else process.env.SUDO_UID = "1000";
+        proveInputs();
+        for (const root of [tools, subject]) {
+          const expected = root === tools ? toolsCommit : frozen;
+          rejects(() => checks.verifyRepositoryIdentity(root, "a".repeat(40)), "source_identity_mismatch");
+          writeFileSync(root + "/synthetic-dirty", "synthetic");
+          rejects(() => prepareRuntimeInputs(args), "source_identity_mismatch");
+          rmSync(root + "/synthetic-dirty");
+          rejects(() => checks.verifyRepositoryIdentity(root + "/deploy", expected), "source_identity_mismatch");
+          symlinkSync(root, root + "-link");
+          rejects(() => checks.verifyRepositoryIdentity(root + "-link", expected), "repository_invalid");
+          rmSync(root + "-link");
+          if (uid === 1000) {
+            delete process.env.SUDO_UID;
+            rejects(() => checks.verifyRepositoryIdentity(root, expected), "source_owner_bridge_missing");
+            for (const invalid of ["malformed", "0"]) {
+              process.env.SUDO_UID = invalid;
+              rejects(() => checks.verifyRepositoryIdentity(root, expected), "source_owner_bridge_invalid");
+            }
+            process.env.SUDO_UID = "1001";
+            rejects(() => checks.verifyRepositoryIdentity(root, expected), "source_owner_bridge_mismatch");
+            process.env.SUDO_UID = "1000";
+            execFileSync("chown", ["1001:1001", root]);
+            rejects(() => prepareRuntimeInputs(args), "source_owner_bridge_mismatch");
+            execFileSync("chown", ["1000:1000", root]);
+          }
+        }
+      }
+      rejects(() => prepareRuntimeInputs({ ...args, "tools-commit": frozen }), "source_identity_mismatch");
+      rejects(() => prepareRuntimeInputs({ ...args, repository: tools }), "repository_source_mismatch");
+      rejects(() => prepareRuntimeInputs({ ...args, repository: subject + "/deploy" }), "repository_source_mismatch");
+      symlinkSync(subject, subject + "-link");
+      rejects(() => prepareRuntimeInputs({ ...args, repository: subject + "-link" }), "repository_invalid");
+      rmSync(subject + "-link");
+      for (const root of [tools, subject]) {
+        rejects(() => prepareRuntimeInputs({ ...args, evidence: root + "/outcome" }), "evidence_path_invalid");
+        rejects(() => prepareRuntimeInputs({ ...args, oci: root + "/drizzle" }), "oci_evidence_invalid");
+        rejects(() => prepareRuntimeInputs({ ...args, release: root + profileRelative }), "release_record_invalid");
+        // Ignored credential fixtures preserve clean Git and exercise the path boundary itself.
+        writeFileSync(root + "/.git/config.json", "{}");
+        process.env.DOCKER_CONFIG = root + "/.git";
+        rejects(() => prepareRuntimeInputs(args), "docker_credentials_unavailable");
+        delete process.env.DOCKER_CONFIG; rmSync(root + "/.git/config.json");
+        symlinkSync(root, "/tmp/source-link");
+        rejects(() => prepareRuntimeInputs({ ...args, evidence: "/tmp/source-link/outcome" }), "evidence_path_invalid");
+        rmSync("/tmp/source-link");
+      }
+      const originalProfile = readFileSync(tools + profileRelative);
+      writeFileSync(tools + profileRelative, readFileSync(subject + profileRelative));
+      rejects(() => prepareRuntimeInputs(args), "source_identity_mismatch");
+      writeFileSync(tools + profileRelative, originalProfile);
+      // Even a clean tracked symlink cannot substitute the fixed tools profile.
+      rmSync(tools + profileRelative); symlinkSync(subject + profileRelative, tools + profileRelative);
+      const substitutedCommit = commit();
+      rejects(() => prepareRuntimeInputs({ ...args, "tools-commit": substitutedCommit }), "compatibility_profile_untracked");
+      git(tools, ["reset", "--hard", toolsCommit]);
+      assert.deepEqual(globalPolicy(), before);
+      // Reuse the unchanged OCI test fixture generator, substituting only its synthetic source identity.
+      let fixtureSource = readFileSync("/cwt/deploy/scripts/preflight-image.test.mjs", "utf8").split('test("verifies an exact OCI index')[0];
+      fixtureSource = fixtureSource.replace('from "./preflight-image.mjs"', 'from "file://' + tools + '/deploy/scripts/preflight-image.mjs"')
+        .replace('const releaseId = "1".repeat(40)', 'const releaseId = "' + frozen + '"')
+        .replace('afterEach(() => { while (roots.length) rmSync(roots.pop(), { recursive: true, force: true }); });', '');
+      const { fixture } = await import("data:text/javascript;base64," + Buffer.from(fixtureSource + "; export { fixture };").toString("base64"));
+      const value = fixture();
+      const recordBefore = readFileSync(value.releasePath);
+      const output = "/tmp/materialized.oci", auth = "/tmp/auth.json", oras = "/tmp/synthetic-oras";
+      writeFileSync(auth, "{}", { mode: 0o600 });
+      const descriptor = JSON.parse(readFileSync(value.layout + "/index.json")).manifests.find((entry) => entry.digest === value.subjectDigest);
+      writeFileSync(oras, '#!/usr/local/bin/node\n' +
+        'const fs=require("node:fs"); const args=process.argv.slice(2); fs.appendFileSync("/tmp/transport-calls",args[0]+"\\n");' +
+        'if(args[0]==="version") console.log("Version: 1.3.3\\nGit commit: 210747c29c1d38732b3194878dfd8b5a6b9ad7eb\\nGit tree state: clean");' +
+        'else if(args[0]==="manifest") console.log(' + JSON.stringify(JSON.stringify(descriptor)) + ');' +
+        'else if(args[0]==="cp") fs.cpSync(' + JSON.stringify(value.layout) + ',' + JSON.stringify(output) + ',{recursive:true}); else process.exit(1);', { mode: 0o700 });
+      const materialize = spawnSync(process.execPath, [tools + "/deploy/scripts/release-registry-integration.mjs", "materialize",
+        "--oras", oras, "--auth", auth, "--release", value.releasePath, "--output", output,
+        "--github-repository", "czy282923753/cwt-cloudwave-textile", "--release-id", frozen, "--index-digest", value.subjectDigest], { encoding: "utf8" });
+      assert.equal(materialize.status, 0, materialize.stderr);
+      assert.deepEqual(readFileSync("/tmp/transport-calls", "utf8").trim().split("\n"), ["version", "manifest", "cp"]);
+      const input = { ...args, release: value.releasePath, oci: output, image: "ghcr.io/czy282923753/cwt-cloudwave-textile@" + value.subjectDigest };
+      prepareRuntimeInputs(input);
+      const cli = (overrides = {}) => spawnSync(process.execPath, [tools + "/deploy/scripts/preflight-linux-runtime.mjs", "validate",
+        ...Object.entries({ ...input, ...overrides }).flatMap(([key, value]) => ["--" + key, value])], { encoding: "utf8" });
+      const rejectedHeader = cli({ image: args.image });
+      assert.deepEqual(JSON.parse(rejectedHeader.stderr), { status: "NOT_PASS", reasonCode: "release_identity_mismatch", mismatchFields: ["oci.indexDigest"] });
+      assert.equal(existsSync(args.evidence), false);
+      const result = cli();
+      assert.equal(result.status, 1);
+      const outcome = JSON.parse(readFileSync(args.evidence + "/linux-runtime-validation.json"));
+      assert.equal(outcome.reasonCode, "docker_credentials_unavailable");
+      assert.equal(outcome.authorities.imageEvidence, "preflight-image");
+      assert.equal(outcome.release.releaseId, frozen);
+      assert.equal(outcome.release.indexDigest, value.subjectDigest);
+      assert.equal(outcome.tools.commit, toolsCommit);
+      assert.equal(outcome.tools.compatibilityProfileSha256, createHash("sha256").update(originalProfile).digest("hex"));
+      assert.deepEqual(readFileSync(value.releasePath), recordBefore);
+      assert.equal(existsSync("/etc/cwt"), false);
+      assert.equal(existsSync("/srv/cwt"), false);
+      assert.deepEqual(globalPolicy(), before);
+      console.log("PASS: mixed revisions, both root/sudo roles, exact roots, profile/paths, transport, sole image authority; native host not reached");
+    `;
+    const output = execFileSync("docker", [
+      "run", "--rm", "--pull", "never", "--network", "none", "--volume", `${sourceRoot}:/cwt:ro`,
+      "--volume", `${scratch}:/fixture:ro`, "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", probe,
+    ], { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
+    assert.match(output, /PASS: mixed revisions/u);
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
   const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
-  assert.match(source, /run\("git", \["rev-parse", "HEAD"\][^\n]+env: gitEnv/u);
-  assert.match(source, /run\("git", \["status", "--porcelain=v1"\][^\n]+env: gitEnv/u);
+  assert.match(source, /run\("git", \["rev-parse", "--show-toplevel"\][^\n]+env: gitEnv/u);
   assert.doesNotMatch(source, /run\("docker"[^\n]+env: gitEnv/u);
   assert.doesNotMatch(source, /safe\.directory|safe-directory/u);
 });
@@ -343,12 +432,14 @@ test("keeps real-shaped runtime.env, secret-file and isolated staging storage co
     exactProtectedSecretFiles.map((entry) => `staging-${entry.subjectSuffix}`).sort());
 });
 
-test("rejects caller profile substitution and retains only the repository-tracked compatibility path", () => {
+test("rejects caller profile substitution and retains only the tools-tracked compatibility path", () => {
   const required = [
     "validate", "--release", "/release.json", "--oci", "/subject.oci", "--image", REFERENCE,
-    "--evidence", "/evidence", "--token", "runtime-proof",
+    "--evidence", "/evidence", "--token", "runtime-proof", "--repository", "/subject", "--tools-commit", RELEASE,
   ];
   assert.equal(__testOnly.parseArguments(required).profile, undefined);
+  assert.throws(() => __testOnly.parseArguments(required.slice(0, -4)), /arguments are invalid/u);
+  assert.throws(() => __testOnly.parseArguments(required.slice(0, -2)), /arguments are invalid/u);
   assert.throws(() => __testOnly.parseArguments([...required, "--profile", "/tmp/unreviewed.json"]), /arguments are invalid/u);
   const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
   assert.match(source, /exactExistingPath\(DEFAULT_PROFILE, "compatibility profile"/u);

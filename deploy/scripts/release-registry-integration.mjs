@@ -123,10 +123,18 @@ export function validateOrasIdentity(output) {
 }
 
 export function validateReleaseIdentity(record, { releaseId, indexDigest }) {
-  if (!RELEASE.test(releaseId ?? "") || !DIGEST.test(indexDigest ?? "") ||
-    record?.releaseId !== releaseId || record?.source?.commit !== releaseId || record?.oci?.indexDigest !== indexDigest ||
-    record?.state !== "built") {
-    refuse("release_identity_mismatch", "Release record does not match the exact immutable inputs.");
+  const mismatchFields = [
+    ["input.releaseId", typeof releaseId !== "string" || !RELEASE.test(releaseId)],
+    ["input.indexDigest", typeof indexDigest !== "string" || !DIGEST.test(indexDigest)],
+    ["releaseId", typeof record?.releaseId !== "string" || !RELEASE.test(record.releaseId) || record.releaseId !== releaseId],
+    ["source.commit", typeof record?.source?.commit !== "string" || !RELEASE.test(record.source.commit) || record.source.commit !== releaseId],
+    ["oci.indexDigest", typeof record?.oci?.indexDigest !== "string" || !DIGEST.test(record.oci.indexDigest) || record.oci.indexDigest !== indexDigest],
+    ["state", record?.state !== "built"],
+  ].filter(([, mismatch]) => mismatch).map(([field]) => field);
+  if (mismatchFields.length > 0) {
+    const failure = new RegistryIntegrationFailure("release_identity_mismatch", "Release record does not match the exact immutable inputs.");
+    failure.mismatchFields = Object.freeze(mismatchFields);
+    throw failure;
   }
   return true;
 }
@@ -187,11 +195,13 @@ export function validateRuntimeRunnerBinding({ eventName, runAttempt, runnerEnvi
 
 function parseArguments(argv) {
   const command = argv[0];
-  if (!["publish", "materialize", "verify-runner"].includes(command) || argv.length % 2 !== 1) {
+  if (!["publish", "materialize", "verify-runner", "check-release"].includes(command) || argv.length % 2 !== 1) {
     refuse("arguments_invalid", "Registry integration arguments are invalid.");
   }
   const values = {};
-  const allowed = command === "verify-runner"
+  const allowed = command === "check-release"
+    ? new Set(["release", "release-id", "index-digest"])
+    : command === "verify-runner"
     ? new Set(["event", "attempt", "environment", "os", "arch", "name", "nonce"])
     : new Set(["oras", "auth", "release", "oci", "output", "github-repository", "release-id", "index-digest"]);
   for (let index = 1; index < argv.length; index += 2) {
@@ -298,6 +308,11 @@ function main(argv) {
       nonce: values.nonce,
     }) };
   }
+  if (command === "check-release") {
+    const releasePath = exactExistingFile(values.release, "Release record");
+    validateReleaseIdentity(releaseRecord(releasePath), { releaseId: values["release-id"], indexDigest: values["index-digest"] });
+    return { status: "PASS" };
+  }
   if (command === "publish") return publish(values);
   return materialize(values);
 }
@@ -307,7 +322,7 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
     process.stdout.write(`${JSON.stringify(main(process.argv.slice(2)))}\n`);
   } catch (error) {
     const code = error instanceof RegistryIntegrationFailure ? error.code : "integration_not_pass";
-    process.stderr.write(`${JSON.stringify({ status: "NOT_PASS", reasonCode: code })}\n`);
+    process.stderr.write(`${JSON.stringify({ status: "NOT_PASS", reasonCode: code, ...(error instanceof RegistryIntegrationFailure && error.mismatchFields ? { mismatchFields: error.mismatchFields } : {}) })}\n`);
     process.exitCode = 1;
   }
 }
