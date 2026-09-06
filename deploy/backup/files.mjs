@@ -189,8 +189,8 @@ try {
     if (health) {
       if (health.schemaVersion !== 1 || health.environment !== environment || health.kind !== 'daily_database' || health.status !== 'complete' || !Number.isFinite(Date.parse(health.completedAt))) fail();
       const corresponding = valid.find(item => item.completedAt === health.completedAt);
-      if (!corresponding) fail();
-      protectedPaths.add(corresponding.path);
+      if (corresponding) protectedPaths.add(corresponding.path);
+      else if (!directory) fail();
     }
     if (!directory && protectedPaths.size !== 1) fail();
 

@@ -151,6 +151,23 @@ INSERT INTO inquiry_assets (inquiry_id,asset_id) VALUES ('33333333-3333-4333-833
     writeFileSync(`${clockRoot}/latest-complete.json`, JSON.stringify({ ...marker, completedAt: '2000-01-01T00:00:00.000Z' }));
     refuses('retain-backups', ['daily'], clockEnv);
     assert.deepEqual(readdirSync(`${clockRoot}/daily`).sort(), beforeMissingCorrespondence);
+
+    const recovered = command('backup-postgresql', [], clockEnv);
+    let recoveredMarker = JSON.parse(readFileSync(`${clockRoot}/latest-complete.json`, 'utf8'));
+    assert.equal(JSON.parse(readFileSync(`${recovered}/complete.json`, 'utf8')).completedAt, recoveredMarker.completedAt);
+    let converged = readdirSync(`${clockRoot}/daily`);
+    assert.equal(converged.includes(recovered.slice(`${clockRoot}/daily/`.length)), true);
+    assert.equal(converged.filter(name => /^\d{8}T\d{6}-[a-zA-Z0-9]+$/.test(name) && name !== '99991231T235959-corrupt').length, 7);
+
+    const subsequent = command('backup-postgresql', [], clockEnv);
+    command('retain-backups', ['daily'], clockEnv);
+    recoveredMarker = JSON.parse(readFileSync(`${clockRoot}/latest-complete.json`, 'utf8'));
+    assert.equal(JSON.parse(readFileSync(`${subsequent}/complete.json`, 'utf8')).completedAt, recoveredMarker.completedAt);
+    converged = readdirSync(`${clockRoot}/daily`);
+    assert.equal(converged.includes(subsequent.slice(`${clockRoot}/daily/`.length)), true);
+    assert.equal(converged.includes('99991231T235959-corrupt'), true);
+    assert.equal(converged.includes('unknown-format'), true);
+    assert.equal(converged.filter(name => /^\d{8}T\d{6}-[a-zA-Z0-9]+$/.test(name) && name !== '99991231T235959-corrupt').length, 7);
   });
   await t.test('snapshot-coupled originals, exactly two database sessions and encrypted local read-back', async () => {
     const blocker = spawn('psql', ['-XAtq', '-v', 'ON_ERROR_STOP=1'], { env: { ...env, PGAPPNAME: 'cwt-test-blocker' }, stdio: ['pipe', 'pipe', 'pipe'] });
