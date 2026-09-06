@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
 
@@ -22,7 +23,6 @@ const AUTH = "/run/cwt-ghcr/config.json";
 const ORAS = "/opt/cwt-tools/oras";
 const OCI = "/tmp/cwt-release/subject.oci";
 const FROZEN_RELEASE = "7e6ef0ad9fd00975da93789421c0d24ec9226e82";
-const REVIEWED_WORKFLOW_CONTROL = "5bfbea04597a405061f7760f8b5db8517b69dcfa";
 
 function assertRuntimeNodeSetupOrdering(workflow) {
   const setupMarker = "      - name: Install exact Node.js\n";
@@ -40,19 +40,10 @@ function assertRuntimeNodeSetupOrdering(workflow) {
   }
 }
 
-function runRuntimeIdentityBinding(workflow, { workflowCommit, githubSha, releaseCommit, checkoutCommit }) {
-  const start = workflow.indexOf("          if [[ ! \"$WORKFLOW_COMMIT\"");
-  const end = workflow.indexOf("          fi\n", start);
-  const binding = start >= 0 && end >= 0 ? workflow.slice(start, end + "          fi\n".length) : "";
-  assert.ok(binding, "Expected the exact workflow-control and release identity binding");
-  return spawnSync("bash", ["-u", "-o", "pipefail", "-c", binding.replace(/^ {10}/gmu, "")], {
-    env: {
-      CHECKOUT_COMMIT: checkoutCommit,
-      GITHUB_SHA: githubSha,
-      RELEASE_COMMIT: releaseCommit,
-      WORKFLOW_COMMIT: workflowCommit,
-    },
-  });
+function workflowRun(workflow, name) {
+  const step = workflow.split("      - name: ").find((value) => value.startsWith(`${name}\n`));
+  assert.ok(step, name);
+  return step.split("        run: |\n")[1].replace(/^ {10}/gmu, "").trim();
 }
 
 test("binds registry identity to the exact lowercase GitHub repository", () => {
@@ -69,12 +60,52 @@ test("pins the patched ORAS identity and rejects version or source drift", () =>
   assert.throws(() => validateOrasIdentity(exact.replace("clean", "dirty")), /pinned release/u);
 });
 
-test("requires built release, source and exact index identities to agree", () => {
-  const record = { releaseId: RELEASE, source: { commit: RELEASE }, oci: { indexDigest: INDEX }, state: "built" };
-  assert.equal(validateReleaseIdentity(record, { releaseId: RELEASE, indexDigest: INDEX }), true);
-  assert.throws(() => validateReleaseIdentity({ ...record, state: "staging_validated" }, { releaseId: RELEASE, indexDigest: INDEX }), /exact immutable inputs/u);
-  assert.throws(() => validateReleaseIdentity(record, { releaseId: "c".repeat(40), indexDigest: INDEX }), /exact immutable inputs/u);
-  assert.throws(() => validateReleaseIdentity(record, { releaseId: RELEASE, indexDigest: `sha256:${"d".repeat(64)}` }), /exact immutable inputs/u);
+test("checks the release header without network, credentials or state and emits only literal mismatch fields", () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), "cwt-check-release-")));
+  const release = resolve(root, "release.json");
+  const script = resolve("deploy/scripts/release-registry-integration.mjs");
+  const secret = "SYNTHETIC_SECRET_MUST_NEVER_APPEAR";
+  const record = { releaseId: FROZEN_RELEASE, source: { commit: FROZEN_RELEASE },
+    oci: { indexDigest: "sha256:89e04e7201694e6f202c71cceb368622cc2d584136a7eedfaee9044a45023e8a" }, state: "built",
+    SYNTHETIC_UNKNOWN_SECRET_KEY: secret };
+  const run = (input = {}) => spawnSync(process.execPath, [script, "check-release", "--release", release,
+    "--release-id", input.releaseId ?? FROZEN_RELEASE, "--index-digest", input.indexDigest ?? record.oci.indexDigest], {
+    encoding: "utf8", env: { PATH: "/nonexistent", DOCKER_CONFIG: `/nonexistent/${secret}`, GHCR_TOKEN: secret },
+  });
+  try {
+    writeFileSync(release, JSON.stringify(record));
+    const original = readFileSync(release);
+    assert.equal(validateReleaseIdentity(record, { releaseId: FROZEN_RELEASE, indexDigest: record.oci.indexDigest }), true);
+    const accepted = run();
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.deepEqual(JSON.parse(accepted.stdout), { status: "PASS" });
+    const wrongIndex = run({ indexDigest: "sha256:89e04b0273e213a8c02f39803cb57ec14b83b07b27471f24b2d625702aef06a8" });
+    assert.equal(wrongIndex.status, 1);
+    assert.deepEqual(JSON.parse(wrongIndex.stderr), { status: "NOT_PASS", reasonCode: "release_identity_mismatch", mismatchFields: ["oci.indexDigest"] });
+    for (const [mutate, fields] of [
+      [(value) => { value.releaseId = { secret }; }, ["releaseId"]],
+      [(value) => { value.source = null; }, ["source.commit"]],
+      [(value) => { value.oci.indexDigest = [secret]; }, ["oci.indexDigest"]],
+      [(value) => { value.state = secret; }, ["state"]],
+    ]) {
+      const value = structuredClone(record); mutate(value); writeFileSync(release, JSON.stringify(value));
+      const result = run();
+      assert.equal(result.status, 1);
+      assert.deepEqual(JSON.parse(result.stderr), { status: "NOT_PASS", reasonCode: "release_identity_mismatch", mismatchFields: fields });
+      assert.doesNotMatch(result.stdout + result.stderr, /SYNTHETIC_|expected|actual/u);
+    }
+    writeFileSync(release, original);
+    const malformed = run({ releaseId: secret, indexDigest: secret });
+    assert.deepEqual(JSON.parse(malformed.stderr).mismatchFields, ["input.releaseId", "input.indexDigest", "releaseId", "source.commit", "oci.indexDigest"]);
+    assert.doesNotMatch(malformed.stderr, /SYNTHETIC_/u);
+    assert.deepEqual(readFileSync(release), original);
+    const extra = spawnSync(process.execPath, [script, "check-release", "--auth", secret], { encoding: "utf8" });
+    assert.deepEqual(JSON.parse(extra.stderr), { status: "NOT_PASS", reasonCode: "arguments_invalid" });
+    writeFileSync(release, secret);
+    assert.deepEqual(JSON.parse(run().stderr), { status: "NOT_PASS", reasonCode: "release_record_invalid" });
+    rmSync(release);
+    assert.deepEqual(JSON.parse(run().stderr), { status: "NOT_PASS", reasonCode: "integration_not_pass" });
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("uses ORAS digest-rooted layout copy and exact GHCR descriptor verification", () => {
@@ -105,8 +136,8 @@ test("keeps trusted publish verification, makes materialization transport-only, 
   const materializeStep = runtimeWorkflow.indexOf("      - name: Materialize read-only OCI evidence from the same GHCR digest\n");
   const runtimeStep = runtimeWorkflow.indexOf("      - name: Run the sole accepted Linux Runtime Validation authority\n");
   assert.ok(materializeStep >= 0 && runtimeStep > materializeStep);
-  assert.equal(runtimeWorkflow.slice(materializeStep, runtimeStep).match(/release-registry-integration\.mjs materialize/gu)?.length, 1);
-  assert.match(runtimeWorkflow.slice(runtimeStep), /preflight-linux-runtime\.mjs validate/u);
+  assert.equal(runtimeWorkflow.slice(materializeStep, runtimeStep).match(/release-registry-integration\.mjs"? materialize/gu)?.length, 1);
+  assert.match(runtimeWorkflow.slice(runtimeStep), /preflight-linux-runtime\.mjs"? validate/u);
 
   const runtimeValidator = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
   assert.equal(runtimeValidator.match(/verifyReleaseRecord\(/gu)?.length, 1);
@@ -190,22 +221,66 @@ test("requires one first-attempt job-scoped Tencent Singapore Runner identity", 
   ]) assert.throws(() => validateRuntimeRunnerBinding({ ...exact, ...mutation }), /Runner|nonce/u);
 });
 
-test("binds distinct exact workflow-control and frozen release identities before GHCR", () => {
-  const runtimeWorkflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
-  const exact = {
-    workflowCommit: REVIEWED_WORKFLOW_CONTROL,
-    githubSha: REVIEWED_WORKFLOW_CONTROL,
-    releaseCommit: FROZEN_RELEASE,
-    checkoutCommit: FROZEN_RELEASE,
-  };
-  assert.equal(runRuntimeIdentityBinding(runtimeWorkflow, exact).status, 0);
-  assert.notEqual(runRuntimeIdentityBinding(runtimeWorkflow, { ...exact, githubSha: "c".repeat(40) }).status, 0);
-  assert.notEqual(runRuntimeIdentityBinding(runtimeWorkflow, { ...exact, checkoutCommit: "d".repeat(40) }).status, 0);
-  assert.notEqual(runRuntimeIdentityBinding(runtimeWorkflow, {
-    ...exact,
-    releaseCommit: REVIEWED_WORKFLOW_CONTROL,
-    checkoutCommit: REVIEWED_WORKFLOW_CONTROL,
-  }).status, 0);
+test("executes workflow checkout checks and reviewed absolute script paths with a frozen older subject", () => {
+  const workflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), "cwt-workflow-chain-")));
+  const tools = resolve(root, "runtime-tools"), subject = resolve(root, "release-subject");
+  const git = (path, args) => execFileSync("git", ["-C", path, ...args], { encoding: "utf8" }).trim();
+  try {
+    execFileSync("git", ["clone", "--quiet", "--shared", "--no-checkout", resolve("."), subject]);
+    git(subject, ["checkout", "--quiet", "--detach", FROZEN_RELEASE]);
+    mkdirSync(tools); cpSync(resolve("deploy"), resolve(tools, "deploy"), { recursive: true });
+    git(tools, ["init", "-q"]); git(tools, ["add", "."]);
+    git(tools, ["-c", "user.name=Synthetic", "-c", "user.email=synthetic@invalid.example", "commit", "-qm", "synthetic reviewed tooling"]);
+    const toolsCommit = git(tools, ["rev-parse", "HEAD"]);
+    const nonce = "0123456789abcdef0123456789abcdef";
+    const environment = { ...process.env, GITHUB_WORKSPACE: root, GITHUB_SHA: toolsCommit, WORKFLOW_COMMIT: toolsCommit,
+      RELEASE_COMMIT: FROZEN_RELEASE, INDEX_DIGEST: INDEX, EVIDENCE_RUN_ID: "1", RUNNER_NONCE: nonce,
+      GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_RUN_ATTEMPT: "1", RUNNER_ENVIRONMENT: "self-hosted",
+      RUNNER_OS: "Linux", RUNNER_ARCH: "X64", RUNNER_NAME: `cwt-tencent-sg-${nonce}`, RUNNER_TEMP: root,
+      GITHUB_REPOSITORY: "czy282923753/cwt-cloudwave-textile" };
+    const run = (name, overrides = {}) => spawnSync("bash", ["-c", workflowRun(workflow, name)], {
+      cwd: subject, encoding: "utf8", env: { ...environment, ...overrides },
+    });
+    const binding = "Verify the unique Tencent Singapore Runner binding before GHCR access";
+    assert.equal(run(binding).status, 0);
+    for (const overrides of [{ GITHUB_SHA: RELEASE }, { WORKFLOW_COMMIT: RELEASE, GITHUB_SHA: RELEASE }, { RELEASE_COMMIT: RELEASE }]) {
+      assert.notEqual(run(binding, overrides).status, 0);
+    }
+    for (const path of [tools, subject]) {
+      writeFileSync(resolve(path, "synthetic-dirty"), "synthetic");
+      const dirty = run(binding);
+      assert.notEqual(dirty.status, 0, JSON.stringify({ path, status: git(path, ["status", "--porcelain=v1"]), stdout: dirty.stdout, stderr: dirty.stderr }));
+      rmSync(resolve(path, "synthetic-dirty"));
+    }
+    mkdirSync(resolve(root, "cwt-release-evidence"));
+    writeFileSync(resolve(root, "cwt-release-evidence/release.json"), JSON.stringify({
+      releaseId: FROZEN_RELEASE, source: { commit: FROZEN_RELEASE }, oci: { indexDigest: INDEX }, state: "built",
+    }));
+    const checked = run("Reconcile the detached release header before ORAS or credentials");
+    assert.equal(checked.status, 0, checked.stderr);
+    assert.deepEqual(JSON.parse(checked.stdout), { status: "PASS" });
+    // A wrong tools path executes the frozen command, which has no check-release verb.
+    const oldCheck = spawnSync("bash", ["-c", workflowRun(workflow, "Reconcile the detached release header before ORAS or credentials")
+      .replaceAll("$GITHUB_WORKSPACE/runtime-tools", "$GITHUB_WORKSPACE/release-subject")], { encoding: "utf8", env: environment });
+    assert.equal(oldCheck.status, 1);
+    assert.equal(JSON.parse(oldCheck.stderr).reasonCode, "arguments_invalid");
+    // Reach actual selected materializer and Runtime CLIs; unavailable inputs stop before transport/host work.
+    const materialize = run("Materialize read-only OCI evidence from the same GHCR digest", { CWT_ORAS: "/nonexistent/oras", CWT_REGISTRY_AUTH: "/nonexistent/auth" });
+    assert.equal(JSON.parse(materialize.stderr).reasonCode, "integration_not_pass");
+    // Only the local sudo transport is omitted; execute the actual workflow-selected Node/script/arguments.
+    const runtimeCommand = workflowRun(workflow, "Run the sole accepted Linux Runtime Validation authority")
+      .replace('sudo --preserve-env=DOCKER_CONFIG ', '');
+    const runtime = spawnSync("bash", ["-c", runtimeCommand], { cwd: subject, encoding: "utf8", env: environment });
+    assert.equal(runtime.status, 1);
+    assert.notEqual(JSON.parse(runtime.stderr).reasonCode, "arguments_invalid");
+    assert.equal(existsSync(resolve(root, "cwt-runtime-outcome")), false);
+    const download = workflow.indexOf("      - name: Download detached");
+    const check = workflow.indexOf("      - name: Reconcile the detached");
+    const oras = workflow.indexOf("      - name: Install hash-pinned");
+    const login = workflow.indexOf("      - name: Authenticate");
+    assert.ok(download < check && check < oras && oras < login);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("release and runtime workflows remain manual, separated and fail-closed", () => {
@@ -227,12 +302,12 @@ test("release and runtime workflows remain manual, separated and fail-closed", (
   assert.match(releaseWorkflow, /Authenticate to private GHCR[\s\S]*env:\n\s+GHCR_TOKEN: \$\{\{ github\.token \}\}/u);
   assert.doesNotMatch(releaseWorkflow, /^\s{6}GHCR_TOKEN:/mu);
   assert.match(releaseWorkflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/u);
-  assert.doesNotMatch(releaseWorkflow, /preflight-linux-runtime\.mjs validate/u);
+  assert.doesNotMatch(releaseWorkflow, /preflight-linux-runtime\.mjs"? validate/u);
   assert.match(runtimeWorkflow, /runs-on: \[self-hosted, linux, x64, cwt-tencent-singapore, cwt-single-use/u);
   assert.match(runtimeWorkflow, /cwt-job-\$\{\{ inputs\.runner_nonce \}\}/u);
   assert.match(runtimeWorkflow, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093/u);
-  assert.match(runtimeWorkflow, /release-registry-integration\.mjs materialize/u);
-  assert.match(runtimeWorkflow, /preflight-linux-runtime\.mjs validate/u);
+  assert.match(runtimeWorkflow, /release-registry-integration\.mjs"? materialize/u);
+  assert.match(runtimeWorkflow, /preflight-linux-runtime\.mjs"? validate/u);
   assert.match(runtimeWorkflow, /packages: read/u);
   assert.doesNotMatch(runtimeWorkflow, /packages: write/u);
   assert.match(runtimeWorkflow, /Authenticate to private GHCR[\s\S]*env:\n\s+GHCR_TOKEN: \$\{\{ github\.token \}\}/u);
@@ -241,7 +316,9 @@ test("release and runtime workflows remain manual, separated and fail-closed", (
   assert.doesNotMatch(runtimeWorkflow, /:[a-z0-9._-]+"?\s*\\?\n\s*--image/u);
   assert.match(runtimeWorkflow, /WORKFLOW_COMMIT: \$\{\{ inputs\.workflow_commit \}\}/u);
   assert.match(runtimeWorkflow, /ref: \$\{\{ inputs\.release_commit \}\}/u);
-  assert.match(runtimeWorkflow, /CHECKOUT_COMMIT="\$\(git rev-parse HEAD\)"/u);
+  assert.match(runtimeWorkflow, /ref: \$\{\{ inputs\.workflow_commit \}\}/u);
+  assert.match(runtimeWorkflow, /path: runtime-tools/u);
+  assert.match(runtimeWorkflow, /path: release-subject/u);
   assert.doesNotMatch(runtimeWorkflow, /\[\[\s+"?\$GITHUB_SHA"?\s+==\s+"?\$RELEASE_COMMIT"?\s+\]\]/u);
 });
 

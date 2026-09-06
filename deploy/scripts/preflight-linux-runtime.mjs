@@ -15,6 +15,7 @@ import { arch } from "node:os";
 import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { RegistryIntegrationFailure, validateReleaseIdentity } from "./release-registry-integration.mjs";
 import { sha256File, verifyReleaseRecord } from "./preflight-image.mjs";
 import { exactProtectedSecretFiles, validateComposeGraph } from "./preflight-compose-graph.mjs";
 
@@ -27,7 +28,7 @@ const STORAGE_ROOT = "/srv/cwt";
 const LOCAL_DOCKER_HOST = "unix:///var/run/docker.sock";
 const LOCAL_DOCKER_SOCKET = "/var/run/docker.sock";
 const DEFAULT_PROFILE = resolve(dirname(fileURLToPath(import.meta.url)), "../runtime-validation/linux-amd64-compatibility.v1.json");
-const SOURCE_REPOSITORY_ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), "../.."));
+const TOOLS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const MAX_LINUX_UID = 0xffff_fffe;
 const SANITIZED_CHILD_ENVIRONMENT = Object.freeze({
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -142,14 +143,6 @@ function exactCanonicalDirectory(path, kind, code) {
   return canonical;
 }
 
-function exactRepositoryRoot(path) {
-  const canonical = exactCanonicalDirectory(path, "repository", "repository_invalid");
-  if (canonical !== SOURCE_REPOSITORY_ROOT) {
-    refuse("repository_source_mismatch", "Repository must be the canonical checkout containing this validator.");
-  }
-  return canonical;
-}
-
 export function createGitIdentityEnvironment({ effectiveUid, repositoryOwnerUid, environment }) {
   if (effectiveUid !== 0 || !Number.isInteger(repositoryOwnerUid) || repositoryOwnerUid < 0 ||
     repositoryOwnerUid > MAX_LINUX_UID || !environment || typeof environment !== "object") {
@@ -203,7 +196,7 @@ function parseOsRelease(value) {
   return result;
 }
 
-export function decideCompatibility(profile, actual) {
+function validateCompatibilityProfile(profile) {
   if (profile?.schemaVersion !== 1 || profile?.authority?.runnerClass !== "cwt-controlled-vm-backed-single-use-ephemeral" ||
     profile.authority.osId !== "ubuntu" || profile.authority.osVersion !== "24.04" ||
     profile.authority.architecture !== "amd64" || profile.authority.dockerMode !== "host-engine" ||
@@ -211,6 +204,10 @@ export function decideCompatibility(profile, actual) {
     !Array.isArray(profile.profiles) || profile.profiles.length === 0) {
     refuse("compatibility_profile_invalid", "Runtime compatibility profile is invalid.");
   }
+}
+
+export function decideCompatibility(profile, actual) {
+  validateCompatibilityProfile(profile);
   if (actual.osId !== profile.authority.osId || actual.osVersion !== profile.authority.osVersion ||
     actual.architecture !== profile.authority.architecture || actual.dockerMode !== profile.authority.dockerMode) {
     refuse("runner_identity_mismatch", "Runner OS, architecture, or Docker mode is not authoritative.");
@@ -267,7 +264,7 @@ export function validateNativeHostFacts({ uid, architecture, osRelease, processO
   return Object.freeze({ osId: os.ID, osVersion: os.VERSION_ID, architecture: "amd64", dockerMode: "host-engine" });
 }
 
-function captureRunner(profilePath, dockerEnv) {
+function captureRunner(profile, dockerEnv) {
   if (existsSync("/.dockerenv") || existsSync("/run/.containerenv")) {
     refuse("containerized_runner_forbidden", "DIND and containerized validation runners are forbidden.");
   }
@@ -290,7 +287,6 @@ function captureRunner(profilePath, dockerEnv) {
     env: dockerEnv,
     label: "compose_version",
   }).stdout.trim().replace(/^v/u, "");
-  const profile = readJson(profilePath, "compatibility_profile_invalid", "Runtime compatibility profile is unreadable.");
   return decideCompatibility(profile, { ...native, dockerEngine, dockerCompose });
 }
 
@@ -612,9 +608,11 @@ function verifyRepositoryIdentity(repositoryRoot, releaseId) {
     repositoryOwnerUid: lstatSync(canonicalRoot).uid,
     environment: process.env,
   });
+  const topLevel = run("git", ["rev-parse", "--show-toplevel"], { cwd: canonicalRoot, env: gitEnv, label: "source_identity" }).stdout.trim();
   const head = run("git", ["rev-parse", "HEAD"], { cwd: canonicalRoot, env: gitEnv, label: "source_identity" }).stdout.trim();
   const status = run("git", ["status", "--porcelain=v1"], { cwd: canonicalRoot, env: gitEnv, label: "source_cleanliness" }).stdout;
-  if (head !== releaseId || status !== "") refuse("source_identity_mismatch", "Runner checkout must be the clean exact release source identity.");
+  if (topLevel !== canonicalRoot || head !== releaseId || status !== "") refuse("source_identity_mismatch", "Runner checkout must be an exact clean source root at the pinned commit.");
+  return gitEnv;
 }
 
 function ensureNotHistorical(record, indexDigest) {
@@ -626,7 +624,7 @@ function ensureNotHistorical(record, indexDigest) {
 function parseArguments(argv) {
   if (argv[0] !== "validate" || argv.length % 2 !== 1) refuse("arguments_invalid", "Validation arguments are invalid.");
   const values = {};
-  const allowed = new Set(["release", "oci", "image", "evidence", "token", "repository"]);
+  const allowed = new Set(["release", "oci", "image", "evidence", "token", "repository", "tools-commit"]);
   for (let index = 1; index < argv.length; index += 2) {
     const key = argv[index]?.replace(/^--/u, "");
     const value = argv[index + 1];
@@ -635,22 +633,66 @@ function parseArguments(argv) {
     }
     values[key] = value;
   }
-  for (const required of ["release", "oci", "image", "evidence", "token"]) {
+  for (const required of ["release", "oci", "image", "evidence", "token", "repository", "tools-commit"]) {
     if (!values[required]) refuse("arguments_invalid", "Validation arguments are invalid.");
   }
   return values;
 }
 
-function prepareEvidence(path, repositoryRoot) {
-  if (!isAbsolute(path ?? "") || existsSync(path) || path === "/" || path === CONFIG_ROOT || path === STORAGE_ROOT) {
-    refuse("evidence_path_invalid", "Evidence output must be one absent absolute directory.");
+function requireOutsideSources(path, sourceRoots, code) {
+  if (sourceRoots.some((root) => path === root || path.startsWith(`${root}${sep}`))) {
+    refuse(code, "Runtime inputs and output must remain outside both source roots.");
   }
-  const absolute = resolve(path);
-  if (absolute === repositoryRoot || absolute.startsWith(`${repositoryRoot}${sep}`)) {
-    refuse("evidence_path_invalid", "Evidence output must remain outside the source repository.");
+}
+
+function prepareEvidence(path, sourceRoots) {
+  if (!isAbsolute(path ?? "") || resolve(path) !== path || existsSync(path) ||
+    path === "/" || path === CONFIG_ROOT || path === STORAGE_ROOT) {
+    refuse("evidence_path_invalid", "Evidence output must be one absent canonical absolute directory.");
   }
-  mkdirSync(path, { mode: 0o700 });
-  return absolute;
+  exactCanonicalDirectory(dirname(path), "evidence parent", "evidence_path_invalid");
+  requireOutsideSources(path, sourceRoots, "evidence_path_invalid");
+  return path;
+}
+
+// Shared by the actual CLI and mixed-revision tests; no Docker calls or credential contents.
+export function prepareRuntimeInputs(args) {
+  const toolsRoot = exactCanonicalDirectory(TOOLS_ROOT, "repository", "repository_invalid");
+  const repositoryRoot = exactCanonicalDirectory(args.repository, "repository", "repository_invalid");
+  if (toolsRoot === repositoryRoot || dirname(toolsRoot) !== dirname(repositoryRoot)) {
+    refuse("repository_source_mismatch", "Tools and subject must be distinct canonical sibling checkout roots.");
+  }
+  if (!RELEASE.test(args["tools-commit"] ?? "")) refuse("source_identity_mismatch", "Tools commit must be exact.");
+  const gitEnv = verifyRepositoryIdentity(toolsRoot, args["tools-commit"]);
+  const sourceRoots = [toolsRoot, repositoryRoot];
+  const releasePath = exactExistingPath(args.release, "release record", "release_record_invalid");
+  requireOutsideSources(releasePath, sourceRoots, "release_record_invalid");
+  const reference = parseDigestReference(args.image);
+  const record = readJson(releasePath, "release_record_invalid", "Release record is unreadable.");
+  validateReleaseIdentity(record, { releaseId: record?.releaseId, indexDigest: reference.indexDigest });
+  ensureNotHistorical(record, reference.indexDigest);
+  verifyRepositoryIdentity(repositoryRoot, record.releaseId);
+  const profilePath = exactExistingPath(DEFAULT_PROFILE, "compatibility profile", "compatibility_profile_invalid");
+  if (profilePath !== DEFAULT_PROFILE) refuse("compatibility_profile_untracked", "Compatibility profile must be the fixed tools checkout file.");
+  run("git", ["ls-files", "--error-unmatch", "--", "deploy/runtime-validation/linux-amd64-compatibility.v1.json"], {
+    cwd: toolsRoot, env: gitEnv, label: "compatibility_profile",
+  });
+  const profile = readJson(profilePath, "compatibility_profile_invalid", "Runtime compatibility profile is unreadable.");
+  validateCompatibilityProfile(profile);
+  const ociRoot = exactExistingPath(args.oci, "OCI root", "oci_evidence_invalid");
+  requireOutsideSources(ociRoot, sourceRoots, "oci_evidence_invalid");
+  if (process.env.DOCKER_CONFIG !== undefined) {
+    const credentialRoot = exactCanonicalDirectory(process.env.DOCKER_CONFIG, "credential directory", "docker_credentials_unavailable");
+    requireOutsideSources(credentialRoot, sourceRoots, "docker_credentials_unavailable");
+    const credentialPath = exactExistingPath(resolve(credentialRoot, "config.json"), "credential file", "docker_credentials_unavailable");
+    requireOutsideSources(credentialPath, sourceRoots, "docker_credentials_unavailable");
+  }
+  if (!SAFE_TOKEN.test(args.token ?? "")) refuse("token_invalid", "Run token is invalid.");
+  const evidenceRoot = prepareEvidence(args.evidence, sourceRoots);
+  const project = `cwt-${args.token}`;
+  const plan = createRuntimeCommandPlan({ repositoryRoot, project, imageReference: reference.reference });
+  return { toolsRoot, repositoryRoot, releasePath, ociRoot, profile, reference, evidenceRoot, project, plan,
+    tools: { commit: args["tools-commit"], compatibilityProfileSha256: sha256File(profilePath) } };
 }
 
 function writeOutcome(evidenceRoot, outcome) {
@@ -661,17 +703,8 @@ function writeOutcome(evidenceRoot, outcome) {
 }
 
 async function validate(args) {
-  const repositoryRoot = exactRepositoryRoot(args.repository ?? process.cwd());
-  const releasePath = exactExistingPath(args.release, "release record", "release_record_invalid");
-  const ociRoot = exactExistingPath(args.oci, "OCI root", "oci_evidence_invalid");
-  const profilePath = exactExistingPath(DEFAULT_PROFILE, "compatibility profile", "compatibility_profile_invalid");
-  const trackedProfilePath = realpathSync(resolve(repositoryRoot, "deploy/runtime-validation/linux-amd64-compatibility.v1.json"));
-  if (profilePath !== trackedProfilePath) refuse("compatibility_profile_untracked", "Compatibility profile must come from the exact release checkout.");
-  const reference = parseDigestReference(args.image);
-  if (!SAFE_TOKEN.test(args.token ?? "")) refuse("token_invalid", "Run token is invalid.");
-  const evidenceRoot = prepareEvidence(args.evidence, repositoryRoot);
-  const project = `cwt-${args.token}`;
-  const plan = createRuntimeCommandPlan({ repositoryRoot, project, imageReference: reference.reference });
+  const { repositoryRoot, releasePath, ociRoot, profile, reference, evidenceRoot, project, plan, tools } = prepareRuntimeInputs(args);
+  mkdirSync(evidenceRoot, { mode: 0o700 });
   let dockerEnv;
   let runner;
   let release;
@@ -686,7 +719,6 @@ async function validate(args) {
   let composeAttempted = false;
   const cleanup = { composeConsumers: false, composeNetworks: false, pulledReferences: false, hostPaths: false, runnerDestruction: "enclosing-ci-lifecycle" };
   try {
-    dockerEnv = cleanDockerEnvironment();
     try {
       release = verifyReleaseRecord({ releasePath, ociRoot, requireState: "built" });
     } catch {
@@ -698,8 +730,8 @@ async function validate(args) {
     ensureNotHistorical(release.record, release.inventory.indexDigest);
     child = release.inventory.children.find((candidate) => candidate.platform === "linux/amd64");
     if (!child) refuse("linux_amd64_child_missing", "Release evidence has no exact linux/amd64 child.");
-    verifyRepositoryIdentity(repositoryRoot, release.record.releaseId);
-    runner = captureRunner(profilePath, dockerEnv);
+    dockerEnv = cleanDockerEnvironment();
+    runner = captureRunner(profile, dockerEnv);
     hostPlan = prepareSyntheticHost(release.record.releaseId);
     composeEnv = composeEnvironment(dockerEnv, reference, child.manifestDigest, repositoryRoot);
     const normalized = parseJson(run("docker", plan.normalize, {
@@ -804,6 +836,7 @@ async function validate(args) {
   const status = mainFailure ? "NOT_PASS" : "PASS";
   const outcome = {
     schemaVersion: 1,
+    tools,
     status,
     reasonCode: mainFailure?.code ?? null,
     runner: runner ? {
@@ -848,8 +881,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.arg
     const args = parseArguments(process.argv.slice(2));
     await validate(args);
   } catch (error) {
-    const failure = error instanceof ValidationFailure ? error : new ValidationFailure("internal_error", "Validation failed closed.");
-    process.stderr.write(`${JSON.stringify({ status: "NOT_PASS", reasonCode: failure.code })}\n`);
+    const failure = error instanceof ValidationFailure || error instanceof RegistryIntegrationFailure ? error : new ValidationFailure("internal_error", "Validation failed closed.");
+    process.stderr.write(`${JSON.stringify({ status: "NOT_PASS", reasonCode: failure.code, ...(failure instanceof RegistryIntegrationFailure && failure.mismatchFields ? { mismatchFields: failure.mismatchFields } : {}) })}\n`);
     process.exitCode = 1;
   }
 }
@@ -866,6 +899,5 @@ export const __testOnly = Object.freeze({
   parseOsRelease,
   sha256,
   exactCanonicalDirectory,
-  exactRepositoryRoot,
   verifyRepositoryIdentity,
 });

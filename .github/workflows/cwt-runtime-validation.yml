@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       workflow_commit:
-        description: Exact 40-character reviewed workflow-control commit resolved by the selected dispatch ref; distinct from the release
+        description: Exact 40-character reviewed workflow/tools commit resolved by the selected dispatch ref; distinct from the release
         required: true
         type: string
       release_commit:
@@ -48,11 +48,23 @@ jobs:
       EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
       RUNNER_NONCE: ${{ inputs.runner_nonce }}
     steps:
+      - name: Check out the exact reviewed tools source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          set-safe-directory: false
+          ref: ${{ inputs.workflow_commit }}
+          path: runtime-tools
+
       - name: Check out the exact authorized release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
+          persist-credentials: false
+          set-safe-directory: false
           ref: ${{ inputs.release_commit }}
+          path: release-subject
 
       - name: Install exact Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -63,19 +75,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CHECKOUT_COMMIT="$(git rev-parse HEAD)"
+          TOOLS_ROOT="$GITHUB_WORKSPACE/runtime-tools"
+          SUBJECT_ROOT="$GITHUB_WORKSPACE/release-subject"
+          for root in "$TOOLS_ROOT" "$SUBJECT_ROOT"; do
+            [[ ! -L "$root" && "$(cd "$root" && pwd -P)" == "$root" ]] || exit 1
+            [[ "$(git -C "$root" rev-parse --show-toplevel)" == "$root" ]] || exit 1
+            SOURCE_STATUS="$(git -C "$root" status --porcelain=v1)" || exit 1
+            [[ -z "$SOURCE_STATUS" ]] || exit 1
+          done
+          TOOLS_COMMIT="$(git -C "$TOOLS_ROOT" rev-parse HEAD)"
+          SUBJECT_COMMIT="$(git -C "$SUBJECT_ROOT" rev-parse HEAD)"
           if [[ ! "$WORKFLOW_COMMIT" =~ ^[0-9a-f]{40}$ ||
                 ! "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ||
                 "$GITHUB_SHA" != "$WORKFLOW_COMMIT" ||
-                "$CHECKOUT_COMMIT" != "$RELEASE_COMMIT" ||
+                "$TOOLS_COMMIT" != "$WORKFLOW_COMMIT" ||
+                "$SUBJECT_COMMIT" != "$RELEASE_COMMIT" ||
                 "$WORKFLOW_COMMIT" == "$RELEASE_COMMIT" ]]; then
             exit 1
           fi
           [[ "$INDEX_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$EVIDENCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$RUNNER_NONCE" =~ ^[0-9a-f]{32}$ ]]
-          [[ -z "$(git status --porcelain=v1)" ]]
-          node deploy/scripts/release-registry-integration.mjs verify-runner \
+          node "$TOOLS_ROOT/deploy/scripts/release-registry-integration.mjs" verify-runner \
             --event "$GITHUB_EVENT_NAME" \
             --attempt "$GITHUB_RUN_ATTEMPT" \
             --environment "$RUNNER_ENVIRONMENT" \
@@ -83,6 +104,25 @@ jobs:
             --arch "$RUNNER_ARCH" \
             --name "$RUNNER_NAME" \
             --nonce "$RUNNER_NONCE"
+
+      - name: Download detached evidence from the explicit successful release run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cwt-release-evidence-${{ inputs.release_commit }}
+          path: ${{ runner.temp }}/cwt-release-evidence
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.evidence_run_id }}
+
+      - name: Reconcile the detached release header before ORAS or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS_ROOT="$GITHUB_WORKSPACE/runtime-tools"
+          node "$TOOLS_ROOT/deploy/scripts/release-registry-integration.mjs" check-release \
+            --release "$RUNNER_TEMP/cwt-release-evidence/release.json" \
+            --release-id "$RELEASE_COMMIT" \
+            --index-digest "$INDEX_DIGEST"
 
       - name: Install hash-pinned patched ORAS
         shell: bash
@@ -99,15 +139,6 @@ jobs:
           tar -xzf "$archive" -C "$oras_root" oras
           chmod 500 "$oras_root/oras"
           echo "CWT_ORAS=$oras_root/oras" >> "$GITHUB_ENV"
-
-      - name: Download detached evidence from the explicit successful release run
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: cwt-release-evidence-${{ inputs.release_commit }}
-          path: ${{ runner.temp }}/cwt-release-evidence
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.evidence_run_id }}
 
       - name: Authenticate to private GHCR without credential arguments
         shell: bash
@@ -130,7 +161,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node deploy/scripts/release-registry-integration.mjs materialize \
+          TOOLS_ROOT="$GITHUB_WORKSPACE/runtime-tools"
+          node "$TOOLS_ROOT/deploy/scripts/release-registry-integration.mjs" materialize \
             --oras "$CWT_ORAS" \
             --auth "$CWT_REGISTRY_AUTH" \
             --release "$RUNNER_TEMP/cwt-release-evidence/release.json" \
@@ -143,11 +175,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          TOOLS_ROOT="$GITHUB_WORKSPACE/runtime-tools"
+          SUBJECT_ROOT="$GITHUB_WORKSPACE/release-subject"
           node_path="$(command -v node)"
-          sudo --preserve-env=DOCKER_CONFIG "$node_path" deploy/scripts/preflight-linux-runtime.mjs validate \
+          sudo --preserve-env=DOCKER_CONFIG "$node_path" "$TOOLS_ROOT/deploy/scripts/preflight-linux-runtime.mjs" validate \
+            --tools-commit "$WORKFLOW_COMMIT" \
             --release "$RUNNER_TEMP/cwt-release-evidence/release.json" \
             --oci "$RUNNER_TEMP/cwt-runtime-subject.oci" \
             --image "ghcr.io/$GITHUB_REPOSITORY@$INDEX_DIGEST" \
             --evidence "$RUNNER_TEMP/cwt-runtime-outcome" \
             --token "cwt-$RUNNER_NONCE" \
-            --repository "$GITHUB_WORKSPACE"
+            --repository "$SUBJECT_ROOT"
