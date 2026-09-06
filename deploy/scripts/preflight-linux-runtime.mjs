@@ -25,6 +25,8 @@ const SAFE_TOKEN = /^[a-z][a-z0-9-]{5,47}$/u;
 const EXACT_SERVICES = Object.freeze(["postgres", "valkey-staging", "web-staging"]);
 const CONFIG_ROOT = "/etc/cwt";
 const STORAGE_ROOT = "/srv/cwt";
+const MAINTENANCE_LOCK_ROOT = "/run/lock/cwt";
+const MAINTENANCE_LOCK_FILE = `${MAINTENANCE_LOCK_ROOT}/backup-migration.lock`;
 const LOCAL_DOCKER_HOST = "unix:///var/run/docker.sock";
 const LOCAL_DOCKER_SOCKET = "/var/run/docker.sock";
 const DEFAULT_PROFILE = resolve(dirname(fileURLToPath(import.meta.url)), "../runtime-validation/linux-amd64-compatibility.v1.json");
@@ -392,19 +394,41 @@ export function syntheticHostPlan(releaseId, { configRoot = CONFIG_ROOT, storage
       `${storageRoot}/staging/media/private-inquiries`,
       `${storageRoot}/staging/media/import`,
     ]),
+    backupStorage: Object.freeze([
+      `${storageRoot}/backups/postgresql/staging`,
+      `${storageRoot}/backups/sets/staging`,
+    ]),
     postgresStorage: `${storageRoot}/postgresql/data`,
+    maintenanceLockRoot: MAINTENANCE_LOCK_ROOT,
+    maintenanceLockFile: MAINTENANCE_LOCK_FILE,
+    maintenanceLockMode: 0o444,
   });
+}
+
+function removeSyntheticHost(plan) {
+  let failed = false;
+  for (const path of [plan.configRoot, plan.storageRoot, plan.maintenanceLockRoot]) {
+    try { if (existsSync(path)) rmSync(path, { recursive: true, force: false }); }
+    catch { failed = true; }
+  }
+  if (failed || [plan.configRoot, plan.storageRoot, plan.maintenanceLockRoot].some(path => existsSync(path))) {
+    refuse("host_path_residue", "Synthetic host path residue remains.");
+  }
 }
 
 function prepareSyntheticHost(releaseId) {
   const plan = syntheticHostPlan(releaseId);
-  if (existsSync(plan.configRoot) || existsSync(plan.storageRoot)) {
+  if (existsSync(plan.configRoot) || existsSync(plan.storageRoot) || existsSync(plan.maintenanceLockRoot)) {
     refuse("runner_not_single_use_clean", "Runner contains pre-existing CWT configuration or storage state.");
   }
   try {
     secureRootDirectory(plan.configRoot);
     secureRootDirectory(resolve(plan.configRoot, "postgres"));
     mkdirSync(plan.storageRoot, { mode: 0o700 });
+    secureRootDirectory(plan.maintenanceLockRoot);
+    writeFileSync(plan.maintenanceLockFile, "", { flag: "wx", mode: plan.maintenanceLockMode });
+    chownSync(plan.maintenanceLockFile, 0, 0);
+    chmodSync(plan.maintenanceLockFile, plan.maintenanceLockMode);
     writeSecret(resolve(plan.configRoot, "postgres/bootstrap-password"), secret());
     for (const environment of ["production", "staging"]) {
       const root = resolve(plan.configRoot, environment);
@@ -436,13 +460,16 @@ function prepareSyntheticHost(releaseId) {
       mkdirSync(path, { recursive: true, mode: 0o700 });
       chownSync(path, 10001, 10001);
     }
+    for (const path of plan.backupStorage) {
+      mkdirSync(path, { recursive: true, mode: 0o700 });
+      chownSync(path, 10001, 10001);
+    }
     mkdirSync(plan.postgresStorage, { recursive: true, mode: 0o700 });
     chownSync(resolve(plan.storageRoot, "postgresql"), 999, 999);
     chownSync(plan.postgresStorage, 999, 999);
     return plan;
   } catch {
-    rmSync(plan.configRoot, { recursive: true, force: true });
-    rmSync(plan.storageRoot, { recursive: true, force: true });
+    try { removeSyntheticHost(plan); } catch { /* setup remains a single fail-closed outcome */ }
     refuse("synthetic_host_setup_failed", "Synthetic host configuration failed closed.");
   }
 }
@@ -466,7 +493,7 @@ export function createRuntimeCommandPlan({ repositoryRoot, project, imageReferen
   return Object.freeze({
     normalize: Object.freeze([...base, "--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"]),
     infrastructureUp: Object.freeze([...base, "up", "--detach", "--wait", "--wait-timeout", "180", "--no-deps", "--pull", "never", "--no-build", "postgres", "valkey-staging"]),
-    migrate: Object.freeze([...base, "run", "--rm", "--no-deps", "--pull", "never", "--volume", `${resolve(repositoryRoot, "drizzle")}:/app/drizzle:ro`, "web-staging", "node", "--import=tsx", "/app/scripts/migrate.ts"]),
+    migrate: Object.freeze([...base, "run", "--rm", "--no-deps", "--pull", "never", "--volume", `${resolve(repositoryRoot, "drizzle")}:/app/drizzle:ro`, "scheduler-staging", "/app/deploy/backup/pre-deploy", "node", "--import=tsx", "/app/scripts/migrate.ts"]),
     webUp: Object.freeze([...base, "up", "--detach", "--wait", "--wait-timeout", "180", "--no-deps", "--pull", "never", "--no-build", "web-staging"]),
     down: Object.freeze([...base, "down", "--remove-orphans", "--timeout", "30"]),
   });
@@ -824,9 +851,7 @@ async function validate(args) {
   } else cleanup.pulledReferences = pulled.length === 0;
   if (hostPlan && cleanup.composeConsumers) {
     cleanup.hostPaths = attempt(() => {
-      rmSync(hostPlan.configRoot, { recursive: true, force: false });
-      rmSync(hostPlan.storageRoot, { recursive: true, force: false });
-      if (existsSync(hostPlan.configRoot) || existsSync(hostPlan.storageRoot)) refuse("host_path_residue", "Synthetic host path residue remains.");
+      removeSyntheticHost(hostPlan);
     });
   } else cleanup.hostPaths = hostPlan === undefined;
 
@@ -895,6 +920,8 @@ export const __testOnly = Object.freeze({
   EXACT_SERVICES,
   REVOKED_SUBJECTS,
   runtimeEnvironment,
+  prepareSyntheticHost,
+  removeSyntheticHost,
   parseArguments,
   parseOsRelease,
   sha256,

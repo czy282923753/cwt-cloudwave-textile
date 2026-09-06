@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -234,6 +234,8 @@ test("executes mixed-revision preparation, transport and sole image authority un
           }
         }
         assert.ok(prepared.plan.migrate.includes(subject + "/drizzle:/app/drizzle:ro"));
+        assert.ok(JSON.stringify(prepared.plan.migrate).includes("scheduler-staging"));
+        assert.ok(JSON.stringify(prepared.plan.migrate).includes("/app/deploy/backup/pre-deploy"));
         assert.ok(JSON.stringify(prepared.plan.migrate).includes("/app/scripts/migrate.ts"));
         assert.equal(existsSync(args.evidence), false);
       };
@@ -367,12 +369,14 @@ test("requires a root native Ubuntu amd64 host Engine and rejects DIND/container
   assert.throws(() => validateNativeHostFacts({ ...input, dockerInfo: { ...input.dockerInfo, DockerRootDir: "/var/lib/dind" } }), /DIND/u);
 });
 
-test("builds one direct standard-Compose plan with exactly three services and no retired custody path", () => {
+test("builds one direct standard-Compose plan with a disposable Scheduler maintenance caller and exactly three steady services", () => {
   const repositoryRoot = resolve(".");
   const plan = createRuntimeCommandPlan({ repositoryRoot, project: "cwt-runtime-proof", imageReference: REFERENCE });
   assert.deepEqual(plan.infrastructureUp.slice(-2), ["postgres", "valkey-staging"]);
   assert.equal(plan.webUp.at(-1), "web-staging");
-  assert.equal(plan.migrate.includes("web-staging"), true);
+  assert.equal(plan.migrate.includes("scheduler-staging"), true);
+  assert.equal(plan.migrate.includes("web-staging"), false);
+  assert.deepEqual(plan.migrate.slice(-5), ["scheduler-staging", "/app/deploy/backup/pre-deploy", "node", "--import=tsx", "/app/scripts/migrate.ts"]);
   assert.equal(plan.migrate.includes(`${resolve("drizzle")}:/app/drizzle:ro`), true);
   assert.equal(plan.infrastructureUp.includes("--no-build"), true);
   assert.equal(plan.webUp.includes("--pull") && plan.webUp.includes("never"), true);
@@ -401,6 +405,13 @@ test("keeps real-shaped runtime.env, secret-file and isolated staging storage co
     "/srv/cwt/staging/media/private-inquiries",
     "/srv/cwt/staging/media/import",
   ]);
+  assert.deepEqual(plan.backupStorage, [
+    "/srv/cwt/backups/postgresql/staging",
+    "/srv/cwt/backups/sets/staging",
+  ]);
+  assert.equal(plan.maintenanceLockRoot, "/run/lock/cwt");
+  assert.equal(plan.maintenanceLockFile, "/run/lock/cwt/backup-migration.lock");
+  assert.equal(plan.maintenanceLockMode, 0o444);
   const runtime = __testOnly.runtimeEnvironment("staging", RELEASE);
   assert.equal(runtime.APP_ENV, "staging");
   assert.equal(runtime.NON_PRODUCTION_NOINDEX, "true");
@@ -430,6 +441,165 @@ test("keeps real-shaped runtime.env, secret-file and isolated staging storage co
   assert.deepEqual(compose.services["valkey-staging"].secrets.map((entry) => entry.source), ["staging-valkey-password"]);
   assert.deepEqual(compose.services["web-staging"].secrets.map((entry) => entry.source).sort(),
     exactProtectedSecretFiles.map((entry) => `staging-${entry.subjectSuffix}`).sort());
+  const scheduler = compose.services["scheduler-staging"];
+  assert.equal(scheduler.user, "10001:10001");
+  assert.deepEqual(scheduler.volumes.filter(entry => entry.target.startsWith("/srv/cwt/backups/")).map(entry => [entry.source, entry.target, entry.read_only]), [
+    ["/srv/cwt/backups/postgresql/staging", "/srv/cwt/backups/postgresql/staging", undefined],
+    ["/srv/cwt/backups/sets/staging", "/srv/cwt/backups/sets/staging", undefined],
+  ]);
+  assert.deepEqual(scheduler.volumes.find(entry => entry.target === "/run/cwt/backup-migration.lock"), {
+    type: "bind", source: "/run/lock/cwt/backup-migration.lock", target: "/run/cwt/backup-migration.lock", read_only: true, bind: {},
+  });
+  assert.equal((compose.services["web-staging"].volumes ?? []).some(entry => entry.target?.startsWith("/srv/cwt/backups/") || entry.target === "/run/cwt/backup-migration.lock"), false);
+});
+
+test("owns and cleans the synthetic backup roots and shared mutex without replacing pre-existing state", () => {
+  const sourceRoot = realpathSync(resolve("."));
+  const successfulProbe = String.raw`
+    import assert from "node:assert/strict";
+    import { existsSync, lstatSync, mkdirSync, writeFileSync } from "node:fs";
+    const { __testOnly } = await import("file:///cwt/deploy/scripts/preflight-linux-runtime.mjs");
+    const plan = __testOnly.prepareSyntheticHost("${RELEASE}");
+    for (const path of plan.backupStorage) {
+      const info = lstatSync(path);
+      assert.equal(info.isDirectory(), true); assert.equal(info.uid, 10001); assert.equal(info.gid, 10001); assert.equal(info.mode & 0o777, 0o700);
+    }
+    const lock = lstatSync(plan.maintenanceLockFile);
+    assert.equal(lock.isFile(), true); assert.equal(lock.size, 0); assert.equal(lock.uid, 0); assert.equal(lock.gid, 0); assert.equal(lock.mode & 0o777, 0o444);
+    __testOnly.removeSyntheticHost(plan);
+    for (const path of [plan.configRoot, plan.storageRoot, plan.maintenanceLockRoot]) assert.equal(existsSync(path), false);
+    mkdirSync(plan.maintenanceLockRoot); writeFileSync(plan.maintenanceLockFile, "unrelated-pre-existing-state");
+    assert.throws(() => __testOnly.prepareSyntheticHost("${RELEASE}"), error => error.code === "runner_not_single_use_clean");
+    assert.equal(existsSync(plan.maintenanceLockFile), true);
+  `;
+  execFileSync("docker", ["run", "--rm", "--pull", "never", "--network", "none",
+    "--tmpfs", "/etc:rw,nosuid,nodev,noexec,mode=0755", "--tmpfs", "/srv:rw,nosuid,nodev,noexec,mode=0755",
+    "--tmpfs", "/run/lock:rw,nosuid,nodev,noexec,mode=0755", "--volume", `${sourceRoot}:/cwt:ro`,
+    "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", successfulProbe]);
+
+  const failedProbe = String.raw`
+    import assert from "node:assert/strict";
+    import { existsSync } from "node:fs";
+    const { __testOnly } = await import("file:///cwt/deploy/scripts/preflight-linux-runtime.mjs");
+    assert.throws(() => __testOnly.prepareSyntheticHost("${RELEASE}"), error => error.code === "synthetic_host_setup_failed");
+    assert.equal(existsSync("/etc/cwt"), false); assert.equal(existsSync("/srv/cwt"), false); assert.equal(existsSync("/run/lock/cwt"), false);
+  `;
+  execFileSync("docker", ["run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+    "--tmpfs", "/etc:rw,nosuid,nodev,noexec,mode=0755", "--tmpfs", "/srv:rw,nosuid,nodev,noexec,mode=0755",
+    "--volume", `${sourceRoot}:/cwt:ro`, "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", failedProbe]);
+});
+
+test("executes the selected Scheduler pre-deploy Migration with the normalized maintenance mounts", {
+  skip: !process.env.CWT_BACKUP_TEST_IMAGE || !process.env.CWT_BACKUP_TEST_DEPS,
+  timeout: 180_000,
+}, () => {
+  const image = process.env.CWT_BACKUP_TEST_IMAGE;
+  const dependencies = process.env.CWT_BACKUP_TEST_DEPS;
+  const sourceRoot = realpathSync(resolve("."));
+  const project = `cwt-runtime-maintenance-${process.pid}`;
+  const network = `${project}-database`;
+  const container = `${project}-postgres`;
+  const holder = `${project}-lock-holder`;
+  const volume = (name) => `${project}-${name}`;
+  const ownedVolumes = ["postgres", "public", "private", "import", "daily", "sets", "lock", "secrets", "bad-secrets"].map(volume);
+  const docker = (args, options = {}) => execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...options }).trim();
+  const attempt = (args) => { try { docker(args); } catch { /* bounded cleanup continues */ } };
+  try {
+    docker(["network", "create", "--internal", network]);
+    for (const name of ownedVolumes) docker(["volume", "create", name]);
+    const setup = String.raw`
+      const { chmodSync, chownSync, writeFileSync } = require("node:fs");
+      if (process.env.INIT_DATA === "1") {
+        for (const path of ["/public", "/private", "/import", "/daily", "/sets"]) { chownSync(path, 10001, 10001); chmodSync(path, 0o700); }
+        writeFileSync("/lock/backup-migration.lock", "", { mode: 0o444 }); chownSync("/lock/backup-migration.lock", 0, 0); chmodSync("/lock/backup-migration.lock", 0o444);
+      }
+      const values = JSON.parse(process.env.SYNTHETIC_SECRET_VALUES);
+      for (const [name, value] of Object.entries(values)) { const path = "/secrets/" + name; writeFileSync(path, value, { mode: 0o444 }); chownSync(path, 0, 0); chmodSync(path, 0o444); }
+    `;
+    const secretValues = Object.fromEntries(exactProtectedSecretFiles.map(({ subjectSuffix }) => [`staging-${subjectSuffix}`, "SYNTHETIC-ONLY-VALUE-0123456789abcdef"]));
+    secretValues["staging-database-url"] = "postgres://cwt_staging@postgres:5432/cwt_staging";
+    secretValues["staging-monitoring-dsn"] = "https://synthetic@monitoring.invalid/1";
+    const setupVolumes = (secretVolume, values, includeData = false) => docker(["run", "--rm", "--pull", "never", "--network", "none",
+      ...(includeData ? [
+        "--volume", `${volume("public")}:/public`, "--volume", `${volume("private")}:/private`, "--volume", `${volume("import")}:/import`,
+        "--volume", `${volume("daily")}:/daily`, "--volume", `${volume("sets")}:/sets`, "--volume", `${volume("lock")}:/lock`,
+      ] : []),
+      "--volume", `${secretVolume}:/secrets`, "--env", `INIT_DATA=${includeData ? "1" : "0"}`,
+      "--env", `SYNTHETIC_SECRET_VALUES=${JSON.stringify(values)}`, image, "node", "--eval", setup]);
+    setupVolumes(volume("secrets"), secretValues, true);
+    setupVolumes(volume("bad-secrets"), { ...secretValues, "staging-database-url": "postgres://cwt_staging@unreachable.invalid:5432/cwt_staging" });
+
+    docker(["run", "--detach", "--name", container, "--network", network, "--network-alias", "postgres",
+      "--env", "POSTGRES_HOST_AUTH_METHOD=trust", "--volume", `${volume("postgres")}:/var/lib/postgresql`, image]);
+    for (let attemptNumber = 0; attemptNumber < 30; attemptNumber++) {
+      const ready = spawnSync("docker", ["exec", "--env", "PGUSER=postgres", container, "pg_isready", "--quiet"]);
+      if (ready.status === 0) break;
+      if (attemptNumber === 29) assert.fail("Synthetic PostgreSQL did not become ready");
+      execFileSync("sleep", ["1"]);
+    }
+    docker(["exec", "--env", "PGUSER=postgres", container, "psql", "-Xq", "-v", "ON_ERROR_STOP=1", "-c", "CREATE ROLE cwt_staging LOGIN"]);
+    docker(["exec", "--env", "PGUSER=postgres", container, "psql", "-Xq", "-v", "ON_ERROR_STOP=1", "-c", "CREATE DATABASE cwt_staging OWNER cwt_staging"]);
+
+    const plan = createRuntimeCommandPlan({ repositoryRoot: sourceRoot, project, imageReference: REFERENCE });
+    const normalized = normalizedCompose(project);
+    validateComposeGraph(normalized, { projectName: project });
+    const drizzleIndex = plan.migrate.indexOf("--volume");
+    const selectedService = plan.migrate[drizzleIndex + 2];
+    const selectedCommand = plan.migrate.slice(drizzleIndex + 3);
+    assert.equal(selectedService, "scheduler-staging");
+    assert.deepEqual(selectedCommand, ["/app/deploy/backup/pre-deploy", "node", "--import=tsx", "/app/scripts/migrate.ts"]);
+    const service = normalized.services[selectedService];
+    const targetVolumes = new Map([
+      ["/srv/cwt/staging/media/public", volume("public")], ["/srv/cwt/staging/media/private-inquiries", volume("private")],
+      ["/srv/cwt/staging/media/import", volume("import")], ["/srv/cwt/backups/postgresql/staging", volume("daily")],
+      ["/srv/cwt/backups/sets/staging", volume("sets")],
+    ]);
+    const runtime = __testOnly.runtimeEnvironment("staging", RELEASE);
+    const runSelected = ({ lock = true, secretVolume = volume("secrets"), command = selectedCommand } = {}) => {
+      const args = ["run", "--rm", "--pull", "never", "--network", network, "--user", service.user, "--workdir", "/app"];
+      if (service.read_only) args.push("--read-only");
+      for (const capability of service.cap_drop ?? []) args.push("--cap-drop", capability);
+      for (const option of service.security_opt ?? []) args.push("--security-opt", option);
+      for (const value of service.tmpfs ?? []) args.push("--tmpfs", value);
+      for (const [name, value] of Object.entries({ ...runtime, ...service.environment })) args.push("--env", `${name}=${value}`);
+      args.push("--volume", `${sourceRoot}:/app:ro`, "--volume", `${dependencies}:/app/node_modules:ro`, "--volume", `${secretVolume}:/run/secrets:ro`);
+      for (const mount of service.volumes ?? []) {
+        if (mount.target === "/run/cwt/backup-migration.lock") {
+          if (lock) args.push("--mount", `type=volume,src=${volume("lock")},dst=${mount.target},volume-subpath=backup-migration.lock,readonly`);
+        } else {
+          const source = targetVolumes.get(mount.target);
+          assert.ok(source, `unmapped normalized Scheduler mount: ${mount.target}`);
+          args.push("--volume", `${source}:${mount.target}${mount.read_only ? ":ro" : ""}`);
+        }
+      }
+      args.push("--volume", `${sourceRoot}/drizzle:/app/drizzle:ro`, image, ...command);
+      return spawnSync("docker", args, { encoding: "utf8" });
+    };
+
+    const missing = runSelected({ lock: false, secretVolume: volume("bad-secrets") });
+    assert.equal(missing.status, 1); assert.match(missing.stderr, /maintenance-mutex-file/u); assert.doesNotMatch(missing.stderr, /database-major/u);
+
+    docker(["run", "--detach", "--name", holder, "--network", "none", "--mount", `type=volume,src=${volume("lock")},dst=/run/cwt,readonly`, image,
+      "sh", "-c", "exec 8</run/cwt/backup-migration.lock; flock 8; echo ready; sleep 300"]);
+    for (let attemptNumber = 0; attemptNumber < 30 && !docker(["logs", holder]).includes("ready"); attemptNumber++) execFileSync("sleep", ["1"]);
+    assert.match(docker(["logs", holder]), /ready/u);
+    const busy = runSelected({ secretVolume: volume("bad-secrets") });
+    assert.equal(busy.status, 75); assert.match(busy.stderr, /already active/u); assert.doesNotMatch(busy.stderr, /database-major/u);
+    docker(["rm", "--force", holder]);
+
+    const completed = runSelected();
+    assert.equal(completed.status, 0, completed.stderr); assert.match(completed.stdout, /Database migrations applied/u);
+    const verified = runSelected({ command: ["sh", "-eu", "-c", "set -- /srv/cwt/backups/postgresql/staging/pre-deploy/*; test \"$#\" -eq 1; /app/deploy/backup/verify-backup-set \"$1\" >/dev/null; test -f \"$1/complete.json\""] });
+    assert.equal(verified.status, 0, verified.stderr);
+    const migrations = Number(docker(["exec", "--env", "PGUSER=cwt_staging", "--env", "PGDATABASE=cwt_staging", container,
+      "psql", "-XAtq", "-v", "ON_ERROR_STOP=1", "-c", "SELECT count(*) FROM drizzle.__drizzle_migrations"]));
+    assert.ok(migrations > 0);
+  } finally {
+    attempt(["rm", "--force", holder]);
+    attempt(["rm", "--force", container]);
+    for (const name of ownedVolumes) attempt(["volume", "rm", name]);
+    attempt(["network", "rm", network]);
+  }
 });
 
 test("rejects caller profile substitution and retains only the tools-tracked compatibility path", () => {
