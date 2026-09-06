@@ -120,6 +120,38 @@ INSERT INTO inquiry_assets (inquiry_id,asset_id) VALUES ('33333333-3333-4333-833
     assert.equal(remaining.length, 8);
     for (const name of valid) command('verify-backup-set', [join(root, 'daily', name)]);
   });
+  await t.test('clock correction cannot delete the admitted daily set or break health correspondence', () => {
+    const clockRoot = '/lab/clock-backups';
+    const clockEnv = { BACKUP_ROOT: clockRoot, BACKUP_WORK_ROOT: '/lab/clock-backup-sets' };
+    writeFileSync('/lab/future-clock.mjs', `const ActualDate = Date; const future = ActualDate.parse('2099-01-01T00:00:00.000Z'); globalThis.Date = class extends ActualDate { constructor(...args) { super(...(args.length ? args : [future])); } static now() { return future; } };\n`);
+    for (let index = 0; index < 7; index++) command('backup-postgresql', [], { ...clockEnv, NODE_OPTIONS: '--import=/lab/future-clock.mjs' });
+    const admitted = command('backup-postgresql', [], clockEnv);
+    assert.equal(readdirSync(`${clockRoot}/daily`).includes(admitted.slice(`${clockRoot}/daily/`.length)), true);
+    const marker = JSON.parse(readFileSync(`${clockRoot}/latest-complete.json`, 'utf8'));
+    assert.equal(JSON.parse(readFileSync(`${admitted}/complete.json`, 'utf8')).completedAt, marker.completedAt);
+    const outside = '/lab/verified-but-outside-daily';
+    cpSync(admitted, outside, { recursive: true });
+    refuses('retain-backups', ['daily', outside], clockEnv);
+
+    const corrupt = `${clockRoot}/daily/99991231T235959-corrupt`;
+    cpSync(admitted, corrupt, { recursive: true });
+    writeFileSync(`${corrupt}/database.dump`, 'corrupt');
+    mkdirSync(`${clockRoot}/daily/unknown-format`);
+    command('retain-backups', ['daily'], clockEnv);
+    const remaining = readdirSync(`${clockRoot}/daily`);
+    assert.equal(remaining.includes(admitted.slice(`${clockRoot}/daily/`.length)), true);
+    assert.equal(remaining.includes('99991231T235959-corrupt'), true);
+    assert.equal(remaining.includes('unknown-format'), true);
+    assert.equal(remaining.filter(name => /^\d{8}T\d{6}-[a-zA-Z0-9]+$/.test(name) && name !== '99991231T235959-corrupt').length, 7);
+    const corresponding = remaining.filter(name => name !== '99991231T235959-corrupt' && /^\d{8}T\d{6}-[a-zA-Z0-9]+$/.test(name)).some(name => {
+      try { return JSON.parse(readFileSync(`${clockRoot}/daily/${name}/complete.json`, 'utf8')).completedAt === marker.completedAt; } catch { return false; }
+    });
+    assert.equal(corresponding, true);
+    const beforeMissingCorrespondence = [...remaining].sort();
+    writeFileSync(`${clockRoot}/latest-complete.json`, JSON.stringify({ ...marker, completedAt: '2000-01-01T00:00:00.000Z' }));
+    refuses('retain-backups', ['daily'], clockEnv);
+    assert.deepEqual(readdirSync(`${clockRoot}/daily`).sort(), beforeMissingCorrespondence);
+  });
   await t.test('snapshot-coupled originals, exactly two database sessions and encrypted local read-back', async () => {
     const blocker = spawn('psql', ['-XAtq', '-v', 'ON_ERROR_STOP=1'], { env: { ...env, PGAPPNAME: 'cwt-test-blocker' }, stdio: ['pipe', 'pipe', 'pipe'] });
     const ready = new Promise((resolve, reject) => { blocker.stdout.once('data', resolve); blocker.once('error', reject); });

@@ -162,15 +162,43 @@ try {
     await rename(temporary, join(root, 'latest-complete.json'));
     await durable(root);
   } else if (action === 'retain-daily') {
+    const dailyRoot = join(root, 'daily');
     const valid = [];
-    for (const name of (await readdir(join(root, 'daily'))).sort().reverse()) {
+    for (const name of (await readdir(dailyRoot)).sort().reverse()) {
       if (!/^\d{8}T\d{6}-[a-zA-Z0-9]+$/.test(name)) continue;
-      const path = join(root, 'daily', name);
-      try { verifyWithTools(path); valid.push({ path, time: Date.parse((await json(join(path, 'complete.json'))).completedAt) }); } catch { process.stderr.write('Backup retention: invalid slot preserved; investigate.\n'); }
+      const path = join(dailyRoot, name);
+      try {
+        verifyWithTools(path);
+        const completedAt = (await json(join(path, 'complete.json'))).completedAt;
+        valid.push({ path, completedAt, time: Date.parse(completedAt) });
+      } catch { process.stderr.write('Backup retention: invalid slot preserved; investigate.\n'); }
     }
-    valid.sort((a, b) => b.time - a.time);
-    for (const { path } of valid.slice(7)) await rm(path, { recursive: true });
-    await durable(join(root, 'daily'));
+    valid.sort((a, b) => b.time - a.time || b.path.localeCompare(a.path));
+
+    const protectedPaths = new Set();
+    if (directory) {
+      await canonical(directory);
+      if (dirname(directory) !== dailyRoot || !/^\d{8}T\d{6}-[a-zA-Z0-9]+$/.test(directory.slice(dailyRoot.length + 1))) fail();
+      if (!valid.some(item => item.path === directory)) fail();
+      protectedPaths.add(directory);
+    }
+
+    let health;
+    try { health = await json(join(root, 'latest-complete.json')); }
+    catch (error) { if (error.code !== 'ENOENT' || !directory) throw error; }
+    if (health) {
+      if (health.schemaVersion !== 1 || health.environment !== environment || health.kind !== 'daily_database' || health.status !== 'complete' || !Number.isFinite(Date.parse(health.completedAt))) fail();
+      const corresponding = valid.find(item => item.completedAt === health.completedAt);
+      if (!corresponding) fail();
+      protectedPaths.add(corresponding.path);
+    }
+    if (!directory && protectedPaths.size !== 1) fail();
+
+    const retained = new Set([...protectedPaths]);
+    for (const { path } of valid) if (retained.size < 7) retained.add(path);
+    for (const { path } of valid) if (!retained.has(path)) await rm(path, { recursive: true });
+    for (const path of protectedPaths) verifyWithTools(path);
+    await durable(dailyRoot);
   } else {
     fail();
   }

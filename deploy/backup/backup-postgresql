@@ -18,7 +18,8 @@ completed="$BACKUP_ROOT/$purpose/$(date -u +%Y%m%dT%H%M%S)-${slot##*-}"
 mv -T -- "$slot" "$completed"
 node "$backup_bin/files.mjs" durable "$BACKUP_ROOT/$purpose"
 if test "$purpose" = daily; then
+  # Retention admits/protects this exact verified set before health advertises it.
+  "$backup_bin/retain-backups" daily "$completed"
   node "$backup_bin/files.mjs" health "$completed"
-  "$backup_bin/retain-backups" daily
 fi
 printf '%s\n' "$completed"

@@ -4,7 +4,7 @@ init_backup
 lock_backup
 postgres_tools
 case "${1:-}" in
-  daily) node "$backup_bin/files.mjs" retain-daily ;;
+  daily) node "$backup_bin/files.mjs" retain-daily "${2:-}" ;;
   weekly)
     restic_repository
     node "$backup_bin/weekly.mjs" retain
