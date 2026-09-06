@@ -1,16 +1,15 @@
 #!/bin/sh
 . "$(dirname -- "$0")/common.sh"
 init_backup
+lock_backup
 source_database
 purpose=${1:-daily}
 case "$purpose" in daily|pre-deploy) ;; *) refuse purpose ;; esac
-# flock is shared through the scheduler's existing environment-private backup bind.
-exec 9>"$BACKUP_ROOT/.backup.lock"
-flock -n 9 || refuse overlapping-backup
+# The same host mutex covers both environments and Migration.
 slot=$(mktemp -d "$BACKUP_ROOT/$purpose/.partial-XXXXXXXX")
 trap 'rm -rf -- "$slot"' EXIT
 trap 'exit 1' HUP INT TERM
-pg_dump -Fc --compress=gzip:6 --no-owner --no-acl --file="$slot/database.dump" 2>/dev/null || refuse dump
+node "$backup_bin/database-run.mjs" pg_dump -Fc --compress=gzip:6 --no-owner --no-acl --file="$slot/database.dump" 2>/dev/null || refuse dump
 pg_restore --list "$slot/database.dump" >/dev/null 2>&1 || refuse dump-catalog
 pg_restore --file=/dev/null "$slot/database.dump" 2>/dev/null || refuse dump-payload
 node "$backup_bin/files.mjs" seal "$slot" "$purpose"
@@ -20,6 +19,6 @@ mv -T -- "$slot" "$completed"
 node "$backup_bin/files.mjs" durable "$BACKUP_ROOT/$purpose"
 if test "$purpose" = daily; then
   node "$backup_bin/files.mjs" health "$completed"
-  "$backup_bin/retain-backups" daily --locked
+  "$backup_bin/retain-backups" daily
 fi
 printf '%s\n' "$completed"

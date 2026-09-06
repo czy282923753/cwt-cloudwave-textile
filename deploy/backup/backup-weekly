@@ -1,20 +1,17 @@
 #!/bin/sh
 . "$(dirname -- "$0")/common.sh"
 init_backup
+lock_backup
+restic_repository
 source_database
-restic_local
-exec 9>"$BACKUP_ROOT/.backup.lock"
-flock -n 9 || refuse overlapping-backup
 # Stable path lets Restic deduplicate/group without inventing a second catalogue.
-slot="$BACKUP_ROOT/.weekly-work"
+slot="$BACKUP_WORK_ROOT/.weekly-work"
 mkdir "$slot" || refuse incomplete-weekly-work
 trap 'rm -rf -- "$slot"' EXIT
 trap 'exit 1' HUP INT TERM
-(cd "$slot" && psql -XAtq -v ON_ERROR_STOP=1 -v objects_sql="$backup_bin/objects.sql" -f "$backup_bin/snapshot.sql" >/dev/null 2>&1) || refuse snapshot-copy
+(cd "$slot" && node "$backup_bin/database-run.mjs" psql -XAtq -v ON_ERROR_STOP=1 -v objects_sql="$backup_bin/objects.sql" -f "$backup_bin/snapshot.sql" >/dev/null 2>&1) || refuse snapshot-copy
 node "$backup_bin/files.mjs" configuration "$slot"
 node "$backup_bin/files.mjs" seal "$slot" weekly
 "$backup_bin/verify-backup-set" "$slot" >/dev/null
-# Failed or partial uploads never reach retention. Full read-back precedes forget.
-restic backup --quiet --host "cwt-$BACKUP_ENVIRONMENT" --tag "cwt-weekly-$BACKUP_ENVIRONMENT" "$slot" >/dev/null 2>&1 || refuse restic-backup
-"$backup_bin/retain-backups" weekly --locked
-echo 'Weekly local encrypted recovery set verified; offsite delivery is not asserted.'
+# The helper handles standard Restic JSON and the exact new snapshot only.
+node "$backup_bin/weekly.mjs" backup "$slot"

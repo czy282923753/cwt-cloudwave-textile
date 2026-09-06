@@ -1,19 +1,13 @@
 #!/bin/sh
 . "$(dirname -- "$0")/common.sh"
 init_backup
+lock_backup
 postgres_tools
-if test "${2:-}" != --locked; then
-  exec 9>"$BACKUP_ROOT/.backup.lock"
-  flock -n 9 || refuse overlapping-backup
-fi
 case "${1:-}" in
   daily) node "$backup_bin/files.mjs" retain-daily ;;
   weekly)
-    restic_local
-    # Never delete any snapshot while repository contents fail a full read check.
-    restic check --read-data >/dev/null 2>&1 || refuse restic-check
-    restic snapshots --json --host "cwt-$BACKUP_ENVIRONMENT" --tag "cwt-weekly-$BACKUP_ENVIRONMENT" >"$BACKUP_ROOT/.snapshots.json" 2>/dev/null || refuse restic-list
-    node "$backup_bin/files.mjs" retain-weekly
+    restic_repository
+    node "$backup_bin/weekly.mjs" retain
     ;;
   *) refuse retention-kind ;;
 esac

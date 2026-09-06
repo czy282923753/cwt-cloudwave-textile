@@ -1,0 +1,16 @@
+#!/bin/sh
+. "$(dirname -- "$0")/common.sh"
+# Validate on every invocation, including invocations from the JSON helper.
+RESTIC_REPOSITORY=$(node "$backup_bin/repository.mjs") || refuse repository-boundary
+export RESTIC_REPOSITORY
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE
+unset PGDATABASE PGPASSWORD DATABASE_URL DATABASE_URL_FILE
+case "$BACKUP_ENVIRONMENT" in
+  production|staging)
+    AWS_ACCESS_KEY_ID=$(cat "$COS_ACCESS_KEY_ID_FILE")
+    AWS_SECRET_ACCESS_KEY=$(cat "$COS_SECRET_ACCESS_KEY_FILE")
+    test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" || refuse cos-credentials
+    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION=ap-singapore
+    ;;
+esac
+exec restic "$@"

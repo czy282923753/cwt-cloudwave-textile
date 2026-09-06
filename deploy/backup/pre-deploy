@@ -2,6 +2,8 @@
 # The change executes only after THIS invocation creates and verifies an extra set.
 . "$(dirname -- "$0")/common.sh"
 test "$#" -gt 0 || refuse missing-deployment-command
+init_backup
+lock_backup
 completed=$("$backup_bin/backup-postgresql" pre-deploy) || refuse pre-deploy-backup
 "$backup_bin/verify-backup-set" "$completed" >/dev/null || refuse pre-deploy-verification
 exec "$@"

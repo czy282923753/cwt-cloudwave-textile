@@ -37,14 +37,14 @@ const exactMemory = Object.freeze({
 const exactNetworks = Object.freeze({
   postgres: ["production-database", "staging-database"],
   proxy: ["edge", "production-ingress", "staging-ingress"],
-  "scheduler-production": ["production-backend", "production-database"],
-  "scheduler-staging": ["staging-backend", "staging-database"],
+  "scheduler-production": ["production-backend", "production-database", "production-outbound"],
+  "scheduler-staging": ["staging-backend", "staging-database", "staging-outbound"],
   "valkey-production": ["production-backend"],
   "valkey-staging": ["staging-backend"],
-  "web-production": ["production-backend", "production-database", "production-ingress"],
-  "web-staging": ["staging-backend", "staging-database", "staging-ingress"],
+  "web-production": ["production-ingress", "production-backend", "production-database", "production-outbound"],
+  "web-staging": ["staging-ingress", "staging-backend", "staging-database", "staging-outbound"],
   "worker-production": ["production-backend", "production-database"],
-  "worker-staging": ["staging-backend", "staging-database"],
+  "worker-staging": ["staging-backend", "staging-database", "staging-outbound"],
 });
 const exactCommands = Object.freeze({
   "web-production": ["node", ".next/standalone/server.js"],
@@ -147,6 +147,22 @@ export function validateComposeGraph(document, { projectName = "cwt" } = {}) {
       }
     }
   }
+  const outboundRoles = { "web-production": "production", "scheduler-production": "production", "web-staging": "staging", "scheduler-staging": "staging", "worker-staging": "staging" };
+  const networkNames = ["edge", "production-ingress", "production-backend", "production-database", "staging-ingress", "staging-backend", "staging-database", "production-outbound", "staging-outbound"];
+  if (!same(Object.keys(document.networks), networkNames)) fail("network set drifted");
+  for (const [name, network] of Object.entries(document.networks)) {
+    if (network.external || network.name !== `${projectName}_${name}` || (network.driver && network.driver !== "bridge") || network.driver_opts) fail("ordinary project network boundary drifted");
+    if (name.endsWith("-outbound")) {
+      if (network.driver !== "bridge" || network.internal === true || network.external || network.name !== `${projectName}_${name}`) fail("outbound network boundary drifted");
+    } else if (name !== "edge" && network.internal !== true) fail("private network must remain internal");
+  }
+  for (const [name, service] of Object.entries(services)) {
+    if (service.network_mode || service.extra_hosts) fail("alternate host routing is forbidden");
+    for (const [network, attachment] of Object.entries(service.networks ?? {})) {
+      const priority = attachment?.gw_priority ?? 0;
+      if (priority !== (network === `${outboundRoles[name]}-outbound` ? 1 : 0)) fail("gateway priority drifted");
+    }
+  }
   for (const name of ["web-production", "web-staging"]) {
     const service = services[name];
     if (service.environment?.HOSTNAME !== exactApplicationBindHostname) {
@@ -173,10 +189,14 @@ export function validateComposeGraph(document, { projectName = "cwt" } = {}) {
   for (const environment of ["production", "staging"]) {
     const scheduler = services[`scheduler-${environment}`];
     const target = `/srv/cwt/backups/postgresql/${environment}`;
-    const backupMounts = (scheduler.volumes ?? []).filter((volume) => volume.target?.startsWith("/srv/cwt/backups/postgresql/"));
-    if (backupMounts.length !== 1 || backupMounts[0].source !== target || backupMounts[0].target !== target || backupMounts[0].read_only === true) {
-      fail(`${environment} backup work/completion mount drifted`);
+    for (const destination of [target, `/srv/cwt/backups/sets/${environment}`]) {
+      const mounts = (scheduler.volumes ?? []).filter(volume => volume.target === destination);
+      if (mounts.length !== 1 || mounts[0].source !== destination || mounts[0].read_only === true) fail(`${environment} backup work/completion mount drifted`);
     }
+    const backupMounts = (scheduler.volumes ?? []).filter(volume => [volume.source, volume.target].some(path => path?.startsWith("/srv/cwt/backups/")));
+    if (backupMounts.length !== 2) fail("extra backup mount");
+    const locks = (scheduler.volumes ?? []).filter(volume => volume.target === "/run/cwt/backup-migration.lock");
+    if (locks.length !== 1 || locks[0].source !== "/run/lock/cwt/backup-migration.lock" || locks[0].read_only !== true) fail("maintenance mutex mount drifted");
   }
   for (const [name, command] of Object.entries(exactCommands)) {
     if (JSON.stringify(services[name].command) !== JSON.stringify(command)) fail(`${name} command drifted`);

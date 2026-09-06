@@ -67,6 +67,21 @@ test("keeps the durable AI Worker signal lifecycle and database cleanup explicit
 });
 
 for (const [name, mutate] of [
+  ["outbound removed", (v) => { delete v.services['scheduler-production'].networks['production-outbound']; }],
+  ["cross-environment outbound", (v) => { v.services['web-staging'].networks['production-outbound'] = { gw_priority: 1 }; }],
+  ["Production Worker egress", (v) => { v.services['worker-production'].networks['production-outbound'] = { gw_priority: 1 }; }],
+  ["cache egress", (v) => { v.services['valkey-staging'].networks['staging-outbound'] = { gw_priority: 1 }; }],
+  ["outbound internal", (v) => { v.networks['staging-outbound'].internal = true; }],
+  ["global outbound name", (v) => { v.networks['production-outbound'].name = 'global-outbound'; }],
+  ["shared private bridge identity", (v) => { v.networks['staging-backend'].name = 'cwt_production-backend'; }],
+  ["custom bridge driver options", (v) => { v.networks['production-outbound'].driver_opts = { 'com.docker.network.bridge.enable_ip_masquerade': 'false' }; }],
+  ["external outbound", (v) => { v.networks['production-outbound'].external = true; }],
+  ["missing gateway priority", (v) => { delete v.services['web-staging'].networks['staging-outbound'].gw_priority; }],
+  ["private gateway preferred", (v) => { v.services['web-production'].networks['production-database'].gw_priority = 2; }],
+  ["host networking", (v) => { v.services['scheduler-production'].network_mode = 'host'; }],
+  ["host alias routing", (v) => { v.services['scheduler-staging'].extra_hosts = ['escape:host-gateway']; }],
+  ["cross-environment work root", (v) => { v.services['scheduler-production'].volumes.find(m => m.target.includes('/backups/sets/')).source = '/srv/cwt/backups/sets/staging'; }],
+  ["writable mutex", (v) => { v.services['scheduler-staging'].volumes.find(m => m.target === '/run/cwt/backup-migration.lock').read_only = false; }],
   ["default Production Worker", (value) => { delete value.services["worker-production"].profiles; }],
   ["Production Worker restart", (value) => { value.services["worker-production"].restart = "unless-stopped"; }],
   ["cross-environment database", (value) => { value.services["web-staging"].networks["production-database"] = null; }],

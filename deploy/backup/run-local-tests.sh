@@ -32,7 +32,11 @@ docker run --pull never --rm --network none --user 10001:10001 --cap-drop ALL --
 docker run --pull never --rm --network none -v "$name-files:/lab" "$CWT_BACKUP_TEST_IMAGE" sh -c 'mkdir /lab/network-negative; chown 10001:10001 /lab/network-negative'
 if docker run --pull never --rm --user 10001:10001 -e PGHOST=/socket -e PGUSER=cwt_restore -e PGDATABASE=cwt_restore_valid \
   -v "$PWD:/app:ro" -v "$name-socket:/socket:ro" -v "$name-files:/lab" \
-  "$CWT_BACKUP_TEST_IMAGE" /app/deploy/backup/restore-empty /lab/export/lab/backups/.weekly-work /lab/network-negative; then
+  "$CWT_BACKUP_TEST_IMAGE" /app/deploy/backup/restore-empty /lab/export/lab/backups-sets/.weekly-work /lab/network-negative; then
   echo 'Networked restore should have refused.' >&2; exit 1
+fi
+if test -n "${CWT_BACKUP_MOTO_DEPS:-}"; then
+  export CWT_BACKUP_LAB_NAME="$name"
+  deploy/backup/run-s3-local-tests.sh
 fi
 echo 'Local backup/restore lab passed; temporary containers and volumes will be removed.'

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +8,7 @@ import test from 'node:test';
 // Run only inside run-local-tests.sh's disposable network-none Linux lab.
 const bin = '/app/deploy/backup';
 const root = '/lab/backups';
-const env = { ...process.env, APP_ENV: 'test', BACKUP_ENVIRONMENT: 'synthetic', BACKUP_ROOT: root,
+const env = { ...process.env, APP_ENV: 'test', BACKUP_ENVIRONMENT: 'synthetic', BACKUP_ROOT: root, BACKUP_WORK_ROOT: `${root}-sets`, BACKUP_LOCK_FILE: '/lab/backup-migration.lock',
   PUBLIC_STORAGE_ROOT: '/lab/public', PRIVATE_STORAGE_ROOT: '/lab/private', IMPORT_STORAGE_ROOT: '/lab/import',
   PGHOST: '/socket', PGUSER: 'cwt_source', PGDATABASE: 'cwt_synthetic',
   DATABASE_DRIVER: 'postgres', DATABASE_URL: '',
@@ -29,6 +29,7 @@ let weekly;
 test('real PostgreSQL 18 and Restic recovery invariants', async (t) => {
   assert.equal(process.platform, 'linux');
   for (const path of [root, '/lab/public', '/lab/private', '/lab/import']) mkdirSync(path, { recursive: true, mode: 0o700 });
+  writeFileSync('/lab/backup-migration.lock', '', { mode: 0o444 });
   writeFileSync('/lab/restic-password', 'SYNTHETIC-ONLY-restic-password-not-a-real-secret', { mode: 0o600 });
   run('node', ['--conditions=react-server', '--import=tsx', '/app/scripts/migrate.ts']);
   run('node', ['--conditions=react-server', '--import=tsx', '/app/scripts/seed-fixtures.ts']);
@@ -74,6 +75,39 @@ INSERT INTO inquiry_assets (inquiry_id,asset_id) VALUES ('33333333-3333-4333-833
     command('pre-deploy', ['touch', '/lab/deploy-ran']);
     assert.equal(readdirSync('/lab').includes('deploy-ran'), true);
   });
+  await t.test('one shared mutex refuses both environment backups and Migration before database access', async () => {
+    const holder = spawn('flock', [env.BACKUP_LOCK_FILE, 'sh', '-c', 'echo ready; cat'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    await new Promise((resolve, reject) => { holder.stdout.once('data', resolve); holder.once('error', reject); });
+    try {
+      for (const name of ['backup-postgresql', 'backup-weekly', 'pre-deploy', 'retain-backups']) {
+        const result = spawnSync(join(bin, name), name === 'pre-deploy' ? ['true'] : name === 'retain-backups' ? ['daily', '--locked'] : [], { env: { ...env, PGHOST: '/missing-socket', BACKUP_ROOT: '/lab/other-environment' }, encoding: 'utf8' });
+        assert.equal(result.status, 75, name);
+      }
+      const migration = spawnSync('node', ['--conditions=react-server', '--import=tsx', '/app/scripts/migrate.ts'], { env: { ...env, PGHOST: '/missing-socket' }, encoding: 'utf8' });
+      assert.equal(migration.status, 75);
+    } finally { holder.stdin.end(); await new Promise(resolve => holder.once('exit', resolve)); }
+    assert.match(command('pre-deploy', ['node', '--conditions=react-server', '--import=tsx', '/app/scripts/migrate.ts']), /Database migrations applied/);
+    const blocker = spawn('psql', ['-XAtq', '-v', 'ON_ERROR_STOP=1'], { env: { ...env, PGAPPNAME: 'cwt-migration-test-blocker' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const ready = new Promise(resolve => blocker.stdout.once('data', resolve));
+    blocker.stdin.write("BEGIN; LOCK drizzle.__drizzle_migrations IN ACCESS EXCLUSIVE MODE; SELECT 'ready';\n");
+    await ready;
+    const migration = spawn('node', ['--conditions=react-server', '--import=tsx', '/app/scripts/migrate.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    migration.stdout.resume(); migration.stderr.resume();
+    const finished = new Promise(resolve => migration.once('exit', resolve));
+    try {
+      let waiting = false;
+      for (let attempt = 0; attempt < 50; attempt++) {
+        waiting = Number(sql("SELECT count(*) FROM pg_stat_activity WHERE usename = 'cwt_source' AND wait_event_type = 'Lock'", { PGUSER: 'postgres' })) > 0;
+        if (waiting) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(waiting, true, 'direct Migration reached the database after its short flock child exited');
+      const backup = spawnSync(join(bin, 'backup-postgresql'), [], { env: { ...env, PGHOST: '/missing-socket' } });
+      assert.equal(backup.status, 75, 'Migration retains its OS mutex while working');
+    } finally { blocker.stdin.end('COMMIT;\n'); }
+    assert.equal(await finished, 0);
+
+  });
   await t.test('seven valid daily slots survive a corrupt newest slot', () => {
     for (let index = 0; index < 8; index++) command('backup-postgresql');
     const valid = readdirSync(`${root}/daily`).filter(name => !name.startsWith('.'));
@@ -86,12 +120,32 @@ INSERT INTO inquiry_assets (inquiry_id,asset_id) VALUES ('33333333-3333-4333-833
     assert.equal(remaining.length, 8);
     for (const name of valid) command('verify-backup-set', [join(root, 'daily', name)]);
   });
-  await t.test('snapshot-coupled originals, config and encrypted local read-back', () => {
-    command('backup-weekly');
+  await t.test('snapshot-coupled originals, exactly two database sessions and encrypted local read-back', async () => {
+    const blocker = spawn('psql', ['-XAtq', '-v', 'ON_ERROR_STOP=1'], { env: { ...env, PGAPPNAME: 'cwt-test-blocker' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const ready = new Promise((resolve, reject) => { blocker.stdout.once('data', resolve); blocker.once('error', reject); });
+    blocker.stdin.write("BEGIN; LOCK organizations IN ACCESS EXCLUSIVE MODE; SELECT 'ready';\n");
+    await ready;
+    const task = spawn(join(bin, 'backup-weekly'), [], { env: { ...env, PGAPPNAME: 'cwt-weekly-observation' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let diagnostics = '';
+    task.stderr.on('data', bytes => { diagnostics += bytes; }); task.stdout.resume();
+    const done = new Promise(resolve => task.once('exit', resolve));
+    let observed = 0;
+    try {
+      for (let attempt = 0; attempt < 50; attempt++) {
+        observed = Number(sql("SELECT count(*) FROM pg_stat_activity WHERE application_name = 'cwt-weekly-observation'", { PGUSER: 'postgres' }));
+        assert.ok(observed <= 2, 'weekly backup may use at most two database sessions');
+        if (observed === 2) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(observed, 2, 'exporter and pg_dump remain simultaneously connected');
+      const competing = spawnSync(join(bin, 'backup-postgresql'), [], { env: { ...env, BACKUP_ROOT: '/lab/other-environment', PGHOST: '/missing-socket' } });
+      assert.equal(competing.status, 75);
+    } finally { blocker.stdin.end('COMMIT;\n'); }
+    assert.equal(await done, 0, diagnostics);
     assert.equal(snapshots().length, 1);
     const latest = snapshots()[0];
     run('restic', ['restore', latest.id, '--target', '/lab/export', '--verify', '--quiet']);
-    weekly = '/lab/export/lab/backups/.weekly-work';
+    weekly = '/lab/export/lab/backups-sets/.weekly-work';
     command('verify-backup-set', [weekly]);
     const set = JSON.parse(readFileSync(`${weekly}/set.json`, 'utf8'));
     assert.equal(set.kind, 'weekly');
@@ -112,7 +166,18 @@ INSERT INTO inquiry_assets (inquiry_id,asset_id) VALUES ('33333333-3333-4333-833
     writeFileSync('/lab/private/synthetic-inquiry.pdf', original);
   });
   await t.test('four valid weekly snapshots; invalid partial upload cannot displace them', () => {
-    for (let index = 0; index < 4; index++) command('backup-weekly');
+    mkdirSync('/lab/tool-observation', { mode: 0o700 });
+    const realRestic = run('sh', ['-c', 'command -v restic']);
+    assert.match(realRestic, /^\/[a-zA-Z0-9_/-]+$/);
+    writeFileSync('/lab/tool-observation/restic', `#!/bin/sh\nprintf '%s %s\\n' "$1" "\${2:-}" >> /lab/restic-calls\nif test "\${CWT_SYNTHETIC_FAIL_CHECK:-}" = yes && test "$1" = check && test "\${2:-}" = --read-data; then exit 23; fi\nexec ${realRestic} "$@"\n`, { mode: 0o700 });
+    const observedEnv = { PATH: `/lab/tool-observation:${env.PATH}` };
+    for (let index = 0; index < 4; index++) {
+      writeFileSync('/lab/restic-calls', '');
+      command('backup-weekly', [], observedEnv);
+      const calls = readFileSync('/lab/restic-calls', 'utf8').trim().split('\n');
+      assert.equal(calls.filter(call => call.startsWith('restore ')).length, 1);
+      assert.equal(calls.filter(call => call === 'check --read-data').length, 1);
+    }
     assert.equal(snapshots().length, 4);
     cpSync(weekly, `${root}/.weekly-work`, { recursive: true });
     rmSync(`${root}/.weekly-work/complete.json`);
@@ -120,6 +185,14 @@ INSERT INTO inquiry_assets (inquiry_id,asset_id) VALUES ('33333333-3333-4333-833
     refuses('retain-backups', ['weekly']);
     assert.equal(snapshots().length, 5);
     rmSync(`${root}/.weekly-work`, { recursive: true });
+    const before = snapshots().map(snapshot => snapshot.id);
+    const maintenanceFailure = spawnSync(join(bin, 'backup-weekly'), [], { env: { ...env, ...observedEnv, CWT_SYNTHETIC_FAIL_CHECK: 'yes' }, encoding: 'utf8' });
+    assert.equal(maintenanceFailure.status, 2);
+    assert.match(maintenanceFailure.stdout, /Weekly recovery set verified/);
+    assert.match(maintenanceFailure.stderr, /maintenance failed/);
+    for (const id of before) assert.ok(snapshots().some(snapshot => snapshot.id === id));
+    command('retain-backups', ['weekly']);
+    assert.equal(snapshots().length, 5, 'four valid sets and preserved invalid set');
   });
   await t.test('real empty restore preserves schema/data/routes/revisions and private safety', () => {
     mkdirSync('/lab/restored');

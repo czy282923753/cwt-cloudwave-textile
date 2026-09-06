@@ -111,7 +111,11 @@ services:
       - /srv/cwt/production/media/public:/srv/cwt/production/media/public
       - /srv/cwt/production/media/private-inquiries:/srv/cwt/production/media/private-inquiries
       - /srv/cwt/production/media/import:/srv/cwt/production/media/import
-    networks: [production-ingress, production-backend, production-database]
+    networks:
+      production-ingress: {}
+      production-backend: {}
+      production-database: {}
+      production-outbound: { gw_priority: 1 }
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -138,7 +142,12 @@ services:
       - /srv/cwt/production/media/private-inquiries:/srv/cwt/production/media/private-inquiries
       - /srv/cwt/production/media/import:/srv/cwt/production/media/import
       - /srv/cwt/backups/postgresql/production:/srv/cwt/backups/postgresql/production
-    networks: [production-backend, production-database]
+      - /srv/cwt/backups/sets/production:/srv/cwt/backups/sets/production
+      - /run/lock/cwt/backup-migration.lock:/run/cwt/backup-migration.lock:ro
+    networks:
+      production-backend: {}
+      production-database: {}
+      production-outbound: { gw_priority: 1 }
 
   postgres:
     image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
@@ -206,7 +215,11 @@ services:
       - /srv/cwt/staging/media/public:/srv/cwt/staging/media/public
       - /srv/cwt/staging/media/private-inquiries:/srv/cwt/staging/media/private-inquiries
       - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
-    networks: [staging-ingress, staging-backend, staging-database]
+    networks:
+      staging-ingress: {}
+      staging-backend: {}
+      staging-database: {}
+      staging-outbound: { gw_priority: 1 }
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health/ready/',{cache:'no-store',signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -220,7 +233,10 @@ services:
     command: [node, --conditions=react-server, --import=tsx, /app/scripts/process-ai-runs.ts]
     mem_limit: 384m
     cpus: 0.5
-    networks: [staging-backend, staging-database]
+    networks:
+      staging-backend: {}
+      staging-database: {}
+      staging-outbound: { gw_priority: 1 }
 
   scheduler-staging:
     <<: [*app-common, *staging-config]
@@ -233,7 +249,12 @@ services:
       - /srv/cwt/staging/media/private-inquiries:/srv/cwt/staging/media/private-inquiries
       - /srv/cwt/staging/media/import:/srv/cwt/staging/media/import
       - /srv/cwt/backups/postgresql/staging:/srv/cwt/backups/postgresql/staging
-    networks: [staging-backend, staging-database]
+      - /srv/cwt/backups/sets/staging:/srv/cwt/backups/sets/staging
+      - /run/lock/cwt/backup-migration.lock:/run/cwt/backup-migration.lock:ro
+    networks:
+      staging-backend: {}
+      staging-database: {}
+      staging-outbound: { gw_priority: 1 }
 
   valkey-staging:
     image: valkey/valkey:8.1.9@sha256:f0ba225266310efba5fb33383e21c64fbd07907304224786c780606e7ebd7327
@@ -261,6 +282,8 @@ services:
     logging: { driver: journald, options: { tag: "cwt-{{.Name}}" } }
 
 networks:
+  production-outbound: { driver: bridge, internal: false }
+  staging-outbound: { driver: bridge, internal: false }
   edge: {}
   production-ingress: { internal: true }
   production-backend: { internal: true }

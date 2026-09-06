@@ -70,7 +70,7 @@ async function payload(path, type) {
   if (type !== 'weekly') return fixed;
   return [...fixed, ...weeklyFixed, ...(await inventory(path)).map(row => `media/${row.partition}/${row.key}`)].sort();
 }
-async function verify(path) {
+async function verify(path, listing) {
   await canonical(path);
   const set = await json(join(path, 'set.json'));
   const complete = await json(join(path, 'complete.json'));
@@ -78,11 +78,15 @@ async function verify(path) {
   if (complete.schemaVersion !== 1 || complete.status !== 'complete' || complete.environment !== set.environment || complete.kind !== set.kind || !Number.isFinite(Date.parse(complete.completedAt))) fail();
   const expected = (await payload(path, set.kind)).sort();
   if (!Array.isArray(set.files) || JSON.stringify(set.files.map(file => file.path).sort()) !== JSON.stringify(expected)) fail();
-  const actual = await walk(path);
+  const actual = listing ? listing.map(file => file.path).sort() : await walk(path);
   if (JSON.stringify(actual) !== JSON.stringify([...expected, 'set.json', 'SHA256SUMS', 'complete.json'].sort())) fail();
   if (JSON.stringify(set.permissions) !== JSON.stringify({ uid: 10001, gid: 10001, directoryMode: '0700', fileMode: '0600', public: 'media/public', private: 'media/private' })) fail();
   for (const file of set.files) {
-    if (!safe(file.path) || !/^[a-f0-9]{64}$/.test(file.sha256) || (await regular(join(path, file.path))).size !== file.size || await hash(join(path, file.path)) !== file.sha256) fail();
+    if (!safe(file.path) || !/^[a-f0-9]{64}$/.test(file.sha256) || !Number.isSafeInteger(file.size) || file.size < 0) fail();
+    if (listing) {
+      if (listing.find(item => item.path === file.path)?.size !== file.size) fail();
+      if (file.path === 'objects.jsonl' && await hash(join(path, file.path)) !== file.sha256) fail();
+    } else if ((await regular(join(path, file.path))).size !== file.size || await hash(join(path, file.path)) !== file.sha256) fail();
   }
   if (set.kind === 'weekly') {
     for (const row of await inventory(path)) {
@@ -101,7 +105,7 @@ try {
   if (action === 'roots') {
     await canonical(root);
     if (environment === 'synthetic' && (root === '/srv/cwt' || root.startsWith('/srv/cwt/'))) fail();
-    const roots = [root, process.env.PUBLIC_STORAGE_ROOT, process.env.PRIVATE_STORAGE_ROOT].filter(Boolean);
+    const roots = [root, process.env.BACKUP_WORK_ROOT, process.env.PUBLIC_STORAGE_ROOT, process.env.PRIVATE_STORAGE_ROOT].filter(Boolean);
     for (const path of roots) await canonical(path);
     for (const a of roots) for (const b of roots) if (a !== b && a.startsWith(`${b}/`)) fail();
     if (new Set(roots).size !== roots.length) fail();
@@ -145,6 +149,8 @@ try {
     await syncTree(directory);
   } else if (action === 'verify') {
     await verify(directory);
+  } else if (action === 'verify-metadata') {
+    await verify(directory, await json(kind));
   } else if (action === 'durable') {
     await durable(directory);
   } else if (action === 'health') {
@@ -165,32 +171,11 @@ try {
     valid.sort((a, b) => b.time - a.time);
     for (const { path } of valid.slice(7)) await rm(path, { recursive: true });
     await durable(join(root, 'daily'));
-  } else if (action === 'retain-weekly') {
-    const snapshots = await json(join(root, '.snapshots.json'));
-    if (!Array.isArray(snapshots)) fail();
-    const valid = [];
-    const scratch = join(root, '.verify-weekly');
-    await mkdir(scratch, { mode: 0o700 });
-    try {
-      for (const snapshot of snapshots.sort((a, b) => Date.parse(b.time) - Date.parse(a.time))) {
-        if (!/^[a-f0-9]{64}$/.test(snapshot.id) || snapshot.hostname !== `cwt-${environment}` || !snapshot.tags?.includes(`cwt-weekly-${environment}`) || JSON.stringify(snapshot.paths) !== JSON.stringify([join(root, '.weekly-work')])) fail();
-        const target = join(scratch, snapshot.id);
-        execFileSync('restic', ['restore', snapshot.id, '--target', target, '--verify', '--quiet'], { stdio: 'ignore' });
-        const path = join(target, root.slice(1), '.weekly-work');
-        try { verifyWithTools(path); valid.push(snapshot.id); } catch { process.stderr.write('Weekly retention: incomplete set preserved; investigate.\n'); }
-        await rm(target, { recursive: true });
-      }
-      if (!valid.length || valid[0] !== snapshots[0]?.id) fail();
-      if (valid.length > 4) {
-        execFileSync('restic', ['forget', ...valid.slice(4), '--quiet'], { stdio: 'ignore' });
-        execFileSync('restic', ['prune', '--max-unused', '0', '--quiet'], { stdio: 'ignore' });
-      }
-    } finally { await rm(scratch, { recursive: true }); await rm(join(root, '.snapshots.json'), { force: true }); }
   } else {
     fail();
   }
 } catch {
   // Do not emit paths, SQL output, object IDs, customer names or credential errors.
-  process.stderr.write(`Backup filesystem step failed: ${['roots', 'copy-objects', 'configuration', 'seal', 'verify', 'durable', 'health', 'retain-daily', 'retain-weekly'].includes(action) ? action : 'unknown'}.\n`);
+  process.stderr.write(`Backup filesystem step failed: ${['roots', 'copy-objects', 'configuration', 'seal', 'verify', 'durable', 'health', 'retain-daily', 'verify-metadata'].includes(action) ? action : 'unknown'}.\n`);
   process.exitCode = 1;
 }
