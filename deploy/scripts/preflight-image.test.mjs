@@ -162,6 +162,18 @@ test("keeps the pinned Sharp trace include and isolated runtime-stage smoke gate
   }
 });
 
+test("normalizes PostgreSQL library directories without resolving loader basenames", () => {
+  const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+  assert.match(dockerfile, /FROM postgres:18\.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382 AS backup-postgresql-tools/u);
+  assert.match(dockerfile, /ARG NODE_IMAGE=node:24\.14\.0-bookworm-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8/u);
+  assert.match(dockerfile, /canonical_directory="\$\(readlink -f "\$\(dirname "\$library"\)"\)"/u);
+  assert.match(dockerfile, /library_name="\$\(basename "\$library"\)"/u);
+  assert.match(dockerfile, /case "\$canonical_directory" in \/usr\/lib\|\/usr\/lib\/\*\|\/usr\/lib64\|\/usr\/lib64\/\*\)/u);
+  assert.match(dockerfile, /cp -L "\$library" "\/backup-root\$canonical_directory\/\$library_name"/u);
+  assert.match(dockerfile, /COPY --from=dependency-input \/backup-root\/ \//u);
+  assert.doesNotMatch(dockerfile, /backup-root\$\(dirname "\$library"\)/u);
+});
+
 for (const [name, options] of [
   ["native addon", { omitSharpNative: true, sbomPackage: "sharp" }],
   ["libvips library", { omitSharpLibvips: true, sbomPackage: "sharp" }],

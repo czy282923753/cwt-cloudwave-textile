@@ -10,7 +10,13 @@ RUN mkdir -p /backup-root/usr/local/bin \
     ldd /usr/lib/postgresql/18/bin/$tool; \
   done > /tmp/backup-libraries \
   && awk '/=> \// { print $3 } /^[[:space:]]*\// { print $1 }' /tmp/backup-libraries | sort -u | \
-    while read library; do mkdir -p "/backup-root$(dirname "$library")"; cp -L "$library" "/backup-root$library"; done
+    while read -r library; do \
+      canonical_directory="$(readlink -f "$(dirname "$library")")"; \
+      library_name="$(basename "$library")"; \
+      case "$canonical_directory" in /usr/lib|/usr/lib/*|/usr/lib64|/usr/lib64/*) ;; *) exit 1 ;; esac; \
+      mkdir -p "/backup-root$canonical_directory"; \
+      cp -L "$library" "/backup-root$canonical_directory/$library_name"; \
+    done
 
 FROM node:24.14.0-bookworm@sha256:5a593d74b632d1c6f816457477b6819760e13624455d587eef0fa418c8d0777b AS dependency-acquisition
 ARG TARGETARCH
