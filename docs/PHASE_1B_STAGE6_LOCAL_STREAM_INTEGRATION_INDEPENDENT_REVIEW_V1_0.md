@@ -247,3 +247,51 @@ Bounded remediation must hand off only the exact evidence directory and its two 
 No additional blocking or nonblocking finding remains in the assigned scope. Local production dependency installation and Synthetic/emulated tests do not establish a new exact image, SBOM, native Ubuntu/amd64 Product PASS, compose startup or cloud artifact retention. The one environment-dependent Scheduler/PostgreSQL test reuses its previously accepted evidence because that implementation body is unchanged. These remain accepted validation ceilings rather than reasons to enlarge this remediation.
 
 The Candidate is **not accepted** while `S6-BD-M-01` remains open. Stage 6 remains **Partial/HOLD**. The next gate is one bounded Developer correction of the exact producer/uploader permission boundary followed by focused independent re-review in this same scope. This Review authorizes no Push, Product build, Registry write, workflow dispatch, cloud action, Runner start, protected start, deployment or Phase advancement.
+
+## Focused `S6-BD-M-01` correction re-review
+
+| Field | Value |
+| --- | --- |
+| Review type | Narrow independent Runtime outcome handoff re-review |
+| Prior failed Review | `07b504619fc05b46a79624ec1fdebbefc3f0ba94` |
+| Correction Candidate | `896dff79fd74ac69cce25c1ca4635fe05060c851` |
+| Candidate report-only delivery | `d666f063f8d532aa765f429d2980a1e94426e676` |
+| Scope | `S6-BD-M-01` and its direct failure/cleanup neighborhood only |
+| Verdict | **PASS — `S6-BD-M-01` CLOSED; dependency-closure correction locally accepted** |
+
+The preceding dependency, Build Once, checker-detail, schema and sanitized-content findings remain closed and were not reopened. The workflow, Product dependency files, Dockerfile, checker, Build Once implementation and release publication path are byte-unchanged from the previously reviewed Candidate.
+
+### Changed-handoff Security & Test Simplification Check
+
+**PASS.** The correction reuses the existing root/sudo Git ownership bridge and the existing `writeOutcome` boundary. It changes ownership in place for the exact two existing files and their directory; it adds no CLI UID, recursive ownership change, broader `$RUNNER_TEMP` permission, copy, alternate path, schema, state or evidence mechanism.
+
+The additional reads protect separate mutation facts: canonical Runner parent and uploader identity, initially empty root-owned output, exact filenames, regular-file/type/mode ownership, checksum before handoff, and final ownership after handoff. Rechecking file state around the two exact `chown` operations is proportionate to a root ownership mutation. No material check can be deleted or merged without weakening this boundary, and no additional Reviewer or gate is warranted.
+
+### Causal closure
+
+The writer derives the uploader UID through the already enforced root `SUDO_UID` to canonical repository-owner relationship. It requires the evidence parent to be a canonical directory owned and traversable by that same UID. This matches the accepted GitHub layout: the non-root `ubuntu` Runner owns its `_work/_temp` directory and invokes only the validator through `sudo`; shell expansion supplies the exact child path while sudo supplies `SUDO_UID`.
+
+The newly created evidence output must remain canonical, empty, root-owned and mode `0700`. The writer creates only `linux-runtime-validation.json` and its SHA-256 sidecar at mode `0400`, verifies both as canonical non-symlink root-owned regular files and verifies the exact sidecar bytes. It then transfers the two files to the verified origin UID and the directory last, preserving `0400/0700`, and verifies the completed ownership. The uploader can traverse and read as owner, while no group or world permission is added.
+
+Direct root execution without sudo and with a root-owned repository/parent resolves to UID 0 and preserves the original root-only behavior. Missing or invalid sudo identity, repository/parent owner mismatch, noncanonical or symlink output and invalid initial output fail closed. A supported Runtime validation failure still completes cleanup, writes and hands off the sanitized `NOT_PASS` outcome, then exits nonzero; a failure before evidence creation still leaves no artifact for the existing `if-no-files-found: ignore` behavior. Because recovery is admitted only before GHCR/validator execution, an outcome-producing run remains ineligible for same-host recovery exactly as before.
+
+### Decisive verification
+
+| Check | Result |
+| --- | --- |
+| Correction scope | PASS: only `preflight-linux-runtime.mjs` and its focused test changed; **147 insertions, 3 deletions** total |
+| Changed Runtime suite | PASS: **16/17 passed**, with the one unchanged environment-dependent Scheduler/PostgreSQL case skipped |
+| Actual production writer, two identities | PASS: root writer handed the exact two files to UID/GID 1000; consumer read JSON and checksum; unrelated root-only file remained `EACCES` |
+| Reviewer `_work/_temp` layout probe | PASS: root writer used `/opt/cwt-actions-runner/_work/_temp/cwt-runtime-outcome`; UID/GID 1000 traversed `0700`, read both files and recomputed the matching digest |
+| Negative handoff paths | PASS: missing origin, mismatched parent, symlink output and root-only direct execution retain fail-closed behavior without widened mutation |
+| CLI status and missing-output boundary | PASS: wrong parent returns nonzero `outcome_handoff_invalid` with no success stdout; pre-evidence refusal retains no outcome |
+| Syntax, focused ESLint and diff hygiene | PASS |
+| Previously accepted Product boundaries | PASS by unchanged-byte confirmation and prior evidence reuse; no full bundle cycle repeated |
+
+The local Linux two-identity probes establish filesystem readability and checksum usability, not hosted GitHub artifact creation or retention. A real `upload-artifact` result remains future external evidence. No new Product image, SBOM, compose result or native Runtime PASS is claimed.
+
+### Exit disposition
+
+No blocking or nonblocking finding remains in this bounded re-review. `S6-BD-M-01` is closed, and the complete dependency-closure correction is locally accepted. The old release `78c882345d522d7a83cae9296c26499d49ab2521` and index `sha256:fc96539ee4c51895c1c1fedc8ef873e2fc92b5898c55f273f03d81656d779f0e` remain immutable failure evidence and unsuitable for a future Runtime subject. Stage 6 remains **Partial/HOLD**.
+
+The next gate is coordinator acceptance of this Review and a concrete separate decision on a new Product Build Once. This Review authorizes no Push, Product build, Registry write, workflow dispatch, cloud action, Runner start, deployment or Phase advancement.
