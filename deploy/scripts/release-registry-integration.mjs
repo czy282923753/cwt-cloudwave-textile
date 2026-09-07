@@ -179,7 +179,7 @@ export function createRegistryCommandPlan({ orasPath, authFile, ociRoot, reposit
 export function validateRuntimeRunnerBinding({ eventName, runAttempt, runnerEnvironment, runnerOs, runnerArch, runnerName, nonce }) {
   if (!RUNNER_NONCE.test(nonce ?? "")) refuse("runner_nonce_invalid", "Runtime Runner nonce must be 128-bit lowercase hex.");
   const expectedName = `cwt-tencent-sg-${nonce}`;
-  if (eventName !== "workflow_dispatch" || runAttempt !== "1" || runnerEnvironment !== "self-hosted" ||
+  if (eventName !== "workflow_dispatch" || !["1", "2"].includes(runAttempt) || runnerEnvironment !== "self-hosted" ||
     runnerOs !== "Linux" || runnerArch !== "X64" || runnerName !== expectedName) {
     refuse("runner_binding_mismatch", "Runtime job is not bound to the selected single-use Tencent Singapore Runner identity.");
   }

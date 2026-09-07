@@ -133,6 +133,13 @@ jobs:
           [[ ! -e "$oras_root" ]]
           mkdir -m 700 "$oras_root"
           curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 15 \
+            --max-time 180 \
+            --retry 2 \
+            --retry-delay 2 \
+            --retry-max-time 45 \
+            --retry-connrefused \
+            --remove-on-error \
             --output "$archive" \
             https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_linux_amd64.tar.gz
           echo "9ce999f8d2de03fc03968b29d743077a58783e545e5eaa53917ca177352d0e59  $archive" | sha256sum --check --strict

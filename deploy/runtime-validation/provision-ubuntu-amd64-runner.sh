@@ -11,13 +11,21 @@ readonly CWT_CONTAINERD_PACKAGE_VERSION="2.3.4-1~ubuntu.24.04~noble"
 
 readonly CWT_RUNNER_ARCHIVE_SHA256="70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
 readonly CWT_RUNNER_ARCHIVE_URL="https://github.com/actions/runner/releases/download/v${CWT_RUNNER_VERSION}/actions-runner-linux-x64-${CWT_RUNNER_VERSION}.tar.gz"
-readonly CWT_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="15"
+readonly CWT_DOCKER_SIGNING_KEY_URL="https://download.docker.com/linux/ubuntu/gpg"
+readonly CWT_DOCKER_KEY_DOWNLOAD_MAX_TIME_SECONDS="60"
+readonly CWT_PUBLIC_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="15"
 readonly CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="390"
-readonly CWT_RUNNER_DOWNLOAD_RETRY_COUNT="2"
-readonly CWT_RUNNER_DOWNLOAD_RETRY_DELAY_SECONDS="2"
-readonly CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS="45"
+readonly CWT_PUBLIC_DOWNLOAD_RETRY_COUNT="2"
+readonly CWT_PUBLIC_DOWNLOAD_RETRY_DELAY_SECONDS="2"
+readonly CWT_PUBLIC_DOWNLOAD_RETRY_MAX_TIME_SECONDS="45"
+readonly CWT_APT_RETRY_COUNT="2"
+readonly CWT_APT_HTTP_TIMEOUT_SECONDS="30"
+readonly CWT_APT_HTTPS_TIMEOUT_SECONDS="30"
 readonly CWT_RUNNER_ROOT="/opt/cwt-actions-runner"
 readonly CWT_FAILURE_DIAGNOSTIC_TAIL_BYTES=4096
+CWT_APT_POLICY_PATH=""
+CWT_HOST_PREPARATION_MODE=""
+CWT_PROVISION_OWNS_RUNNER_ROOT=0
 CWT_PROVISION_WORK_ROOT=""
 CWT_PROVISION_LOG=""
 CWT_PROVISION_LOG_ACTIVE=0
@@ -92,39 +100,40 @@ cwt_resolve_package_version() {
   select_exact_package_version "$package" "$expected_version" "$catalog"
 }
 
-cwt_require_fresh_host() {
+cwt_refuse() {
+  printf 'CWT_PROVISION_NOT_PASS reason=%s\n' "$1" >&2
+  return "${2:-66}"
+}
+
+cwt_validate_invocation() {
   local conflicting_package status
 
   [[ "$EUID" -eq 0 ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=root_required\n' >&2
-    return 66
+    cwt_refuse "root_required"
+    return
   }
   [[ "$#" -eq 0 ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=arguments_forbidden\n' >&2
-    return 64
+    cwt_refuse "arguments_forbidden" 64
+    return
   }
   [[ -r /etc/os-release ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=os_release_missing\n' >&2
-    return 66
+    cwt_refuse "os_release_missing"
+    return
   }
 
   # shellcheck disable=SC1091
   source /etc/os-release
   [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=unsupported_os\n' >&2
-    return 66
+    cwt_refuse "unsupported_os"
+    return
   }
   [[ "$(dpkg --print-architecture)" == "amd64" && "$(uname -m)" == "x86_64" ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=unsupported_architecture\n' >&2
-    return 66
+    cwt_refuse "unsupported_architecture"
+    return
   }
   id ubuntu >/dev/null 2>&1 || {
-    printf 'CWT_PROVISION_NOT_PASS reason=ubuntu_user_missing\n' >&2
-    return 66
-  }
-  [[ ! -e "$CWT_RUNNER_ROOT" ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=runner_root_not_fresh\n' >&2
-    return 66
+    cwt_refuse "ubuntu_user_missing"
+    return
   }
 
   for conflicting_package in docker.io docker-compose docker-compose-v2 podman-docker containerd runc; do
@@ -136,6 +145,268 @@ cwt_require_fresh_host() {
   done
 }
 
+cwt_create_apt_acquisition_policy() {
+  [[ -z "${CWT_APT_POLICY_PATH:-}" ]] || cwt_refuse "apt_policy_already_active" 68
+  CWT_APT_POLICY_PATH="$(mktemp /tmp/cwt-runner-apt-policy.XXXXXX)"
+  [[ "$CWT_APT_POLICY_PATH" == /tmp/cwt-runner-apt-policy.* && ! -L "$CWT_APT_POLICY_PATH" ]] || \
+    cwt_refuse "apt_policy_path_invalid" 68
+  chmod 0600 "$CWT_APT_POLICY_PATH"
+  printf '%s\n' \
+    "Acquire::Retries \"${CWT_APT_RETRY_COUNT}\";" \
+    "Acquire::http::Timeout \"${CWT_APT_HTTP_TIMEOUT_SECONDS}\";" \
+    "Acquire::https::Timeout \"${CWT_APT_HTTPS_TIMEOUT_SECONDS}\";" \
+    >"$CWT_APT_POLICY_PATH"
+  export APT_CONFIG="$CWT_APT_POLICY_PATH"
+}
+
+cwt_remove_apt_acquisition_policy() {
+  local policy_path="${CWT_APT_POLICY_PATH:-}"
+
+  if [[ -n "$policy_path" ]]; then
+    [[ "$policy_path" == /tmp/cwt-runner-apt-policy.* && -f "$policy_path" && ! -L "$policy_path" ]] || {
+      unset APT_CONFIG
+      CWT_APT_POLICY_PATH=""
+      cwt_refuse "apt_policy_cleanup_path_invalid" 68
+      return
+    }
+    rm -f -- "$policy_path" || {
+      unset APT_CONFIG
+      CWT_APT_POLICY_PATH=""
+      cwt_refuse "apt_policy_cleanup_failed" 68
+      return
+    }
+    [[ ! -e "$policy_path" && ! -L "$policy_path" ]] || {
+      unset APT_CONFIG
+      CWT_APT_POLICY_PATH=""
+      cwt_refuse "apt_policy_cleanup_failed" 68
+      return
+    }
+  fi
+  unset APT_CONFIG
+  CWT_APT_POLICY_PATH=""
+}
+
+cwt_package_identity() {
+  dpkg-query -W -f='${Status}|${Version}' "$1" 2>/dev/null || true
+}
+
+cwt_classify_docker_installation() {
+  local identity package expected_version
+  local present=0
+  local exact=0
+
+  while IFS='|' read -r package expected_version; do
+    identity="$(cwt_package_identity "$package")"
+    if [[ -n "$identity" ]]; then
+      present=$((present + 1))
+      [[ "$identity" == "install ok installed|${expected_version}" ]] || {
+        CWT_DOCKER_INSTALLATION_STATE="mixed"
+        return 0
+      }
+      exact=$((exact + 1))
+    fi
+  done <<EOF
+docker-ce|${CWT_DOCKER_CE_PACKAGE_VERSION}
+docker-ce-cli|${CWT_DOCKER_CLI_PACKAGE_VERSION}
+docker-compose-plugin|${CWT_DOCKER_COMPOSE_PACKAGE_VERSION}
+containerd.io|${CWT_CONTAINERD_PACKAGE_VERSION}
+EOF
+
+  if [[ "$present" -eq 0 ]]; then
+    CWT_DOCKER_INSTALLATION_STATE="absent"
+  elif [[ "$exact" -eq 4 ]]; then
+    CWT_DOCKER_INSTALLATION_STATE="exact"
+  else
+    CWT_DOCKER_INSTALLATION_STATE="mixed"
+  fi
+}
+
+cwt_list_runner_processes() {
+  local executable process_executable
+
+  for executable in /proc/[0-9]*/exe; do
+    process_executable="$(readlink -f "$executable" 2>/dev/null || true)"
+    case "$process_executable" in
+      "$CWT_RUNNER_ROOT/bin/Runner.Listener"|"$CWT_RUNNER_ROOT/bin/Runner.Listener (deleted)"|\
+      "$CWT_RUNNER_ROOT/bin/Runner.Worker"|"$CWT_RUNNER_ROOT/bin/Runner.Worker (deleted)")
+        printf '%s\n' "$process_executable"
+        ;;
+    esac
+  done
+}
+
+cwt_runner_is_active() {
+  local process
+
+  while IFS= read -r process; do
+    [[ -z "$process" ]] || return 0
+  done < <(cwt_list_runner_processes)
+  return 1
+}
+
+cwt_recovery_path_exists() {
+  [[ -e "$1" || -L "$1" ]]
+}
+
+cwt_require_no_recovery_residue() {
+  local compose_project network_name path
+  local containers networks
+
+  containers="$(docker ps -aq)"
+  [[ -z "$containers" ]] || {
+    cwt_refuse "docker_container_residue"
+    return
+  }
+
+  networks="$(docker network ls --format '{{.Label "com.docker.compose.project"}}|{{.Name}}')"
+  while IFS='|' read -r compose_project network_name; do
+    [[ -z "$compose_project" && -z "$network_name" ]] && continue
+    case "$compose_project" in [cC][wW][tT]|[cC][wW][tT]-*|[cC][wW][tT]_*) cwt_refuse "cwt_network_residue"; return ;; esac
+    case "$network_name" in [cC][wW][tT]|[cC][wW][tT]-*|[cC][wW][tT]_*) cwt_refuse "cwt_network_residue"; return ;; esac
+  done <<<"$networks"
+
+  for path in \
+    /etc/cwt \
+    /srv/cwt \
+    /run/lock/cwt \
+    "$CWT_RUNNER_ROOT/_work/_temp/cwt-ghcr-auth" \
+    "$CWT_RUNNER_ROOT/_work/_temp/cwt-runtime-subject.oci" \
+    "$CWT_RUNNER_ROOT/_work/_temp/cwt-runtime-outcome"; do
+    if cwt_recovery_path_exists "$path"; then
+      cwt_refuse "recovery_private_or_runtime_residue"
+      return
+    fi
+  done
+}
+
+cwt_list_mount_targets() {
+  findmnt --raw --noheadings --output TARGET
+}
+
+cwt_require_runner_root_unmounted() {
+  local mount_target mount_targets
+
+  mount_targets="$(cwt_list_mount_targets)" || {
+    cwt_refuse "runner_mount_state_unavailable"
+    return
+  }
+  while IFS= read -r mount_target; do
+    case "$mount_target" in
+      "$CWT_RUNNER_ROOT"|"$CWT_RUNNER_ROOT"/*)
+        cwt_refuse "runner_root_mount_present"
+        return
+        ;;
+    esac
+  done <<<"$mount_targets"
+}
+
+cwt_remove_inactive_runner_root() {
+  [[ "$CWT_RUNNER_ROOT" == "/opt/cwt-actions-runner" ]] || {
+    cwt_refuse "runner_root_identity_invalid"
+    return
+  }
+  if [[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]]; then
+    return 0
+  fi
+  [[ -d "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || {
+    cwt_refuse "runner_root_type_invalid"
+    return
+  }
+  if cwt_runner_is_active; then
+    cwt_refuse "runner_process_active"
+    return
+  fi
+  cwt_require_runner_root_unmounted
+  rm -rf -- "$CWT_RUNNER_ROOT" || {
+    cwt_refuse "runner_root_cleanup_failed" 68
+    return
+  }
+  [[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || cwt_refuse "runner_root_cleanup_failed" 68
+}
+
+cwt_create_owned_runner_root() {
+  [[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || {
+    cwt_refuse "runner_root_creation_collision" 68
+    return
+  }
+  CWT_PROVISION_OWNS_RUNNER_ROOT=1
+  install -d -m 0755 "$CWT_RUNNER_ROOT"
+  [[ -d "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || cwt_refuse "runner_root_creation_invalid" 68
+}
+
+cwt_prepare_host() {
+  local fresh_state_path
+
+  cwt_classify_docker_installation
+  case "$CWT_DOCKER_INSTALLATION_STATE" in
+    absent)
+      [[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || {
+        cwt_refuse "mixed_fresh_host_state"
+        return
+      }
+      command -v docker >/dev/null 2>&1 && {
+        cwt_refuse "mixed_docker_identity"
+        return
+      }
+      for fresh_state_path in \
+        /etc/apt/keyrings/docker.asc \
+        /etc/apt/sources.list.d/docker.list \
+        /etc/docker \
+        /var/lib/containerd \
+        /var/lib/docker; do
+        if cwt_recovery_path_exists "$fresh_state_path"; then
+          cwt_refuse "mixed_fresh_host_state"
+          return
+        fi
+      done
+      CWT_HOST_PREPARATION_MODE="fresh"
+      ;;
+    exact)
+      [[ "$(docker version --format '{{.Client.Version}}')" == "$CWT_DOCKER_ENGINE_VERSION" &&
+        "$(docker version --format '{{.Server.Version}}')" == "$CWT_DOCKER_ENGINE_VERSION" &&
+        "$(docker compose version --short)" == "$CWT_DOCKER_COMPOSE_VERSION" ]] || {
+        cwt_refuse "mixed_docker_identity"
+        return
+      }
+      cwt_require_no_recovery_residue
+      if [[ -e "$CWT_RUNNER_ROOT" || -L "$CWT_RUNNER_ROOT" ]]; then
+        [[ -d "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || {
+          cwt_refuse "runner_root_type_invalid"
+          return
+        }
+      fi
+      if cwt_runner_is_active; then
+        cwt_refuse "runner_process_active"
+        return
+      fi
+      cwt_remove_inactive_runner_root
+      CWT_HOST_PREPARATION_MODE="recovery"
+      ;;
+    *)
+      cwt_refuse "mixed_docker_installation"
+      return
+      ;;
+  esac
+}
+
+cwt_download_public_file() {
+  local url="$1"
+  local output="$2"
+  local max_time_seconds="$3"
+
+  rm -f -- "$output"
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    --connect-timeout "$CWT_PUBLIC_DOWNLOAD_CONNECT_TIMEOUT_SECONDS" \
+    --max-time "$max_time_seconds" \
+    --retry "$CWT_PUBLIC_DOWNLOAD_RETRY_COUNT" \
+    --retry-delay "$CWT_PUBLIC_DOWNLOAD_RETRY_DELAY_SECONDS" \
+    --retry-max-time "$CWT_PUBLIC_DOWNLOAD_RETRY_MAX_TIME_SECONDS" \
+    --retry-connrefused \
+    --remove-on-error \
+    "$url" \
+    --output "$output"
+}
+
 cwt_install_exact_docker() {
   local docker_ce_version docker_cli_version compose_version containerd_version
 
@@ -144,8 +415,10 @@ cwt_install_exact_docker() {
   apt-get install -y --no-install-recommends ca-certificates curl git gnupg jq sudo
 
   install -d -m 0755 /etc/apt/keyrings
-  curl --fail --silent --show-error --location https://download.docker.com/linux/ubuntu/gpg \
-    --output /etc/apt/keyrings/docker.asc
+  cwt_download_public_file \
+    "$CWT_DOCKER_SIGNING_KEY_URL" \
+    /etc/apt/keyrings/docker.asc \
+    "$CWT_DOCKER_KEY_DOWNLOAD_MAX_TIME_SECONDS"
   chmod 0644 /etc/apt/keyrings/docker.asc
   printf '%s\n' \
     'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable' \
@@ -173,24 +446,10 @@ cwt_download_runner_archive() {
   local url="$1"
   local expected_sha="$2"
   local archive="$3"
-  local connect_timeout_seconds="$4"
-  local max_time_seconds="$5"
-  local retry_count="$6"
-  local retry_delay_seconds="$7"
-  local retry_max_time_seconds="$8"
+  local max_time_seconds="$4"
   local actual_sha
 
-  rm -f -- "$archive"
-  curl --fail --silent --show-error --location \
-    --connect-timeout "$connect_timeout_seconds" \
-    --max-time "$max_time_seconds" \
-    --retry "$retry_count" \
-    --retry-delay "$retry_delay_seconds" \
-    --retry-max-time "$retry_max_time_seconds" \
-    --retry-connrefused \
-    --remove-on-error \
-    "$url" \
-    --output "$archive"
+  cwt_download_public_file "$url" "$archive" "$max_time_seconds"
 
   actual_sha="$(sha256sum "$archive")"
   actual_sha="${actual_sha%% *}"
@@ -211,13 +470,9 @@ cwt_install_runner() {
     "$CWT_RUNNER_ARCHIVE_URL" \
     "$CWT_RUNNER_ARCHIVE_SHA256" \
     "$archive" \
-    "$CWT_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS" \
-    "$CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS" \
-    "$CWT_RUNNER_DOWNLOAD_RETRY_COUNT" \
-    "$CWT_RUNNER_DOWNLOAD_RETRY_DELAY_SECONDS" \
-    "$CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS"
+    "$CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS"
 
-  install -d -m 0755 "$CWT_RUNNER_ROOT"
+  cwt_create_owned_runner_root
   tar -xzf "$archive" -C "$CWT_RUNNER_ROOT"
   "$CWT_RUNNER_ROOT/bin/installdependencies.sh"
 
@@ -245,17 +500,36 @@ cwt_install_runner() {
 }
 
 cwt_cleanup() {
+  local cleanup_status=0
+
+  if [[ "${CWT_PROVISION_OWNS_RUNNER_ROOT:-0}" -eq 1 ]]; then
+    if [[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]]; then
+      :
+    elif [[ "$CWT_RUNNER_ROOT" == "/opt/cwt-actions-runner" && -d "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] && \
+      ! cwt_runner_is_active && cwt_require_runner_root_unmounted; then
+      rm -rf -- "$CWT_RUNNER_ROOT" || cleanup_status=68
+      [[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]] || cleanup_status=68
+    else
+      cleanup_status=68
+    fi
+    CWT_PROVISION_OWNS_RUNNER_ROOT=0
+  fi
   if [[ -n "${CWT_PROVISION_WORK_ROOT:-}" ]]; then
     if [[ "$CWT_PROVISION_WORK_ROOT" == /tmp/cwt-runner-provision.* && ! -L "$CWT_PROVISION_WORK_ROOT" ]]; then
-      rm -rf -- "$CWT_PROVISION_WORK_ROOT" || true
+      rm -rf -- "$CWT_PROVISION_WORK_ROOT" || cleanup_status=68
     fi
     CWT_PROVISION_WORK_ROOT=""
   fi
+  cwt_remove_apt_acquisition_policy || cleanup_status=68
   if [[ -n "${CWT_PROVISION_LOG:-}" ]]; then
     if [[ "$CWT_PROVISION_LOG" == /tmp/cwt-runner-provision-log.* && ! -L "$CWT_PROVISION_LOG" ]]; then
-      rm -f -- "$CWT_PROVISION_LOG" || true
+      rm -f -- "$CWT_PROVISION_LOG" || cleanup_status=68
     fi
     CWT_PROVISION_LOG=""
+  fi
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    printf 'CWT_PROVISION_NOT_PASS reason=provisioning_cleanup_failed\n' >&2
+    return "$cleanup_status"
   fi
 }
 
@@ -282,7 +556,11 @@ cwt_on_exit() {
     CWT_PROVISION_LOG_ACTIVE=0
     cwt_emit_failure_diagnostic "$status"
   fi
-  cwt_cleanup
+  local cleanup_status=0
+  cwt_cleanup || cleanup_status=$?
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    status="$cleanup_status"
+  fi
   exit "$status"
 }
 
@@ -306,6 +584,8 @@ cwt_finish_logging() {
     rm -rf -- "$CWT_PROVISION_WORK_ROOT"
     CWT_PROVISION_WORK_ROOT=""
   fi
+  cwt_remove_apt_acquisition_policy
+  CWT_PROVISION_OWNS_RUNNER_ROOT=0
   [[ "$CWT_PROVISION_LOG" == /tmp/cwt-runner-provision-log.* && ! -L "$CWT_PROVISION_LOG" ]]
   rm -f -- "$CWT_PROVISION_LOG"
   CWT_PROVISION_LOG=""
@@ -313,13 +593,17 @@ cwt_finish_logging() {
 }
 
 cwt_main() {
-  cwt_require_fresh_host "$@"
+  cwt_validate_invocation "$@"
   cwt_start_logging
-  cwt_install_exact_docker
+  cwt_create_apt_acquisition_policy
+  cwt_prepare_host
+  if [[ "$CWT_HOST_PREPARATION_MODE" == "fresh" ]]; then
+    cwt_install_exact_docker
+  fi
   cwt_install_runner
   cwt_finish_logging
-  printf 'CWT_PRE_REGISTRATION_OK os=ubuntu-24.04 arch=amd64 docker=%s compose=%s runner=%s runner_tree_owner=ubuntu diag_write_probe=PASS docker_user_probe=PASS\n' \
-    "$CWT_DOCKER_ENGINE_VERSION" "$CWT_DOCKER_COMPOSE_VERSION" "$CWT_RUNNER_VERSION"
+  printf 'CWT_PRE_REGISTRATION_OK os=ubuntu-24.04 arch=amd64 docker=%s compose=%s runner=%s preparation=%s runner_tree_owner=ubuntu diag_write_probe=PASS docker_user_probe=PASS\n' \
+    "$CWT_DOCKER_ENGINE_VERSION" "$CWT_DOCKER_COMPOSE_VERSION" "$CWT_RUNNER_VERSION" "$CWT_HOST_PREPARATION_MODE"
 }
 
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
