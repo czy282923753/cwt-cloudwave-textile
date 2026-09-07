@@ -7,6 +7,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -751,11 +752,62 @@ export function prepareRuntimeInputs(args) {
     tools: { commit: args["tools-commit"], compatibilityProfileSha256: sha256File(profilePath) } };
 }
 
-function writeOutcome(evidenceRoot, outcome) {
+function outcomeUploaderUid(repositoryRoot, evidenceRoot) {
+  const canonicalRepository = exactCanonicalDirectory(repositoryRoot, "repository", "outcome_handoff_invalid");
+  const gitEnv = createGitIdentityEnvironment({
+    effectiveUid: typeof process.getuid === "function" ? process.getuid() : -1,
+    repositoryOwnerUid: lstatSync(canonicalRepository).uid,
+    environment: process.env,
+  });
+  const uploaderUid = Number(gitEnv.SUDO_UID ?? 0);
+  const parent = exactCanonicalDirectory(dirname(evidenceRoot), "evidence parent", "outcome_handoff_invalid");
+  const parentStat = lstatSync(parent);
+  if (parentStat.uid !== uploaderUid || (parentStat.mode & 0o100) !== 0o100) {
+    refuse("outcome_handoff_invalid", "Evidence parent does not belong to the verified Runner identity.");
+  }
+  return uploaderUid;
+}
+
+function writeOutcome(evidenceRoot, outcome, repositoryRoot) {
+  const canonicalEvidenceRoot = exactCanonicalDirectory(evidenceRoot, "evidence output", "outcome_handoff_invalid");
+  const rootStat = lstatSync(canonicalEvidenceRoot);
+  if (rootStat.uid !== 0 || (rootStat.mode & 0o777) !== 0o700 || readdirSync(canonicalEvidenceRoot).length !== 0) {
+    refuse("outcome_handoff_invalid", "Evidence output must begin as one empty root-owned directory.");
+  }
+  const uploaderUid = outcomeUploaderUid(repositoryRoot, evidenceRoot);
   const path = resolve(evidenceRoot, "linux-runtime-validation.json");
   writeFileSync(path, stableJson(outcome), { flag: "wx", mode: 0o400 });
   const sidecar = resolve(evidenceRoot, "linux-runtime-validation.json.sha256");
   writeFileSync(sidecar, `${sha256File(path)}  linux-runtime-validation.json\n`, { flag: "wx", mode: 0o400 });
+  const names = readdirSync(canonicalEvidenceRoot).sort();
+  if (JSON.stringify(names) !== JSON.stringify(["linux-runtime-validation.json", "linux-runtime-validation.json.sha256"])) {
+    refuse("outcome_handoff_invalid", "Evidence output ownership, mode, or contents are invalid.");
+  }
+  for (const target of [path, sidecar]) {
+    const targetStat = lstatSync(target);
+    if (targetStat.isSymbolicLink() || !targetStat.isFile() || targetStat.uid !== 0 ||
+      (targetStat.mode & 0o777) !== 0o400 || realpathSync(target) !== target) {
+      refuse("outcome_handoff_invalid", "Evidence file ownership, mode, or type is invalid.");
+    }
+  }
+  if (readFileSync(sidecar, "utf8") !== `${sha256File(path)}  linux-runtime-validation.json\n`) {
+    refuse("outcome_handoff_invalid", "Evidence checksum is invalid.");
+  }
+  for (const target of [path, sidecar]) {
+    const targetStat = lstatSync(target);
+    chownSync(target, uploaderUid, targetStat.gid);
+  }
+  chownSync(canonicalEvidenceRoot, uploaderUid, rootStat.gid);
+  for (const target of [path, sidecar]) {
+    const targetStat = lstatSync(target);
+    if (targetStat.uid !== uploaderUid || (targetStat.mode & 0o777) !== 0o400) {
+      refuse("outcome_handoff_invalid", "Evidence file handoff did not complete.");
+    }
+  }
+  const handedOffRoot = lstatSync(canonicalEvidenceRoot);
+  if (handedOffRoot.uid !== uploaderUid || (handedOffRoot.mode & 0o777) !== 0o700) {
+    refuse("outcome_handoff_invalid", "Evidence directory handoff did not complete.");
+  }
 }
 
 async function validate(args) {
@@ -925,7 +977,7 @@ async function validate(args) {
     security: { credentialValuesRecorded: false, syntheticDataOnly: true, automaticRetry: false, automaticRevocation: false },
     claimCeiling: "implementation-path runtime evidence only; Runner provisioning/destruction, Provider, Registry custody, Build Once, promotion and protected environments require separate authority",
   };
-  writeOutcome(evidenceRoot, outcome);
+  writeOutcome(evidenceRoot, outcome, repositoryRoot);
   process.stdout.write(`${JSON.stringify({ status, reasonCode: outcome.reasonCode, evidence: basename(evidenceRoot) })}\n`);
   if (mainFailure) process.exitCode = 1;
   return outcome;
@@ -957,4 +1009,5 @@ export const __testOnly = Object.freeze({
   sha256,
   exactCanonicalDirectory,
   verifyRepositoryIdentity,
+  writeOutcome,
 });

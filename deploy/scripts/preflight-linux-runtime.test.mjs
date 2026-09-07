@@ -253,8 +253,11 @@ test("executes mixed-revision preparation, transport and sole image authority un
       const header = { releaseId: frozen, source: { commit: frozen }, oci: { indexDigest: index }, state: "built" };
       writeFileSync("/tmp/release.json", JSON.stringify(header));
       mkdirSync("/tmp/subject.oci");
+      mkdirSync("/tmp/runner-temp", { mode: 0o700 });
+      execFileSync("chown", ["1000:1000", "/tmp/runner-temp"]);
+      mkdirSync("/tmp/root-owned-parent", { mode: 0o700 });
       const args = { repository: subject, "tools-commit": toolsCommit, release: "/tmp/release.json", oci: "/tmp/subject.oci",
-        image: "ghcr.io/czy282923753/cwt-cloudwave-textile@" + index, evidence: "/tmp/runtime-outcome", token: "runtime-proof" };
+        image: "ghcr.io/czy282923753/cwt-cloudwave-textile@" + index, evidence: "/tmp/runner-temp/runtime-outcome", token: "runtime-proof" };
       const rejects = (action, code) => assert.throws(action, (error) => error.code === code);
       const proveInputs = () => {
         const prepared = prepareRuntimeInputs(args);
@@ -366,6 +369,9 @@ test("executes mixed-revision preparation, transport and sole image authority un
       const rejectedHeader = cli({ image: args.image });
       assert.deepEqual(JSON.parse(rejectedHeader.stderr), { status: "NOT_PASS", reasonCode: "release_identity_mismatch", mismatchFields: ["oci.indexDigest"] });
       assert.equal(existsSync(args.evidence), false);
+      const rejectedHandoff = cli({ evidence: "/tmp/root-owned-parent/outcome" });
+      assert.equal(rejectedHandoff.status, 1); assert.equal(rejectedHandoff.stdout, "");
+      assert.deepEqual(JSON.parse(rejectedHandoff.stderr), { status: "NOT_PASS", reasonCode: "outcome_handoff_invalid" });
       const result = cli();
       assert.equal(result.status, 1);
       const outcome = JSON.parse(readFileSync(args.evidence + "/linux-runtime-validation.json"));
@@ -525,6 +531,91 @@ test("owns and cleans the synthetic backup roots and shared mutex without replac
   execFileSync("docker", ["run", "--rm", "--pull", "never", "--network", "none", "--read-only",
     "--tmpfs", "/etc:rw,nosuid,nodev,noexec,mode=0755", "--tmpfs", "/srv:rw,nosuid,nodev,noexec,mode=0755",
     "--volume", `${sourceRoot}:/cwt:ro`, "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", failedProbe]);
+});
+
+test("hands only the completed Runtime outcome from root to the verified Linux Runner identity", () => {
+  const sourceRoot = realpathSync(resolve("."));
+  const probe = String.raw`
+    import assert from "node:assert/strict";
+    import { createHash } from "node:crypto";
+    import { chownSync, lstatSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+    const { __testOnly } = await import("file:///cwt/deploy/scripts/preflight-linux-runtime.mjs");
+    const mode = path => lstatSync(path).mode & 0o777;
+    const outcome = { schemaVersion: 1, status: "NOT_PASS", reasonCode: "synthetic_failure", failureDetailCode: null };
+    const makeParent = (name, uid = 1000, repositoryUid = 1000) => {
+      const parent = "/tmp/" + name;
+      const repository = parent + "/release-subject";
+      const evidence = parent + "/outcome";
+      mkdirSync(parent, { mode: 0o700 }); chownSync(parent, uid, uid);
+      mkdirSync(repository, { mode: 0o700 }); chownSync(repository, repositoryUid, repositoryUid);
+      mkdirSync(evidence, { mode: 0o700 });
+      return { parent, repository, evidence };
+    };
+
+    const missingIdentity = makeParent("missing-identity");
+    delete process.env.SUDO_UID;
+    assert.throws(() => __testOnly.writeOutcome(missingIdentity.evidence, outcome, missingIdentity.repository),
+      error => error.code === "source_owner_bridge_missing");
+    assert.deepEqual(readdirSync(missingIdentity.evidence), []);
+
+    const wrongParent = makeParent("wrong-parent", 1001);
+    process.env.SUDO_UID = "1000";
+    assert.throws(() => __testOnly.writeOutcome(wrongParent.evidence, outcome, wrongParent.repository),
+      error => error.code === "outcome_handoff_invalid");
+    assert.deepEqual(readdirSync(wrongParent.evidence), []);
+
+    const linked = makeParent("linked-output");
+    const physical = linked.parent + "/physical";
+    mkdirSync(physical, { mode: 0o700 });
+    const alias = linked.parent + "/alias";
+    symlinkSync(physical, alias);
+    assert.throws(() => __testOnly.writeOutcome(alias, outcome, linked.repository),
+      error => error.code === "outcome_handoff_invalid");
+    assert.deepEqual(readdirSync(physical), []);
+
+    const rootOwned = makeParent("root-owned-handoff", 0, 0);
+    delete process.env.SUDO_UID;
+    __testOnly.writeOutcome(rootOwned.evidence, outcome, rootOwned.repository);
+    assert.equal(lstatSync(rootOwned.evidence).uid, 0); assert.equal(mode(rootOwned.evidence), 0o700);
+    for (const name of readdirSync(rootOwned.evidence)) {
+      assert.equal(lstatSync(rootOwned.evidence + "/" + name).uid, 0);
+      assert.equal(mode(rootOwned.evidence + "/" + name), 0o400);
+    }
+
+    const accepted = makeParent("accepted-handoff");
+    const unrelated = accepted.parent + "/unrelated-private";
+    writeFileSync(unrelated, "unrelated", { mode: 0o400 });
+    const unrelatedBefore = lstatSync(unrelated);
+    process.env.SUDO_UID = "1000";
+    __testOnly.writeOutcome(accepted.evidence, outcome, accepted.repository);
+    const names = readdirSync(accepted.evidence).sort();
+    assert.deepEqual(names, ["linux-runtime-validation.json", "linux-runtime-validation.json.sha256"]);
+    assert.equal(lstatSync(accepted.evidence).uid, 1000); assert.equal(mode(accepted.evidence), 0o700);
+    for (const name of names) {
+      const info = lstatSync(accepted.evidence + "/" + name);
+      assert.equal(info.isFile(), true); assert.equal(info.isSymbolicLink(), false);
+      assert.equal(info.uid, 1000); assert.equal(mode(accepted.evidence + "/" + name), 0o400);
+    }
+    const unrelatedAfter = lstatSync(unrelated);
+    assert.equal(unrelatedAfter.uid, unrelatedBefore.uid); assert.equal(unrelatedAfter.gid, unrelatedBefore.gid);
+    assert.equal(unrelatedAfter.mode, unrelatedBefore.mode); assert.equal(unrelatedAfter.size, unrelatedBefore.size);
+
+    process.setgid(1000); process.setuid(1000);
+    const jsonPath = accepted.evidence + "/linux-runtime-validation.json";
+    const checksumPath = jsonPath + ".sha256";
+    const jsonBytes = readFileSync(jsonPath);
+    assert.deepEqual(JSON.parse(jsonBytes), outcome);
+    const digest = createHash("sha256").update(jsonBytes).digest("hex");
+    assert.equal(readFileSync(checksumPath, "utf8"), digest + "  linux-runtime-validation.json\n");
+    assert.throws(() => readFileSync(unrelated), error => error.code === "EACCES");
+    console.log("PASS: root producer handed exact two-file outcome to UID 1000 only");
+  `;
+  const output = execFileSync("docker", [
+    "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+    "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,mode=1777", "--volume", `${sourceRoot}:/cwt:ro`,
+    "node:24.14.0-bookworm", "node", "--input-type=module", "--eval", probe,
+  ], { encoding: "utf8" });
+  assert.match(output, /PASS: root producer handed exact two-file outcome to UID 1000 only/u);
 });
 
 test("executes the selected Scheduler pre-deploy Migration with the normalized maintenance mounts", {
