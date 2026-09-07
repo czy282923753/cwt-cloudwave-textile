@@ -140,3 +140,15 @@ jobs:
           compression-level: 0
           overwrite: false
           include-hidden-files: false
+
+      - name: Retain only an emitted subject's minimal revocation record after failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cwt-revoked-release-evidence-${{ inputs.release_commit }}
+          path: ${{ runner.temp }}/cwt-release-${{ inputs.release_commit }}/revoked/*.json
+          if-no-files-found: ignore
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false

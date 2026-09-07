@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { deriveRuntimePackageManagerEvidence, deriveSharpStandaloneEvidence, extractOciChildRootfs, inventoryOciLayout, sha256, sha256File } from "./preflight-image.mjs";
 
 const repositoryRoot = realpathSync(process.cwd());
@@ -28,10 +29,15 @@ function fileTreeHash(root) {
   visit(root); return sha256(`${records.join("\n")}\n`);
 }
 function writeEvidence(path, value) { writeFileSync(path, stableJson(value), { mode: 0o444, flag: "wx" }); }
+export function materializeScoutOciBlobs(layout, child, childLayout) {
+  mkdirSync(resolve(childLayout, "blobs/sha256"), { recursive: true });
+  for (const digest of new Set([child.manifestDigest, child.configDigest, ...child.layers])) {
+    linkSync(resolve(layout, "blobs/sha256", digest.slice(7)), resolve(childLayout, "blobs/sha256", digest.slice(7)));
+  }
+}
 function dockerScoutSbom(layout, child, path, scratch, releaseId) {
   const architecture = child.platform.split("/")[1];
   const childLayout = resolve(scratch, `${architecture}.scout.oci`);
-  mkdirSync(resolve(childLayout, "blobs/sha256"), { recursive: true });
   const rootIndex = JSON.parse(readFileSync(resolve(layout, "index.json"), "utf8"));
   const indexDigest = rootIndex.manifests[0].digest;
   const subject = JSON.parse(readFileSync(resolve(layout, "blobs/sha256", indexDigest.slice(7)), "utf8"));
@@ -39,9 +45,7 @@ function dockerScoutSbom(layout, child, path, scratch, releaseId) {
   if (!originalDescriptor) fail(`${child.platform} descriptor is absent from the emitted index`);
   const tag = `cwt.local/scout-${releaseId}:${architecture}`;
   const descriptor = { ...originalDescriptor, annotations: { "io.containerd.image.name": tag, "org.opencontainers.image.ref.name": architecture } };
-  for (const digest of [child.manifestDigest, child.configDigest, ...child.layers]) {
-    linkSync(resolve(layout, "blobs/sha256", digest.slice(7)), resolve(childLayout, "blobs/sha256", digest.slice(7)));
-  }
+  materializeScoutOciBlobs(layout, child, childLayout);
   writeFileSync(resolve(childLayout, "oci-layout"), stableJson({ imageLayoutVersion: "1.0.0" }));
   writeFileSync(resolve(childLayout, "index.json"), stableJson({ schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: [descriptor] }));
   const archivePath = resolve(scratch, `${architecture}.scout.oci.tar`);
@@ -80,6 +84,7 @@ function extractFramework(root) {
   };
 }
 
+function main() {
 const outputArgument = process.argv.indexOf("--output");
 if (outputArgument < 0 || !process.argv[outputArgument + 1]) fail("--output is required");
 const outputRoot = resolve(process.argv[outputArgument + 1]);
@@ -174,3 +179,6 @@ try {
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
+}
+
+if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main();

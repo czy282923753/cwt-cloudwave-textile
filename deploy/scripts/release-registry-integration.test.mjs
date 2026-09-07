@@ -302,6 +302,16 @@ test("release and runtime workflows remain manual, separated and fail-closed", (
   assert.match(releaseWorkflow, /Authenticate to private GHCR[\s\S]*env:\n\s+GHCR_TOKEN: \$\{\{ github\.token \}\}/u);
   assert.doesNotMatch(releaseWorkflow, /^\s{6}GHCR_TOKEN:/mu);
   assert.match(releaseWorkflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/u);
+  const revokedUpload = releaseWorkflow.split("      - name: Retain only an emitted subject's minimal revocation record after failure\n")[1];
+  assert.ok(revokedUpload, "Expected a distinct post-emission failure artifact step");
+  assert.ok(revokedUpload.includes("        if: ${{ failure() }}\n"));
+  assert.ok(revokedUpload.includes("        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"));
+  assert.ok(revokedUpload.includes("          name: cwt-revoked-release-evidence-${{ inputs.release_commit }}\n"));
+  assert.ok(revokedUpload.includes("          path: ${{ runner.temp }}/cwt-release-${{ inputs.release_commit }}/revoked/*.json\n"));
+  assert.ok(revokedUpload.includes("          if-no-files-found: ignore\n"), "Pre-emission failures must not invent an artifact");
+  assert.ok(revokedUpload.includes("          retention-days: 30\n"));
+  assert.doesNotMatch(revokedUpload, /^\s+run:/mu);
+  assert.doesNotMatch(revokedUpload, /^\s+path:.*(?:subject\.oci|release\.json|\/evidence|logs?)/mu);
   assert.doesNotMatch(releaseWorkflow, /preflight-linux-runtime\.mjs"? validate/u);
   assert.match(runtimeWorkflow, /runs-on: \[self-hosted, linux, x64, cwt-tencent-singapore, cwt-single-use/u);
   assert.match(runtimeWorkflow, /cwt-job-\$\{\{ inputs\.runner_nonce \}\}/u);
