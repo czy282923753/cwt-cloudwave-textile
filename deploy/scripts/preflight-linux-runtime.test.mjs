@@ -12,8 +12,10 @@ import {
   createRuntimeCommandPlan,
   decideCompatibility,
   parseDigestReference,
+  parseBundleFailureDetail,
   syntheticHostPlan,
   unixModeAllowsRead,
+  validateBundleProcessResult,
   validateNativeHostFacts,
   validatePulledImageIdentity,
 } from "./preflight-linux-runtime.mjs";
@@ -80,6 +82,42 @@ test("accepts only a private repository at one lowercase sha256 index digest", (
   ]) assert.throws(() => parseDigestReference(invalid), /exact OCI repository digest|private OCI Registry/u);
   const portReference = `registry.cwt.invalid:5443/cloudwave/application@${INDEX}`;
   assert.equal(parseDigestReference(portReference).registry, "registry.cwt.invalid:5443");
+});
+
+test("accepts only fixed bundle failure detail JSON and never forwards unrecognized content", () => {
+  for (const reasonCode of [
+    "bundle_dependency_bootstrap_failed",
+    "bundle_assertion_or_unknown_failed",
+  ]) {
+    assert.equal(parseBundleFailureDetail(`${JSON.stringify({ schemaVersion: 1, reasonCode })}\n`), reasonCode);
+  }
+  for (const value of [
+    "not-json",
+    JSON.stringify({ schemaVersion: 1, reasonCode: "PASS" }),
+    JSON.stringify({ schemaVersion: 1, reasonCode: "bundle_dependency_bootstrap_failed", leaked: "secret-value" }),
+    JSON.stringify({ schemaVersion: 1, reasonCode: "bundle_assertion_or_unknown_failed" }) + "\nraw-child-output",
+    JSON.stringify({ schemaVersion: 1, reasonCode: "x".repeat(300) }),
+  ]) assert.equal(parseBundleFailureDetail(value), null);
+
+  for (const stdout of [
+    JSON.stringify({ schemaVersion: 1, reasonCode: "PASS" }),
+    JSON.stringify({ schemaVersion: 1, reasonCode: "bundle_dependency_bootstrap_failed", leaked: "secret-value" }),
+    "malicious raw output",
+  ]) {
+    assert.throws(
+      () => validateBundleProcessResult({ status: 1, stdout }),
+      (error) => error?.code === "bundle_authority_failed" && error.detailCode === null &&
+        !error.message.includes(stdout) && !error.message.includes("secret-value"),
+    );
+  }
+  assert.throws(
+    () => validateBundleProcessResult({
+      status: 1,
+      stdout: JSON.stringify({ schemaVersion: 1, reasonCode: "bundle_dependency_bootstrap_failed" }),
+    }),
+    (error) => error?.code === "bundle_authority_failed" &&
+      error.detailCode === "bundle_dependency_bootstrap_failed",
+  );
 });
 
 test("matches actual Runner versions to one reviewed compatibility profile and fails closed on drift", () => {
@@ -629,7 +667,7 @@ test("binds the pulled index, selected linux/amd64 child, revision and non-root 
   assert.throws(() => validatePulledImageIdentity({ reference: REFERENCE, releaseId: RELEASE, childDigest: CHILD, neutralInspection: neutral, platformInspection: { ...platform, Config: { ...platform.Config, User: "0:0" } } }), /linux-amd64 child/u);
 });
 
-test("reuses existing authorities and exposes only PASS/NOT_PASS without classifier or revocation calls", () => {
+test("reuses existing authorities while preserving the PASS/NOT_PASS boundary and no revocation calls", () => {
   const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
   assert.match(source, /import \{ sha256File, verifyReleaseRecord \} from "\.\/preflight-image\.mjs"/u);
   assert.match(source, /import \{ exactProtectedSecretFiles, validateComposeGraph \} from "\.\/preflight-compose-graph\.mjs"/u);
@@ -638,6 +676,19 @@ test("reuses existing authorities and exposes only PASS/NOT_PASS without classif
   assert.doesNotMatch(source, /classifyValidationFailure|createRevocation|preflight-release-compose/u);
   assert.doesNotMatch(source, /OWNER_DIND_REFERENCE|docker:\d[^\n]*-dind/u);
   assert.match(source, /automaticRetry: false, automaticRevocation: false/u);
+});
+
+test("runtime workflow always retains only the existing sanitized outcome and checksum", () => {
+  const workflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  const upload = workflow.split("      - name: Retain only the sanitized Runtime outcome\n")[1];
+  assert.ok(upload);
+  assert.match(upload, /if: \$\{\{ always\(\) \}\}/u);
+  assert.match(upload, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/u);
+  assert.match(upload, /cwt-runtime-outcome\/linux-runtime-validation\.json\n/u);
+  assert.match(upload, /cwt-runtime-outcome\/linux-runtime-validation\.json\.sha256\n/u);
+  assert.match(upload, /if-no-files-found: ignore/u);
+  assert.match(upload, /retention-days: 30/u);
+  assert.doesNotMatch(upload, /subject\.oci|release\.json|registry|auth|token|stderr|\.log/u);
 });
 
 test("hard-blocks both immutable historical release subjects", () => {

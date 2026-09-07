@@ -32,6 +32,10 @@ const LOCAL_DOCKER_SOCKET = "/var/run/docker.sock";
 const DEFAULT_PROFILE = resolve(dirname(fileURLToPath(import.meta.url)), "../runtime-validation/linux-amd64-compatibility.v1.json");
 const TOOLS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const MAX_LINUX_UID = 0xffff_fffe;
+const BUNDLE_FAILURE_DETAIL_CODES = Object.freeze([
+  "bundle_dependency_bootstrap_failed",
+  "bundle_assertion_or_unknown_failed",
+]);
 const SANITIZED_CHILD_ENVIRONMENT = Object.freeze({
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   HOME: "/root",
@@ -55,15 +59,16 @@ const REVOKED_SUBJECTS = Object.freeze([
 ]);
 
 class ValidationFailure extends Error {
-  constructor(code, message) {
+  constructor(code, message, detailCode = null) {
     super(message);
     this.name = "ValidationFailure";
     this.code = code;
+    this.detailCode = detailCode;
   }
 }
 
-function refuse(code, message) {
-  throw new ValidationFailure(code, message);
+function refuse(code, message, detailCode = null) {
+  throw new ValidationFailure(code, message, detailCode);
 }
 
 function stableJson(value) {
@@ -535,13 +540,37 @@ function inspectImage(reference, platform, dockerEnv) {
     "image_inspection_invalid", "Pulled image inspection is invalid.");
 }
 
+export function parseBundleFailureDetail(stdout) {
+  if (typeof stdout !== "string" || Buffer.byteLength(stdout, "utf8") > 256) return null;
+  let value;
+  try {
+    value = JSON.parse(stdout.trim());
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(["reasonCode", "schemaVersion"]) ||
+    value.schemaVersion !== 1 || !BUNDLE_FAILURE_DETAIL_CODES.includes(value.reasonCode)) {
+    return null;
+  }
+  return value.reasonCode;
+}
+
+export function validateBundleProcessResult(result) {
+  if (result?.status !== 0) {
+    refuse("bundle_authority_failed", "bundle_authority failed closed.", parseBundleFailureDetail(result?.stdout));
+  }
+  return true;
+}
+
 function verifyBundle(reference, dockerEnv) {
-  run("docker", [
+  const result = run("docker", [
     "run", "--rm", "--pull", "never", "--platform", "linux/amd64", "--network", "none",
     "--read-only", "--user", "10001:10001", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
     "--env", "CWT_BUILD_DIR=/app/.next/standalone/.next", "--entrypoint", "node", reference,
     "/app/scripts/check-public-bundle.mjs",
-  ], { env: dockerEnv, label: "bundle_authority" });
+  ], { env: dockerEnv, label: "bundle_authority", allowFailure: true });
+  validateBundleProcessResult(result);
 }
 
 function validateContainerRuntime({ inspections, indexDigest, childDigest, releaseId }) {
@@ -864,6 +893,7 @@ async function validate(args) {
     tools,
     status,
     reasonCode: mainFailure?.code ?? null,
+    failureDetailCode: mainFailure?.detailCode ?? null,
     runner: runner ? {
       runnerClass: "cwt-controlled-vm-backed-single-use-ephemeral",
       profileId: runner.profileId,

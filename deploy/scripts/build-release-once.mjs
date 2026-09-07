@@ -35,6 +35,17 @@ export function materializeScoutOciBlobs(layout, child, childLayout) {
     linkSync(resolve(layout, "blobs/sha256", digest.slice(7)), resolve(childLayout, "blobs/sha256", digest.slice(7)));
   }
 }
+export function verifyLoadedBundle(tag, platform, execute = spawnSync) {
+  const result = execute("docker", [
+    "run", "--rm", "--pull", "never", "--platform", platform, "--network", "none",
+    "--read-only", "--user", "10001:10001", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+    "--env", "CWT_BUILD_DIR=/app/.next/standalone/.next", "--entrypoint", "node", tag,
+    "/app/scripts/check-public-bundle.mjs",
+  ], { cwd: repositoryRoot, stdio: "inherit" });
+  if (result.error || result.status === null || result.status !== 0) {
+    fail(`${platform} emitted Product bundle authority failed`);
+  }
+}
 function dockerScoutSbom(layout, child, path, scratch, releaseId) {
   const architecture = child.platform.split("/")[1];
   const childLayout = resolve(scratch, `${architecture}.scout.oci`);
@@ -55,6 +66,7 @@ function dockerScoutSbom(layout, child, path, scratch, releaseId) {
   let sharpStandaloneRuntime;
   try {
     run("docker", ["scout", "sbom", "--format", "spdx", "--output", path, `local://${tag}`]);
+    verifyLoadedBundle(tag, child.platform);
     const smokeOutput = execFileSync("docker", ["run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--platform", child.platform,
       "--workdir", "/app/.next/standalone", "--entrypoint", "node", tag, "/usr/local/lib/cwt-preflight-image.mjs", "sharp-smoke", "--root", ".", "--platform", child.platform], { encoding: "utf8" });
     sharpStandaloneRuntime = JSON.parse(smokeOutput.trim());
@@ -64,7 +76,7 @@ function dockerScoutSbom(layout, child, path, scratch, releaseId) {
   const sbom = JSON.parse(readFileSync(path, "utf8"));
   const packages = Array.isArray(sbom.packages) ? sbom.packages : [];
   const has = (name, version) => packages.some((entry) => entry.name === name && entry.versionInfo === version);
-  if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("@valkey/valkey-glide", "2.5.1")) fail(`${child.platform} SBOM is missing a pinned runtime package`);
+  if (!has("next", "16.2.12") || !has("tsx", "4.23.1") || !has("typescript", "5.9.3") || !has("@valkey/valkey-glide", "2.5.1")) fail(`${child.platform} SBOM is missing a pinned runtime package`);
   return { document: sbom, packageCount: packages.length, sharpStandaloneRuntime };
 }
 function extractFramework(root) {

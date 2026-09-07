@@ -145,6 +145,7 @@ RUN pg_dump --version | grep -Eq 'PostgreSQL\) 18\.' \
   && command -v flock && command -v sha256sum
 RUN test "$(node --version)" = "v24.14.0" \
   && test "$(node -p "require('tsx/package.json').version")" = "4.23.1" \
+  && test "$(node -p "require('typescript/package.json').version")" = "5.9.3" \
   && for path in \
     /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx \
     /usr/local/bin/yarn /usr/local/bin/yarnpkg \

@@ -1,6 +1,6 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -182,6 +182,22 @@ afterEach(async () => {
 });
 
 describe("public bundle checker", () => {
+  it("emits only the fixed dependency-bootstrap code when TypeScript cannot resolve", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cwt-public-bundle-bootstrap-"));
+    disposableBuilds.push(root);
+    const checker = join(root, "check-public-bundle.mjs");
+    await copyFile("scripts/check-public-bundle.mjs", checker);
+
+    const result = spawnSync(process.execPath, [checker], { cwd: root, encoding: "utf8" });
+
+    expect(result.status).not.toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      reasonCode: "bundle_dependency_bootstrap_failed",
+    });
+    expect(result.stderr).toMatch(/Cannot find package 'typescript'/u);
+  });
+
   it("accepts the four real File Scanner contract markers only when co-located in eligible server runtime", async () => {
     const result = runChecker(await createBuildFixture());
 
@@ -1034,6 +1050,10 @@ describe("public bundle checker", () => {
     const result = runChecker(buildRoot);
 
     expect(result.status).not.toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      reasonCode: "bundle_assertion_or_unknown_failed",
+    });
     expect(combinedOutput(result)).toMatch(/requires a fresh production build/i);
   });
 

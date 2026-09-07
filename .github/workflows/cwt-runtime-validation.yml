@@ -186,3 +186,17 @@ jobs:
             --evidence "$RUNNER_TEMP/cwt-runtime-outcome" \
             --token "cwt-$RUNNER_NONCE" \
             --repository "$SUBJECT_ROOT"
+
+      - name: Retain only the sanitized Runtime outcome
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cwt-runtime-outcome-${{ inputs.release_commit }}
+          path: |
+            ${{ runner.temp }}/cwt-runtime-outcome/linux-runtime-validation.json
+            ${{ runner.temp }}/cwt-runtime-outcome/linux-runtime-validation.json.sha256
+          if-no-files-found: ignore
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false

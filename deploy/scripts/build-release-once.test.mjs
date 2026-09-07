@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, test } from "node:test";
 
-import { materializeScoutOciBlobs } from "./build-release-once.mjs";
+import { materializeScoutOciBlobs, verifyLoadedBundle } from "./build-release-once.mjs";
 
 const roots = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop(), { recursive: true, force: true }); });
@@ -33,6 +33,50 @@ test("keeps the direct Build Once CLI fail-closed while allowing focused helper 
   const run = spawnSync(process.execPath, [resolve("deploy/scripts/build-release-once.mjs")], { encoding: "utf8" });
   assert.equal(run.status, 1);
   assert.match(run.stderr, /Build-once refused: --output is required/u);
+});
+
+test("the locked production-only install can bootstrap the shipped AST checker", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "cwt-build-once-production-dependencies-")); roots.push(root);
+  for (const name of [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]) {
+    copyFileSync(resolve(name), resolve(root, name));
+  }
+  mkdirSync(resolve(root, "scripts"));
+  copyFileSync(resolve("scripts/check-public-bundle.mjs"), resolve(root, "scripts/check-public-bundle.mjs"));
+  const install = spawnSync("pnpm", [
+    "install", "--prod", "--offline", "--frozen-lockfile", "--trust-lockfile", "--ignore-scripts",
+  ], { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } });
+  assert.equal(install.status, 0, `${install.stdout}\n${install.stderr}`);
+  const check = spawnSync(process.execPath, ["scripts/check-public-bundle.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, CWT_BUILD_DIR: resolve(root, "missing-build") },
+  });
+  assert.equal(check.status, 1);
+  assert.deepEqual(JSON.parse(check.stdout), { schemaVersion: 1, reasonCode: "bundle_assertion_or_unknown_failed" });
+  assert.doesNotMatch(check.stderr, /ERR_MODULE_NOT_FOUND|Cannot find package 'typescript'/u);
+  assert.match(check.stderr, /requires a fresh production build/u);
+});
+
+test("runs every emitted child bundle checker under the Runtime restriction envelope and rejects failure", () => {
+  for (const platform of ["linux/amd64", "linux/arm64"]) {
+    let invocation;
+    verifyLoadedBundle("cwt.local/release:test", platform, (command, args, options) => {
+      invocation = { command, args, options };
+      return { status: 0 };
+    });
+    assert.equal(invocation.command, "docker");
+    assert.deepEqual(invocation.args, [
+      "run", "--rm", "--pull", "never", "--platform", platform, "--network", "none",
+      "--read-only", "--user", "10001:10001", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+      "--env", "CWT_BUILD_DIR=/app/.next/standalone/.next", "--entrypoint", "node", "cwt.local/release:test",
+      "/app/scripts/check-public-bundle.mjs",
+    ]);
+    assert.equal(invocation.options.stdio, "inherit");
+  }
+  assert.throws(
+    () => verifyLoadedBundle("cwt.local/release:test", "linux/amd64", () => ({ status: 1 })),
+    /linux\/amd64 emitted Product bundle authority failed/u,
+  );
 });
 
 test("materializes each Scout OCI blob once when the image descriptor repeats a layer digest", () => {

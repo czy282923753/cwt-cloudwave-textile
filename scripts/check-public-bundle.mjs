@@ -1,6 +1,23 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import ts from "typescript";
+
+let failureDetailEmitted = false;
+function emitFailureDetail(reasonCode) {
+  if (failureDetailEmitted) return;
+  failureDetailEmitted = true;
+  process.stdout.write(`${JSON.stringify({ schemaVersion: 1, reasonCode })}\n`);
+}
+
+let ts;
+try {
+  ts = (await import("typescript")).default;
+} catch (error) {
+  emitFailureDetail("bundle_dependency_bootstrap_failed");
+  throw error;
+}
+process.on("uncaughtExceptionMonitor", () => {
+  emitFailureDetail("bundle_assertion_or_unknown_failed");
+});
 
 const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
 const serverRoot = join(buildRoot, "server");
