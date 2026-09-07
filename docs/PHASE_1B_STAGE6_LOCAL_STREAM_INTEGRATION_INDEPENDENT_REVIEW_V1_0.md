@@ -189,3 +189,61 @@ Local loopback tests prove curl behavior and shell propagation only. They do not
 No blocking or nonblocking code finding remains in this focused scope. The accepted Runtime, backup and packaging modules and published Product release remain closed and unchanged. Stage 6 remains **Partial/HOLD**.
 
 The next gate is coordinator acceptance of this tools-only Candidate. Reusing the retained Product image for a fresh native Runtime attempt requires new reviewed tools plus separate explicit Owner authorization. This Review authorizes no Push, token, TAT invocation, Runner registration, workflow dispatch, Registry or cloud mutation, Product build, production action, deployment or Phase advancement.
+
+## Focused Product bundle dependency-closure independent Review
+
+| Field | Value |
+| --- | --- |
+| Review type | Focused independent Product/Operational/Security Review |
+| Accepted diagnosis | `20e37cec6cba5b69436cb790a72938419f1385aa` |
+| Code Candidate | `d283e459a18a503119a28715572596b524209fbb` |
+| Candidate report-only delivery | `3c6c9e782f83e0e06a5a3a51382c2fe1bc05bca1` |
+| Scope | Production checker dependency, Build Once child gate, bounded diagnostic/outcome retention |
+| Verdict | **FAIL — `S6-BD-M-01` OPEN** |
+
+The prior Runtime preparation/recovery Technical Escalation remains **CLOSED/PASS**. This Review does not reinterpret native run `34095608690`: its Product validator result remains `NOT_PASS / bundle_authority_failed`, and the immutable old release `78c882345d522d7a83cae9296c26499d49ab2521` / index `sha256:fc96539ee4c51895c1c1fedc8ef873e2fc92b5898c55f273f03d81656d779f0e` remains unsuitable as a future Runtime subject.
+
+### Security & Test Simplification Check
+
+**PASS.** Under `delete → merge → standard mechanism → new mechanism`, the Candidate makes the intentionally shipped AST checker depend on its already locked compiler through the standard production dependency set, reuses the existing Build Once post-emission child loop, and reuses the existing Runtime outcome plus pinned artifact action. It adds two fixed detail codes rather than a taxonomy, state machine or alternate evidence format. No second checker, publisher, validator, revocation path, persistent state, authority, framework, Reviewer or gate was introduced.
+
+The accepted TypeScript runtime/SBOM increase is necessary because the checker is executed from the production image. Bundling a second self-contained checker artifact would add an equivalence boundary, while removing the AST checker would weaken the accepted authority. The open finding below requires only a least-privilege producer-to-consumer handoff at the existing output boundary; it does not justify a new evidence mechanism or recursive Review stage.
+
+### Accepted correction boundaries
+
+The root importer moves exact `typescript@5.9.3` from development to production in `package.json` and `pnpm-lock.yaml`; package snapshots and all versions remain unchanged. A fresh production-only offline install starts the real shipped checker and reaches the expected missing-build assertion without `ERR_MODULE_NOT_FOUND`. The Docker runtime stage asserts the same exact TypeScript version beside Node and `tsx`.
+
+Build Once loads each emitted `linux/amd64` and `linux/arm64` child and runs `/app/scripts/check-public-bundle.mjs` from that exact tag with `--pull never`, the exact platform, no network, read-only root filesystem, UID/GID `10001:10001`, all capabilities dropped and `no-new-privileges:true`. A spawn error, signal or nonzero status fails the child gate. The existing child loop, `finally` image cleanup and outer `post_emission_gate_failed` revocation path remain authoritative; `release.json` validation, GHCR authentication and publication occur only after Build Once completes. No failed Candidate can advance through the normal publish workflow.
+
+The checker emits at most one of `bundle_dependency_bootstrap_failed` and `bundle_assertion_or_unknown_failed` on stdout, then retains its normal nonzero exception behavior and stderr. Runtime accepts a detail only from complete JSON of at most 256 bytes with exactly `schemaVersion` and one allowlisted `reasonCode`. Extra fields, appended output, unknown codes, malformed JSON and oversized output collapse to `null`; spawn errors and signals remain the broad `bundle_authority_failed`. The additive `failureDetailCode` has no conflicting repository consumer, does not change `schemaVersion: 1`, and never forwards raw stderr, paths, needles, bundle bytes or environment values.
+
+### `S6-BD-M-01` — Medium — Runtime outcome is unreadable to the artifact uploader
+
+The workflow starts the self-hosted Runner as the non-root `ubuntu` user, but line 181 of `.github/workflows/cwt-runtime-validation.yml` runs the validator through `sudo`. The root validator creates the evidence directory with mode `0700` and writes both outcome files with mode `0400`; it does not change their root ownership. The following JavaScript `upload-artifact` action has no privilege bridge and executes as the Runner user. That user cannot traverse the directory or read either file.
+
+A Reviewer-owned Linux isolation probe reproduced the exact DAC boundary: root created a `0700` evidence directory and `0400` outcome, then a UID 1000 consumer received `EACCES`. Separately invoking the Candidate's actual `writeOutcome` confirmed that its JSON and SHA-256 sidecar are internally correct and that it produces those exact modes. The new repository test only asserts the two YAML path literals and does not exercise producer/consumer identities or readability.
+
+This deterministically defeats the newly claimed evidence-retention capability whenever the validator writes an outcome. Depending on artifact glob behavior, the step can retain nothing under `if-no-files-found: ignore` or fail while trying to read the paths; neither result provides a usable outcome/checksum artifact. A successful validator may also leave the workflow failed at upload. The defect is on the supported Runtime path, has direct operational and evidence-integrity impact, and lacks an existing recovery path, so it is a blocking **Medium** under `docs/REVIEW_POLICY.md`.
+
+Bounded remediation must hand off only the exact evidence directory and its two fixed regular files to the already verified sudo-origin Runner identity with least-privilege modes before upload. It must fail closed on type, symlink, owner, path or checksum mismatch; preserve the current no-outcome behavior for failures before evidence creation; retain the existing cleanup and same-run recovery rules; and add an actual two-identity producer/consumer test proving directory traversal, both-file readability, checksum validity and absence of extra/raw content. A generic recursive ownership change, broader `$RUNNER_TEMP` permission, second evidence copy or new schema is unnecessary.
+
+### Decisive verification
+
+| Check | Result |
+| --- | --- |
+| Exact Candidate scope | PASS: ten code/test files, 205 insertions and 16 deletions; Candidate delivery changes only the principal report |
+| Production dependency and lock | PASS: exact `typescript@5.9.3` classification move only; frozen offline lock check; production-only bootstrap reaches checker assertion |
+| Build Once focused suite | PASS: **6/6**; both platform command envelopes and nonzero rejection covered |
+| Public bundle checker fixtures | PASS: **157/157**; existing assertions plus both fixed diagnostic classes |
+| Runtime focused suite | PASS with environmental ceiling: **15/16 passed, 1 existing Scheduler/PostgreSQL case skipped** |
+| Registry/workflow focused suite | PASS: **11/11**; Build Once precedes authentication/publication and Runtime remains read-only |
+| Reviewer outcome/checksum probe | PASS: actual writer produced exact JSON, matching SHA-256 sidecar, directory `0700` and files `0400` |
+| Reviewer root-to-UID-1000 upload probe | **FAIL as expected: deterministic `EACCES`**, substantiating `S6-BD-M-01` |
+| Syntax and static checks | PASS: changed Node syntax, focused ESLint, workflow YAML parsing and diff hygiene; `actionlint` unavailable and not downloaded |
+| Product/non-regression boundary | PASS: no Product build, Registry mutation or workflow dispatch; Compose, image validator and Registry implementation bodies unchanged |
+
+### Residual scope and gate disposition
+
+No additional blocking or nonblocking finding remains in the assigned scope. Local production dependency installation and Synthetic/emulated tests do not establish a new exact image, SBOM, native Ubuntu/amd64 Product PASS, compose startup or cloud artifact retention. The one environment-dependent Scheduler/PostgreSQL test reuses its previously accepted evidence because that implementation body is unchanged. These remain accepted validation ceilings rather than reasons to enlarge this remediation.
+
+The Candidate is **not accepted** while `S6-BD-M-01` remains open. Stage 6 remains **Partial/HOLD**. The next gate is one bounded Developer correction of the exact producer/uploader permission boundary followed by focused independent re-review in this same scope. This Review authorizes no Push, Product build, Registry write, workflow dispatch, cloud action, Runner start, protected start, deployment or Phase advancement.
