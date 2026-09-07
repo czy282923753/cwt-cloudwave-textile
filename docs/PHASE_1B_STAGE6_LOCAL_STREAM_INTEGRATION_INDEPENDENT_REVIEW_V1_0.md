@@ -189,3 +189,53 @@ Local loopback tests prove curl behavior and shell propagation only. They do not
 No blocking or nonblocking code finding remains in this focused scope. The accepted Runtime, backup and packaging modules and published Product release remain closed and unchanged. Stage 6 remains **Partial/HOLD**.
 
 The next gate is coordinator acceptance of this tools-only Candidate. Reusing the retained Product image for a fresh native Runtime attempt requires new reviewed tools plus separate explicit Owner authorization. This Review authorizes no Push, token, TAT invocation, Runner registration, workflow dispatch, Registry or cloud mutation, Product build, production action, deployment or Phase advancement.
+
+## Focused cross-path Runtime preparation/recovery Technical Escalation independent Review
+
+| Field | Value |
+| --- | --- |
+| Review type | Focused independent Operational/Security Review of the Technical Escalation correction |
+| Frozen plan | `90d52261faf619ce9d2c9fff67e1ba606f61a547` |
+| Implementation | `a4f137f5e0f964f26bab737fc3a80ae846958e63` |
+| Delivered Candidate | `ea2b6b5ef43a166c93ec05302dcde3e767e637a6` |
+| Candidate baseline | `345f8b15637578d046a9a07c3bfa3e74c0f72e0c` |
+| Retained Product authority | release `78c882345d522d7a83cae9296c26499d49ab2521`; index `sha256:fc96539ee4c51895c1c1fedc8ef873e2fc92b5898c55f273f03d81656d779f0e`; artifact `10004387422` |
+| Verdict | **PASS — Runtime preparation/recovery Technical Escalation correction CLOSED** |
+
+This Review accepts the local cross-path correction only. It does not convert either prior native failure into a pass, establish Tencent-to-public-endpoint reachability, authorize a second workflow attempt, or alter the retained Product image.
+
+### Security & Test Simplification Check
+
+**PASS.** Under `delete → merge → standard mechanism → new mechanism`, all three public downloads use one standard native curl policy, and direct plus nested APT acquisition uses one temporary native `APT_CONFIG`. The same-host recovery remains one branch of the existing provisioning path and one tightly bounded Operator admission inside the existing outer attempt; it adds no second downloader, mirror, proxy, persistent counter, run-history authority, service, Reviewer or validation framework.
+
+The added shell guards are proportionate to deleting the fixed Runner tree on an already prepared host. Exact Docker package identities, live versions, process and mount checks, residue refusal, fixed-path validation and current-process ownership protect distinct boundaries. The final removal helper rechecks the destructive preconditions at the mutation point; it is not a parallel cleanup authority. No material control can be safely deleted or merged while preserving the frozen recovery contract, and no extra simplification Reviewer or gate is warranted.
+
+### Plan conformance and authority boundaries
+
+The Docker signing key, GitHub Runner archive and ORAS archive retain their exact HTTPS endpoints, versions and digests. Each uses `--proto '=https'`, TLS 1.2 minimum, a 15-second connection timeout, two retries with a two-second delay, a 45-second retry window, connection-refused eligibility and partial-output removal. Their separate transfer caps remain 60, 390 and 180 seconds. `--retry-all-errors` is absent, and every digest check still precedes extraction or use.
+
+The temporary root-only APT policy sets two acquisition retries and 30-second HTTP/HTTPS timeouts through `APT_CONFIG`, so the same policy reaches the nested Runner dependency installer. Exit cleanup removes it on success and failure. The outer authorities remain unchanged: provisioning and registration each retain TAT 600, the Runtime job retains 60 minutes, and the host lifecycle retains 90 minutes/CNY 10 with recovery admitted only while at least 45 minutes remain and teardown beginning by host age 80 minutes.
+
+Recovery accepts only an exact Ubuntu 24.04/amd64 host with the exact Docker package set and live versions. It refuses mixed Docker state, active Runner processes, mounts under the fixed Runner root, any container, CWT/Compose network residue, private Runtime paths and authentication/OCI/outcome residue. Only `/opt/cwt-actions-runner` may be removed, only after its type and identity are checked, and the installation path becomes cleanup-owned only when the current process creates it. Cleanup failure is terminal with exit `68` and cannot widen the deletion target.
+
+The workflow still authenticates to GHCR only after the bounded ORAS acquisition and digest verification, and it retains one ordered formal Product validator invocation. Attempt `2` is accepted only by the existing job-scoped Runner identity contract. The Operator contract supplies the sole recovery admission: immutable attempt-1 evidence must show that neither GHCR authentication nor the validator started, no outcome exists, the first Runner is absent, the token is expired, local residue checks pass and the time reserve remains. The repository does not infer those external facts and does not create automatic run-history state. Recovery is forbidden once GHCR or validator execution begins, and failed outcomes remain failed.
+
+### Decisive verification
+
+| Check | Result |
+| --- | --- |
+| Candidate identity and bounded diff | PASS: exact Candidate `ea2b6b5...`; seven authorized files only; protected Product, preflight, registration and TAT contracts byte-unchanged |
+| Focused provisioning, registration and release-integration suites | PASS: **48/48, 0 skipped** |
+| Independent cleanup symlink substitution | PASS: cleanup returned `68`, preserved the symlink and unrelated target, and emitted the fixed cleanup refusal |
+| Download, APT and recovery negative paths | PASS: transient/exhausted/stalled/wrong-digest transport, policy inheritance/removal, mixed state, process, mount, container, network and private-residue refusals are covered |
+| Workflow authority | PASS: bounded ORAS acquisition precedes GHCR; attempts are exactly `1` or `2`; one formal validator remains |
+| Syntax and static checks | PASS: Bash and Node syntax, focused ESLint, workflow YAML parsing and Candidate diff hygiene |
+| Product non-regression | PASS: retained release/index/artifact tuple unchanged; no Product build or Registry write performed |
+
+The loopback and source-level checks establish local transport semantics, failure propagation and workflow ordering only. They do not prove public endpoint availability from a fresh Tencent host, real APT/Runner throughput, Runner registration, GHCR access, actual workflow execution or teardown timing. Those remain External Validation Required in a separately authorized native attempt.
+
+### Exit disposition
+
+No blocking or nonblocking finding remains in this focused Review. The prior accepted Runtime, backup, packaging, Build Once and tools-only corrections remain closed. Stage 6 remains **Partial/HOLD**.
+
+The next gate is coordinator acceptance of this Review and a separate Owner decision on any native same-host recovery attempt. This Review authorizes no Runner start, token use, workflow dispatch or rerun, cloud/provider action, Push, Registry write, Product build, Docker mutation, protected start, deployment or Phase advancement.
