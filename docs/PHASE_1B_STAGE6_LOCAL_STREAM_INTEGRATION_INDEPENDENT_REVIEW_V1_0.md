@@ -398,3 +398,55 @@ A Reviewer-owned probe additionally ran the copied checker from an alien cwd wit
 No blocking or nonblocking finding remains in this focused scope. Synthetic compiled output proves the complete known checker interface and assertion behavior, but it does not prove a fresh real Next 16.2.12/Turbopack/Docker emission. The direct `node scripts/check-public-bundle.mjs` path intentionally verifies the selected artifact rather than mutable-workspace freshness; the supported workspace command owns fresh sequencing. `linux/arm64` also remains unevaluated for a new Product until the future formal Build Once executes both unchanged child gates. These are accepted residual risks, not reasons to add another freshness authority or expand local Review.
 
 Stage 6 remains **Partial/HOLD**. The next gate is coordinator acceptance of this Review, followed by a concrete decision on an optional bounded rehearsal or a new formal Product Build Once. This Review authorizes no Product build, image/OCI emission, Push, Registry write, workflow/Runner/cloud action, deployment or Phase advancement.
+
+## Focused Compose infrastructure failure-state diagnostic independent Review
+
+| Item | Reviewed identity / conclusion |
+| --- | --- |
+| Review type | Independent focused Review with one in-Review Security & Test Simplification Check |
+| Existing Runtime tools baseline | `91334b31bc83fb99c486a07c77d9ee6fdbb3a5b2` |
+| Actual failure report | `5b9abaaf3ca384e98fedb68a0aa69f85b205d1c9` |
+| Code Candidate | `c9bc37dbec143df3f8335b42a6d29fbec5ccf287` |
+| Report-only delivery | `d0d71566160e1ac35c2780b1f8d023727dc34995` |
+| Scope | `deploy/scripts/preflight-linux-runtime.mjs` and its focused test file only |
+| Verdict | **PASS — tools-only diagnostic accepted; one nonblocking Low finding recorded** |
+
+This Review does not reopen the accepted Bundle/Image, Product identity, recovery or outcome-handoff conclusions. The actual native run remains NOT PASS: its failure occurred during Compose infrastructure startup before Migration/Web, and this Candidate does not identify that historical root cause or prove a native Runner PASS. The accepted Product release `68c15e6bcd2900f5e634f6c6c6e3b8b3f5550641` and index `sha256:c8d4d1c3148670a683a3509bafb7d832afc6fbe3bb811e2de19b27ae63540ce4` remain unchanged.
+
+### Security & Test Simplification Check
+
+**PASS.** The Candidate adds one bounded, read-only same-project `docker compose ps --all --format json` collection only after the existing infrastructure-up command returns a numeric nonzero status. It reuses the existing command plan, process runner, project identity, environment, cleanup path and outcome artifact. The diagnostic subprocess is bounded to 10 seconds and 16 KiB. It adds no probe container, retry, log collection, journald dependency, persistent state, secondary writer, classification framework or new acceptance gate. Existing runner defaults remain unchanged. The focused tests are proportionate because they cover the failure-only control flow, sanitizer boundary and actual pinned Compose output shape without creating a parallel authority.
+
+### Failure control flow and retained evidence
+
+The infrastructure-up attempt is marked before execution as before. A numeric nonzero result triggers exactly one diagnostic collection before the unchanged refusal and cleanup sequence, and the original `compose_infrastructure_up_failed` reason remains authoritative. Collection, process or parse failure becomes `null`; it cannot replace the original failure, retry the command, turn failure into PASS or skip teardown. A spawn-level failure from the infrastructure-up command retains the same refusal and records no invented inventory. Successful infrastructure startup and unrelated failure paths omit the optional field.
+
+Collection uses the exact repository, Compose plan, project name and environment of the failed attempt. The parser accepts the pinned Compose 5.3.1 NDJSON shape and compatible JSON array or object framing, limits input and row count, rejects duplicate target entries, and retains only the exact `postgres` and `valkey-staging` keys. Each retained value is restricted to `present`, an allowlisted state, an allowlisted health value and a safe-integer exit code or `null`. Container IDs and names, commands, health text, `State.Error`, environment, mounts, raw stdout/stderr and logs are excluded. Valid output with no target row records `present: false`; unavailable or rejected diagnostic output records `null`.
+
+### S6-ID-L-01 — Low — schema-less object rows are interpreted as successful target absence
+
+Reviewer probes found that parseable object rows with a missing or non-string `Service` property, including `{}` and `{ "Service": 1 }`, produce two `present: false` target results rather than an unknown `null` result. Unknown services represented by valid string names are intentionally ignored and are not part of this finding.
+
+The pinned Compose 5.3.1 output exercised by the real-shape test always supplies a string `Service`, and the command, topology and target names are fixed. The issue therefore has no reproduced effect on the supported normal path, exposes no additional data, and does not affect the original NOT PASS or cleanup behavior. If Compose output silently drifts to a still-parseable but schema-incomplete object, however, the diagnostic could describe target absence where the safer meaning is unknown.
+
+This is a nonblocking accepted residual. When this parser is next changed, reject an object row unless `Service` is a string before filtering non-target service names, with a focused regression case. The current phase does not need a new parser framework or remediation loop solely for this Low finding.
+
+### Decisive verification
+
+| Check | Result |
+| --- | --- |
+| Exact Candidate inventory | PASS: two authorized code/test files, 156 insertions and 5 deletions; delivery changes only its report |
+| Focused Runtime preflight suite | PASS: **19 passed, 1 unchanged environment-dependent skip, 0 failed** |
+| Actual Compose 5.3.1 shape | PASS: unique no-port project produced the expected exited/running/health records; its containers and network were removed afterward |
+| Resource non-interference | PASS: no `cwt-ps-shape-*` resource remained; the Analyst's separate three-container local full-chain project remained running and healthy |
+| Sanitizer boundary | PASS: fixed output keys and fields, bounds, allowlists, safe integer handling, duplicate rejection and raw/dynamic-field exclusion verified; S6-ID-L-01 recorded above |
+| Failure-only control flow | PASS: one collection before unchanged refusal/cleanup; null on diagnostic failure; no collection on success or unrelated failures |
+| Additive compatibility | PASS: no independent consumer assumes a closed outcome schema; existing outcome upload remains opaque |
+| Static quality | PASS: Node syntax, targeted ESLint, Candidate diff hygiene and exact changed-file inventory |
+| Protected authorities | PASS: workflow, Dockerfile, package/lock, Build Once Product path, publication and accepted Product identity unchanged |
+
+### Residual scope and disposition
+
+The Candidate improves evidence retained by a future infrastructure-up failure. It does not diagnose run `34145251214`, prove the cause of artifact `10027475980`, or convert that run into PASS. The Analyst's Docker Desktop `json-file` result does not establish behavior on the native journald Runner, and any useful future native evidence still depends on a new authorized run reaching this bounded collector. The separate local full-chain result remains an external coordination input rather than evidence created by this Review.
+
+There is no blocking finding. Stage 6 remains **Partial/HOLD**. The next gate is coordinator acceptance of this Review together with the pending local full-chain result. This Review authorizes no automatic Runtime execution, Product build, image/OCI emission, Push, Registry write, workflow/Runner/cloud action, deployment or Phase advancement.
