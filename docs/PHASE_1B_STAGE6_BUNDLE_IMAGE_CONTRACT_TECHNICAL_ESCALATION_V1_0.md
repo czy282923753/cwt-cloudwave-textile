@@ -207,3 +207,30 @@ The rollback point is exact `1eecba71e6768661156d0292951f0918d29c00be`. Revert t
 - **Separate Owner authorization required later:** one formal Build Once/Push/workflow/Registry operation from the exact accepted Candidate. Nothing in this plan consumes or pre-authorizes that action.
 
 Until those gates complete, Stage 6 remains **Partial / HOLD**. S6-06, S6-07, deployment and Phase advancement remain blocked.
+
+## 10. Fresh implementation outcome
+
+Recorded: 2026-09-07
+
+Role: **Fresh Technical Implementer**
+
+Status: **IMPLEMENTATION COMPLETE / AWAITING INDEPENDENT REVIEW — Stage 6 remains Partial / HOLD**
+
+The coordinator froze this V1.0 replacement plan and approved one mechanical caller refinement: `.github/workflows/ci.yml` may replace its consecutive direct `pnpm build` and `pnpm check:bundle` steps with one clearly named `pnpm check:bundle` step after the disposable-database Migration. The local code Candidate is `9f270171fa8e0a467c29283a70e6d91522545a39` on `codex/stage6-bundle-image-contract-fresh-implementation`, directly descended through plan commit `7abb965529e4f3a3e72f0274efdef4c103809ec8` from rollback checkpoint `1eecba71e6768661156d0292951f0918d29c00be`.
+
+Implemented responsibility replacement:
+
+- `scripts/check-public-bundle.mjs` now anchors its layout root to `import.meta.url`, resolves default or relative `CWT_BUILD_DIR` and the generated Prompt authority from that root, retains the non-empty `BUILD_ID` gate, and deletes the incomplete source-input mtime inventory and comparison. All downstream AST, exact Prompt tuple, AI/server marker, Rate Limiter, Scanner, Turbopack, manifest, path-containment, native-addon and forbidden-public-content assertions remain the single content authority.
+- `package.json` makes `check:bundle` the single successful-build-then-checker sequence; aggregate `check` reaches it once without a duplicate direct build. The approved CI refinement preserves Migration ordering and likewise reaches this one sequence once.
+- The semantic suite removed future/stale mtime manipulation and retains explicit missing and empty `BUILD_ID` rejections. The Build Once focused suite replaces the missing-build ceiling with an offline locked production-only installation and a full runtime-shaped checker execution from an alien cwd. It removes install-only lock/workspace metadata and supplies no `next.config.ts`, then proves complete success, specific `@refinedev` public-leak refusal with the allowlisted failure code, and fail-closed loss of the anchored generated Prompt authority. Both platform restriction envelopes and fatal nonzero propagation remain covered.
+
+Actual local proof, with no CWT Product build or image emission:
+
+- `pnpm exec vitest run src/public-site/public-bundle-check.test.ts`: **157/157 PASS**.
+- `node --test deploy/scripts/build-release-once.test.mjs`: **7/7 PASS**, including the production-only runtime shape, both platform envelopes, failure propagation, and workspace/CI sequencing.
+- `node --check` for both changed `.mjs` files, targeted ESLint for the checker and both changed test files, `package.json` JSON parsing, `ci.yml` YAML parsing and `git diff --check`: **PASS**.
+- Exact implementation inventory: five code/test/config files; this section is the sole report-only update. `pnpm-lock.yaml` object `77f3210684baf097eb1525611ca78287f720d243`, `Dockerfile`, Build Once production code, Runtime/preflight, registry/recovery/provisioning code, all other workflows, Product source and governance/other reports are byte-unchanged from `1eecba71...`. Baseline ancestry check passed.
+
+Complexity fell: command sequencing replaces the invalid mtime authority; no bypass flag, alternate checker, copied build-only closure, manifest, persistent state, compatibility layer or dual content authority was added. Rollback remains exact `1eecba71...`; reverting the Candidate restores the known invalid image/checker contract and is recovery only, not a valid release path.
+
+Residual limits remain exactly those in Sections 8–9: Synthetic compiled output does not prove a fresh real Next/Turbopack emission or Docker filesystem, the revoked index cannot become a Runtime subject, `linux/arm64` still awaits a future formal Build Once gate, and both emitted architecture gates remain required. No Product build, rehearsal, image/OCI/release emission, Push, Registry/cloud/Runner/workflow action, deployment or production access occurred. The next gate is a different independent Reviewer under `independent-review`; this implementation neither closes Technical Escalation nor authorizes the optional rehearsal or formal Build Once.
