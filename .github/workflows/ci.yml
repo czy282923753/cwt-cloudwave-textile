@@ -195,10 +195,7 @@ jobs:
       - name: Migrate a clean disposable Build database
         run: pnpm db:migrate
 
-      - name: Build without seed data
-        run: pnpm build
-
-      - name: Verify the public bundle boundary
+      - name: Build and verify the public bundle boundary
         run: pnpm check:bundle
 
   browser:

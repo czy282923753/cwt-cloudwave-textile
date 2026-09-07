@@ -1,5 +1,6 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let failureDetailEmitted = false;
 function emitFailureDetail(reasonCode) {
@@ -19,11 +20,18 @@ process.on("uncaughtExceptionMonitor", () => {
   emitFailureDetail("bundle_assertion_or_unknown_failed");
 });
 
-const buildRoot = process.env.CWT_BUILD_DIR ?? ".next";
+const layoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const configuredBuildRoot = process.env.CWT_BUILD_DIR ?? ".next";
+const buildRoot = isAbsolute(configuredBuildRoot)
+  ? resolve(configuredBuildRoot)
+  : resolve(layoutRoot, configuredBuildRoot);
 const serverRoot = join(buildRoot, "server");
 const serverAppRoot = join(buildRoot, "server/app");
-const absoluteBuildRoot = resolve(buildRoot);
-const promptBundleSourcePath = "src/ai/prompts/generated/production-prompt-bundle.generated.ts";
+const absoluteBuildRoot = buildRoot;
+const promptBundleSourcePath = join(
+  layoutRoot,
+  "src/ai/prompts/generated/production-prompt-bundle.generated.ts",
+);
 const currentChunkPrefix = "/_next/static/chunks/";
 const legacyChunkPrefix = "static/chunks/";
 const clientReferenceManifestFramings = [
@@ -465,42 +473,19 @@ function parseClientReferenceManifest(manifest, manifestPath) {
   return parsed;
 }
 
-async function assertFreshBuild() {
+async function assertBuildPresent() {
   const buildIdPath = join(buildRoot, "BUILD_ID");
-  let buildIdStat;
   try {
     const buildId = (await readFile(buildIdPath, "utf8")).trim();
     if (!buildId) throw new Error("BUILD_ID is empty");
-    buildIdStat = await stat(buildIdPath);
   } catch {
     throw new Error(
       `Public bundle check requires a fresh production build; ${buildIdPath} is missing or invalid. Run pnpm build first.`,
     );
   }
-  const inputRoots = ["src", "scripts", "package.json", "pnpm-lock.yaml", "next.config.ts"];
-  const inputFiles = [];
-  for (const input of inputRoots) {
-    const details = await stat(input);
-    if (details.isDirectory()) inputFiles.push(...(await filesUnder(input)));
-    else inputFiles.push(input);
-  }
-  let newest = 0;
-  let newestPath = "";
-  for (const input of inputFiles) {
-    const details = await stat(input);
-    if (details.mtimeMs > newest) {
-      newest = details.mtimeMs;
-      newestPath = input;
-    }
-  }
-  if (newest > buildIdStat.mtimeMs) {
-    throw new Error(
-      `Public bundle check refused a stale build: ${newestPath} is newer than ${buildIdPath}. Run pnpm build again.`,
-    );
-  }
 }
 
-await assertFreshBuild();
+await assertBuildPresent();
 const realBuildRoot = await realpath(absoluteBuildRoot);
 const promptAuthority = await readProductionPromptAuthority();
 const forbidden = [...baseForbidden, ...promptAuthority.map((entry) => entry.rawBase64)];

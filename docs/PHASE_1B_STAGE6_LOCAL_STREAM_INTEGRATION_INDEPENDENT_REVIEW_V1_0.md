@@ -345,3 +345,56 @@ The local Linux two-identity probes establish filesystem readability and checksu
 No blocking or nonblocking finding remains in this bounded re-review. `S6-BD-M-01` is closed, and the complete dependency-closure correction is locally accepted. The old release `78c882345d522d7a83cae9296c26499d49ab2521` and index `sha256:fc96539ee4c51895c1c1fedc8ef873e2fc92b5898c55f273f03d81656d779f0e` remain immutable failure evidence and unsuitable for a future Runtime subject. Stage 6 remains **Partial/HOLD**.
 
 The next gate is coordinator acceptance of this Review and a concrete separate decision on a new Product Build Once. This Review authorizes no Push, Product build, Registry write, workflow dispatch, cloud action, Runner start, deployment or Phase advancement.
+
+## Focused Bundle / Image Contract Technical Escalation independent Review
+
+| Field | Value |
+| --- | --- |
+| Review type | Focused independent Product/Test Review under Technical Escalation |
+| Frozen plan | `7abb965529e4f3a3e72f0274efdef4c103809ec8` |
+| Integrated baseline | `1eecba71e6768661156d0292951f0918d29c00be` |
+| Code Candidate | `9f270171fa8e0a467c29283a70e6d91522545a39` |
+| Candidate report-only delivery | `758f337d877393de510901ec38de267aebc52bec` |
+| Scope | Immutable-image checker filesystem contract and workspace/CI caller sequencing |
+| Verdict | **PASS — implementation accepted; Technical Escalation awaits coordinator acceptance** |
+
+The previous dependency/outcome handoff Review and Runtime preparation/recovery Review remain **CLOSED/PASS**. Failed Build Once run `34132330763` and emitted index `sha256:5ea0592ea6dbebcb26efd744e087cd4d7f527ca82e10dc3509f4342ef52bff93` remain immutable revoked failure evidence. This Review creates no replacement Product identity.
+
+### Security & Test Simplification Check
+
+**PASS.** Under `delete → merge → standard mechanism → new mechanism`, the Candidate deletes the incomplete source-mtime inventory from the immutable-artifact checker, anchors its real layout inputs through standard `import.meta.url`, and moves workspace freshness to the existing successful build-then-check command sequence. Aggregate `check` and the CI build-bundle job each reach that sequence once without a duplicate direct build.
+
+No bypass flag, copied lock/config closure, source hash manifest, second checker, validator, evidence state or compatibility path was added. Production complexity falls. The larger test fixture is proportionate because it composes the exact interface missed by two real external attempts: copied checker, production dependency tree, shipped Prompt authority and complete compiled-output assertions in one disposable runtime-shaped root. It creates no new gate or Reviewer.
+
+### Contract closure
+
+The checker now derives `layoutRoot` from its own `scripts/..` location. Default and relative `CWT_BUILD_DIR` values resolve from that root, while the existing absolute Build Once/Runtime value remains absolute. The generated Production Prompt authority is also anchored to the same shipped root. The checker retains a non-empty `BUILD_ID` presence check and every downstream AST, AI/server marker, exact Prompt tuple, Rate Limiter, File Scanner, governed Turbopack runtime/entrypoint, client-manifest framing, root/static chunk, realpath/containment, native-addon and forbidden-public-content assertion. The code diff contains no content-assertion weakening.
+
+The removed mtime walk was neither a complete Next input model nor meaningful after immutable-image timestamp normalization. Workspace command `pnpm check:bundle` now runs exactly one `pnpm build` immediately before the same checker. Aggregate `pnpm check` reaches `check:bundle` once and no longer runs a second direct build. The CI build-bundle job preserves its disposable-database Migration ordering and likewise calls this sequence once. Direct Build Once and Runtime callers remain unchanged and execute the same checker against `/app/.next/standalone/.next` under their already accepted exact-child, no-network, read-only, non-root and privilege-drop envelopes.
+
+### Complete emitted-filesystem verification
+
+The production-only test installs the frozen lock offline into a disposable root, copies the actual Candidate checker and actual generated Production Prompt data, and materializes one Synthetic compiled build containing a non-empty `BUILD_ID`, server/AI/Prompt/Scanner/Rate Limiter/Turbopack evidence, a governed application entrypoint, one valid public client-reference manifest and its public chunk. Before execution it removes the install-only `.npmrc`, lock/workspace files and pnpm workspace metadata and confirms `next.config.ts` is absent.
+
+The copied checker then runs from a separate empty ambient cwd and completes its normal success output. Because module resolution, Prompt data and the absolute build root all originate in the disposable runtime root, the fixture cannot borrow repository cwd or repository build data. Mutating only the referenced public chunk to contain `@refinedev` returns the fixed later-failure detail plus the specific public-leak refusal. Removing only the copied Prompt authority also fails closed. The complete semantic suite separately retains missing and empty `BUILD_ID`, AST, manifest, traversal/symlink, native-addon and forbidden-needle negatives.
+
+A Reviewer-owned probe additionally ran the copied checker from an alien cwd with both an unset and a relative `CWT_BUILD_DIR`. The observed `BUILD_ID` paths resolved under the copied checker's layout root in both cases and never under the alien cwd. This closes the default/relative caller behavior without executing a Product build.
+
+### Decisive verification
+
+| Check | Result |
+| --- | --- |
+| Exact Candidate inventory | PASS: five authorized code/test/config files; delivery changes only Technical Escalation Section 10 |
+| Runtime-shaped production-only checker | PASS: complete success without lock/config/workspace metadata, then intended public-leak and required-Prompt refusals |
+| Public bundle semantic suite | PASS: **157/157** |
+| Build Once focused suite | PASS: **7/7**; both platform envelopes and fatal nonzero propagation preserved |
+| Workspace/aggregate/CI sequencing | PASS: one successful-build-then-checker sequence per caller; Migration ordering retained |
+| Reviewer default/relative anchoring probe | PASS: both resolve from checker layout root; alien cwd unused |
+| Unchanged authorities | PASS: `pnpm-lock.yaml`, Dockerfile, Build Once production code, Runtime/outcome/recovery and publication implementation byte-unchanged |
+| Static quality | PASS: changed Node syntax, focused ESLint, package JSON parse, CI YAML parse and Candidate diff hygiene |
+
+### Residual scope and disposition
+
+No blocking or nonblocking finding remains in this focused scope. Synthetic compiled output proves the complete known checker interface and assertion behavior, but it does not prove a fresh real Next 16.2.12/Turbopack/Docker emission. The direct `node scripts/check-public-bundle.mjs` path intentionally verifies the selected artifact rather than mutable-workspace freshness; the supported workspace command owns fresh sequencing. `linux/arm64` also remains unevaluated for a new Product until the future formal Build Once executes both unchanged child gates. These are accepted residual risks, not reasons to add another freshness authority or expand local Review.
+
+Stage 6 remains **Partial/HOLD**. The next gate is coordinator acceptance of this Review, followed by a concrete decision on an optional bounded rehearsal or a new formal Product Build Once. This Review authorizes no Product build, image/OCI emission, Push, Registry write, workflow/Runner/cloud action, deployment or Phase advancement.

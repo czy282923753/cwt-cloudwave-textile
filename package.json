@@ -30,7 +30,7 @@
     "check:ai-prompts": "node --import=tsx scripts/verify-ai-prompt-bundle.ts --include-synthetic-test && node --import=tsx --test scripts/verify-ai-prompt-bundle.test.ts scripts/verify-ai-prompt-history.test.ts",
     "check:ai-architecture": "node --import=tsx scripts/verify-ai-architecture.ts",
     "test:ai-foundation": "vitest run src/ai",
-    "check:bundle": "node scripts/check-public-bundle.mjs",
+    "check:bundle": "pnpm build && node scripts/check-public-bundle.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
@@ -43,7 +43,7 @@
     "retention:execute": "node --conditions=react-server --import=tsx scripts/enforce-retention.ts --execute",
     "outbox:process": "node --conditions=react-server --import=tsx scripts/process-notification-outbox.ts",
     "cleanup:objects": "node --conditions=react-server --import=tsx scripts/process-object-cleanup.ts",
-    "check": "pnpm check:ai-prompts && pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm check:bundle",
+    "check": "pnpm check:ai-prompts && pnpm lint && pnpm typecheck && pnpm test:run && pnpm check:bundle",
     "check:all": "pnpm check && pnpm audit --prod && pnpm test:e2e"
   },
   "dependencies": {
