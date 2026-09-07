@@ -11,6 +11,11 @@ readonly CWT_CONTAINERD_PACKAGE_VERSION="2.3.4-1~ubuntu.24.04~noble"
 
 readonly CWT_RUNNER_ARCHIVE_SHA256="70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
 readonly CWT_RUNNER_ARCHIVE_URL="https://github.com/actions/runner/releases/download/v${CWT_RUNNER_VERSION}/actions-runner-linux-x64-${CWT_RUNNER_VERSION}.tar.gz"
+readonly CWT_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="15"
+readonly CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="390"
+readonly CWT_RUNNER_DOWNLOAD_RETRY_COUNT="2"
+readonly CWT_RUNNER_DOWNLOAD_RETRY_DELAY_SECONDS="2"
+readonly CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS="45"
 readonly CWT_RUNNER_ROOT="/opt/cwt-actions-runner"
 readonly CWT_FAILURE_DIAGNOSTIC_TAIL_BYTES=4096
 CWT_PROVISION_WORK_ROOT=""
@@ -164,20 +169,53 @@ cwt_install_exact_docker() {
   [[ "$(docker compose version --short)" == "$CWT_DOCKER_COMPOSE_VERSION" ]]
 }
 
+cwt_download_runner_archive() {
+  local url="$1"
+  local expected_sha="$2"
+  local archive="$3"
+  local connect_timeout_seconds="$4"
+  local max_time_seconds="$5"
+  local retry_count="$6"
+  local retry_delay_seconds="$7"
+  local retry_max_time_seconds="$8"
+  local actual_sha
+
+  rm -f -- "$archive"
+  curl --fail --silent --show-error --location \
+    --connect-timeout "$connect_timeout_seconds" \
+    --max-time "$max_time_seconds" \
+    --retry "$retry_count" \
+    --retry-delay "$retry_delay_seconds" \
+    --retry-max-time "$retry_max_time_seconds" \
+    --retry-connrefused \
+    --remove-on-error \
+    "$url" \
+    --output "$archive"
+
+  actual_sha="$(sha256sum "$archive")"
+  actual_sha="${actual_sha%% *}"
+  [[ "$actual_sha" == "$expected_sha" ]] || {
+    printf 'CWT_PROVISION_NOT_PASS reason=runner_archive_digest_mismatch\n' >&2
+    return 67
+  }
+}
+
 cwt_install_runner() {
-  local archive actual_sha ownership_drift runner_version probe docker_user_version
+  local archive ownership_drift runner_version probe docker_user_version
 
   CWT_PROVISION_WORK_ROOT="$(mktemp -d /tmp/cwt-runner-provision.XXXXXX)"
   [[ "$CWT_PROVISION_WORK_ROOT" == /tmp/cwt-runner-provision.* && ! -L "$CWT_PROVISION_WORK_ROOT" ]]
   archive="${CWT_PROVISION_WORK_ROOT}/actions-runner.tar.gz"
 
-  curl --fail --silent --show-error --location "$CWT_RUNNER_ARCHIVE_URL" --output "$archive"
-  actual_sha="$(sha256sum "$archive")"
-  actual_sha="${actual_sha%% *}"
-  [[ "$actual_sha" == "$CWT_RUNNER_ARCHIVE_SHA256" ]] || {
-    printf 'CWT_PROVISION_NOT_PASS reason=runner_archive_digest_mismatch\n' >&2
-    return 67
-  }
+  cwt_download_runner_archive \
+    "$CWT_RUNNER_ARCHIVE_URL" \
+    "$CWT_RUNNER_ARCHIVE_SHA256" \
+    "$archive" \
+    "$CWT_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS" \
+    "$CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS" \
+    "$CWT_RUNNER_DOWNLOAD_RETRY_COUNT" \
+    "$CWT_RUNNER_DOWNLOAD_RETRY_DELAY_SECONDS" \
+    "$CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS"
 
   install -d -m 0755 "$CWT_RUNNER_ROOT"
   tar -xzf "$archive" -C "$CWT_RUNNER_ROOT"

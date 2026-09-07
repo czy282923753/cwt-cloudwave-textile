@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 const scriptPath = "deploy/runtime-validation/provision-ubuntu-amd64-runner.sh";
@@ -54,6 +58,94 @@ printf '%s' "$2"
   return spawnSync("/bin/bash", ["-c", command, "cwt-logged-fixture", scriptPath, successMarker], {
     encoding: "utf8",
   });
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function startArchiveServer(mode, body) {
+  const root = mkdtempSync(join(tmpdir(), "cwt-runner-download-test-"));
+  const countPath = join(root, "requests");
+  const serverSource = String.raw`
+const http = require("node:http");
+const fs = require("node:fs");
+const mode = process.argv[1];
+const countPath = process.argv[2];
+const body = Buffer.from(process.argv[3], "base64");
+let count = 0;
+const server = http.createServer((_request, response) => {
+  count += 1;
+  fs.writeFileSync(countPath, String(count));
+  if (mode === "stall") return;
+  if (mode === "transient" && count === 1) {
+    response.writeHead(503, { "content-type": "text/plain" });
+    response.end("try again");
+    return;
+  }
+  if (mode === "unavailable") {
+    response.writeHead(503, { "content-type": "text/plain" });
+    response.end("unavailable");
+    return;
+  }
+  response.writeHead(200, { "content-type": "application/octet-stream" });
+  response.end(body);
+});
+server.listen(0, "127.0.0.1", () => process.stdout.write(String(server.address().port) + "\n"));
+process.on("SIGTERM", () => server.close(() => process.exit(0)));
+`;
+  const child = spawn(process.execPath, ["-e", serverSource, mode, countPath, body.toString("base64")], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", chunk => {
+    stderr += chunk;
+  });
+  const port = await new Promise((resolve, reject) => {
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", chunk => {
+      stdout += chunk;
+      if (stdout.includes("\n")) resolve(Number.parseInt(stdout, 10));
+    });
+    child.once("error", reject);
+    child.once("exit", code => reject(new Error(`archive server exited ${code}: ${stderr}`)));
+  });
+
+  return {
+    archivePath: join(root, "actions-runner.tar.gz"),
+    count: () => Number.parseInt(readFileSync(countPath, "utf8"), 10),
+    root,
+    url: `http://127.0.0.1:${port}/actions-runner.tar.gz`,
+    async close() {
+      child.kill("SIGTERM");
+      await once(child, "exit");
+      rmSync(root, { force: true, recursive: true });
+    },
+  };
+}
+
+function downloadArchive({ url, expectedSha, archivePath, connect = 1, maxTime = 5, retries = 2, delay = 0, retryMaxTime = 5 }) {
+  const command = 'set -Eeuo pipefail; source "$1"; cwt_download_runner_archive "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"';
+  return spawnSync(
+    "/bin/bash",
+    [
+      "-c",
+      command,
+      "cwt-runner-download-fixture",
+      scriptPath,
+      url,
+      expectedSha,
+      archivePath,
+      String(connect),
+      String(maxTime),
+      String(retries),
+      String(delay),
+      String(retryMaxTime),
+    ],
+    { encoding: "utf8" },
+  );
 }
 
 test("selects one exact package version after consuming the complete catalog", () => {
@@ -110,6 +202,11 @@ test("pins accepted identities and excludes post-provisioning responsibilities",
     'CWT_DOCKER_COMPOSE_PACKAGE_VERSION="5.3.1-1~ubuntu.24.04~noble"',
     'CWT_CONTAINERD_PACKAGE_VERSION="2.3.4-1~ubuntu.24.04~noble"',
     'CWT_RUNNER_ARCHIVE_SHA256="70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"',
+    'CWT_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="15"',
+    'CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="390"',
+    'CWT_RUNNER_DOWNLOAD_RETRY_COUNT="2"',
+    'CWT_RUNNER_DOWNLOAD_RETRY_DELAY_SECONDS="2"',
+    'CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS="45"',
   ]) {
     assert.ok(source.includes(expected), expected);
   }
@@ -130,6 +227,96 @@ test("pins accepted identities and excludes post-provisioning responsibilities",
   }
 });
 
+test("bounds the sole exact Runner archive transfer to three curl attempts", () => {
+  const retryCount = Number(source.match(/CWT_RUNNER_DOWNLOAD_RETRY_COUNT="(\d+)"/u)?.[1]);
+  const retryWindow = Number(source.match(/CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS="(\d+)"/u)?.[1]);
+  const transferLimit = Number(source.match(/CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="(\d+)"/u)?.[1]);
+  assert.equal((source.match(/--retry "\$retry_count"/gu) ?? []).length, 1);
+  assert.match(source, /--connect-timeout "\$connect_timeout_seconds"/u);
+  assert.match(source, /--max-time "\$max_time_seconds"/u);
+  assert.match(source, /--retry-delay "\$retry_delay_seconds"/u);
+  assert.match(source, /--retry-max-time "\$retry_max_time_seconds"/u);
+  assert.match(source, /--retry-connrefused/u);
+  assert.doesNotMatch(source, /--retry-all-errors/u);
+  assert.match(source, /--remove-on-error/u);
+  assert.equal(1 + retryCount, 3);
+  assert.ok(retryWindow + transferLimit < invocation.timeoutSeconds);
+  assert.doesNotMatch(source, /while[^\n]*curl|until[^\n]*curl/u);
+});
+
+test("retries a transient archive response and accepts only the exact digest", async () => {
+  const body = Buffer.from("synthetic exact Runner archive");
+  const server = await startArchiveServer("transient", body);
+  try {
+    const result = downloadArchive({
+      url: server.url,
+      expectedSha: sha256(body),
+      archivePath: server.archivePath,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(readFileSync(server.archivePath), body);
+    assert.equal(server.count(), 2);
+  } finally {
+    await server.close();
+  }
+});
+
+test("fails after the bounded retry count and removes failed transfer bytes", async () => {
+  const body = Buffer.from("never returned");
+  const server = await startArchiveServer("unavailable", body);
+  try {
+    const result = downloadArchive({
+      url: server.url,
+      expectedSha: sha256(body),
+      archivePath: server.archivePath,
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(server.count(), 3);
+    assert.equal(existsSync(server.archivePath), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test("fails when the transfer time budget expires", async () => {
+  const body = Buffer.from("stalled response");
+  const server = await startArchiveServer("stall", body);
+  try {
+    const startedAt = Date.now();
+    const result = downloadArchive({
+      url: server.url,
+      expectedSha: sha256(body),
+      archivePath: server.archivePath,
+      maxTime: 1,
+      retries: 0,
+      retryMaxTime: 1,
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /timed out|Timeout was reached/iu);
+    assert.ok(Date.now() - startedAt < 4000);
+    assert.equal(existsSync(server.archivePath), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test("never accepts a completed archive with the wrong digest", async () => {
+  const expected = Buffer.from("expected archive");
+  const server = await startArchiveServer("success", Buffer.from("corrupt archive"));
+  try {
+    const result = downloadArchive({
+      url: server.url,
+      expectedSha: sha256(expected),
+      archivePath: server.archivePath,
+    });
+    assert.equal(result.status, 67);
+    assert.match(result.stderr, /reason=runner_archive_digest_mismatch/u);
+    assert.equal(server.count(), 1);
+  } finally {
+    await server.close();
+  }
+});
+
 test("keeps ownership convergence and actual ubuntu-user probes before success", () => {
   const ownership = source.indexOf('chown -R ubuntu:ubuntu "$CWT_RUNNER_ROOT"');
   const diagCreate = source.indexOf('sudo -u ubuntu touch "$probe"');
@@ -142,7 +329,7 @@ test("keeps ownership convergence and actual ubuntu-user probes before success",
   assert.ok(diagRemove > diagCreate);
   assert.ok(dockerProbe > diagRemove);
   assert.ok(success > dockerProbe);
-  assert.doesNotMatch(source, /\bretry\b|\bfallback\b|docker:.*dind/iu);
+  assert.doesNotMatch(source, /\bfallback\b|docker:.*dind/iu);
 });
 
 test("fixes the current TAT envelope at 600 seconds and makes terminal SUCCESS plus exit 0 authoritative", () => {
