@@ -450,3 +450,53 @@ This is a nonblocking accepted residual. When this parser is next changed, rejec
 The Candidate improves evidence retained by a future infrastructure-up failure. It does not diagnose run `34145251214`, prove the cause of artifact `10027475980`, or convert that run into PASS. The Analyst's Docker Desktop `json-file` result does not establish behavior on the native journald Runner, and any useful future native evidence still depends on a new authorized run reaching this bounded collector. The separate local full-chain result remains an external coordination input rather than evidence created by this Review.
 
 There is no blocking finding. Stage 6 remains **Partial/HOLD**. The next gate is coordinator acceptance of this Review together with the pending local full-chain result. This Review authorizes no automatic Runtime execution, Product build, image/OCI emission, Push, Registry write, workflow/Runner/cloud action, deployment or Phase advancement.
+
+## Focused Runner child umask repair independent Review
+
+| Item | Reviewed identity / conclusion |
+| --- | --- |
+| Review type | Independent focused Security / Operational Review with one in-Review Security & Test Simplification Check |
+| Parent diagnosis report | `57aba3d9ba63167a2c3d1ee5edd2be74a9f2a74a` |
+| Code Candidate | `f6703406353412400cf65536915c7a4614ab7dfe` |
+| Native evidence under diagnosis | Tools `cf266ae099995ddaf7a2e9572774cd49bc3c1f19`; run `34161175361`; artifact `10032694897` |
+| Scope | Runner launch mask boundary, embedded invocation binding, focused registration/provisioning tests and existing principal report |
+| Verdict | **PASS — local causal repair accepted; no new finding** |
+
+This Review preserves all accepted Product, Bundle/Image, Runtime diagnostic and recovery conclusions. Product release `68c15e6bcd2900f5e634f6c6c6e3b8b3f5550641` and index `sha256:c8d4d1c3148670a683a3509bafb7d832afc6fbe3bb811e2de19b27ae63540ce4` remain unchanged. The native run remains NOT PASS: Valkey was retained as `created/null/0` while PostgreSQL was `running/starting/0`, and the destroyed host's actual checkout modes remain unavailable.
+
+### Security & Test Simplification Check
+
+**PASS.** Under `delete → merge → standard mechanism → new mechanism`, the Candidate corrects the leaked inherited process state at the existing Runner-child boundary with the standard shell `umask 022`. The child then immediately `exec`s the existing `nohup → env -u CWT_REGISTRATION_TOKEN → run.sh` chain. It adds no chmod repair, privilege wrapper, alternate launcher, retry, new state, permission walker, persistent harness, diagnostic gate or credential path. The four-file Candidate changes one authoritative launcher, regenerates its already-authoritative embedded invocation, updates the existing focused test and records the result in the existing report. This is the smallest coherent correction because the pinned Runner and checkout action contain no later umask reset before Git creates the worktree.
+
+The intentionally conventional `022` mask applies to the trusted single-use Runner child and its job descendants so tracked executable and ordinary source files receive container-usable modes. It does not override explicit security modes. The outer materialization and registration process remains `077`; the payload remains `0700`; Runner registration state and credentials are created before the child boundary; Runtime GHCR authentication retains its explicit directory `0700` and file `0600` controls. The registration token is cleared before launch and `env -u` remains the final child guard.
+
+### Causal and process-boundary closure
+
+The diagnosed mechanism is a real Git/Linux permission boundary: inherited `077` can create tracked executable files as owner-only `0700`, while the Runtime Compose service executes the bind-mounted file as UID/GID `999:999`. The Candidate changes only the Runner child mask to `022`, causing a fresh checkout to materialize tracked executables as `0755` and ordinary source as `0644`. The protected parent retains `077` after the launch.
+
+The background subshell immediately replaces itself through the existing `exec` chain, so `$!` remains the launched process identity used by the unchanged one-second `kill -0` liveness check. Standard input and both output streams retain the exact `/dev/null` redirections. An immediate launch failure still makes the liveness check refuse with `runner_launch_failed`; there is no retry or false success path. The registration token has already been removed from both exported and local custody before the function call, with `env -u` providing defense in depth.
+
+The versioned Tencent TAT invocation embeds bytes exactly equal to the reviewed launcher. Reviewer recomputation confirmed payload size 3,785, SHA-256 `8722709d99d918ea3c52d020971b8a2c80cbc993b2b0df0ce0cf5c1d5ac0cf0d`, wrapper size 6,938 and SHA-256 `a3309b5ea90710f44ff75ec1d75289f932753e1f81050dbffa22e10d9bb2168f`. All decoded wrapper bytes outside the expected payload size/hash/Base64 bindings are unchanged, and all JSON fields outside `content` are unchanged. Parameter substitution, hidden token placeholder, `ubuntu`, `/home/ubuntu`, 600-second timeout, `saveCommand=false` and disabled COS output remain fixed.
+
+### Decisive verification
+
+| Check | Result |
+| --- | --- |
+| Exact ancestry and inventory | PASS: Candidate parent is exact diagnosis report; exactly four authorized files changed with no unrelated code |
+| Focused registration/provisioning suite | PASS: **35/35**, zero failures and zero skips |
+| Linux-filesystem production-launcher suite | PASS: **14/14** inside cached public `node:24.14.0-bookworm`, network disabled, repository read-only |
+| Parent/child credential boundary | PASS: Reviewer Linux probe observed parent `0077`, child `0022`, Synthetic `.runner`, `.credentials` and `.credentials_rsaparams` all `0600`, registration token absent and launched child alive under the retained liveness contract |
+| Fresh child-driven checkout | PASS: tracked executable `0755`; ordinary public source `0644` on Docker's Linux filesystem |
+| Actual Valkey UID/bind proof | PASS: exact 985-byte production entrypoint, owner `1000:1000`, target `/opt/cwt/valkey-entrypoint.sh`, service UID/GID `999:999`; `0700` failed with exit 126/permission denied, while changing only the mode to `0755` produced authenticated `PONG` |
+| Container security envelope | PASS: read-only root, all capabilities dropped, `no-new-privileges`, accepted limits/tmpfs, no network or published port, Synthetic secret only |
+| Embedded invocation | PASS: embedded payload byte-exact; wrapper outside bindings and operational JSON settings unchanged |
+| Static quality | PASS: Bash and Node syntax, targeted ESLint and Candidate diff hygiene |
+| Owned cleanup | PASS: Reviewer containers and volumes removed; no labelled Reviewer resource remains |
+
+### Findings and residual scope
+
+No new Blocker, High, Medium or Low finding remains in this focused scope. Existing `S6-ID-L-01` remains an accepted nonblocking Low and is not reopened. The previously recorded Operator OAuth-output and transient-token-file nonconformances remain historical constraints on future methods; this Review performed no credential or provider operation and creates no authorization to use those methods.
+
+The local evidence corrects and reproduces the demonstrated launch → checkout → bind permission mechanism. Because the destroyed native host retained neither its actual file modes nor the raw OCI start error, this PASS is not historical certainty about run `34161175361`. A future separately authorized native Tencent run is still required to establish native Runtime behavior, artifact outcome and journald-host compatibility.
+
+Stage 6 remains **Partial/HOLD**. The next gate is coordinator acceptance of this Review and concrete preparation for the next native run under existing authority. This Review authorizes no Product build/private pull, cloud or TAT action, Runner registration, workflow dispatch, Push/Registry write, deployment, native execution or Phase advancement.
