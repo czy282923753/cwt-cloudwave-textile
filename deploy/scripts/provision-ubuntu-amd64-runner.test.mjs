@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -67,14 +67,24 @@ function sha256(value) {
 async function startArchiveServer(mode, body) {
   const root = mkdtempSync(join(tmpdir(), "cwt-runner-download-test-"));
   const countPath = join(root, "requests");
+  const keyPath = join(root, "loopback.key");
+  const certificatePath = join(root, "loopback.crt");
+  const certificate = spawnSync("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+    "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+    "-keyout", keyPath, "-out", certificatePath,
+  ], { encoding: "utf8" });
+  assert.equal(certificate.status, 0, certificate.stderr);
   const serverSource = String.raw`
-const http = require("node:http");
+const https = require("node:https");
 const fs = require("node:fs");
 const mode = process.argv[1];
 const countPath = process.argv[2];
 const body = Buffer.from(process.argv[3], "base64");
+const keyPath = process.argv[4];
+const certificatePath = process.argv[5];
 let count = 0;
-const server = http.createServer((_request, response) => {
+const server = https.createServer({ key: fs.readFileSync(keyPath), cert: fs.readFileSync(certificatePath) }, (_request, response) => {
   count += 1;
   fs.writeFileSync(countPath, String(count));
   if (mode === "stall") return;
@@ -94,7 +104,7 @@ const server = http.createServer((_request, response) => {
 server.listen(0, "127.0.0.1", () => process.stdout.write(String(server.address().port) + "\n"));
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 `;
-  const child = spawn(process.execPath, ["-e", serverSource, mode, countPath, body.toString("base64")], {
+  const child = spawn(process.execPath, ["-e", serverSource, mode, countPath, body.toString("base64"), keyPath, certificatePath], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stderr = "";
@@ -115,9 +125,10 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
 
   return {
     archivePath: join(root, "actions-runner.tar.gz"),
+    certificatePath,
     count: () => Number.parseInt(readFileSync(countPath, "utf8"), 10),
     root,
-    url: `http://127.0.0.1:${port}/actions-runner.tar.gz`,
+    url: `https://127.0.0.1:${port}/actions-runner.tar.gz`,
     async close() {
       child.kill("SIGTERM");
       await once(child, "exit");
@@ -126,8 +137,8 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
   };
 }
 
-function downloadArchive({ url, expectedSha, archivePath, connect = 1, maxTime = 5, retries = 2, delay = 0, retryMaxTime = 5 }) {
-  const command = 'set -Eeuo pipefail; source "$1"; cwt_download_runner_archive "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"';
+function downloadArchive({ url, expectedSha, archivePath, certificatePath, maxTime = 5 }) {
+  const command = 'set -Eeuo pipefail; source "$1"; cwt_download_runner_archive "$2" "$3" "$4" "$5"';
   return spawnSync(
     "/bin/bash",
     [
@@ -138,14 +149,42 @@ function downloadArchive({ url, expectedSha, archivePath, connect = 1, maxTime =
       url,
       expectedSha,
       archivePath,
-      String(connect),
       String(maxTime),
-      String(retries),
-      String(delay),
-      String(retryMaxTime),
     ],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: { ...process.env, CURL_CA_BUNDLE: certificatePath } },
   );
+}
+
+function fixtureScriptForRunnerRoot(root, fixtureRoot) {
+  const fixturePath = join(fixtureRoot, "provision-fixture.sh");
+  const replaced = source.replaceAll("/opt/cwt-actions-runner", root);
+  assert.notEqual(replaced, source);
+  writeFileSync(fixturePath, replaced, { mode: 0o700 });
+  return fixturePath;
+}
+
+function exactRecoveryPrelude() {
+  return String.raw`
+cwt_package_identity() {
+  case "$1" in
+    docker-ce) printf '%s\n' 'install ok installed|5:29.6.2-1~ubuntu.24.04~noble' ;;
+    docker-ce-cli) printf '%s\n' 'install ok installed|5:29.6.2-1~ubuntu.24.04~noble' ;;
+    docker-compose-plugin) printf '%s\n' 'install ok installed|5.3.1-1~ubuntu.24.04~noble' ;;
+    containerd.io) printf '%s\n' 'install ok installed|2.3.4-1~ubuntu.24.04~noble' ;;
+  esac
+}
+docker() {
+  case "$*" in
+    "version --format {{.Client.Version}}"|"version --format {{.Server.Version}}") printf '%s\n' '29.6.2' ;;
+    "compose version --short") printf '%s\n' '5.3.1' ;;
+    "ps -aq"|"network ls --format {{.Label \"com.docker.compose.project\"}}|{{.Name}}") : ;;
+    *) return 70 ;;
+  esac
+}
+cwt_list_runner_processes() { :; }
+cwt_list_mount_targets() { :; }
+cwt_recovery_path_exists() { return 1; }
+`;
 }
 
 test("selects one exact package version after consuming the complete catalog", () => {
@@ -202,11 +241,16 @@ test("pins accepted identities and excludes post-provisioning responsibilities",
     'CWT_DOCKER_COMPOSE_PACKAGE_VERSION="5.3.1-1~ubuntu.24.04~noble"',
     'CWT_CONTAINERD_PACKAGE_VERSION="2.3.4-1~ubuntu.24.04~noble"',
     'CWT_RUNNER_ARCHIVE_SHA256="70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"',
-    'CWT_RUNNER_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="15"',
+    'CWT_DOCKER_SIGNING_KEY_URL="https://download.docker.com/linux/ubuntu/gpg"',
+    'CWT_DOCKER_KEY_DOWNLOAD_MAX_TIME_SECONDS="60"',
+    'CWT_PUBLIC_DOWNLOAD_CONNECT_TIMEOUT_SECONDS="15"',
     'CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="390"',
-    'CWT_RUNNER_DOWNLOAD_RETRY_COUNT="2"',
-    'CWT_RUNNER_DOWNLOAD_RETRY_DELAY_SECONDS="2"',
-    'CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS="45"',
+    'CWT_PUBLIC_DOWNLOAD_RETRY_COUNT="2"',
+    'CWT_PUBLIC_DOWNLOAD_RETRY_DELAY_SECONDS="2"',
+    'CWT_PUBLIC_DOWNLOAD_RETRY_MAX_TIME_SECONDS="45"',
+    'CWT_APT_RETRY_COUNT="2"',
+    'CWT_APT_HTTP_TIMEOUT_SECONDS="30"',
+    'CWT_APT_HTTPS_TIMEOUT_SECONDS="30"',
   ]) {
     assert.ok(source.includes(expected), expected);
   }
@@ -215,7 +259,6 @@ test("pins accepted identities and excludes post-provisioning responsibilities",
     /config\.sh/u,
     /registration.?token/iu,
     /ACTIONS_RUNNER_INPUT_TOKEN/u,
-    /\/run\.sh/u,
     /gh\s+(?:api|workflow|run)/u,
     /workflow_dispatch/u,
     /tencentcloud/iu,
@@ -227,15 +270,18 @@ test("pins accepted identities and excludes post-provisioning responsibilities",
   }
 });
 
-test("bounds the sole exact Runner archive transfer to three curl attempts", () => {
-  const retryCount = Number(source.match(/CWT_RUNNER_DOWNLOAD_RETRY_COUNT="(\d+)"/u)?.[1]);
-  const retryWindow = Number(source.match(/CWT_RUNNER_DOWNLOAD_RETRY_MAX_TIME_SECONDS="(\d+)"/u)?.[1]);
+test("bounds both provisioning downloads with one native curl policy", () => {
+  const retryCount = Number(source.match(/CWT_PUBLIC_DOWNLOAD_RETRY_COUNT="(\d+)"/u)?.[1]);
+  const retryWindow = Number(source.match(/CWT_PUBLIC_DOWNLOAD_RETRY_MAX_TIME_SECONDS="(\d+)"/u)?.[1]);
   const transferLimit = Number(source.match(/CWT_RUNNER_DOWNLOAD_MAX_TIME_SECONDS="(\d+)"/u)?.[1]);
-  assert.equal((source.match(/--retry "\$retry_count"/gu) ?? []).length, 1);
-  assert.match(source, /--connect-timeout "\$connect_timeout_seconds"/u);
+  assert.equal((source.match(/cwt_download_public_file \\/gu) ?? []).length, 1);
+  assert.match(source, /cwt_download_public_file "\$url" "\$archive" "\$max_time_seconds"/u);
+  assert.match(source, /--proto '=https' --tlsv1\.2/u);
+  assert.match(source, /--connect-timeout "\$CWT_PUBLIC_DOWNLOAD_CONNECT_TIMEOUT_SECONDS"/u);
   assert.match(source, /--max-time "\$max_time_seconds"/u);
-  assert.match(source, /--retry-delay "\$retry_delay_seconds"/u);
-  assert.match(source, /--retry-max-time "\$retry_max_time_seconds"/u);
+  assert.match(source, /--retry "\$CWT_PUBLIC_DOWNLOAD_RETRY_COUNT"/u);
+  assert.match(source, /--retry-delay "\$CWT_PUBLIC_DOWNLOAD_RETRY_DELAY_SECONDS"/u);
+  assert.match(source, /--retry-max-time "\$CWT_PUBLIC_DOWNLOAD_RETRY_MAX_TIME_SECONDS"/u);
   assert.match(source, /--retry-connrefused/u);
   assert.doesNotMatch(source, /--retry-all-errors/u);
   assert.match(source, /--remove-on-error/u);
@@ -252,6 +298,7 @@ test("retries a transient archive response and accepts only the exact digest", a
       url: server.url,
       expectedSha: sha256(body),
       archivePath: server.archivePath,
+      certificatePath: server.certificatePath,
     });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(readFileSync(server.archivePath), body);
@@ -269,6 +316,7 @@ test("fails after the bounded retry count and removes failed transfer bytes", as
       url: server.url,
       expectedSha: sha256(body),
       archivePath: server.archivePath,
+      certificatePath: server.certificatePath,
     });
     assert.notEqual(result.status, 0);
     assert.equal(server.count(), 3);
@@ -287,13 +335,12 @@ test("fails when the transfer time budget expires", async () => {
       url: server.url,
       expectedSha: sha256(body),
       archivePath: server.archivePath,
+      certificatePath: server.certificatePath,
       maxTime: 1,
-      retries: 0,
-      retryMaxTime: 1,
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /timed out|Timeout was reached/iu);
-    assert.ok(Date.now() - startedAt < 4000);
+    assert.ok(Date.now() - startedAt < 9000);
     assert.equal(existsSync(server.archivePath), false);
   } finally {
     await server.close();
@@ -308,12 +355,206 @@ test("never accepts a completed archive with the wrong digest", async () => {
       url: server.url,
       expectedSha: sha256(expected),
       archivePath: server.archivePath,
+      certificatePath: server.certificatePath,
     });
     assert.equal(result.status, 67);
     assert.match(result.stderr, /reason=runner_archive_digest_mismatch/u);
     assert.equal(server.count(), 1);
   } finally {
     await server.close();
+  }
+});
+
+test("exports one temporary APT acquisition policy to direct and nested dependency clients and removes it", () => {
+  const root = mkdtempSync(join(tmpdir(), "cwt-apt-policy-test-"));
+  const policyRecord = join(root, "policy-path");
+  const command = String.raw`
+set -Eeuo pipefail
+source "$1"
+cwt_create_apt_acquisition_policy
+policy="$APT_CONFIG"
+printf '%s' "$policy" >"$2"
+[[ -f "$policy" && ! -L "$policy" ]]
+grep -Fx 'Acquire::Retries "2";' "$policy"
+grep -Fx 'Acquire::http::Timeout "30";' "$policy"
+grep -Fx 'Acquire::https::Timeout "30";' "$policy"
+direct_apt_client() { [[ "$APT_CONFIG" == "$policy" && -f "$APT_CONFIG" ]]; }
+direct_apt_client
+/bin/bash -c '[[ -f "$APT_CONFIG" ]] && grep -Fx '\''Acquire::Retries "2";'\'' "$APT_CONFIG"'
+cwt_remove_apt_acquisition_policy
+[[ ! -e "$policy" && ! -L "$policy" && -z "${"${APT_CONFIG+x}"}" ]]
+`;
+  try {
+    const result = spawnSync("/bin/bash", ["-c", command, "cwt-apt-policy", scriptPath, policyRecord], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(readFileSync(policyRecord, "utf8")), false);
+    assert.match(source, /export APT_CONFIG="\$CWT_APT_POLICY_PATH"/u);
+    assert.match(source, /"\$CWT_RUNNER_ROOT\/bin\/installdependencies\.sh"/u);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("removes the temporary APT policy on a failed provisioning process", () => {
+  const root = mkdtempSync(join(tmpdir(), "cwt-apt-policy-failure-"));
+  const policyRecord = join(root, "policy-path");
+  const command = String.raw`
+set -Eeuo pipefail
+source "$1"
+trap 'cwt_on_exit $?' EXIT
+cwt_create_apt_acquisition_policy
+printf '%s' "$APT_CONFIG" >"$2"
+false
+`;
+  try {
+    const result = spawnSync("/bin/bash", ["-c", command, "cwt-apt-policy-failure", scriptPath, policyRecord], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.equal(existsSync(readFileSync(policyRecord, "utf8")), false);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("accepts exact-Docker recovery with no Runner root and creates only a fresh owned root", () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "cwt-recovery-absent-root-"));
+  const runnerRoot = join(fixtureRoot, "fixed-runner");
+  const fixtureScript = fixtureScriptForRunnerRoot(runnerRoot, fixtureRoot);
+  const command = `${String.raw`set -Eeuo pipefail
+source "$1"
+`}${exactRecoveryPrelude()}${String.raw`
+cwt_prepare_host
+[[ "$CWT_HOST_PREPARATION_MODE" == "recovery" && ! -e "$CWT_RUNNER_ROOT" ]]
+cwt_create_owned_runner_root
+[[ -d "$CWT_RUNNER_ROOT" && "$CWT_PROVISION_OWNS_RUNNER_ROOT" -eq 1 ]]
+`}`;
+  try {
+    const result = spawnSync("/bin/bash", ["-c", command, "cwt-recovery-absent", fixtureScript], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
+});
+
+test("wipes one inactive fixed stale Runner tree before fresh installation and cleans current-process partial state", () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "cwt-recovery-stale-root-"));
+  const runnerRoot = join(fixtureRoot, "fixed-runner");
+  mkdirSync(runnerRoot);
+  writeFileSync(join(runnerRoot, "stale-binary"), "synthetic stale bytes");
+  const fixtureScript = fixtureScriptForRunnerRoot(runnerRoot, fixtureRoot);
+  const command = `${String.raw`set -Eeuo pipefail
+source "$1"
+`}${exactRecoveryPrelude()}${String.raw`
+cwt_prepare_host
+[[ "$CWT_HOST_PREPARATION_MODE" == "recovery" && ! -e "$CWT_RUNNER_ROOT/stale-binary" ]]
+cwt_create_owned_runner_root
+printf '%s' 'synthetic fresh partial bytes' >"$CWT_RUNNER_ROOT/fresh-partial"
+[[ "$CWT_PROVISION_OWNS_RUNNER_ROOT" -eq 1 && -f "$CWT_RUNNER_ROOT/fresh-partial" ]]
+cwt_cleanup
+[[ ! -e "$CWT_RUNNER_ROOT" && ! -L "$CWT_RUNNER_ROOT" ]]
+`}`;
+  try {
+    const result = spawnSync("/bin/bash", ["-c", command, "cwt-recovery-stale", fixtureScript], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
+  }
+});
+
+test("refuses symlink, active Runner, mixed Docker, container, CWT network and private Runtime residue", () => {
+  const cases = [
+    {
+      name: "symlink root",
+      setup(root, runnerRoot) { const target = join(root, "target"); mkdirSync(target); symlinkSync(target, runnerRoot); },
+      overrides: "",
+      reason: /runner_root_type_invalid/u,
+    },
+    {
+      name: "active Runner",
+      setup(_root, runnerRoot) { mkdirSync(runnerRoot); },
+      overrides: 'cwt_list_runner_processes() { printf "%s\\n" "$CWT_RUNNER_ROOT/bin/Runner.Listener run"; }',
+      reason: /runner_process_active/u,
+    },
+    {
+      name: "mounted Runner subtree",
+      setup(_root, runnerRoot) { mkdirSync(runnerRoot); },
+      overrides: 'cwt_list_mount_targets() { printf "%s\\n" "$CWT_RUNNER_ROOT/_work"; }',
+      reason: /runner_root_mount_present/u,
+    },
+    {
+      name: "unavailable mount state",
+      setup(_root, runnerRoot) { mkdirSync(runnerRoot); },
+      overrides: 'cwt_list_mount_targets() { return 69; }',
+      reason: /runner_mount_state_unavailable/u,
+    },
+    {
+      name: "mixed Docker",
+      setup() {},
+      overrides: 'cwt_package_identity() { if [[ "$1" == docker-ce ]]; then printf "%s\\n" "install ok installed|0:wrong"; fi; return 0; }',
+      reason: /mixed_docker_installation/u,
+      replacePrelude: true,
+    },
+    {
+      name: "container residue",
+      setup() {},
+      overrides: 'docker() { [[ "$*" == "ps -aq" ]] && { printf "%s\\n" synthetic-container; return; }; command docker "$@"; }',
+      reason: /docker_container_residue/u,
+      directResidueCheck: true,
+    },
+    {
+      name: "CWT network residue",
+      setup() {},
+      overrides: 'docker() { [[ "$*" == "ps -aq" ]] && return; printf "%s\\n" "cwt-runtime|cwt-runtime_default"; }',
+      reason: /cwt_network_residue/u,
+      directResidueCheck: true,
+    },
+    {
+      name: "private Runtime residue",
+      setup() {},
+      overrides: 'docker() { :; }; cwt_recovery_path_exists() { [[ "$1" == *cwt-ghcr-auth ]]; }',
+      reason: /recovery_private_or_runtime_residue/u,
+      directResidueCheck: true,
+    },
+  ];
+
+  for (const fixture of cases) {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "cwt-recovery-refusal-"));
+    const runnerRoot = join(fixtureRoot, "fixed-runner");
+    fixture.setup(fixtureRoot, runnerRoot);
+    const fixtureScript = fixtureScriptForRunnerRoot(runnerRoot, fixtureRoot);
+    const prelude = fixture.replacePrelude ? "" : exactRecoveryPrelude();
+    const operation = fixture.directResidueCheck ? "cwt_require_no_recovery_residue" : "cwt_prepare_host";
+    const command = `set -Eeuo pipefail\nsource "$1"\n${prelude}\n${fixture.overrides}\n${operation}`;
+    try {
+      const result = spawnSync("/bin/bash", ["-c", command, `cwt-${fixture.name}`, fixtureScript], { encoding: "utf8" });
+      assert.notEqual(result.status, 0, fixture.name);
+      assert.match(result.stderr, fixture.reason, fixture.name);
+    } finally {
+      rmSync(fixtureRoot, { force: true, recursive: true });
+    }
+  }
+});
+
+test("failed fixed-root cleanup stays a refusal and never widens its target", () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "cwt-recovery-cleanup-failure-"));
+  const runnerRoot = join(fixtureRoot, "fixed-runner");
+  mkdirSync(runnerRoot);
+  const fixtureScript = fixtureScriptForRunnerRoot(runnerRoot, fixtureRoot);
+  const command = String.raw`
+set -Eeuo pipefail
+source "$1"
+cwt_list_runner_processes() { :; }
+cwt_list_mount_targets() { :; }
+rm() { return 1; }
+cwt_remove_inactive_runner_root
+`;
+  try {
+    const result = spawnSync("/bin/bash", ["-c", command, "cwt-cleanup-failure", fixtureScript], { encoding: "utf8" });
+    assert.equal(result.status, 68);
+    assert.match(result.stderr, /runner_root_cleanup_failed/u);
+    assert.equal(existsSync(runnerRoot), true);
+    assert.equal(existsSync(fixtureRoot), true);
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
   }
 });
 

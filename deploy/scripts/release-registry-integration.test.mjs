@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -46,6 +48,98 @@ function workflowRun(workflow, name) {
   return step.split("        run: |\n")[1].replace(/^ {10}/gmu, "").trim();
 }
 
+async function startHttpsFixture(mode, body) {
+  const root = mkdtempSync(join(tmpdir(), "cwt-oras-download-test-"));
+  const countPath = join(root, "requests");
+  const keyPath = join(root, "loopback.key");
+  const certificatePath = join(root, "loopback.crt");
+  const certificate = spawnSync("openssl", [
+    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+    "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+    "-keyout", keyPath, "-out", certificatePath,
+  ], { encoding: "utf8" });
+  assert.equal(certificate.status, 0, certificate.stderr);
+  const serverSource = String.raw`
+const https = require("node:https");
+const fs = require("node:fs");
+const [mode, countPath, encodedBody, keyPath, certificatePath] = process.argv.slice(1);
+const body = Buffer.from(encodedBody, "base64");
+let count = 0;
+const server = https.createServer({ key: fs.readFileSync(keyPath), cert: fs.readFileSync(certificatePath) }, (_request, response) => {
+  count += 1;
+  fs.writeFileSync(countPath, String(count));
+  if (mode === "stall") return;
+  if (mode === "transient" && count === 1) {
+    response.writeHead(503); response.end("retry"); return;
+  }
+  if (mode === "unavailable") {
+    response.writeHead(503); response.end("unavailable"); return;
+  }
+  response.writeHead(200, { "content-type": "application/octet-stream" }); response.end(body);
+});
+server.listen(0, "127.0.0.1", () => process.stdout.write(String(server.address().port) + "\n"));
+process.on("SIGTERM", () => server.close(() => process.exit(0)));
+`;
+  const child = spawn(process.execPath, ["-e", serverSource, mode, countPath, body.toString("base64"), keyPath, certificatePath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  const port = await new Promise((resolvePort, reject) => {
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", chunk => {
+      stdout += chunk;
+      if (stdout.includes("\n")) resolvePort(Number.parseInt(stdout, 10));
+    });
+    child.once("error", reject);
+    child.once("exit", code => reject(new Error(`ORAS fixture exited ${code}: ${stderr}`)));
+  });
+  return {
+    certificatePath,
+    count: () => Number.parseInt(readFileSync(countPath, "utf8"), 10),
+    root,
+    url: `https://127.0.0.1:${port}/oras.tar.gz`,
+    async close() {
+      child.kill("SIGTERM");
+      await once(child, "exit");
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+function createSyntheticOrasArchive() {
+  const root = mkdtempSync(join(tmpdir(), "cwt-oras-archive-"));
+  const payload = join(root, "payload");
+  const archive = join(root, "oras.tar.gz");
+  mkdirSync(payload);
+  writeFileSync(join(payload, "oras"), "synthetic ORAS executable bytes");
+  const packed = spawnSync("tar", ["-czf", archive, "-C", payload, "oras"], { encoding: "utf8" });
+  assert.equal(packed.status, 0, packed.stderr);
+  return {
+    bytes: readFileSync(archive),
+    digest: createHash("sha256").update(readFileSync(archive)).digest("hex"),
+    close() { rmSync(root, { recursive: true, force: true }); },
+  };
+}
+
+function runOrasInstall(workflow, fixture, { digest, maxTime = 180 } = {}) {
+  const runnerTemp = mkdtempSync(join(tmpdir(), "cwt-oras-install-"));
+  const githubEnv = join(runnerTemp, "github-env");
+  const command = workflowRun(workflow, "Install hash-pinned patched ORAS")
+    .replace("https://github.com/oras-project/oras/releases/download/v1.3.3/oras_1.3.3_linux_amd64.tar.gz", fixture.url)
+    .replace("9ce999f8d2de03fc03968b29d743077a58783e545e5eaa53917ca177352d0e59", digest ?? "0".repeat(64))
+    .replace("--max-time 180", `--max-time ${maxTime}`)
+    .replace(/echo "([0-9a-f]{64})  \$archive" \| sha256sum --check --strict/u,
+      (_line, expected) => `if [[ "$(shasum -a 256 "$archive" | cut -d " " -f 1)" != "${expected}" ]]; then exit 1; fi`);
+  const result = spawnSync("bash", ["-c", command], {
+    encoding: "utf8",
+    env: { ...process.env, CURL_CA_BUNDLE: fixture.certificatePath, GITHUB_ENV: githubEnv, RUNNER_TEMP: runnerTemp },
+  });
+  return { result, runnerTemp, close() { rmSync(runnerTemp, { recursive: true, force: true }); } };
+}
+
 test("binds registry identity to the exact lowercase GitHub repository", () => {
   assert.equal(canonicalGhcrRepository("czy282923753/cwt-cloudwave-textile"), REPOSITORY);
   for (const invalid of ["CZY282923753/cwt-cloudwave-textile", "owner", "owner/repo/extra", "owner/repo:tag", "docker.io/owner/repo"]) {
@@ -58,6 +152,58 @@ test("pins the patched ORAS identity and rejects version or source drift", () =>
   assert.deepEqual(validateOrasIdentity(exact), __testOnly.ORAS_IDENTITY);
   assert.throws(() => validateOrasIdentity(exact.replace("1.3.3", "1.3.2")), /pinned release/u);
   assert.throws(() => validateOrasIdentity(exact.replace("clean", "dirty")), /pinned release/u);
+});
+
+test("bounds the workflow ORAS acquisition, retries transient failure and never extracts wrong bytes", async () => {
+  const workflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  const orasStep = workflowRun(workflow, "Install hash-pinned patched ORAS");
+  for (const expected of [
+    "--proto '=https' --tlsv1.2",
+    "--connect-timeout 15",
+    "--max-time 180",
+    "--retry 2",
+    "--retry-delay 2",
+    "--retry-max-time 45",
+    "--retry-connrefused",
+    "--remove-on-error",
+  ]) assert.ok(orasStep.includes(expected), expected);
+  assert.doesNotMatch(orasStep, /--retry-all-errors|while[^\n]*curl|until[^\n]*curl/u);
+
+  const archive = createSyntheticOrasArchive();
+  try {
+    const transient = await startHttpsFixture("transient", archive.bytes);
+    const transientRun = runOrasInstall(workflow, transient, { digest: archive.digest });
+    try {
+      assert.equal(transientRun.result.status, 0, transientRun.result.stderr);
+      assert.equal(transient.count(), 2);
+      assert.equal(existsSync(join(transientRun.runnerTemp, "cwt-oras-1.3.3/oras")), true);
+    } finally { transientRun.close(); await transient.close(); }
+
+    const unavailable = await startHttpsFixture("unavailable", archive.bytes);
+    const unavailableRun = runOrasInstall(workflow, unavailable, { digest: archive.digest });
+    try {
+      assert.notEqual(unavailableRun.result.status, 0);
+      assert.equal(unavailable.count(), 3);
+      assert.equal(existsSync(join(unavailableRun.runnerTemp, "oras_1.3.3_linux_amd64.tar.gz")), false);
+    } finally { unavailableRun.close(); await unavailable.close(); }
+
+    const stalled = await startHttpsFixture("stall", archive.bytes);
+    const startedAt = Date.now();
+    const stalledRun = runOrasInstall(workflow, stalled, { digest: archive.digest, maxTime: 1 });
+    try {
+      assert.notEqual(stalledRun.result.status, 0);
+      assert.ok(Date.now() - startedAt < 9000);
+      assert.equal(existsSync(join(stalledRun.runnerTemp, "oras_1.3.3_linux_amd64.tar.gz")), false);
+    } finally { stalledRun.close(); await stalled.close(); }
+
+    const wrongDigest = await startHttpsFixture("success", archive.bytes);
+    const wrongDigestRun = runOrasInstall(workflow, wrongDigest);
+    try {
+      assert.notEqual(wrongDigestRun.result.status, 0);
+      assert.equal(wrongDigest.count(), 1);
+      assert.equal(existsSync(join(wrongDigestRun.runnerTemp, "cwt-oras-1.3.3/oras")), false);
+    } finally { wrongDigestRun.close(); await wrongDigest.close(); }
+  } finally { archive.close(); }
 });
 
 test("checks the release header without network, credentials or state and emits only literal mismatch fields", () => {
@@ -192,7 +338,7 @@ test("keeps the anonymous probe credential-free and digest-rooted", () => {
   assert.doesNotMatch(probe, /authFile|GHCR_TOKEN|github\.token|Authorization/u);
 });
 
-test("requires one first-attempt job-scoped Tencent Singapore Runner identity", () => {
+test("accepts only workflow attempts one and two for the job-scoped Tencent Singapore Runner identity", () => {
   const nonce = "0123456789abcdef0123456789abcdef";
   const exact = {
     eventName: "workflow_dispatch",
@@ -203,17 +349,20 @@ test("requires one first-attempt job-scoped Tencent Singapore Runner identity", 
     runnerName: `cwt-tencent-sg-${nonce}`,
     nonce,
   };
-  assert.deepEqual(validateRuntimeRunnerBinding(exact), {
-    runnerName: exact.runnerName,
-    runnerLabel: `cwt-job-${nonce}`,
-    selectedProvider: "tencent-cloud",
-    selectedRegion: "ap-singapore",
-    lifecycleContract: "single-use-ephemeral",
-    actualProviderAndDestructionProven: false,
-  });
+  for (const runAttempt of ["1", "2"]) {
+    assert.deepEqual(validateRuntimeRunnerBinding({ ...exact, runAttempt }), {
+      runnerName: exact.runnerName,
+      runnerLabel: `cwt-job-${nonce}`,
+      selectedProvider: "tencent-cloud",
+      selectedRegion: "ap-singapore",
+      lifecycleContract: "single-use-ephemeral",
+      actualProviderAndDestructionProven: false,
+    });
+  }
   for (const mutation of [
     { eventName: "push" },
-    { runAttempt: "2" },
+    { runAttempt: "0" },
+    { runAttempt: "3" },
     { runnerEnvironment: "github-hosted" },
     { runnerArch: "ARM64" },
     { runnerName: "persistent-runner" },
@@ -244,6 +393,9 @@ test("executes workflow checkout checks and reviewed absolute script paths with 
     });
     const binding = "Verify the unique Tencent Singapore Runner binding before GHCR access";
     assert.equal(run(binding).status, 0);
+    assert.equal(run(binding, { GITHUB_RUN_ATTEMPT: "2" }).status, 0);
+    assert.notEqual(run(binding, { GITHUB_RUN_ATTEMPT: "0" }).status, 0);
+    assert.notEqual(run(binding, { GITHUB_RUN_ATTEMPT: "3" }).status, 0);
     for (const overrides of [{ GITHUB_SHA: RELEASE }, { WORKFLOW_COMMIT: RELEASE, GITHUB_SHA: RELEASE }, { RELEASE_COMMIT: RELEASE }]) {
       assert.notEqual(run(binding, overrides).status, 0);
     }
@@ -330,6 +482,27 @@ test("release and runtime workflows remain manual, separated and fail-closed", (
   assert.match(runtimeWorkflow, /path: runtime-tools/u);
   assert.match(runtimeWorkflow, /path: release-subject/u);
   assert.doesNotMatch(runtimeWorkflow, /\[\[\s+"?\$GITHUB_SHA"?\s+==\s+"?\$RELEASE_COMMIT"?\s+\]\]/u);
+});
+
+test("enumerates all three direct public acquisitions and retains one ordered Product validator", () => {
+  const provisioning = readFileSync(resolve("deploy/runtime-validation/provision-ubuntu-amd64-runner.sh"), "utf8");
+  const runtimeWorkflow = readFileSync(resolve(".github/workflows/cwt-runtime-validation.yml"), "utf8");
+  const integration = readFileSync(resolve("deploy/scripts/release-registry-integration.mjs"), "utf8");
+
+  assert.match(provisioning, /https:\/\/download\.docker\.com\/linux\/ubuntu\/gpg/u);
+  assert.match(provisioning, /https:\/\/github\.com\/actions\/runner\/releases\/download\/v/u);
+  assert.match(runtimeWorkflow, /https:\/\/github\.com\/oras-project\/oras\/releases\/download\/v1\.3\.3/u);
+  assert.equal((provisioning.match(/^\s*curl\s/gmu) ?? []).length, 1, "Provisioning downloads must converge on one native curl invocation");
+  assert.equal((provisioning.match(/cwt_download_public_file(?:\s|\()/gu) ?? []).length, 3, "Expected helper definition plus Docker-key and Runner call sites");
+  assert.equal((runtimeWorkflow.match(/^\s*curl\s/gmu) ?? []).length, 1, "Runtime has only the ORAS direct curl acquisition");
+  assert.doesNotMatch(`${provisioning}\n${runtimeWorkflow}`, /--retry-all-errors|mirror|proxy|while[^\n]*curl|until[^\n]*curl/iu);
+  assert.match(integration, /!\["1", "2"\]\.includes\(runAttempt\)/u);
+  assert.equal((runtimeWorkflow.match(/preflight-linux-runtime\.mjs"? validate/gu) ?? []).length, 1);
+
+  const login = runtimeWorkflow.indexOf("      - name: Authenticate to private GHCR without credential arguments\n");
+  const materialize = runtimeWorkflow.indexOf("      - name: Materialize read-only OCI evidence from the same GHCR digest\n");
+  const validator = runtimeWorkflow.indexOf("      - name: Run the sole accepted Linux Runtime Validation authority\n");
+  assert.ok(login >= 0 && materialize > login && validator > materialize);
 });
 
 test("runtime workflow establishes exact Node before every Node-dependent pre-GHCR step", () => {
