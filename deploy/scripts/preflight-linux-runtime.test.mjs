@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { resolve } from "node:path";
@@ -10,9 +10,11 @@ import {
   createDockerEnvironment,
   createGitIdentityEnvironment,
   createRuntimeCommandPlan,
+  collectInfrastructureFailureServices,
   decideCompatibility,
   parseDigestReference,
   parseBundleFailureDetail,
+  parseInfrastructureFailureServices,
   syntheticHostPlan,
   unixModeAllowsRead,
   validateBundleProcessResult,
@@ -118,6 +120,77 @@ test("accepts only fixed bundle failure detail JSON and never forwards unrecogni
     (error) => error?.code === "bundle_authority_failed" &&
       error.detailCode === "bundle_dependency_bootstrap_failed",
   );
+});
+
+test("retains only bounded fixed service state from Compose 5.3.1 JSON or NDJSON", () => {
+  const rows = [
+    { Service: "postgres", State: "exited", Health: "", ExitCode: 7, ID: "forbidden-id", Command: "forbidden-command" },
+    { Service: "valkey-staging", State: "running", Health: "starting", ExitCode: 0, Name: "forbidden-name", Error: "forbidden-error" },
+    { Service: "web-staging", State: "running", Health: "healthy", ExitCode: 0, Environment: "forbidden-environment" },
+  ];
+  const expected = {
+    postgres: { present: true, state: "exited", health: null, exitCode: 7 },
+    "valkey-staging": { present: true, state: "running", health: "starting", exitCode: 0 },
+  };
+  const ndjsonCaptured = parseInfrastructureFailureServices(rows.map(JSON.stringify).join("\n"));
+  assert.deepEqual(ndjsonCaptured, expected);
+  assert.deepEqual(parseInfrastructureFailureServices(JSON.stringify(rows)), expected);
+  assert.deepEqual(parseInfrastructureFailureServices(JSON.stringify([
+    { Service: "postgres", State: "invented-state", Health: "secret-health-detail", ExitCode: Number.MAX_VALUE },
+  ])), {
+    postgres: { present: true, state: null, health: null, exitCode: null },
+    "valkey-staging": { present: false, state: null, health: null, exitCode: null },
+  });
+  assert.equal(parseInfrastructureFailureServices("not-json"), null);
+  assert.equal(parseInfrastructureFailureServices(`${JSON.stringify(rows[0])}\n${JSON.stringify(rows[0])}`), null);
+  assert.equal(parseInfrastructureFailureServices("x".repeat(16 * 1024 + 1)), null);
+  assert.equal(JSON.stringify(ndjsonCaptured).includes("forbidden"), false);
+});
+
+test("captures one read-only infrastructure state command and preserves collector failures as null", () => {
+  const plan = createRuntimeCommandPlan({ repositoryRoot: resolve("."), project: "cwt-runtime-proof", imageReference: REFERENCE });
+  const calls = [];
+  const execute = (program, args, options) => {
+    calls.push({ program, args, options });
+    return { status: 0, stdout: `${JSON.stringify({ Service: "postgres", State: "exited", Health: "unhealthy", ExitCode: 1 })}\n` };
+  };
+  assert.deepEqual(collectInfrastructureFailureServices({ repositoryRoot: resolve("."), plan, composeEnv: {}, execute }), {
+    postgres: { present: true, state: "exited", health: "unhealthy", exitCode: 1 },
+    "valkey-staging": { present: false, state: null, health: null, exitCode: null },
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].program, "docker");
+  assert.deepEqual(calls[0].args, plan.infrastructureFailurePs);
+  assert.equal(calls[0].options.allowFailure, true);
+  assert.equal(calls[0].options.maxBuffer, 16 * 1024);
+  assert.equal(calls[0].options.timeout, 10_000);
+  assert.equal(collectInfrastructureFailureServices({ repositoryRoot: resolve("."), plan, composeEnv: {}, execute: () => ({ status: 1, stdout: "hostile" }) }), null);
+  assert.equal(collectInfrastructureFailureServices({ repositoryRoot: resolve("."), plan, composeEnv: {}, execute: () => { throw new Error("collector failed"); } }), null);
+});
+
+test("parses the actual local Compose service-state output without published ports", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "cwt-runtime-ps-shape-"));
+  const project = `cwt-ps-shape-${process.pid}`;
+  const compose = resolve(root, "compose.yaml");
+  const base = ["compose", "--project-name", project, "--project-directory", root, "--file", compose];
+  writeFileSync(compose, `services:\n  postgres:\n    image: node:24.14.0-bookworm\n    command: ["sh", "-c", "exit 7"]\n  valkey-staging:\n    image: node:24.14.0-bookworm\n    command: ["sh", "-c", "sleep 60"]\n    healthcheck:\n      test: ["CMD", "node", "-e", "process.exit(0)"]\n      interval: 1s\n      timeout: 1s\n      retries: 3\n`);
+  try {
+    execFileSync("docker", [...base, "up", "--detach", "--pull", "never", "--no-build"], { stdio: "ignore" });
+    const postgresId = execFileSync("docker", [...base, "ps", "--all", "--quiet", "postgres"], { encoding: "utf8" }).trim();
+    assert.match(postgresId, /^[0-9a-f]{12,64}$/u);
+    execFileSync("docker", ["wait", postgresId], { stdio: "ignore" });
+    const stdout = execFileSync("docker", [...base, "ps", "--all", "--format", "json"], { encoding: "utf8" });
+    const captured = parseInfrastructureFailureServices(stdout);
+    assert.equal(captured.postgres.present, true);
+    assert.equal(captured.postgres.state, "exited");
+    assert.equal(captured.postgres.exitCode, 7);
+    assert.equal(captured["valkey-staging"].present, true);
+    assert.equal(captured["valkey-staging"].state, "running");
+    assert.ok(["starting", "healthy"].includes(captured["valkey-staging"].health));
+  } finally {
+    spawnSync("docker", [...base, "down", "--remove-orphans", "--timeout", "1"], { stdio: "ignore" });
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("matches actual Runner versions to one reviewed compatibility profile and fails closed on drift", () => {
@@ -417,6 +490,7 @@ test("builds one direct standard-Compose plan with a disposable Scheduler mainte
   const repositoryRoot = resolve(".");
   const plan = createRuntimeCommandPlan({ repositoryRoot, project: "cwt-runtime-proof", imageReference: REFERENCE });
   assert.deepEqual(plan.infrastructureUp.slice(-2), ["postgres", "valkey-staging"]);
+  assert.deepEqual(plan.infrastructureFailurePs.slice(-4), ["ps", "--all", "--format", "json"]);
   assert.equal(plan.webUp.at(-1), "web-staging");
   assert.equal(plan.migrate.includes("scheduler-staging"), true);
   assert.equal(plan.migrate.includes("web-staging"), false);
@@ -767,6 +841,11 @@ test("reuses existing authorities while preserving the PASS/NOT_PASS boundary an
   assert.doesNotMatch(source, /classifyValidationFailure|createRevocation|preflight-release-compose/u);
   assert.doesNotMatch(source, /OWNER_DIND_REFERENCE|docker:\d[^\n]*-dind/u);
   assert.match(source, /automaticRetry: false, automaticRevocation: false/u);
+  const capture = source.indexOf("infrastructureFailureServices = collectInfrastructureFailureServices");
+  const originalFailure = source.indexOf('refuse("compose_infrastructure_up_failed"');
+  const teardown = source.indexOf('run("docker", plan.down');
+  assert.ok(capture > 0 && capture < originalFailure && originalFailure < teardown);
+  assert.match(source, /mainFailure\?\.code === "compose_infrastructure_up_failed" \? \{ infrastructureFailureServices: infrastructureFailureServices \?\? null \} : \{\}/u);
 });
 
 test("runtime workflow always retains only the existing sanitized outcome and checksum", () => {

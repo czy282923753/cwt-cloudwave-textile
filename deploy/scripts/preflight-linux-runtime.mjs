@@ -37,6 +37,10 @@ const BUNDLE_FAILURE_DETAIL_CODES = Object.freeze([
   "bundle_dependency_bootstrap_failed",
   "bundle_assertion_or_unknown_failed",
 ]);
+const INFRASTRUCTURE_FAILURE_SERVICES = Object.freeze(["postgres", "valkey-staging"]);
+const INFRASTRUCTURE_SERVICE_STATES = Object.freeze(["created", "restarting", "running", "removing", "paused", "exited", "dead"]);
+const INFRASTRUCTURE_HEALTH_STATES = Object.freeze(["starting", "healthy", "unhealthy"]);
+const INFRASTRUCTURE_PS_MAX_BYTES = 16 * 1024;
 const SANITIZED_CHILD_ENVIRONMENT = Object.freeze({
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   HOME: "/root",
@@ -88,7 +92,7 @@ function parseJson(value, code, message) {
   }
 }
 
-function run(program, args, { cwd, env, input, label, allowFailure = false } = {}) {
+function run(program, args, { cwd, env, input, label, allowFailure = false, maxBuffer = 64 * 1024 * 1024, timeout = 300_000 } = {}) {
   if (program === "docker" && env?.DOCKER_HOST !== LOCAL_DOCKER_HOST) {
     refuse("docker_endpoint_unbound", "Docker invocation is not bound to the standard local Unix socket.");
   }
@@ -101,8 +105,8 @@ function run(program, args, { cwd, env, input, label, allowFailure = false } = {
     env,
     input,
     encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    timeout: 300_000,
+    maxBuffer,
+    timeout,
     killSignal: "SIGTERM",
     stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
   });
@@ -499,6 +503,7 @@ export function createRuntimeCommandPlan({ repositoryRoot, project, imageReferen
   return Object.freeze({
     normalize: Object.freeze([...base, "--profile", "production-ai", "config", "--format", "json", "--no-env-resolution", "--no-path-resolution"]),
     infrastructureUp: Object.freeze([...base, "up", "--detach", "--wait", "--wait-timeout", "180", "--no-deps", "--pull", "never", "--no-build", "postgres", "valkey-staging"]),
+    infrastructureFailurePs: Object.freeze([...base, "ps", "--all", "--format", "json"]),
     migrate: Object.freeze([...base, "run", "--rm", "--no-deps", "--pull", "never", "--volume", `${resolve(repositoryRoot, "drizzle")}:/app/drizzle:ro`, "scheduler-staging", "/app/deploy/backup/pre-deploy", "node", "--import=tsx", "/app/scripts/migrate.ts"]),
     webUp: Object.freeze([...base, "up", "--detach", "--wait", "--wait-timeout", "180", "--no-deps", "--pull", "never", "--no-build", "web-staging"]),
     down: Object.freeze([...base, "down", "--remove-orphans", "--timeout", "30"]),
@@ -562,6 +567,62 @@ export function validateBundleProcessResult(result) {
     refuse("bundle_authority_failed", "bundle_authority failed closed.", parseBundleFailureDetail(result?.stdout));
   }
   return true;
+}
+
+export function parseInfrastructureFailureServices(stdout) {
+  if (typeof stdout !== "string" || Buffer.byteLength(stdout, "utf8") > INFRASTRUCTURE_PS_MAX_BYTES) return null;
+  const value = stdout.trim();
+  let rows;
+  if (value === "") {
+    rows = [];
+  } else {
+    try {
+      const parsed = JSON.parse(value);
+      rows = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      try {
+        rows = value.split(/\r?\n/u).map((line) => JSON.parse(line));
+      } catch {
+        return null;
+      }
+    }
+  }
+  if (rows.length > 128 || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) return null;
+  const result = Object.fromEntries(INFRASTRUCTURE_FAILURE_SERVICES.map((service) => [service, {
+    present: false,
+    state: null,
+    health: null,
+    exitCode: null,
+  }]));
+  const seen = new Set();
+  for (const row of rows) {
+    if (!INFRASTRUCTURE_FAILURE_SERVICES.includes(row.Service)) continue;
+    if (seen.has(row.Service)) return null;
+    seen.add(row.Service);
+    result[row.Service] = {
+      present: true,
+      state: INFRASTRUCTURE_SERVICE_STATES.includes(row.State) ? row.State : null,
+      health: INFRASTRUCTURE_HEALTH_STATES.includes(row.Health) ? row.Health : null,
+      exitCode: Number.isSafeInteger(row.ExitCode) ? row.ExitCode : null,
+    };
+  }
+  return Object.freeze(result);
+}
+
+export function collectInfrastructureFailureServices({ repositoryRoot, plan, composeEnv, execute = run }) {
+  try {
+    const result = execute("docker", plan.infrastructureFailurePs, {
+      cwd: repositoryRoot,
+      env: composeEnv,
+      label: "compose_infrastructure_failure_state",
+      allowFailure: true,
+      maxBuffer: INFRASTRUCTURE_PS_MAX_BYTES,
+      timeout: 10_000,
+    });
+    return result?.status === 0 ? parseInfrastructureFailureServices(result.stdout) : null;
+  } catch {
+    return null;
+  }
 }
 
 function verifyBundle(reference, dockerEnv) {
@@ -825,6 +886,7 @@ async function validate(args) {
   let bundlePassed = false;
   let pulled = [];
   let composeAttempted = false;
+  let infrastructureFailureServices;
   const cleanup = { composeConsumers: false, composeNetworks: false, pulledReferences: false, hostPaths: false, runnerDestruction: "enclosing-ci-lifecycle" };
   try {
     try {
@@ -870,7 +932,16 @@ async function validate(args) {
     verifyBundle(reference.reference, dockerEnv);
     bundlePassed = true;
     composeAttempted = true;
-    run("docker", plan.infrastructureUp, { cwd: repositoryRoot, env: composeEnv, label: "compose_infrastructure_up" });
+    const infrastructureUp = run("docker", plan.infrastructureUp, {
+      cwd: repositoryRoot,
+      env: composeEnv,
+      label: "compose_infrastructure_up",
+      allowFailure: true,
+    });
+    if (infrastructureUp.status !== 0) {
+      infrastructureFailureServices = collectInfrastructureFailureServices({ repositoryRoot, plan, composeEnv });
+      refuse("compose_infrastructure_up_failed", "compose_infrastructure_up failed closed.");
+    }
     run("docker", plan.migrate, { cwd: repositoryRoot, env: composeEnv, label: "synthetic_database_migration" });
     run("docker", plan.webUp, { cwd: repositoryRoot, env: composeEnv, label: "compose_web_up" });
     validateProjectServiceSet(composeBase(repositoryRoot, project), composeEnv);
@@ -946,6 +1017,7 @@ async function validate(args) {
     status,
     reasonCode: mainFailure?.code ?? null,
     failureDetailCode: mainFailure?.detailCode ?? null,
+    ...(mainFailure?.code === "compose_infrastructure_up_failed" ? { infrastructureFailureServices: infrastructureFailureServices ?? null } : {}),
     runner: runner ? {
       runnerClass: "cwt-controlled-vm-backed-single-use-ephemeral",
       profileId: runner.profileId,
