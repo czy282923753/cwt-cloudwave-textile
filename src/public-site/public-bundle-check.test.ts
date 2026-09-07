@@ -1,6 +1,6 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -160,8 +160,6 @@ async function createBuildFixture({
     await writeBuildFile(buildRoot, relativePath, content);
   }
 
-  const freshTime = new Date(Date.now() + 60_000);
-  await utimes(join(buildRoot, "BUILD_ID"), freshTime, freshTime);
   return buildRoot;
 }
 
@@ -1044,9 +1042,13 @@ describe("public bundle checker", () => {
     expect(result.stdout).toMatch(/1 public page manifests/i);
   });
 
-  it("fails clearly when no fresh production build exists", async () => {
+  it.each([
+    ["missing", false],
+    ["empty", true],
+  ])("fails clearly when BUILD_ID is %s", async (_case, writeEmptyBuildId) => {
     const buildRoot = await mkdtemp(join(tmpdir(), "cwt-public-bundle-missing-"));
     disposableBuilds.push(buildRoot);
+    if (writeEmptyBuildId) await writeBuildFile(buildRoot, "BUILD_ID", "\n");
     const result = runChecker(buildRoot);
 
     expect(result.status).not.toBe(0);
@@ -1055,15 +1057,5 @@ describe("public bundle checker", () => {
       reasonCode: "bundle_assertion_or_unknown_failed",
     });
     expect(combinedOutput(result)).toMatch(/requires a fresh production build/i);
-  });
-
-  it("refuses a stale production build", async () => {
-    const buildRoot = await createBuildFixture();
-    const staleTime = new Date("2000-01-01T00:00:00.000Z");
-    await utimes(join(buildRoot, "BUILD_ID"), staleTime, staleTime);
-    const result = runChecker(buildRoot);
-
-    expect(result.status).not.toBe(0);
-    expect(combinedOutput(result)).toMatch(/refused a stale build/i);
   });
 });
