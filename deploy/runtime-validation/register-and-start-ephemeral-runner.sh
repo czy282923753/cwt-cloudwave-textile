@@ -39,9 +39,12 @@ cwt_launch_runner() {
   local runner_root="$1"
   local runner_pid
 
-  /usr/bin/nohup /usr/bin/env -u CWT_REGISTRATION_TOKEN \
-    "$runner_root/run.sh" \
-    </dev/null >/dev/null 2>&1 &
+  (
+    umask 022
+    exec /usr/bin/nohup /usr/bin/env -u CWT_REGISTRATION_TOKEN \
+      "$runner_root/run.sh" \
+      </dev/null >/dev/null 2>&1
+  ) &
   runner_pid="$!"
   /bin/sleep 1
   /bin/kill -0 "$runner_pid" >/dev/null 2>&1 || cwt_registration_refuse "runner_launch_failed"

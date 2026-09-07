@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterEach, test } from "node:test";
@@ -17,9 +17,9 @@ const TOKEN = "SyntheticRegistrationToken_0123456789";
 const NONCE = "0123456789abcdef0123456789abcdef";
 const NAME = `cwt-tencent-sg-${NONCE}`;
 const REPOSITORY = "czy282923753/cwt-cloudwave-textile";
-const EXPECTED_PAYLOAD_BYTES = 3752;
-const EXPECTED_PAYLOAD_SHA256 = "7c773a341cfd629dae2985f7c51792aee6f917ca5df7733f7200d26e780da94b";
-const EXPECTED_PAYLOAD_BLOB = "1281a207e5ebe58b7fb78900213a44ef26ad7e0a";
+const EXPECTED_PAYLOAD_BYTES = 3785;
+const EXPECTED_PAYLOAD_SHA256 = "8722709d99d918ea3c52d020971b8a2c80cbc993b2b0df0ce0cf5c1d5ac0cf0d";
+const EXPECTED_PAYLOAD_BLOB = "e0b1e4564fa67f3210cc89dc018903cae14033f9";
 const MATERIALIZATION_NOT_PASS = "CWT_REGISTRATION_MATERIALIZATION_NOT_PASS\n";
 const SHA256SUM_PATH = existsSync("/usr/bin/sha256sum") ? "/usr/bin/sha256sum" : "/sbin/sha256sum";
 
@@ -58,6 +58,7 @@ exec /bin/sleep 3
 function runFixture({ mode = "success", environment = {}, createRegistrationState = true, identityUser = "ubuntu", identityUid = "1000", expectedUid = "1000" } = {}) {
   const value = fixture();
   const command = String.raw`
+umask 077
 source "$1"
 trace="$3"
 cwt_launch_runner() {
@@ -111,6 +112,8 @@ function withEmbeddedPayload(candidate, value) {
 function testPayload(trace, { fail = false } = {}) {
   return Buffer.from(`#!/bin/bash
 set -eu
+[[ "$(umask)" =~ ^0?077$ ]]
+[[ "$(LC_ALL=C /bin/ls -ld "$0")" == -rwx------* ]]
 printf 'execute\\n' >>"${trace}"
 [[ "\${CWT_REGISTRATION_TOKEN:-}" == "${TOKEN}" ]]
 [[ "\${CWT_RUNNER_NONCE:-}" == "${NONCE}" ]]
@@ -215,7 +218,7 @@ function assertMaterializationPolicy(candidate, invocationCandidate = invocation
 test("the outer Content and embedded registration payload are deterministic and byte exact", () => {
   assertMaterializationPolicy(wrapper);
   assert.equal(payloadBytes.length, EXPECTED_PAYLOAD_BYTES);
-  assert.equal(payloadBytes.toString("base64").length, 5004);
+  assert.equal(payloadBytes.toString("base64").length, 5048);
   assert.equal(sha256(payloadBytes), EXPECTED_PAYLOAD_SHA256);
   assert.equal(gitBlob(payloadBytes), EXPECTED_PAYLOAD_BLOB);
   assert.match(wrapper, new RegExp(`readonly CWT_REGISTRATION_EXPECTED_BYTES='${EXPECTED_PAYLOAD_BYTES}'`, "u"));
@@ -275,6 +278,7 @@ test("exact ubuntu identity performs one direct registration and one start witho
   assert.equal(value.traceContent, "config\nstart\n");
   assert.match(value.result.stdout, new RegExp(`^CWT_RUNNER_STARTED name=${NAME} labels=cwt-tencent-singapore,cwt-single-use,cwt-job-${NONCE}\\n$`, "u"));
   assert.equal(`${value.result.stdout}${value.result.stderr}${value.traceContent}`.includes(TOKEN), false);
+  assert.equal(statSync(resolve(value.runnerRoot, ".runner")).mode & 0o777, 0o600);
   for (const name of readdirSync(value.runnerRoot).filter((entry) => !["config.sh", "run.sh"].includes(entry))) {
     assert.equal(readFileSync(resolve(value.runnerRoot, name), "utf8").includes(TOKEN), false, name);
   }
@@ -331,19 +335,56 @@ test("missing or malformed token, nonce, name, and repository fail before regist
   }
 });
 
-test("the detached direct Runner start removes the token environment before exec", () => {
-  const value = fixture();
-  const command = String.raw`
-source "$1"
-cwt_launch_runner "$2"
-[[ -f "$3" ]]
+test("the detached Runner child gets umask 022 without changing its protected parent or token boundary", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "cwt-runner-launch-mask-test-")); roots.push(root);
+  const runnerRoot = resolve(root, "runner"); mkdirSync(runnerRoot);
+  const origin = resolve(root, "origin"); mkdirSync(origin);
+  const checkout = resolve(root, "checkout");
+  const executable = resolve(origin, "valkey-entrypoint.sh");
+  const publicSource = resolve(origin, "public-source.txt");
+  writeFileSync(executable, "#!/bin/sh\nexit 0\n"); chmodSync(executable, 0o755);
+  writeFileSync(publicSource, "Synthetic public source\n");
+  for (const args of [
+    ["init", "--quiet"],
+    ["add", "valkey-entrypoint.sh", "public-source.txt"],
+    ["-c", "user.name=CWT Test", "-c", "user.email=cwt-test@example.invalid", "commit", "--quiet", "-m", "fixture"],
+  ]) {
+    const result = spawnSync("git", args, { cwd: origin, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  const childUmask = resolve(root, "child.umask");
+  const parentUmask = resolve(root, "parent.umask");
+  const protectedState = resolve(root, "protected-state");
+  const pidPath = resolve(root, "runner.pid");
+  const tokenLeak = resolve(root, "token-leak");
+  const run = `#!/bin/bash
+set -euo pipefail
+umask >"${childUmask}"
+[[ -z "\${CWT_REGISTRATION_TOKEN+x}" ]] || : >"${tokenLeak}"
+git clone --quiet "$CWT_TEST_ORIGIN" "$CWT_TEST_CHECKOUT"
+printf '%s\\n' "$$" >"${pidPath}"
+exec /bin/sleep 3
 `;
-  const result = spawnSync("/bin/bash", ["-c", command, "cwt-runner-launch-fixture", scriptPath, value.runnerRoot, value.pid], {
-    encoding: "utf8", env: { PATH: process.env.PATH, CWT_REGISTRATION_TOKEN: TOKEN },
+  writeFileSync(resolve(runnerRoot, "run.sh"), run); chmodSync(resolve(runnerRoot, "run.sh"), 0o755);
+  const command = String.raw`
+umask 077
+source "$1"
+touch "$4"
+cwt_launch_runner "$2"
+umask >"$3"
+`;
+  const result = spawnSync("/bin/bash", ["-c", command, "cwt-runner-launch-fixture", scriptPath, runnerRoot, parentUmask, protectedState], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, CWT_REGISTRATION_TOKEN: TOKEN, CWT_TEST_ORIGIN: origin, CWT_TEST_CHECKOUT: checkout },
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(value.trace, "utf8"), "run\n");
-  const pid = readFileSync(value.pid, "utf8").trim();
+  assert.match(readFileSync(parentUmask, "utf8"), /^0?077\n$/u);
+  assert.match(readFileSync(childUmask, "utf8"), /^0?022\n$/u);
+  assert.equal(existsSync(tokenLeak), false);
+  assert.equal(statSync(protectedState).mode & 0o777, 0o600);
+  assert.equal(statSync(resolve(checkout, "valkey-entrypoint.sh")).mode & 0o777, 0o755);
+  assert.equal(statSync(resolve(checkout, "public-source.txt")).mode & 0o777, 0o644);
+  const pid = readFileSync(pidPath, "utf8").trim();
   spawnSync("/bin/kill", ["-TERM", pid]);
 });
 
@@ -373,10 +414,13 @@ test("policy mutations cannot restore privilege wrappers, token custody, a secon
 
 test("one-shot labels, flags, failure exits, and operator contract remain exact", () => {
   assertRegistrationPolicy(source);
+  assert.equal(source.match(/umask 022/gu)?.length, 1);
+  assert.match(source, /\(\n    umask 022\n    exec \/usr\/bin\/nohup \/usr\/bin\/env -u CWT_REGISTRATION_TOKEN/u);
+  assert.doesNotMatch(source, /chmod/u);
   for (const exact of [
     "--unattended", "--ephemeral", "--disableupdate", "--replace", "--work _work",
     'runner_labels="cwt-tencent-singapore,cwt-single-use,cwt-job-${runner_nonce}"',
-    "/usr/bin/nohup /usr/bin/env -u CWT_REGISTRATION_TOKEN", "</dev/null >/dev/null 2>&1 &",
+    "/usr/bin/nohup /usr/bin/env -u CWT_REGISTRATION_TOKEN", "</dev/null >/dev/null 2>&1", "  ) &",
   ]) assert.ok(source.includes(exact), exact);
   assert.doesNotMatch(source, /\bretry\b|\bfallback\b|while\s|for\s/u);
   const operator = readFileSync("deploy/host/README.md", "utf8");
