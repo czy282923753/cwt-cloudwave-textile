@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-09T03:30:00+08:00",
+  "scope": [
+    "EVIDENCE_INDEX.md",
+    "disposition.json",
+    "image-identities.json",
+    "raw/oci-index.json",
+    "raw/trivy-c9-linux-amd64.json",
+    "raw/trivy-c9-linux-amd64.stderr.log",
+    "raw/trivy-c9-linux-arm64.json",
+    "raw/trivy-c9-linux-arm64.stderr.log",
+    "raw/trivy-db-metadata.json",
+    "raw/trivy_0.74.0_checksums.txt",
+    "scanner-acquisition.json",
+    "vulnerability-db.json"
+  ],
+  "patterns": [
+    "private_key_pem",
+    "github_token_prefix",
+    "aws_access_key_prefix",
+    "assigned_secret_value"
+  ],
+  "matchCounts": {
+    "private_key_pem": 0,
+    "github_token_prefix": 0,
+    "aws_access_key_prefix": 0,
+    "assigned_secret_value": 0
+  },
+  "totalMatches": 0,
+  "disposition": "PASS",
+  "limitations": "Bounded pattern matching detects named high-confidence credential forms; it is not a claim that arbitrary package prose or all possible secret formats can be classified automatically."
+}

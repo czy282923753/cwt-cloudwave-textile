@@ -1,0 +1,433 @@
+{
+  "schemaVersion": 1,
+  "policyStatus": "CANDIDATE_AWAITING_INDEPENDENT_REVIEW",
+  "overallDisposition": "NON_PASS_UNDER_CANDIDATE_POLICY",
+  "scannerCompletedSuccessfully": true,
+  "invocation": {
+    "scanners": [
+      "vuln",
+      "license"
+    ],
+    "licenseFull": true,
+    "skipDatabaseUpdate": true,
+    "offlineScan": true,
+    "imageSource": "docker",
+    "format": "json",
+    "ignoreUnfixed": false,
+    "severityFilter": null,
+    "vulnerabilityDetectionPriority": "precise (Trivy default)"
+  },
+  "platforms": [
+    {
+      "platform": "linux/amd64",
+      "subjectDigest": "sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6",
+      "reportCreatedAt": "2026-09-09T03:13:55.439402+08:00",
+      "capturedStartedAt": "2026-09-08T19:13:47Z",
+      "capturedEvidenceFinalizedAt": "2026-09-08T19:14:09Z",
+      "rawReport": {
+        "path": "raw/trivy-c9-linux-amd64.json",
+        "bytes": 1756925,
+        "sha256": "cdbb00c8213e5373f91adec667b8f1e4cd8324ff4c942b26379b1761de007431"
+      },
+      "stderrLog": {
+        "path": "raw/trivy-c9-linux-amd64.stderr.log",
+        "bytes": 717,
+        "sha256": "947751dbfd928f55c7707a0905fca2c1d96ba5171891df03a74d18f038e2fe91"
+      },
+      "coverage": [
+        {
+          "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+          "class": "os-pkgs",
+          "type": "debian",
+          "packageCount": 88,
+          "vulnerabilityCount": 259,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "Node.js",
+          "class": "lang-pkgs",
+          "type": "node-pkg",
+          "packageCount": 214,
+          "vulnerabilityCount": 2,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "usr/local/bin/restic",
+          "class": "lang-pkgs",
+          "type": "gobinary",
+          "packageCount": 81,
+          "vulnerabilityCount": 18,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "usr/local/bin/supercronic",
+          "class": "lang-pkgs",
+          "type": "gobinary",
+          "packageCount": 17,
+          "vulnerabilityCount": 8,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "OS Packages",
+          "class": "license",
+          "type": null,
+          "packageCount": 0,
+          "vulnerabilityCount": 0,
+          "licenseRecordCount": 589
+        },
+        {
+          "target": "Node.js",
+          "class": "license",
+          "type": null,
+          "packageCount": 0,
+          "vulnerabilityCount": 0,
+          "licenseRecordCount": 212
+        },
+        {
+          "target": "Loose File License(s)",
+          "class": "license-file",
+          "type": null,
+          "packageCount": 0,
+          "vulnerabilityCount": 0,
+          "licenseRecordCount": 16
+        }
+      ],
+      "vulnerabilities": {
+        "records": 287,
+        "uniqueIds": 148,
+        "severityCounts": {
+          "CRITICAL": 7,
+          "HIGH": 77,
+          "LOW": 80,
+          "MEDIUM": 115,
+          "UNKNOWN": 8
+        },
+        "fixableSeverityCounts": {
+          "CRITICAL": 3,
+          "HIGH": 25,
+          "LOW": 8,
+          "MEDIUM": 27,
+          "UNKNOWN": 7
+        },
+        "statusCounts": {
+          "affected": 168,
+          "fix_deferred": 35,
+          "fixed": 70,
+          "will_not_fix": 14
+        },
+        "criticalFindings": [
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-33845",
+            "package": "libgnutls30",
+            "installedVersion": "3.7.9-2+deb12u6",
+            "fixedVersion": "3.7.9-2+deb12u7",
+            "status": "fixed",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-33845"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-42010",
+            "package": "libgnutls30",
+            "installedVersion": "3.7.9-2+deb12u6",
+            "fixedVersion": "3.7.9-2+deb12u7",
+            "status": "fixed",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-42010"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-13221",
+            "package": "perl-base",
+            "installedVersion": "5.36.0-7+deb12u3",
+            "fixedVersion": null,
+            "status": "affected",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-13221"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-42496",
+            "package": "perl-base",
+            "installedVersion": "5.36.0-7+deb12u3",
+            "fixedVersion": null,
+            "status": "fix_deferred",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-42496"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-8376",
+            "package": "perl-base",
+            "installedVersion": "5.36.0-7+deb12u3",
+            "fixedVersion": null,
+            "status": "affected",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-8376"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6 (debian 12.13)",
+            "vulnerabilityId": "CVE-2023-45853",
+            "package": "zlib1g",
+            "installedVersion": "1:1.2.13.dfsg-1",
+            "fixedVersion": null,
+            "status": "will_not_fix",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2023-45853"
+          },
+          {
+            "target": "usr/local/bin/restic",
+            "vulnerabilityId": "CVE-2026-56854",
+            "package": "golang.org/x/crypto",
+            "installedVersion": "v0.52.0",
+            "fixedVersion": "0.55.0",
+            "status": "fixed",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-56854"
+          }
+        ]
+      },
+      "licenses": {
+        "records": 817,
+        "categoryCounts": {
+          "notice": 328,
+          "reciprocal": 2,
+          "restricted": 322,
+          "unencumbered": 7,
+          "unknown": 158
+        },
+        "severityCounts": {
+          "HIGH": 322,
+          "LOW": 335,
+          "MEDIUM": 2,
+          "UNKNOWN": 158
+        },
+        "reciprocalFindings": [
+          {
+            "target": "OS Packages",
+            "package": "libffi8",
+            "license": "MPL-1.1",
+            "category": "reciprocal",
+            "severity": "MEDIUM"
+          },
+          {
+            "target": "Node.js",
+            "package": "@vercel/og",
+            "license": "MPL-2.0",
+            "category": "reciprocal",
+            "severity": "MEDIUM"
+          }
+        ]
+      },
+      "candidatePolicyDisposition": {
+        "vulnerability": "NON_PASS",
+        "license": "REVIEW_REQUIRED",
+        "reason": [
+          "Critical vulnerability records are present.",
+          "High vulnerability records with a fixed version are present.",
+          "Unknown, reciprocal and restricted license classifications require component/use/obligation review; scanner classes are triage, not legal conclusions."
+        ]
+      }
+    },
+    {
+      "platform": "linux/arm64",
+      "subjectDigest": "sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4",
+      "reportCreatedAt": "2026-09-09T03:14:31.992666+08:00",
+      "capturedStartedAt": "2026-09-08T19:14:25Z",
+      "capturedEvidenceFinalizedAt": "2026-09-08T19:14:32Z",
+      "rawReport": {
+        "path": "raw/trivy-c9-linux-arm64.json",
+        "bytes": 1758021,
+        "sha256": "d309a41d4336a220c492cbe7c8fe70dd0b3d60c6acc06a0a830d11968336f6fb"
+      },
+      "stderrLog": {
+        "path": "raw/trivy-c9-linux-arm64.stderr.log",
+        "bytes": 717,
+        "sha256": "6b37dd272b53435a5bf8ce611b00595f523fe1bf04a36e7b82736da5d17c0f96"
+      },
+      "coverage": [
+        {
+          "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+          "class": "os-pkgs",
+          "type": "debian",
+          "packageCount": 88,
+          "vulnerabilityCount": 259,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "Node.js",
+          "class": "lang-pkgs",
+          "type": "node-pkg",
+          "packageCount": 214,
+          "vulnerabilityCount": 2,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "usr/local/bin/restic",
+          "class": "lang-pkgs",
+          "type": "gobinary",
+          "packageCount": 81,
+          "vulnerabilityCount": 18,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "usr/local/bin/supercronic",
+          "class": "lang-pkgs",
+          "type": "gobinary",
+          "packageCount": 17,
+          "vulnerabilityCount": 8,
+          "licenseRecordCount": 0
+        },
+        {
+          "target": "OS Packages",
+          "class": "license",
+          "type": null,
+          "packageCount": 0,
+          "vulnerabilityCount": 0,
+          "licenseRecordCount": 589
+        },
+        {
+          "target": "Node.js",
+          "class": "license",
+          "type": null,
+          "packageCount": 0,
+          "vulnerabilityCount": 0,
+          "licenseRecordCount": 212
+        },
+        {
+          "target": "Loose File License(s)",
+          "class": "license-file",
+          "type": null,
+          "packageCount": 0,
+          "vulnerabilityCount": 0,
+          "licenseRecordCount": 16
+        }
+      ],
+      "vulnerabilities": {
+        "records": 287,
+        "uniqueIds": 148,
+        "severityCounts": {
+          "CRITICAL": 7,
+          "HIGH": 77,
+          "LOW": 80,
+          "MEDIUM": 115,
+          "UNKNOWN": 8
+        },
+        "fixableSeverityCounts": {
+          "CRITICAL": 3,
+          "HIGH": 25,
+          "LOW": 8,
+          "MEDIUM": 27,
+          "UNKNOWN": 7
+        },
+        "statusCounts": {
+          "affected": 168,
+          "fix_deferred": 35,
+          "fixed": 70,
+          "will_not_fix": 14
+        },
+        "criticalFindings": [
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-33845",
+            "package": "libgnutls30",
+            "installedVersion": "3.7.9-2+deb12u6",
+            "fixedVersion": "3.7.9-2+deb12u7",
+            "status": "fixed",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-33845"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-42010",
+            "package": "libgnutls30",
+            "installedVersion": "3.7.9-2+deb12u6",
+            "fixedVersion": "3.7.9-2+deb12u7",
+            "status": "fixed",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-42010"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-13221",
+            "package": "perl-base",
+            "installedVersion": "5.36.0-7+deb12u3",
+            "fixedVersion": null,
+            "status": "affected",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-13221"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-42496",
+            "package": "perl-base",
+            "installedVersion": "5.36.0-7+deb12u3",
+            "fixedVersion": null,
+            "status": "fix_deferred",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-42496"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+            "vulnerabilityId": "CVE-2026-8376",
+            "package": "perl-base",
+            "installedVersion": "5.36.0-7+deb12u3",
+            "fixedVersion": null,
+            "status": "affected",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-8376"
+          },
+          {
+            "target": "ghcr.io/czy282923753/cwt-cloudwave-textile@sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4 (debian 12.13)",
+            "vulnerabilityId": "CVE-2023-45853",
+            "package": "zlib1g",
+            "installedVersion": "1:1.2.13.dfsg-1",
+            "fixedVersion": null,
+            "status": "will_not_fix",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2023-45853"
+          },
+          {
+            "target": "usr/local/bin/restic",
+            "vulnerabilityId": "CVE-2026-56854",
+            "package": "golang.org/x/crypto",
+            "installedVersion": "v0.52.0",
+            "fixedVersion": "0.55.0",
+            "status": "fixed",
+            "primaryUrl": "https://avd.aquasec.com/nvd/cve-2026-56854"
+          }
+        ]
+      },
+      "licenses": {
+        "records": 817,
+        "categoryCounts": {
+          "notice": 328,
+          "reciprocal": 2,
+          "restricted": 322,
+          "unencumbered": 7,
+          "unknown": 158
+        },
+        "severityCounts": {
+          "HIGH": 322,
+          "LOW": 335,
+          "MEDIUM": 2,
+          "UNKNOWN": 158
+        },
+        "reciprocalFindings": [
+          {
+            "target": "OS Packages",
+            "package": "libffi8",
+            "license": "MPL-1.1",
+            "category": "reciprocal",
+            "severity": "MEDIUM"
+          },
+          {
+            "target": "Node.js",
+            "package": "@vercel/og",
+            "license": "MPL-2.0",
+            "category": "reciprocal",
+            "severity": "MEDIUM"
+          }
+        ]
+      },
+      "candidatePolicyDisposition": {
+        "vulnerability": "NON_PASS",
+        "license": "REVIEW_REQUIRED",
+        "reason": [
+          "Critical vulnerability records are present.",
+          "High vulnerability records with a fixed version are present.",
+          "Unknown, reciprocal and restricted license classifications require component/use/obligation review; scanner classes are triage, not legal conclusions."
+        ]
+      }
+    }
+  ],
+  "aggregateObservation": "Both platform reports have the same aggregate vulnerability and license counts. The raw reports remain separately authoritative; cross-platform finding-object byte equality is not claimed."
+}

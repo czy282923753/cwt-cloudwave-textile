@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "repository": "ghcr.io/czy282923753/cwt-cloudwave-textile",
+  "releaseCommit": "c9cac1618d49cb111d5aa6279d1e81ec300a81d1",
+  "indexDigest": "sha256:4a1348641eb92995c8efe111e65818532489f5e1152476d33672537842b70c74",
+  "rawIndexEvidence": {
+    "path": "raw/oci-index.json",
+    "sha256": "4a1348641eb92995c8efe111e65818532489f5e1152476d33672537842b70c74",
+    "digestEqualsRawIndexSha256": true
+  },
+  "children": [
+    {
+      "platform": "linux/amd64",
+      "expectedDigest": "sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6",
+      "indexDigest": "sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6",
+      "localDockerImageId": "sha256:3578b5e70447ee58552b58be306f3992724aedab46d26755f2ab8a9db4ad17c6",
+      "localDockerOs": "linux",
+      "localDockerArchitecture": "amd64",
+      "identityMatched": true
+    },
+    {
+      "platform": "linux/arm64",
+      "expectedDigest": "sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4",
+      "indexDigest": "sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4",
+      "localDockerImageId": "sha256:eab5eb76bbd427e452fdf0ead7948a8f5d93991973b2f53b4f1555276a11bcf4",
+      "localDockerOs": "linux",
+      "localDockerArchitecture": "arm64",
+      "identityMatched": true
+    }
+  ],
+  "mutableTagUsedAsScanSubject": false
+}

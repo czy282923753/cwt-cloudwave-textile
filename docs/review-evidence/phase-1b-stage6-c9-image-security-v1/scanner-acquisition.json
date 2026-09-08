@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "scanner": {
+    "name": "Trivy",
+    "version": "0.74.0",
+    "releaseTag": "v0.74.0",
+    "releaseId": 370531397,
+    "tagCommit": "e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994",
+    "publishedAt": "2026-08-14T11:29:11Z",
+    "releaseUrl": "https://github.com/aquasecurity/trivy/releases/tag/v0.74.0"
+  },
+  "asset": {
+    "name": "trivy_0.74.0_macOS-ARM64.tar.gz",
+    "downloadUrl": "https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_macOS-ARM64.tar.gz",
+    "bytes": 47694894,
+    "sha256": "1caada5e0e2091909357c7525d3aa76f4b660b13821bc143b190c7483e31cc11",
+    "matchedOfficialReleaseApiDigest": true,
+    "matchedOfficialChecksumsFile": true
+  },
+  "checksumsEvidence": {
+    "path": "raw/trivy_0.74.0_checksums.txt",
+    "sha256": "bc701c3c3ee8b9acbea2c23257e41381e3854888f51281616a6ba5dc96963821"
+  },
+  "signatureVerificationPerformed": false,
+  "note": "The fixed release asset hash was matched against the official GitHub release API digest and the official release checksums file. The Sigstore bundle was downloaded during acquisition but was not signature-verified and is not claimed or retained as proof."
+}
