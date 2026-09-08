@@ -830,3 +830,71 @@ Residual risks are bounded and explicit:
 - exact provider-settled cost for the completed attempt remains unavailable and no cost-compliance claim is created.
 
 The next gate is fixed: the coordinator either freezes `S6-TE-RP-V1.0` or returns a bounded plan correction. After freeze, a **different fresh `gpt-5.6-sol` / high Implementer** receives the exact allowed scope and verification ladder; a **separate fresh Reviewer** then evaluates its Candidate. No native rerun, Product build, Push, Registry action, deployment or phase advance may precede those gates. The only Owner decision that may be required before later paid execution is the deletion-timing authority/risk choice above; ordinary in-budget purchase/destruction authority remains unchanged and need not be reconfirmed.
+
+## Technical Escalation Option A CI platform-convergence implementation addendum
+
+Recorded: **2026-09-08 (Asia/Shanghai)**  
+Role: **Fresh Technical Implementer**  
+Status: **IMPLEMENTATION COMPLETED / AWAITING FRESH INDEPENDENT REVIEW / STAGE 6 REMAINS PARTIAL / HOLD**
+
+The coordinator subsequently froze a narrower Technical Escalation plan after real CI run `34196433781` proved that source `f60f55589178490f2b987be0566a0ad9198ab391` moved the complete Quality job to Linux/x64 while its accepted proof executables still require Darwin/ARM64 behavior. The sole frozen plan is `PHASE_1B_STAGE6_CI_PLATFORM_CONVERGENCE_ANALYSIS_V1_0.md`, independently verified at SHA-256 `9fa6053f40f8ffe58fa0bbeceacd1930b3fbd5462d8550a71137275953c7de32`. The selected strategy is Option A; the earlier Linux/service strategy in this historical report is superseded for the current correction and remains immutable failure/analysis history.
+
+### Exact source and Candidate
+
+| Identity | Value |
+| --- | --- |
+| Required source | `f60f55589178490f2b987be0566a0ad9198ab391` |
+| Required source tree | `a12c716e702f7a9e3a87b756e4f02e8036d1ac30` |
+| Ordinary code Candidate | `d4e79982c5c8378c2c18f4d0e8a71bb1fed12350` |
+| Candidate tree | `387ef5302e4a5a8d5cfe1595c843cd51cbbeef91` |
+| Candidate parent | exact required source `f60f55589178490f2b987be0566a0ad9198ab391` |
+| Working branch | `codex/stage6-ci-platform-convergence` |
+| Accepted Product rollback authority | unchanged `a200838be34c8834a00bdcf6d1819da96e2ad26c` |
+
+The isolated implementation worktree started clean at the old detached `9e8437ca...`, then created the branch directly from the exact required source. It did not branch from, cherry-pick, copy or replay rejected source `cec407314252cd47cef0d48d8581e5ce06cf7c25`.
+
+The Candidate changes exactly three implementation paths:
+
+| Path | Candidate SHA-256 | Disposition |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | `8e6201ec404d344bff1c856b034497a1c009df762c89585ba64badebc6e88a0c` | Restores `quality-postgres` to standard `macos-15`; deletes its Docker service; adds one exact official-source PostgreSQL 18.4 build, isolated loopback lifecycle, bounded diagnostics and unconditional task-owned cleanup. All other CI jobs remain unchanged. |
+| `deploy/scripts/build-release-once.test.mjs` | `13e95252489602073203e8b12c4ff5c589257d980c398f9e2badd3b738c2a759` | Converges the existing CI contract test on the actual Quality slice, lifecycle ordering and focused negative controls. |
+| `docs/CI_AND_GITHUB_GOVERNANCE.md` | `3e122cf0436f10e57bf6b4f1c528ada981f4a02f626be0fb836f377fd5e06e86` | Replaces stale current authority while preserving Phase D/ADR-0020 history and the separate Linux workload evidence. |
+
+No `src/**`, runtime guard, package/lockfile, Migration, Dockerfile, Compose, Prompt/profile/classifier/checker, built-in-fetch, decoder or Browser-test byte changed. Explicit comparison of `src`, `package.json`, `pnpm-lock.yaml`, `scripts/check-runtime.mjs`, both architecture/public-bundle checkers, `drizzle`, root `Dockerfile` and `compose.yaml` against `f60f5558...` returned byte-identical.
+
+### Root cause and corrected boundary
+
+The causal defect was CI proof-platform and database-acquisition coupling, not Product logic. The Candidate restores the already governed Darwin/ARM64 proof environment and replaces only the unreliable PostgreSQL acquisition. Quality now downloads the exact official `postgresql-18.4.tar.bz2` over bounded HTTPS/TLS, verifies the literal SHA-256 `81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094` before extraction, configures the frozen minimal feature set, installs below one task root, and requires exact binary and live-server identity before Migration.
+
+One new UTF8 / locale C cluster uses only synthetic `cwt_ci` identity and `127.0.0.1:55432`. Failure diagnostics expose at most the last 32 KiB / 200 lines of its synthetic server log. `if: always()` cleanup first asks the task-local `pg_ctl` to stop the owned cluster, signals no process unless its PID and exact task-local postmaster command are verified, fails if an owned server remains live, and removes only the validated task root. There is no Homebrew, rolling package, mirror, fallback patch, service container, permanent cache, helper service or second database authority.
+
+Complexity increased only by the explicit ephemeral source/build/start/cleanup lifecycle required to retain the accepted proof environment. The former Quality service path was deleted rather than layered. No persistent state, table, Worker, queue, Lease, Recovery type, new parser/framework or dual authority was added. The test change reuses the existing workflow-slice contract and a small local assertion helper; its negative cases reject the old runner/service acquisition and verify ordering and substantive lifecycle failures.
+
+### Verification on the exact Candidate
+
+| Gate | Result |
+| --- | --- |
+| Exact host/runtime | PASS — Darwin ARM64; Node `24.14.0`; pnpm `11.9.0` |
+| Frozen install | PASS — `pnpm install --frozen-lockfile` |
+| AI Prompt authority | PASS — bundle verification plus 24 Node tests |
+| Exact append-only history | PASS — `f60f5558...` to `d4e79982...` |
+| Phase D synthetic boundary | PASS — 5 files, 67/67 tests |
+| Lint / Typecheck | PASS / PASS |
+| Focused CI contract | PASS; wrong runner, old service, source/hash/order/version/bind/identity/Migration/full-suite/AI/cleanup/duplicate-authority mutations all refused |
+| Workflow/static | PASS — YAML parse; `git diff --check`; one source URL, startup, Migration command, unfiltered full-suite command and unconditional cleanup in the Quality slice |
+| PostgreSQL acquisition/build | PASS — official source URL, embedded digest exact match before extraction, frozen configure flags, task-local compile/install, binary `postgres (PostgreSQL) 18.4` |
+| Live database | PASS — one loopback server, `server_version=18.4`, `server_encoding=UTF8`, synthetic connection, clean fresh Migration including `0020`/`0021` |
+| Unfiltered PostgreSQL-enabled full suite | PASS — 175 test files passed / 1 existing skip; 1337 tests passed / 10 existing skips; duration `590.38s` |
+| Positive cleanup | PASS — server stopped; task-owned source/build/install/data/log root removed |
+| Failure cleanup probe | PASS — a deliberate non-zero substantive result remained status `1`; partial task root was removed rather than converted to success |
+| Final residue | PASS — no listener on `55432`, task-owned PostgreSQL process or task path remained |
+| Final code tree | clean at exact Candidate before this evidence-only addendum |
+
+The full Browser, public-bundle/Product and Compose suites were not repeated solely for this CI-only delta. Their applicable real `f60f5558...` run evidence already passed in run `34196433781`: Dependency security, Build + public bundle, and Browser completed successfully; only Quality failed at the former x64 runtime guard before substantive Quality gates. The local PASS above is supporting evidence and does not replace a real hosted `macos-15` run.
+
+### External boundary and next gate
+
+No Push, workflow run/rerun, Runner credential, Registry/cloud/native operation, Build Once, publication, deployment or phase acceptance occurred. The earlier Build Once authority was not consumed and is not transferable to this corrected source. A future Release would require a new exact-source authorization after hosted CI acceptance.
+
+The next gate is fresh independent Review of immutable code Candidate `d4e79982c5c8378c2c18f4d0e8a71bb1fed12350`. Only after Review may the coordinator present a new concrete normal-Push/hosted-CI authorization. Stage 6 remains Partial / HOLD; this implementation does not self-approve and does not authorize any external action.
