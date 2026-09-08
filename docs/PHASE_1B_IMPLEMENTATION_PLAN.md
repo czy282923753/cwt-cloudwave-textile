@@ -489,8 +489,8 @@ Outputs:
 - reverse proxy, private PostgreSQL network, separate DB/users/volumes/secrets;
 - resource/pool/concurrency/log limits and 2 GB Swap runbook;
 - Health/readiness endpoints;
-- daily local and weekly COS backup workflow, checksum manifests, restore tooling;
-- Sentry/Tencent/uptime and Outbox/backup/dead-work monitoring adapters.
+- daily local backup plus an environment-isolated, COS-targeting weekly workflow, checksum manifests and safe restore tooling; actual COS credentials, upload/read-back and full protected restore drill remain Stage 7 `External Validation`;
+- provider-neutral Sentry/Tencent/uptime and Outbox/backup/dead-work monitoring hooks with redaction and fake-transport proof; actual accounts, delivery and independent non-SMTP channel remain Stage 7 `External Validation`.
 
 Primary files/modules:
 
@@ -518,6 +518,8 @@ External identity gate: actual monitoring accounts, named Production/Staging Adm
 Complexity: Very High operational work.
 
 Rollback boundary: retain one prior image; database schema remains forward-compatible; config/volume switch has checksum-verified rollback; never delete old media until restore/readiness passes.
+
+Current closure posture (2026-09-09): the Stage 6 implementation, local composition, immutable-image Build Once, exact-c9 native Runtime and owned cleanup have bounded evidence through independent Runtime/Cleanup Review `22f646bdb70ba0301262854340ab0718107761c5`. S6-06 local backup/restore is closed for its local scope; S6-07 has prepared the closure Candidate. The next gate is independent whole-Stage 6 Review. Actual Provider accounts/credentials, COS durability and policy, protected Staging restore, target-host capacity and timing, external monitoring delivery, current external vulnerability-feed clearance and Owner-approved RPO/RTO are Stage 7 preparation or `External Validation`, and do not reopen a completed Stage 6 local slice. Stage 6 remains unaccepted until that independent Review and a separate acceptance/checkpoint decision.
 
 ### Stage 7 — Authorized Staging and external validation
 

@@ -1,13 +1,13 @@
 # CWT Phase 1B acceptance matrix
 
-Status: **Phase 1B Stage 6 is Partial / HOLD; Stage 5 remains the latest accepted and tagged baseline; Stage 6 has no accepted checkpoint; Production Ready is No**
+Status: **Phase 1B Stage 6 closure Candidate is READY FOR INDEPENDENT STAGE 6 REVIEW; Stage 5 remains the latest accepted and tagged baseline; Stage 6 has no accepted checkpoint; Stage 7 remains HOLD; Production Ready is No**
 Accepted baseline: `phase-1b-stage5-approved-2026-08-30` → `a200838be34c8834a00bdcf6d1819da96e2ad26c` (tree `00438c32997f9be7d753dfca8325c1765bd90146`)
-Unaccepted Stage 6 convergence inputs: published inventory `506d92bf396bae52d7d8e54dabc46345036e4f86`; reviewed registration closure `acfec4182a41c4504a9b85cfaced517b60cd4ea7`; append-only Operator-evidence line `31b17ec04105334e64975900a09c8176ca26b717`
-Matrix current-state date: **2026-09-05**
+Unaccepted Stage 6 closure evidence base: local integration Candidate `c0df6907ada88133f6dfdfa62460dd0f5cc8aba9`; independent local-integration PASS record `54bcaeed8f4467ed8e717efa312cef4a02caad16`; exact-c9 Product `c9cac1618d49cb111d5aa6279d1e81ec300a81d1`; exact-c9 Runtime/Cleanup independent Review `22f646bdb70ba0301262854340ab0718107761c5`
+Matrix current-state date: **2026-09-09**
 
 ## 1. Purpose and use
 
-This matrix translates the approved Phase 1B frozen decisions into testable release gates. It does not mark Phase 1B, Stage 6 or Production readiness complete. Stage 6 remains `Partial / HOLD`: its source/evidence convergence requires fresh independent Review, successful Runtime evidence is absent, S6-06 and S6-07 remain open, and no Stage 6 acceptance/freeze ref exists. Each future gate must attach reproducible evidence to the applicable rows and must stop when a required gate fails.
+This matrix translates the approved Phase 1B frozen decisions into testable release gates. It does not mark Phase 1B, Stage 6 or Production readiness complete. Stage 6 local implementation, composed integration, immutable-image Build Once, exact-c9 native Runtime and owned cleanup now have reviewable evidence; S6-06 has a bounded local PASS and S6-07 has prepared the closure Candidate. The remaining Stage 6 action is fresh independent whole-Stage Review and, only after a PASS, a separate acceptance/checkpoint decision. All rows labelled `External Validation` remain unpassed and belong to an explicitly authorized Stage 7; no Stage 7 acceptance is inferred from Stage 6 local or Runtime evidence.
 
 The [Stage 4A Owner Development Authorization](./PHASE_1B_STAGE4A_OWNER_DEVELOPMENT_AUTHORIZATION_V1_0.md) records an earlier bounded authorization; it is not the current project-state authority. At that checkpoint, DeepSeek `PD-04` through `PD-07` were non-blocking reference evaluations whose unresolved evidence was not a Stage 4A development, testing, or later release prerequisite. Provider/API calls, credentials, Staging/Production deployment, Production AI, Deploy, Publish, Index, and formal import remain separately unauthorized unless a later exact Owner decision explicitly authorizes them.
 
