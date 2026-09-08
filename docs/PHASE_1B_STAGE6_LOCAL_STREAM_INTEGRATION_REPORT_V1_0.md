@@ -1276,3 +1276,34 @@ Before any Stage 7 action, prepare a separate Owner-authorized package limited t
 7. an evidence plan for all applicable `External Validation` rows (`S-11`–`S-13`, `E-03`, `E-06`, `E-09`, `O-01`–`O-25`, `X-01`–`X-03`, `X-05`–`X-07`).
 
 No account creation, purchase, credential generation, Provider call, cloud mutation, protected start, deployment, DNS change, Push, tag or Stage 7 authorization is included in this closure Candidate.
+
+## Independent whole-Stage 6 Acceptance Review — closure Candidate `0b0b3465fb1e28111d039d99256eaa5ee83e52bc`
+
+Recorded: **2026-09-09 (Asia/Shanghai)**
+
+Verdict: **FAIL / STAGE 6 NOT ACCEPTED / STAGE 7 HOLD**
+
+This is a fresh whole-Stage judgment over the final integrated Stage 6 foundation, not a reimplementation or automatic reopening of accepted slices. Candidate `0b0b3465...` is the direct child of Runtime/Cleanup Review `22f646bd...` and changes only this report, the implementation plan and acceptance matrix. The executable Product remains exact `c9cac161...`; subsequent commits through this Candidate change documentation only. Stage 5 tag `phase-1b-stage5-approved-2026-08-30` at `a200838b...` remains the latest accepted baseline.
+
+### Blocking finding
+
+**[MEDIUM] S6-04 exact-image vulnerability/license evidence does not satisfy the accepted Stage 6 plan.** Plan V1.2 requires an SBOM and vulnerability/license scan with reviewed thresholds, and the accepted reproducible-image planning contract further requires an exact-pinned local scanner, scanner/version/database age and time, unmodified findings, and non-PASS on stale/unavailable data or threshold failure. Exact-c9 Build evidence contains digest-bound SPDX SBOMs and useful package-manager, Sharp and secret-leakage policy checks, but `deploy/scripts/build-release-once.mjs` deliberately writes `externalVulnerabilityFeedClaimed: false`; `deploy/scripts/preflight-image.mjs` enforces that false value and contains no vulnerability identities, database age, findings or severity disposition. The referenced `deploy/host/IMAGE_SECURITY_POLICY.md` is absent. Therefore the closure Candidate's S6-04 “None identified” classification and its statement that all current vulnerability-feed clearance belongs to Stage 7 are not accepted.
+
+This is not a Node dependency-audit gap. The accepted S6-05 evidence records `pnpm audit --prod` with zero known vulnerabilities; dependency-changing hosted CI run `34196433781` at `f60f5558...` executed and passed the High/Critical gate; and `package.json` plus `pnpm-lock.yaml` are unchanged from that source through exact Product c9. Nor does the finding allege a known exploitable CVE. It blocks because the frozen supply-chain gate for the actual immutable deployable subject has no qualifying result, so current risk cannot be dispositioned honestly.
+
+Minimum correction: use one standard exact-pinned vulnerability/license scanner against both immutable c9 child digests, record tool/database identity and freshness, preserve unmodified findings, and apply one reviewed threshold policy. Keep the evidence detached and subject-bound; do not add a framework, second image authority or duplicate release. If the scan clears, no CI/Build/Runtime replay is justified because Product bytes do not change. If remediation changes Product bytes or dependencies, create and review a new Product and rerun only the gates made stale by that change; c9 must not be overwritten or represented as repaired.
+
+### Accepted whole-Stage evidence and boundaries
+
+- S6-01 through S6-03, S6-05 and S6-06 remain accepted for their reviewed local/Synthetic scopes; no current regression signal reopens them. S6-04 remains accepted except for the blocking image-security evidence above.
+- Monitoring satisfies the local hook requirement: fixed liveness/readiness, redacted work-health classification, deterministic scheduler exit states, a provider-neutral non-SMTP-capable transport contract with fake-transport proof, and a host policy that forbids SMTP-only critical alerting. Actual account binding, host alarm wiring and live delivery remain Stage 7 External Validation; this Review does not claim them.
+- Backup/recovery satisfies the local requirement through real PostgreSQL 18.4/Restic 0.19.1 execution, local TLS/S3 protected-shaped branches, corruption and retention handling, the shared Backup/Migration `flock`, and an isolated empty safe restore without COS. Actual COS custody/durability, protected restore/start, measured timing/capacity and Owner-approved RPO/RTO remain Stage 7.
+- Hosted CI `34205904510` attempt 2 and report-only control CI `34218481963` cover the unchanged executable tree; exact-c9 Build `34213361695` and Runtime `34253932589` remain immutable accepted evidence. No rerun was needed for this documentation Review.
+- There is no Stage 6 Schema/Migration delta or unreviewed public/security-boundary drift. Rollback remains usable: Stage 5 `a200838b...` is the accepted source checkpoint; exact c9/index `sha256:4a134864...` is retained immutable evidence; operational rollback uses a matching prior image/Compose/config bundle and never rewrites data or an accepted ref.
+- Every applicable acceptance-matrix row labelled `External Validation` remains unpassed. A later Stage 7 package still requires explicit Owner authorization and cannot claim Production Ready from this Review.
+
+Security & Test Simplification Check: **PASS**. The one correction reuses standard scanner output and the existing detached digest-bound evidence lane. No new gate framework, audit service, state, workflow, helper, image, approval layer or Reviewer is justified.
+
+Open severity for whole-Stage closure is **Blocker 0 / High 0 / Medium 1 / Low 4**. The four accepted Lows are the two prior Product-evidence residuals, attended-cleanup residual and retained expired registration-token history/future direct-human restriction. The historical credential Medium remains closed as a current permission risk and is not reopened.
+
+Next gate: one bounded S6-04 image-security evidence correction for exact c9, followed by focused independent re-review of that finding and the three current status statements. Only a subsequent PASS may support a separate Owner/coordinator Stage 6 acceptance/checkpoint decision. This Review performs or authorizes no scan execution, private-image access, CI/Build/Runtime run, Registry/provider mutation, deployment, tag/checkpoint or Stage 7 action.
