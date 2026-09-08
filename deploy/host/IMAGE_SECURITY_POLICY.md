@@ -1,6 +1,6 @@
-# CWT immutable-image security policy Candidate
+# CWT immutable-image security policy
 
-Status: **CANDIDATE — requires independent S6-04 security/license Review before it is an accepted release gate**
+Status: **INDEPENDENTLY REVIEWED FOR STAGE 6 — exact scope and disposition are recorded in `docs/PHASE_1B_STAGE6_EXACT_C9_IMAGE_SECURITY_INDEPENDENT_REVIEW_V1_0.md`**
 
 This policy defines the minimum vulnerability and license evidence for an immutable CWT release image. It does not authorize a deployment, Registry mutation, risk acceptance, or Stage 7 action. A scanner exit code of zero proves only that the scan completed; the findings must separately pass this policy.
 
@@ -14,7 +14,7 @@ This policy defines the minimum vulnerability and license evidence for an immuta
 
 ## 2. Fixed scanner profile
 
-The current Candidate profile is Trivy `0.74.0`, acquired from the official release asset and verified against its published SHA-256 checksum. Run image scans with:
+The reviewed exact-c9 profile is Trivy `0.74.0`, acquired from the official release asset and verified against its published SHA-256 checksum. Each later decision set must likewise pin and record one supported scanner release; a floating `latest` version is not allowed. Run image scans with:
 
 ```text
 trivy image \
@@ -29,36 +29,36 @@ trivy image \
   <repository>@sha256:<child-manifest-digest>
 ```
 
-Download the database once before the decision set, then keep it fixed during all subject scans. Record `Version`, `UpdatedAt`, `DownloadedAt`, `NextUpdate`, database source, file SHA-256 and size. At the first scan start, `UpdatedAt` must be no more than 24 hours old and the scan must occur before `NextUpdate`. A missing, stale or unavailable database is non-PASS. Later Production freshness remains a separately authorized Stage 7 control.
+Download the database once before the decision set, then keep it fixed during all subject scans. Record `Version`, `UpdatedAt`, `DownloadedAt`, `NextUpdate`, database source, file SHA-256 and size. The first scan must occur before the publisher-recorded `NextUpdate`; missing, invalid, expired or unavailable metadata is non-PASS. Record the age at scan time, but do not add a second elapsed-time limit that can contradict the database publisher's own validity boundary. Later Production freshness remains a separately authorized Stage 7 control.
 
 Trivy's default `precise` vulnerability-detection priority is retained. `--ignore-unfixed`, severity filtering and blanket ignore files are forbidden in the raw evidence run.
 
 ## 3. Vulnerability disposition
 
-The current Candidate threshold is:
+The threshold is:
 
-- any `CRITICAL` finding is non-PASS until a replacement Product removes it or a named security reviewer records a finding-specific exposure, exploitability, compensating-control, expiry and Owner-approved risk decision;
-- any `HIGH` finding with a non-empty fixed version is non-PASS until a replacement Product includes the fix;
-- `HIGH` findings without a fix and all `UNKNOWN` severities require a documented security review; an absent or inconclusive review is non-PASS;
-- `MEDIUM` and `LOW` findings remain visible and are prioritized by runtime reachability, privilege, data exposure, exploit maturity and fix availability. A known-exploited or materially reachable finding is non-PASS regardless of its scanner severity; and
+- every `CRITICAL`, `HIGH` and `UNKNOWN` finding requires a documented disposition. An absent or inconclusive disposition is non-PASS;
+- a finding that authoritative upstream evidence shows is not affected, not shipped or not reachable through a supported CWT path may be closed by a named independent reviewer. Record the exact subject, finding, upstream basis and CWT runtime boundary; this is a technical applicability decision, not risk acceptance;
+- a scanner severity or non-empty fixed version is triage input, not automatic proof of CWT impact. A finding is non-PASS when the affected component and behavior are materially reachable on a supported path, or when known exploitation changes the actual exposure beyond the project's accepted threshold;
+- `MEDIUM` and `LOW` findings remain visible and are prioritized by runtime reachability, privilege, data exposure, exploit maturity, operator recovery and fix availability. Residual issues use the severity and exit conditions in `docs/REVIEW_POLICY.md`; and
 - aggregate counts never replace finding-level evidence, and one architecture's result never substitutes for another.
 
-Risk acceptance may not rewrite an existing Product or erase the raw finding. It must name the exact digest, finding, scope, expiry, compensating controls and rollback path. This Candidate creates no such acceptance authority.
+Risk acceptance may not rewrite an existing Product or erase the raw finding. It must name the exact digest, finding, scope, expiry, compensating controls and rollback path. This policy creates no Owner risk-acceptance authority.
 
 ## 4. License disposition
 
 Scanner license categories are triage signals, not legal conclusions.
 
-- A detected forbidden or incompatible license is non-PASS.
-- `unknown`, custom `LicenseRef-*`, conflicting, `reciprocal` and `restricted` results require a component/use/distribution/obligation review. Results may be grouped only when the same component, license family, use and obligation analysis applies.
-- An unresolved unknown/custom result or an unmet obligation is non-PASS.
+- A license that is actually forbidden or incompatible for the component's supported CWT use or distribution is non-PASS.
+- `unknown`, custom `LicenseRef-*`, conflicting, `reciprocal` and `restricted` results require a component/use/distribution/obligation review. Results may be grouped only when the same component, license family, use and obligation analysis applies. A scanner's `unknown` taxonomy does not by itself mean the component's license is unidentified.
+- An actually unidentified component/license, a current incompatibility or an unmet obligation for the current delivery model is non-PASS. A future distribution obligation is recorded with its trigger and must be satisfied before that distribution begins; it does not block an internal-only use that does not trigger it.
 - `notice`, permissive and unencumbered results still require applicable notices and attribution to be retained.
 - GPL, MPL or another copyleft family is not rejected merely by family name. The review records how the component is shipped and whether source, notice, relinking or other obligations apply.
 
-The evidence record must distinguish `PASS`, `REVIEW_REQUIRED` and `NON_PASS`. Only a named independent security/license review can close `REVIEW_REQUIRED`.
+The evidence record must distinguish `PASS`, `REVIEW_REQUIRED` and `NON_PASS`. Only a named independent security/license review can close `REVIEW_REQUIRED`. This is technical compliance triage, not legal advice; uncertainty that could change the disposition is escalated rather than guessed.
 
 ## 5. Change and review boundary
 
 If findings require dependency, base-image or runtime-content changes, create a new immutable Product. Never overwrite or relabel the scanned digest as repaired. Rerun this exact-subject scan and only the other gates made stale by the Product change.
 
-This file becomes an accepted threshold only after independent Review records that the scanner profile, freshness limit, vulnerability threshold and license treatment are proportionate to the CWT runtime and frozen Stage 6 contract. Until then, its current status remains Candidate and a subject that exceeds it cannot be represented as passing.
+The focused independent Review named above records that this scanner profile, publisher-validity freshness boundary, applicability threshold and license treatment are proportionate to the CWT runtime and frozen Stage 6 contract. A later policy change requires a new review; it may not silently reinterpret retained raw findings or rewrite an immutable Product.
