@@ -423,7 +423,14 @@
               "src/ai/server-bundle-marker.ts"
             ],
             "excludeTestSemantic": true,
-            "files": [],
+            "files": [
+              "deploy/backup/database-run.mjs",
+              "deploy/backup/files.mjs",
+              "deploy/backup/repository.mjs",
+              "deploy/backup/restore-files.mjs",
+              "deploy/backup/restore-verify.ts",
+              "deploy/backup/weekly.mjs"
+            ],
             "testSemantic": false
           },
           "stageStatus": "existing_non_ai_production"
@@ -1398,7 +1405,7 @@
         "/phaseCSyntheticAuthority",
         "/phaseCSyntheticMutationProbeIds"
       ],
-        "sha256": "77cf87f7f583f8eaf98433cdb88601ddde8a42a203680788d891300f8f9a7a3e"
+        "sha256": "049d3188290268a3c8eac937f0c957a3b55fdc5cf1e6e7764aa935ee8521df84"
     },
     "profileVersion": "1.0.0",
     "proofArtifactContracts": {

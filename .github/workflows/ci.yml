@@ -18,6 +18,7 @@ concurrency:
 
 env:
   CI: "1"
+  CWT_RELEASE_ID: ${{ github.event.pull_request.head.sha || github.sha }}
   NEXT_TELEMETRY_DISABLED: "1"
   APP_ENV: test
   NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3100
@@ -39,10 +40,24 @@ jobs:
   quality-postgres:
     name: Quality + PostgreSQL + AI proof
     if: github.event_name != 'schedule'
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       CWT_PHASE_C_POSTGRES_URL: postgres://cwt_ci@127.0.0.1:55432/cwt_ci
+    services:
+      postgres:
+        image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+        env:
+          POSTGRES_USER: cwt_ci
+          POSTGRES_DB: cwt_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U cwt_ci -d cwt_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -68,43 +83,6 @@ jobs:
 
       - name: Install exact dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Start clean disposable PostgreSQL 18.4
-        run: |
-          set -eu
-          if brew tap | grep -Fxq "aws/tap"; then
-            brew untap aws/tap
-          fi
-          brew_status=0
-          brew install postgresql@18 || brew_status=$?
-          postgres_bin="/opt/homebrew/Cellar/postgresql@18/18.4/bin"
-          postgres_data="$RUNNER_TEMP/cwt-postgres-18.4"
-          test -x "$postgres_bin/postgres"
-          postgres_version="$("$postgres_bin/postgres" --version)"
-          echo "$postgres_version"
-          case "$postgres_version" in
-            "postgres (PostgreSQL) 18.4"|"postgres (PostgreSQL) 18.4 (Homebrew)") ;;
-            *) exit 1 ;;
-          esac
-          if [ "$brew_status" -ne 0 ]; then
-            echo "Homebrew returned $brew_status after installation; exact PostgreSQL 18.4 postconditions passed."
-          fi
-          test ! -e "$postgres_data"
-          echo "CWT_POSTGRES_BIN=$postgres_bin" >> "$GITHUB_ENV"
-          echo "CWT_POSTGRES_DATA=$postgres_data" >> "$GITHUB_ENV"
-          "$postgres_bin/initdb" \
-            -D "$postgres_data" \
-            --username=cwt_ci \
-            --encoding=UTF8 \
-            --locale=C \
-            --auth-local=trust \
-            --auth-host=trust
-          "$postgres_bin/pg_ctl" \
-            -D "$postgres_data" \
-            -l "$RUNNER_TEMP/cwt-postgres-18.4.log" \
-            -o "-h 127.0.0.1 -p 55432" \
-            start
-          "$postgres_bin/createdb" -h 127.0.0.1 -p 55432 -U cwt_ci cwt_ci
 
       - name: Verify AI prompt authority
         run: pnpm check:ai-prompts
@@ -143,24 +121,9 @@ jobs:
           pnpm db:migrate
 
       - name: Run the full test suite with PostgreSQL suites enabled
+        env:
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
         run: pnpm test:run
-
-      - name: Report PostgreSQL log after failure
-        if: failure()
-        run: |
-          if [ -f "$RUNNER_TEMP/cwt-postgres-18.4.log" ]; then
-            tail -n 200 "$RUNNER_TEMP/cwt-postgres-18.4.log"
-          fi
-
-      - name: Stop disposable PostgreSQL
-        if: always()
-        run: |
-          if [ -n "${CWT_POSTGRES_BIN:-}" ] && \
-             [ -n "${CWT_POSTGRES_DATA:-}" ] && \
-             [ -d "$CWT_POSTGRES_DATA" ] && \
-             "$CWT_POSTGRES_BIN/pg_ctl" -D "$CWT_POSTGRES_DATA" status >/dev/null 2>&1; then
-            "$CWT_POSTGRES_BIN/pg_ctl" -D "$CWT_POSTGRES_DATA" stop -m fast
-          fi
 
   build-bundle:
     name: Build + public bundle

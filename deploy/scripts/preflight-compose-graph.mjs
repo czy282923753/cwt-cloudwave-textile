@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const MIB = 1024 * 1024;
+const COMPOSE_PS_MAX_BYTES = 64 * 1024;
+const COMPOSE_PS_MAX_ROWS = 128;
 const exactServices = [
   "postgres", "proxy", "scheduler-production", "scheduler-staging", "valkey-production",
   "valkey-staging", "web-production", "web-staging", "worker-production", "worker-staging",
@@ -77,6 +79,31 @@ const standaloneTmpfsOption = /^(?:rw|ro|exec|noexec|suid|nosuid|dev|nodev|size=
 function fail(message) { throw new Error(`Compose graph refused: ${message}`); }
 function sorted(value) { return [...value].sort(); }
 function same(left, right) { return JSON.stringify(sorted(left)) === JSON.stringify(sorted(right)); }
+
+export function parseComposePsRows(stdout) {
+  if (typeof stdout !== "string" || Buffer.byteLength(stdout, "utf8") > COMPOSE_PS_MAX_BYTES) return null;
+  const value = stdout.trim();
+  if (value === "") return [];
+
+  let rows;
+  try {
+    const parsed = JSON.parse(value);
+    rows = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    const records = value.split(/\r?\n/u);
+    if (records.length > COMPOSE_PS_MAX_ROWS || records.some((record) => record.trim() === "")) return null;
+    try {
+      rows = records.map((record) => JSON.parse(record));
+    } catch {
+      return null;
+    }
+  }
+
+  if (rows.length > COMPOSE_PS_MAX_ROWS || rows.some((row) => (
+    !row || typeof row !== "object" || Array.isArray(row) || typeof row.Service !== "string"
+  ))) return null;
+  return rows;
+}
 
 function secretSources(service) {
   return (service.secrets ?? []).map((secret) => secret.source);
@@ -250,6 +277,14 @@ function readAvailableMemoryBytes() {
   return kib * 1024;
 }
 
+function protectedProjectStateFromOutput(output) {
+  const parsed = parseComposePsRows(output);
+  if (parsed === null) fail("project state is not a JSON array");
+  const byService = new Map(parsed.map((entry) => [entry.Service, entry]));
+  if (byService.size !== parsed.length) fail("project state contains duplicate services");
+  return byService;
+}
+
 function protectedProjectState() {
   const output = execFileSync("/usr/bin/env", [
     "-i", "PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "LANG=C", "LC_ALL=C", "TZ=UTC", "DOCKER_API_VERSION=1.55",
@@ -257,11 +292,7 @@ function protectedProjectState() {
     "compose", "--env-file", "/etc/cwt/compose.env", "--project-name", "cwt", "--file", "/etc/cwt/compose.yaml",
     "--profile", "staging", "ps", "--all", "--format", "json",
   ], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
-  const parsed = JSON.parse(output);
-  if (!Array.isArray(parsed)) fail("project state is not a JSON array");
-  const byService = new Map(parsed.map((entry) => [entry.Service, entry]));
-  if (byService.size !== parsed.length) fail("project state contains duplicate services");
-  return byService;
+  return protectedProjectStateFromOutput(output);
 }
 
 function isInactive(entry) {
@@ -274,8 +305,8 @@ function requireRunning(byService, name) {
     (entry.Health && String(entry.Health).toLowerCase() !== "healthy")) fail(`${name} is not stably running/healthy`);
 }
 
-function validateProtectedState(mode) {
-  const byService = protectedProjectState();
+function validateProtectedState(mode, output) {
+  const byService = output === undefined ? protectedProjectState() : protectedProjectStateFromOutput(output);
   for (const name of ["proxy", "web-production", "postgres", "valkey-production"]) requireRunning(byService, name);
   const scheduler = byService.get("scheduler-production");
   if (!scheduler || (String(scheduler.State).toLowerCase() !== "paused" && scheduler.Paused !== true)) {
@@ -290,6 +321,8 @@ function validateProtectedState(mode) {
     }
   }
 }
+
+export const __testOnly = Object.freeze({ validateProtectedState });
 
 if (process.argv[1] && import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href) {
   const normalizedArgument = process.argv.indexOf("--normalized");

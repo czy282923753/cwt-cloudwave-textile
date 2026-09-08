@@ -10,10 +10,14 @@ export default defineConfig({
   testDir: "./tests/e2e",
   globalTeardown: "./tests/e2e/global-teardown.ts",
   fullyParallel: false,
+  // The Browser harness shares one application server and mutable database.
+  workers: 1,
   retries: 1,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: "http://127.0.0.1:3100",
+    // Synthetic post-proxy input for the direct loopback APP_ENV=test harness.
+    extraHTTPHeaders: { "x-cwt-client-address": "192.0.2.40" },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -31,7 +35,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "pnpm db:migrate && pnpm db:seed && pnpm db:seed:fixtures && pnpm exec tsx scripts/seed-e2e-retryable-asset.ts && pnpm exec tsx scripts/seed-e2e-block-projection.ts && pnpm exec tsx scripts/seed-e2e-editorial-roles.ts && pnpm build && pnpm start --hostname 127.0.0.1 --port 3100",
+      "pnpm db:migrate && pnpm db:seed && pnpm db:seed:fixtures && node --conditions=react-server --import=tsx scripts/seed-e2e-retryable-asset.ts && node --conditions=react-server --import=tsx scripts/seed-e2e-block-projection.ts && pnpm exec tsx scripts/seed-e2e-editorial-roles.ts && pnpm build && pnpm start --hostname 127.0.0.1 --port 3100",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

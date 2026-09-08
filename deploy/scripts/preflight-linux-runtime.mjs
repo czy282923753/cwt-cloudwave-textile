@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { RegistryIntegrationFailure, validateReleaseIdentity } from "./release-registry-integration.mjs";
 import { sha256File, verifyReleaseRecord } from "./preflight-image.mjs";
-import { exactProtectedSecretFiles, validateComposeGraph } from "./preflight-compose-graph.mjs";
+import { exactProtectedSecretFiles, parseComposePsRows, validateComposeGraph } from "./preflight-compose-graph.mjs";
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const RELEASE = /^[0-9a-f]{40}$/u;
@@ -571,23 +571,8 @@ export function validateBundleProcessResult(result) {
 
 export function parseInfrastructureFailureServices(stdout) {
   if (typeof stdout !== "string" || Buffer.byteLength(stdout, "utf8") > INFRASTRUCTURE_PS_MAX_BYTES) return null;
-  const value = stdout.trim();
-  let rows;
-  if (value === "") {
-    rows = [];
-  } else {
-    try {
-      const parsed = JSON.parse(value);
-      rows = Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
-      try {
-        rows = value.split(/\r?\n/u).map((line) => JSON.parse(line));
-      } catch {
-        return null;
-      }
-    }
-  }
-  if (rows.length > 128 || rows.some((row) => !row || typeof row !== "object" || Array.isArray(row))) return null;
+  const rows = parseComposePsRows(stdout);
+  if (rows === null) return null;
   const result = Object.fromEntries(INFRASTRUCTURE_FAILURE_SERVICES.map((service) => [service, {
     present: false,
     state: null,
@@ -707,16 +692,23 @@ function containerForService(compose, service, dockerEnv) {
     "container_inspection_invalid", "Container inspection is invalid.");
 }
 
-function validateProjectServiceSet(compose, dockerEnv) {
-  const rows = parseJson(run("docker", [...compose, "ps", "--all", "--format", "json"], {
-    env: dockerEnv,
-    label: "compose_project_inventory",
-  }).stdout, "compose_project_inventory_invalid", "Compose project inventory is invalid.");
-  const normalized = Array.isArray(rows) ? rows : [rows];
-  const services = normalized.map((entry) => entry?.Service).sort();
+function validateProjectServiceSetOutput(stdout) {
+  const rows = parseComposePsRows(stdout);
+  if (rows === null) {
+    refuse("compose_project_inventory_invalid", "Compose project inventory is invalid.");
+  }
+  const services = rows.map((entry) => entry.Service).sort();
   if (JSON.stringify(services) !== JSON.stringify([...EXACT_SERVICES].sort())) {
     refuse("runtime_service_set_mismatch", "Runtime project is not the exact three-service authority.");
   }
+}
+
+function validateProjectServiceSet(compose, dockerEnv) {
+  const stdout = run("docker", [...compose, "ps", "--all", "--format", "json"], {
+    env: dockerEnv,
+    label: "compose_project_inventory",
+  }).stdout;
+  validateProjectServiceSetOutput(stdout);
 }
 
 function verifyRepositoryIdentity(repositoryRoot, releaseId) {
@@ -1081,5 +1073,6 @@ export const __testOnly = Object.freeze({
   sha256,
   exactCanonicalDirectory,
   verifyRepositoryIdentity,
+  validateProjectServiceSetOutput,
   writeOutcome,
 });

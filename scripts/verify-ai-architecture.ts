@@ -17,8 +17,8 @@ import ts from "typescript";
 
 const profilePath = "test-fixtures/ai-architecture/graph-faults.phase-d.synthetic-only.v1_0.json";
 const fixturePath = "test-fixtures/ai/deepseek-synthetic-contract.v1.json";
-const expectedProfileFileHash = "a9fab9ff77fa7362fc9c774e3c0e4dd4cacc4b582a0da5250e470597ed20de72";
-const expectedProfileIntegrityHash = "77cf87f7f583f8eaf98433cdb88601ddde8a42a203680788d891300f8f9a7a3e";
+const expectedProfileFileHash = "5816fe6769804eeffb5e58f9ba2117311844c052de46f060800fa19ee0e6b180";
+const expectedProfileIntegrityHash = "049d3188290268a3c8eac937f0c957a3b55fdc5cf1e6e7764aa935ee8521df84";
 const expectedFixtureHash = "bc735f1ed6b9d4807a43f19b190315c72cd7fc56634bbd8bbbe617152531cd42";
 const acceptedS25Commit = "d7655385e37330927c53e60fbb108b56950c9794";
 const acceptedS25Tree = "db18f7fdb545d91ad37280af6cc6822b78d6cfd6";
@@ -35,6 +35,14 @@ const phaseFExecutablePaths = [
   "scripts/phase-f-bounded-bootstrap.ts",
   "scripts/phase-f-m6-one-case-diagnostic.ts",
 ] as const;
+const restoreVerificationImports = new Set([
+  "../../src/db/client",
+  "../../src/db/readiness",
+  "../../src/db/schema",
+  "../../src/public-site/public-asset-access",
+  "../../src/storage/safe-key",
+  "../../src/uploads/image-derivatives",
+]);
 const phaseFExecutableHashes = new Map([
   ["scripts/phase-f-bounded-bootstrap.ts", "1d33249db3eb6a2e89b3c69226d371102395b63f04d9f0d96afd204cc9d295a7"],
   ["scripts/phase-f-m6-one-case-diagnostic.ts", "2fb27979529090ddbf8d7f7182d3bf778ed218ebc790b3b13b425c0f36433fbd"],
@@ -1284,6 +1292,49 @@ function resolvedGlobalUrl(identifier: ts.Identifier, checker: ts.TypeChecker): 
   return !symbolHasRuntimeEmittingBinding(symbol);
 }
 
+function resolvedRuntimeNamedImport(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+  moduleSpecifier: string,
+  importedName: string,
+): boolean {
+  const declarations = checker.getSymbolAtLocation(identifier)?.declarations ?? [];
+  if (declarations.length !== 1) return false;
+  const declaration = declarations[0]!;
+  if (!ts.isImportSpecifier(declaration) || declaration.isTypeOnly || declaration.propertyName !== undefined ||
+    declaration.name.text !== importedName || !ts.isNamedImports(declaration.parent)) return false;
+  const importClause = declaration.parent.parent;
+  const importDeclaration = importClause.parent;
+  return !importClause.isTypeOnly && ts.isImportDeclaration(importDeclaration) &&
+    ts.isStringLiteral(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === moduleSpecifier;
+}
+
+function exactRepositoryDirectEntryImportMeta(
+  importMeta: ts.MetaProperty,
+  checker: ts.TypeChecker,
+): boolean {
+  const metaUrl = importMeta.parent;
+  if (!ts.isPropertyAccessExpression(metaUrl) || metaUrl.expression !== importMeta ||
+    metaUrl.questionDotToken !== undefined || metaUrl.name.text !== "url") return false;
+  const comparison = metaUrl.parent;
+  if (!ts.isBinaryExpression(comparison) || comparison.left !== metaUrl ||
+    comparison.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) return false;
+  const href = comparison.right;
+  if (!ts.isPropertyAccessExpression(href) || href.questionDotToken !== undefined || href.name.text !== "href") return false;
+  const url = href.expression;
+  if (!ts.isNewExpression(url) || !ts.isIdentifier(url.expression) || url.expression.text !== "URL" ||
+    !resolvedGlobalUrl(url.expression, checker) || url.typeArguments !== undefined || url.arguments?.length !== 1) return false;
+  const template = url.arguments[0]!;
+  if (!ts.isTemplateExpression(template) || template.head.text !== "file://" || template.templateSpans.length !== 1 ||
+    template.templateSpans[0]!.literal.text !== "") return false;
+  const argument = template.templateSpans[0]!.expression;
+  if (!ts.isElementAccessExpression(argument) || argument.questionDotToken !== undefined ||
+    !ts.isNumericLiteral(argument.argumentExpression) || argument.argumentExpression.text !== "1") return false;
+  const argv = argument.expression;
+  return ts.isPropertyAccessExpression(argv) && argv.questionDotToken === undefined && argv.name.text === "argv" &&
+    ts.isIdentifier(argv.expression) && argv.expression.text === "process";
+}
+
 const forbiddenAmbientRuntimeCapabilityNames = new Set([
   "EventSource",
   "WebSocket",
@@ -1435,10 +1486,17 @@ function scanStaticLanguage(input: {
     }
     if (production && ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const specifier = node.arguments.length === 1 ? literalText(node.arguments[0]!) : undefined;
+      const restoreSpecifier = node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0]!)
+        ? node.arguments[0]!.text
+        : undefined;
       const exactAuthenticatedAiActionImport = path === "src/admin/ai-actions.ts" &&
         (specifier === "@/ai/registry/production-use-cases" ||
           specifier === "@/server/ai/phase-d-provider-composition") && node.typeArguments === undefined;
-      if (!exactAuthenticatedAiActionImport) rejectNode(node, "dynamic_import_loader");
+      const exactRestoreVerificationImport = path === "deploy/backup/restore-verify.ts" &&
+        restoreSpecifier !== undefined && restoreVerificationImports.has(restoreSpecifier) &&
+        node.typeArguments === undefined &&
+        ts.isAwaitExpression(node.parent) && node.parent.expression === node;
+      if (!exactAuthenticatedAiActionImport && !exactRestoreVerificationImport) rejectNode(node, "dynamic_import_loader");
       addStatic("import", "runtime", node.arguments[0]!, node);
     }
     if (production && (ts.isCallExpression(node) || ts.isNewExpression(node))) {
@@ -1518,7 +1576,19 @@ function scanStaticLanguage(input: {
     if (production && ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword &&
       node.name.text === "meta") {
       importMetaPlacementCount += 1;
-      if (!permittedImportMetaPositions.has(node.getStart(source))) rejectNode(node, "import_meta_outside_exact_resource_base");
+      const metaUrl = node.parent;
+      const fileUrlCall = ts.isPropertyAccessExpression(metaUrl) ? metaUrl.parent : undefined;
+      const exactBackupFileUrl = (path === "deploy/backup/files.mjs" || path === "deploy/backup/weekly.mjs") &&
+        ts.isPropertyAccessExpression(metaUrl) && metaUrl.expression === node && metaUrl.questionDotToken === undefined &&
+        metaUrl.name.text === "url" && fileUrlCall !== undefined && ts.isCallExpression(fileUrlCall) &&
+        fileUrlCall.questionDotToken === undefined && fileUrlCall.arguments.length === 1 &&
+        fileUrlCall.arguments[0] === metaUrl && fileUrlCall.typeArguments === undefined &&
+        ts.isIdentifier(fileUrlCall.expression) && fileUrlCall.expression.text === "fileURLToPath" &&
+        resolvedRuntimeNamedImport(fileUrlCall.expression, checker, "node:url", "fileURLToPath");
+      const exactRepositoryDirectEntry = path === "deploy/backup/repository.mjs" &&
+        exactRepositoryDirectEntryImportMeta(node, checker);
+      if (!permittedImportMetaPositions.has(node.getStart(source)) && !exactBackupFileUrl &&
+        !exactRepositoryDirectEntry) rejectNode(node, "import_meta_outside_exact_resource_base");
     }
     if (production && ts.isIdentifier(node) && node.text === "globalThis") {
       const parent = node.parent;
@@ -2114,7 +2184,7 @@ const architectureProgram = ts.createProgram({
   rootNames: executableNodes
     .filter((node) => productionClasses.has(node.classId) || phaseFRuntimeAuthoritySource(node.path))
     .map((node) => resolve(repositoryRoot, node.path)),
-  options: { ...parsedConfig.options, noEmit: true },
+  options: { ...parsedConfig.options, allowJs: true, checkJs: false, noEmit: true },
 });
 const architectureChecker = architectureProgram.getTypeChecker();
 const staticLanguageByPath = new Map<string, StaticLanguageScan>();

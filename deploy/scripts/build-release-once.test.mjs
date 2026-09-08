@@ -4,6 +4,7 @@ import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { afterEach, test } from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { materializeScoutOciBlobs, verifyLoadedBundle } from "./build-release-once.mjs";
 
@@ -110,6 +111,54 @@ test("workspace and CI callers each reach exactly one build-before-bundle sequen
   assert.equal(buildBundleJob.match(/run: pnpm check:bundle/gu)?.length, 1);
   assert.equal(buildBundleJob.match(/run: pnpm build/gu)?.length ?? 0, 0);
   assert.match(buildBundleJob, /name: Build and verify the public bundle boundary/u);
+});
+
+test("CI binds builds to the checked-out source and uses one exact PostgreSQL service", () => {
+  const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const workflowEnvironment = ci.slice(ci.indexOf("env:"), ci.indexOf("jobs:"));
+  assert.match(
+    workflowEnvironment,
+    /CWT_RELEASE_ID: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u,
+  );
+
+  const qualityPostgres = ci.slice(ci.indexOf("  quality-postgres:"), ci.indexOf("  build-bundle:"));
+  assert.match(qualityPostgres, /runs-on: ubuntu-24\.04/u);
+  assert.match(
+    qualityPostgres,
+    /image: postgres:18\.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382/u,
+  );
+  assert.match(qualityPostgres, /POSTGRES_USER: cwt_ci/u);
+  assert.match(qualityPostgres, /POSTGRES_DB: cwt_ci/u);
+  assert.match(qualityPostgres, /POSTGRES_HOST_AUTH_METHOD: trust/u);
+  assert.match(qualityPostgres, /- 55432:5432/u);
+  assert.match(qualityPostgres, /--health-cmd "pg_isready -U cwt_ci -d cwt_ci"/u);
+  assert.doesNotMatch(qualityPostgres, /brew|Cellar|initdb|pg_ctl|createdb|RUNNER_TEMP/u);
+  assert.match(
+    qualityPostgres,
+    /- name: Run the full test suite with PostgreSQL suites enabled\n        env:\n          NEXT_PUBLIC_SITE_URL: http:\/\/localhost:3000\n        run: pnpm test:run/u,
+  );
+  assert.match(workflowEnvironment, /NEXT_PUBLIC_SITE_URL: http:\/\/127\.0\.0\.1:3100/u);
+});
+
+test("Next build identity rejects missing input and returns one lowercase source head", () => {
+  const configUrl = pathToFileURL(resolve("next.config.ts")).href;
+  const source = `const imported = await import(${JSON.stringify(configUrl)}); const config = imported.default.default ?? imported.default; process.stdout.write(await config.generateBuildId());`;
+  const baseEnvironment = { ...process.env };
+  delete baseEnvironment.CWT_RELEASE_ID;
+  const missing = spawnSync(process.execPath, ["--import=tsx", "--input-type=module", "--eval", source], {
+    encoding: "utf8",
+    env: baseEnvironment,
+  });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /CWT_RELEASE_ID must be the full lowercase 40-character source commit/u);
+
+  const releaseId = "d".repeat(40);
+  const accepted = spawnSync(process.execPath, ["--import=tsx", "--input-type=module", "--eval", source], {
+    encoding: "utf8",
+    env: { ...baseEnvironment, CWT_RELEASE_ID: releaseId },
+  });
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(accepted.stdout, releaseId);
 });
 
 test("the locked production-only runtime shape completes the checker and rejects content or required-data loss", () => {

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 vi.mock("server-only", () => ({}));
 
@@ -36,6 +39,48 @@ afterEach(() => {
 });
 
 describe("FileScanner composition", () => {
+  it("keeps server-only fail-closed and gives every proven direct CLI caller the react-server condition", () => {
+    const importSource = "await import('./src/uploads/scanner-factory.ts')";
+    const environment = {
+      ...process.env,
+      APP_ENV: "test",
+      FILE_SCAN_DRIVER: "development",
+    };
+    const ordinaryNode = spawnSync(
+      process.execPath,
+      ["--import=tsx", "--input-type=module", "--eval", importSource],
+      { cwd: resolve("."), encoding: "utf8", env: environment },
+    );
+    expect(ordinaryNode.status).not.toBe(0);
+    expect(ordinaryNode.stderr).toMatch(/cannot be imported from a Client Component module/u);
+
+    const conditionedNode = spawnSync(
+      process.execPath,
+      ["--conditions=react-server", "--import=tsx", "--input-type=module", "--eval", importSource],
+      { cwd: resolve("."), encoding: "utf8", env: environment },
+    );
+    expect(conditionedNode.status).toBe(0);
+
+    const scripts = JSON.parse(readFileSync(resolve("package.json"), "utf8")).scripts;
+    expect(scripts["db:seed:fixtures"]).toBe(
+      "node --conditions=react-server --import=tsx scripts/seed-fixtures.ts",
+    );
+    expect(scripts["assets:rescan-legacy"]).toBe(
+      "node --conditions=react-server --import=tsx scripts/rescan-legacy-assets.ts",
+    );
+
+    const playwright = readFileSync(resolve("playwright.config.ts"), "utf8");
+    for (const entrypoint of ["seed-e2e-retryable-asset.ts", "seed-e2e-block-projection.ts"]) {
+      expect(playwright).toContain(
+        `node --conditions=react-server --import=tsx scripts/${entrypoint}`,
+      );
+      expect(playwright).not.toContain(`pnpm exec tsx scripts/${entrypoint}`);
+    }
+    expect(playwright).toContain("pnpm exec tsx scripts/seed-e2e-editorial-roles.ts");
+    expect(playwright).toContain('extraHTTPHeaders: { "x-cwt-client-address": "192.0.2.40" }');
+    expect(playwright).toContain("workers: 1");
+  });
+
   it.each(["production", "staging"])("selects only Cloudmersive for protected %s", async (appEnvironment) => {
     const { createFileScanner } = await loadFactory(protectedEnvironment({
       APP_ENV: appEnvironment,

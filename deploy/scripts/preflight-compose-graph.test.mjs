@@ -3,7 +3,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { resolve } from "node:path";
-import { exactProtectedSecretFiles, validateComposeGraph } from "./preflight-compose-graph.mjs";
+import {
+  __testOnly as composeGraphTestOnly,
+  exactProtectedSecretFiles,
+  parseComposePsRows,
+  validateComposeGraph,
+} from "./preflight-compose-graph.mjs";
 
 function normalized(projectName) {
   const digestA = `sha256:${"a".repeat(64)}`;
@@ -15,6 +20,81 @@ function normalized(projectName) {
     env: { ...process.env, CWT_IMAGE_REFERENCE: `cwt.invalid/app@${digestA}`, CWT_IMAGE_INDEX_DIGEST: digestA, CWT_IMAGE_CHILD_DIGEST: digestB, CWT_PROXY_IMAGE_REFERENCE: `cwt.invalid/proxy@${digestC}`, CWT_CLOUDFLARE_RANGES_FILE: resolve("deploy/proxy/cloudflare-ranges.lab.conf") },
   }));
 }
+
+test("parses bounded Compose ps JSON Lines and compatible single-document shapes", () => {
+  const rows = [
+    { Service: "postgres", State: "running" },
+    { Service: "valkey-staging", State: "running" },
+  ];
+  assert.deepEqual(parseComposePsRows(rows.map(JSON.stringify).join("\n")), rows);
+  assert.deepEqual(parseComposePsRows(rows.map(JSON.stringify).join("\r\n")), rows);
+  assert.deepEqual(parseComposePsRows(JSON.stringify(rows)), rows);
+  assert.deepEqual(parseComposePsRows(JSON.stringify(rows[0])), [rows[0]]);
+  assert.deepEqual(parseComposePsRows(" \r\n\t "), []);
+
+  const maximumRows = Array.from({ length: 128 }, (_, index) => ({ Service: `service-${index}` }));
+  assert.equal(parseComposePsRows(JSON.stringify(maximumRows))?.length, 128);
+  assert.equal(parseComposePsRows(JSON.stringify([...maximumRows, { Service: "overflow" }])), null);
+  assert.equal(parseComposePsRows("x".repeat(64 * 1024 + 1)), null);
+  assert.equal(parseComposePsRows(1), null);
+});
+
+test("rejects malformed or non-row Compose ps records before any consumer policy", () => {
+  for (const value of [
+    "not-json",
+    `${JSON.stringify({ Service: "postgres" })}\n\n${JSON.stringify({ Service: "valkey-staging" })}`,
+    "null",
+    "1",
+    '"postgres"',
+    JSON.stringify([[{ Service: "postgres" }]]),
+    JSON.stringify({}),
+    JSON.stringify({ Service: 1 }),
+    `${JSON.stringify({ Service: "postgres" })}\n${JSON.stringify(null)}`,
+  ]) assert.equal(parseComposePsRows(value), null);
+});
+
+function protectedRows(mode) {
+  const running = (Service) => ({ Service, State: "running", Health: "healthy", Paused: false });
+  const rows = [
+    running("proxy"), running("web-production"), running("postgres"), running("valkey-production"),
+    { Service: "scheduler-production", State: "paused", Health: "healthy", Paused: true },
+    { Service: "worker-production", State: "exited", Health: "", Paused: false },
+  ];
+  for (const service of ["scheduler-staging", "valkey-staging", "web-staging", "worker-staging"]) {
+    rows.push(mode === "pre" ? { Service: service, State: "exited", Health: "", Paused: false } : running(service));
+  }
+  return rows;
+}
+
+test("protected pre/post state consumes the shared parser and keeps its state predicates", () => {
+  assert.doesNotThrow(() => composeGraphTestOnly.validateProtectedState(
+    "pre",
+    JSON.stringify(protectedRows("pre")),
+  ));
+  assert.doesNotThrow(() => composeGraphTestOnly.validateProtectedState(
+    "post",
+    protectedRows("post").map(JSON.stringify).join("\r\n"),
+  ));
+  assert.throws(
+    () => composeGraphTestOnly.validateProtectedState("post", JSON.stringify({})),
+    /project state is not a JSON array/u,
+  );
+  assert.throws(
+    () => composeGraphTestOnly.validateProtectedState("post", JSON.stringify({ Service: 1 })),
+    /project state is not a JSON array/u,
+  );
+  const duplicate = [...protectedRows("post"), { ...protectedRows("post")[0] }];
+  assert.throws(
+    () => composeGraphTestOnly.validateProtectedState("post", JSON.stringify(duplicate)),
+    /project state contains duplicate services/u,
+  );
+  const unhealthy = protectedRows("post");
+  unhealthy.find((row) => row.Service === "web-staging").Health = "unhealthy";
+  assert.throws(
+    () => composeGraphTestOnly.validateProtectedState("post", JSON.stringify(unhealthy)),
+    /web-staging is not stably running\/healthy/u,
+  );
+});
 
 test("accepts the default-project graph with exact default authority", () => {
   const document = normalized();

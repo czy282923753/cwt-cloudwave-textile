@@ -142,9 +142,49 @@ test("retains only bounded fixed service state from Compose 5.3.1 JSON or NDJSON
     "valkey-staging": { present: false, state: null, health: null, exitCode: null },
   });
   assert.equal(parseInfrastructureFailureServices("not-json"), null);
+  assert.equal(parseInfrastructureFailureServices(JSON.stringify({})), null);
+  assert.equal(parseInfrastructureFailureServices(JSON.stringify({ Service: 1 })), null);
   assert.equal(parseInfrastructureFailureServices(`${JSON.stringify(rows[0])}\n${JSON.stringify(rows[0])}`), null);
   assert.equal(parseInfrastructureFailureServices("x".repeat(16 * 1024 + 1)), null);
+  assert.deepEqual(parseInfrastructureFailureServices([
+    { Service: "unknown-service", State: "running", Health: "healthy", ExitCode: 0 },
+    { Service: "unknown-service", State: "exited", Health: "", ExitCode: 1 },
+  ].map(JSON.stringify).join("\n")), {
+    postgres: { present: false, state: null, health: null, exitCode: null },
+    "valkey-staging": { present: false, state: null, health: null, exitCode: null },
+  });
   assert.equal(JSON.stringify(ndjsonCaptured).includes("forbidden"), false);
+});
+
+test("runtime inventory accepts exactly three shared-parser rows and preserves reason boundaries", () => {
+  const exactRows = [
+    { Service: "postgres" },
+    { Service: "valkey-staging" },
+    { Service: "web-staging" },
+  ];
+  assert.doesNotThrow(() => __testOnly.validateProjectServiceSetOutput(
+    exactRows.map(JSON.stringify).join("\n"),
+  ));
+  assert.doesNotThrow(() => __testOnly.validateProjectServiceSetOutput(JSON.stringify(exactRows)));
+
+  for (const invalid of [
+    "not-json",
+    JSON.stringify({}),
+    JSON.stringify({ Service: 1 }),
+    `${JSON.stringify(exactRows[0])}\n\n${JSON.stringify(exactRows[1])}`,
+  ]) assert.throws(
+    () => __testOnly.validateProjectServiceSetOutput(invalid),
+    (error) => error?.code === "compose_project_inventory_invalid",
+  );
+
+  for (const mismatch of [
+    exactRows.slice(0, 2),
+    [...exactRows, { Service: "extra" }],
+    [...exactRows, { Service: "postgres" }],
+  ]) assert.throws(
+    () => __testOnly.validateProjectServiceSetOutput(JSON.stringify(mismatch)),
+    (error) => error?.code === "runtime_service_set_mismatch",
+  );
 });
 
 test("captures one read-only infrastructure state command and preserves collector failures as null", () => {
@@ -835,7 +875,7 @@ test("binds the pulled index, selected linux/amd64 child, revision and non-root 
 test("reuses existing authorities while preserving the PASS/NOT_PASS boundary and no revocation calls", () => {
   const source = readFileSync(resolve("deploy/scripts/preflight-linux-runtime.mjs"), "utf8");
   assert.match(source, /import \{ sha256File, verifyReleaseRecord \} from "\.\/preflight-image\.mjs"/u);
-  assert.match(source, /import \{ exactProtectedSecretFiles, validateComposeGraph \} from "\.\/preflight-compose-graph\.mjs"/u);
+  assert.match(source, /import \{ exactProtectedSecretFiles, parseComposePsRows, validateComposeGraph \} from "\.\/preflight-compose-graph\.mjs"/u);
   assert.match(source, /\/app\/scripts\/check-public-bundle\.mjs/u);
   assert.match(source, /status = mainFailure \? "NOT_PASS" : "PASS"/u);
   assert.doesNotMatch(source, /classifyValidationFailure|createRevocation|preflight-release-compose/u);

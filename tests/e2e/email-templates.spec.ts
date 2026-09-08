@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { devices, expect, test, type Locator, type Page } from "@playwright/test";
 
 const INTERNAL_PREVIEW_NAME = "Internal inquiry notification Synthetic Preview";
 const CUSTOMER_PREVIEW_NAME = "Customer inquiry confirmation Synthetic Preview";
@@ -203,7 +203,7 @@ async function applyLongInternalTemplate(page: Page, internal: Locator): Promise
     .toBeVisible();
 }
 
-test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, and role matrix", async ({ page }) => {
+test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, role matrix, and Pixel 7 coverage", async ({ browser, page }, testInfo) => {
   test.setTimeout(240_000);
   await loginAsLocalAdmin(page);
   const response = await page.goto("/admin/email-templates/");
@@ -274,6 +274,31 @@ test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, and r
   await expectPreviewContainment(page, 1280);
   await expectUnfilteredAxePass(page);
 
+  const mobileContext = await browser.newContext({
+    ...devices["Pixel 7"],
+    baseURL: testInfo.project.use.baseURL!,
+    extraHTTPHeaders: testInfo.project.use.extraHTTPHeaders!,
+  });
+  try {
+    const mobilePage = await mobileContext.newPage();
+    await loginAsLocalAdmin(mobilePage);
+    await mobilePage.goto("/admin/email-templates/");
+    await expect(mobilePage.getByRole("heading", { level: 1, name: "Email Templates" })).toBeVisible();
+    const focusTarget = mobilePage.getByRole("button", { name: "Test Active with Synthetic data" }).first();
+    await focusTarget.focus();
+    await expect(focusTarget).toBeFocused();
+    await expect(mobilePage.getByText("Revision 3 · applied · LIVE", { exact: true })).toBeVisible();
+    await expect(mobilePage.getByText(/awaiting independent review/)).toBeVisible();
+    await expectUniquePreviewLandmarks(mobilePage);
+    const mobileInternalPreview = mobilePage.getByRole("region", { name: INTERNAL_PREVIEW_NAME, exact: true });
+    expect(await mobileInternalPreview.locator("pre").textContent()).toBe(INTERNAL_V1_RENDERED);
+    await expectHistoryShaContrast(mobilePage);
+    await expectPreviewContainment(mobilePage, 412);
+    await expectUnfilteredAxePass(mobilePage);
+  } finally {
+    await mobileContext.close();
+  }
+
   const matrix = [
     ["admin@example.test", true, true, true, true],
     ["content-editor@example.test", true, true, false, false],
@@ -304,21 +329,4 @@ test("@desktop Email Template Admin lifecycle, rollback, Preview, capture, and r
   await page.context().clearCookies();
   await page.goto("/admin/email-templates/");
   await expect(page).toHaveURL(/\/operations-login\/?$/);
-});
-
-test("@mobile Email Template Admin is keyboard-focusable, accessible, and has no horizontal overflow", async ({ page }) => {
-  await loginAsLocalAdmin(page);
-  await page.goto("/admin/email-templates/");
-  await expect(page.getByRole("heading", { level: 1, name: "Email Templates" })).toBeVisible();
-  const focusTarget = page.getByRole("button", { name: "Test Active with Synthetic data" }).first();
-  await focusTarget.focus();
-  await expect(focusTarget).toBeFocused();
-  await expect(page.getByText("Revision 3 · applied · LIVE", { exact: true })).toBeVisible();
-  await expect(page.getByText(/awaiting independent review/)).toBeVisible();
-  await expectUniquePreviewLandmarks(page);
-  const internalPreview = page.getByRole("region", { name: INTERNAL_PREVIEW_NAME, exact: true });
-  expect(await internalPreview.locator("pre").textContent()).toBe(INTERNAL_V1_RENDERED);
-  await expectHistoryShaContrast(page);
-  await expectPreviewContainment(page, 412);
-  await expectUnfilteredAxePass(page);
 });
