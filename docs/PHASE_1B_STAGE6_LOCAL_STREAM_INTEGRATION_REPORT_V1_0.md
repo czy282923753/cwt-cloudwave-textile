@@ -949,3 +949,19 @@ The Review Low concerning the final cleanup diagnostic is recorded for the next 
 Verification was limited proportionally to documentation diff and semantic consistency. `.github/workflows/ci.yml` and `deploy/scripts/build-release-once.test.mjs` retain their reviewed `d4e79982...` SHA-256 values `8e6201ec404d344bff1c856b034497a1c009df762c89585ba64badebc6e88a0c` and `13e95252489602073203e8b12c4ff5c589257d980c398f9e2badd3b738c2a759`; all executable and protected paths remain byte-identical to `d4e79982c5c8378c2c18f4d0e8a71bb1fed12350`. The previously passed full suite, PostgreSQL build, Browser, Product and cleanup probes were not rerun. No Push, CI, Runner, Build, Registry, cloud/native action or phase acceptance occurred.
 
 The next gate is focused re-Review by the same independent Reviewer of exact correction commit `c9cac1618d49cb111d5aa6279d1e81ec300a81d1`; this Implementer does not self-approve.
+
+## Focused independent re-Review — governance remediation
+
+Recorded: **2026-09-08 (Asia/Shanghai)**
+
+Role: **Same Fresh Independent Reviewer**
+
+Verdict: **PASS / PRIOR MEDIUM CLOSED / LOW RETAINED / EXTERNAL VALIDATION REQUIRED**
+
+The reviewed source is exact correction Candidate `c9cac1618d49cb111d5aa6279d1e81ec300a81d1`, tree `918f52775d323af1c4b411758a1a97f5355d404a`, direct parent `40fe0dbd678fc172735d013a1dda9b465fde61d4`. Evidence-only successor `6e2cb85832861bab3d7b79f97dfad66c2c52cd6f` is its direct report-only child. The Candidate changes only two lines in `docs/CI_AND_GITHUB_GOVERNANCE.md`; its SHA-256 is `1b4afc9da1cd7b242e0e5ebe90543aa78a7a85e87a271ab680f19e8ba6e84d81`, and the pre-Review evidence report SHA-256 is `2cd27970930810c8211db065eaf7c90d8cbaff8bddea18571cde7b0d2c79ccc8`.
+
+The prior **Medium is CLOSED**. Item 2 and the final Stage 6 paragraph now permit one explicit reviewed exact-source/scope authorization covering normal non-force Push, real CI, and one conditional Build Once/private GHCR publication. Build/publication becomes executable only after hosted-CI and independent-evidence conditions pass; the text requires no second permission turn for the already granted same source/scope, creates no blanket future-source authority, forbids substitution or reuse of older Product/OCI/evidence identities, preserves local proof as supporting evidence only, and keeps Stage 7 HOLD. The historical erroneous report wording is explicitly preserved as history and superseded by the erratum.
+
+Security & Test Simplification remains **PASS**. The correction deletes the unnecessary sequencing constraint and adds no gate, state, framework, test mechanism or executable path. `.github/workflows/ci.yml`, `deploy/scripts/build-release-once.test.mjs`, all Product/runtime/protected paths and the earlier executable Review findings are unchanged. Per the bounded documentation-only assignment, no test, PostgreSQL build, Browser, Product or cleanup probe was rerun; identity, diff, hash, protected-path non-regression and semantic consistency checks passed.
+
+Severity after remediation: **Blocker 0 / High 0 / Medium 0 / Low 1**. The recorded cleanup-message wording Low remains non-blocking and deferred to the next otherwise-needed workflow edit. Hosted `macos-15` acquisition/compiler/image/capacity and the exact real-CI result remain **External Validation**. No Push, CI run/rerun, Build Once, Registry, cloud/native, publication or acceptance occurred; formal Build Once count and cost budget remain unconsumed. The coordinator may now present the already frozen single exact-source authorization proposal for `c9cac161...`; Stage 6 remains Partial / HOLD pending its external gates and coordinator disposition.
