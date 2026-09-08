@@ -88,8 +88,8 @@ After merge, the Coordinator verifies `main` CI on the exact merged source, expe
 Stage 6 remains Partial / HOLD. A CI correction is not accepted until all of the following are true:
 
 1. the exact source Candidate receives fresh independent Review with no blocking finding;
-2. the Owner separately authorizes its normal non-force Push after Review;
+2. after independent Review, the Owner may explicitly authorize one concrete exact-source operation covering normal non-force Push, real CI, and one conditional Build Once/private GHCR publication;
 3. the first applicable hosted run proves every substantive job executed on the intended runner and completed successfully, including PostgreSQL acquisition, hash, build, startup, Migration, unfiltered suite and unconditional cleanup;
 4. the Coordinator accepts the exact CI evidence and determines the next existing Stage 6 gate.
 
-A local Darwin/ARM64 PASS is supporting evidence only and cannot replace hosted CI. A source correction creates a new future Release identity: no authorization, Product tag, OCI index, child digest or evidence artifact tied to an earlier source may be reused. Any later Build Once/publication requires a separate exact-source authorization after CI acceptance. Stage 7 remains HOLD until separately approved.
+A local Darwin/ARM64 PASS is supporting evidence only and cannot replace hosted CI. The conditional Build Once/private publication in an explicit grant becomes executable only after all applicable hosted-CI and independent-evidence conditions pass; no second permission turn is required when that existing grant already covers the same exact source and scope. The grant is not blanket future Release authority and cannot expand to another source or scope without authorization. A source correction creates a new Release identity, so no earlier Product tag, OCI index, child digest or evidence artifact may be substituted or reused. Stage 7 remains HOLD until separately approved.
