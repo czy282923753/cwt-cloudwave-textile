@@ -931,3 +931,21 @@ Severity count: **Blocker 0 / High 0 / Medium 1 / Low 1**. The Medium is determi
 - The Implementer’s exact-Candidate full evidence—PostgreSQL 18.4 source/hash/build/live checks, fresh Migration through `0021`, **1337 passed / 10 existing skipped**, and residue-free cleanup—was audited but not redundantly rerun. No hosted CI, Build Once, Registry, cloud/native, Production or acceptance claim is created by this Review.
 
 Hosted `macos-15` source acquisition, compiler/image compatibility, runner capacity and the exact real-CI result remain **External Validation**. Formal Build Once count and cost budget remain unconsumed. After the one-file governance correction and focused independent re-Review, the coordinator may present the already frozen single exact-source authorization proposal; this Review does not Push, run CI, build, publish or accept Stage 6.
+
+## Bounded governance-remediation erratum
+
+Recorded: **2026-09-08 (Asia/Shanghai)**
+
+Status: **DOCUMENTATION CORRECTION COMPLETED / AWAITING SAME INDEPENDENT REVIEWER / STAGE 6 REMAINS PARTIAL / HOLD**
+
+The one-file correction is exact source commit `c9cac1618d49cb111d5aa6279d1e81ec300a81d1`, tree `918f52775d323af1c4b411758a1a97f5355d404a`, whose parent is independent-Review evidence commit `40fe0dbd678fc172735d013a1dda9b465fde61d4`. It changes only `docs/CI_AND_GITHUB_GOVERNANCE.md`, now SHA-256 `1b4afc9da1cd7b242e0e5ebe90543aa78a7a85e87a271ab680f19e8ba6e84d81`.
+
+The earlier implementation-addendum statements requiring another exact-source authorization only after hosted-CI acceptance are preserved above as historical evidence but are superseded by the corrected governance. After independent Review, the Owner may explicitly authorize one concrete operation bound to the exact corrected source and scope, covering normal non-force Push, real CI, and one conditional Build Once/private GHCR publication. That conditional build/publication may execute only after all applicable hosted-CI and independent-evidence conditions pass. An explicit grant that already covers that exact source and scope needs no second permission turn; it is not blanket future Release authority and cannot expand to another source or scope without authorization. The corrected source must create a new Release identity, and no earlier tag, OCI index, child digest or evidence artifact may be substituted or reused. Local proof remains supporting evidence only, hosted proof remains mandatory, and Stage 7 remains HOLD.
+
+No formal Build Once/private GHCR publication for this corrected-source line has run; its count and cost budget remain unconsumed. The future authorization remains exact-source-bound, and the coordinator will present one complete corrected-source proposal only after this correction passes focused re-Review.
+
+The Review Low concerning the final cleanup diagnostic is recorded for the next otherwise-required workflow edit. It is non-blocking: current behavior safely refuses the unmatched live PID, preserves the root and returns status `1`. This documentation-only correction does not change workflow or test bytes and does not expand into that Low.
+
+Verification was limited proportionally to documentation diff and semantic consistency. `.github/workflows/ci.yml` and `deploy/scripts/build-release-once.test.mjs` retain their reviewed `d4e79982...` SHA-256 values `8e6201ec404d344bff1c856b034497a1c009df762c89585ba64badebc6e88a0c` and `13e95252489602073203e8b12c4ff5c589257d980c398f9e2badd3b738c2a759`; all executable and protected paths remain byte-identical to `d4e79982c5c8378c2c18f4d0e8a71bb1fed12350`. The previously passed full suite, PostgreSQL build, Browser, Product and cleanup probes were not rerun. No Push, CI, Runner, Build, Registry, cloud/native action or phase acceptance occurred.
+
+The next gate is focused re-Review by the same independent Reviewer of exact correction commit `c9cac1618d49cb111d5aa6279d1e81ec300a81d1`; this Implementer does not self-approve.
