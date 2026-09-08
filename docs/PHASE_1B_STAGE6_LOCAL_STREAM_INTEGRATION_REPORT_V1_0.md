@@ -900,3 +900,34 @@ The full Browser, public-bundle/Product and Compose suites were not repeated sol
 No Push, workflow run/rerun, Runner credential, Registry/cloud/native operation, Build Once, publication, deployment or phase acceptance occurred. The earlier Build Once authority was not consumed and is not transferable to this corrected source. A future Release would require a new exact-source authorization after hosted CI acceptance.
 
 The next gate is fresh independent Review of immutable code Candidate `d4e79982c5c8378c2c18f4d0e8a71bb1fed12350`. Only after Review may the coordinator present a new concrete normal-Push/hosted-CI authorization. Stage 6 remains Partial / HOLD; this implementation does not self-approve and does not authorize any external action.
+
+## Fresh independent Review — Technical Escalation Option A CI platform convergence
+
+Recorded: **2026-09-08 (Asia/Shanghai)**
+
+Role: **Fresh Independent Reviewer**
+
+Verdict: **FAIL / BOUNDED REMEDIATION REQUIRED / STAGE 6 REMAINS PARTIAL / HOLD**
+
+Reviewed immutable code Candidate `d4e79982c5c8378c2c18f4d0e8a71bb1fed12350`, tree `387ef5302e4a5a8d5cfe1595c843cd51cbbeef91`, direct parent `f60f55589178490f2b987be0566a0ad9198ab391`. Evidence-only successor `3d3690aa5c819f89ba4936774e892e0fc0f0c862` is a two-commit report-only descendant through `c7fd49db0a987c6a92cbf9103606643aac5413e3`; the report SHA-256 is `4d98dd3990a1480333dc6d23dfc59751ba01ce84b3a6d0346dde165a8b400f20`. The frozen Option A analysis SHA-256 is `9fa6053f40f8ffe58fa0bbeceacd1930b3fbd5462d8550a71137275953c7de32`.
+
+### Security & Test Simplification Check
+
+**PASS.** The Candidate deletes the former Quality service authority, uses the standard `macos-15` runner and one official-source PostgreSQL lifecycle, and adds no framework, mirror, cache, helper service, persistent state or duplicate proof authority. `pg_ctl` remains the standard first stop path; the bounded PID/command fallback is justified by unconditional fail-closed cleanup and does not convert a non-zero stop into success. The existing workflow-slice contract test is extended rather than replaced by a new harness.
+
+### Findings
+
+- **[MEDIUM] Governance creates an unauthorized second permission turn.** `docs/CI_AND_GITHUB_GOVERNANCE.md:95` says any later Build Once/publication requires a *separate* exact-source authorization *after* CI acceptance; implementation-report lines 900–902 repeat that sequencing. Current explicit coordinator authority has instead frozen one future concrete proposal covering normal Push/real CI and conditional Build Once/private publication after Review. The Candidate text therefore changes authorization sequencing beyond this CI repair and can unnecessarily block the operator after hosted-CI PASS. Remediate only `docs/CI_AND_GITHUB_GOVERNANCE.md`: retain exact-source authorization, hosted-CI PASS, no identity reuse and Stage 7 HOLD, but remove the requirement that authorization itself occur in a second post-CI permission turn. State that a previously explicit exact-source conditional authorization may become executable only after the hosted-CI and independent-evidence conditions pass. No workflow, Product, test or new approval mechanism is justified.
+- **[LOW] The final cleanup diagnostic overstates ownership after an identity mismatch.** `.github/workflows/ci.yml:238-245` first correctly refuses to signal a non-matching live PID, then calls the same PID a “Task-owned PostgreSQL postmaster.” The behavior is safe—signal refused, root preserved, status non-zero—but the second message can confuse incident evidence. This does not block the current remediation. At the next workflow edit, use neutral wording such as “PID recorded by the task cluster remains live” and update the existing string assertion if needed; do not add a new test framework.
+
+Severity count: **Blocker 0 / High 0 / Medium 1 / Low 1**. The Medium is deterministic governance/operational impact and therefore blocks Push under the current Review boundary until the one-file correction receives focused re-Review.
+
+### Verification and disposition
+
+- The Candidate changes exactly `.github/workflows/ci.yml`, `deploy/scripts/build-release-once.test.mjs`, and `docs/CI_AND_GITHUB_GOVERNANCE.md`; protected Product, package/lockfile, Migration, runtime-guard, checker, Dockerfile and Compose paths are byte-identical to `f60f5558...`. The rejected `cec40731...` Linux-only correction is not in the Candidate lineage or current Quality implementation.
+- Candidate path SHA-256 values independently match the implementation record: workflow `8e6201ec404d344bff1c856b034497a1c009df762c89585ba64badebc6e88a0c`, contract test `13e95252489602073203e8b12c4ff5c589257d980c398f9e2badd3b738c2a759`, governance `3e122cf0436f10e57bf6b4f1c528ada981f4a02f626be0fb836f377fd5e06e86`.
+- `git diff --check` passed; every Quality `run` block passed Bash syntax validation; the full focused file `node --test deploy/scripts/build-release-once.test.mjs` passed **9/9** on Node `24.14.0` / pnpm `11.9.0`.
+- The exact cleanup script extracted from the Candidate workflow passed three controlled behavior probes: ordinary cleanup returned `0` and removed the root; forced `pg_ctl` failure terminated only a command-identical task-owned PID, removed the root and preserved status `1`; a non-owned live PID was not signalled, the root was preserved and status remained `1`.
+- The Implementer’s exact-Candidate full evidence—PostgreSQL 18.4 source/hash/build/live checks, fresh Migration through `0021`, **1337 passed / 10 existing skipped**, and residue-free cleanup—was audited but not redundantly rerun. No hosted CI, Build Once, Registry, cloud/native, Production or acceptance claim is created by this Review.
+
+Hosted `macos-15` source acquisition, compiler/image compatibility, runner capacity and the exact real-CI result remain **External Validation**. Formal Build Once count and cost budget remain unconsumed. After the one-file governance correction and focused independent re-Review, the coordinator may present the already frozen single exact-source authorization proposal; this Review does not Push, run CI, build, publish or accept Stage 6.
