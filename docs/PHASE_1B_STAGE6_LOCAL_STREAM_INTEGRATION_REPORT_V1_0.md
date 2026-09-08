@@ -965,3 +965,26 @@ The prior **Medium is CLOSED**. Item 2 and the final Stage 6 paragraph now permi
 Security & Test Simplification remains **PASS**. The correction deletes the unnecessary sequencing constraint and adds no gate, state, framework, test mechanism or executable path. `.github/workflows/ci.yml`, `deploy/scripts/build-release-once.test.mjs`, all Product/runtime/protected paths and the earlier executable Review findings are unchanged. Per the bounded documentation-only assignment, no test, PostgreSQL build, Browser, Product or cleanup probe was rerun; identity, diff, hash, protected-path non-regression and semantic consistency checks passed.
 
 Severity after remediation: **Blocker 0 / High 0 / Medium 0 / Low 1**. The recorded cleanup-message wording Low remains non-blocking and deferred to the next otherwise-needed workflow edit. Hosted `macos-15` acquisition/compiler/image/capacity and the exact real-CI result remain **External Validation**. No Push, CI run/rerun, Build Once, Registry, cloud/native, publication or acceptance occurred; formal Build Once count and cost budget remain unconsumed. The coordinator may now present the already frozen single exact-source authorization proposal for `c9cac161...`; Stage 6 remains Partial / HOLD pending its external gates and coordinator disposition.
+
+## Authorized corrected-source Push and real CI outcome
+
+Recorded: **2026-09-08 (Asia/Shanghai)**
+
+Disposition: **BLOCKED AT REAL CI / CONDITIONAL BUILD ON HOLD / STAGE 6 REMAINS PARTIAL**
+
+The Owner-authorized corrected-source operation began with a fresh volatile precheck. Remote `main` was exact `f60f55589178490f2b987be0566a0ad9198ab391`; authorized source `c9cac1618d49cb111d5aa6279d1e81ec300a81d1`, tree `918f52775d323af1c4b411758a1a97f5355d404a`, remained its ordinary five-commit descendant. There were zero active repository runs, zero registered repository Runners, zero existing release-workflow runs for `c9cac161...`, and zero private GHCR package versions carrying the corrected-source tag. The release workflow remained active and byte-unchanged across the source range. The selected existing Mac had exact Node `24.14.0`, Docker Server `29.6.2`, Buildx `v0.35.0-desktop.2`, and zero running containers.
+
+One ordinary non-force Push advanced remote `main` from `f60f5558...` to exact authorized source `c9cac161...`. The automatic push-triggered [CWT quality gates run `34205904510`](https://github.com/czy282923753/cwt-cloudwave-textile/actions/runs/34205904510), attempt `1`, ran from `2026-09-08T08:41:52Z` through `08:59:13Z` at exact head `c9cac161...` and completed `failure`. Its job outcomes were:
+
+| Job | Result |
+| --- | --- |
+| Dependency security, job `101995199049` | **SUCCESS**, `7s` |
+| Build + public bundle, job `101995199647` | **SUCCESS**, `1m10s` |
+| Browser, job `101995198835` | **SUCCESS**, `6m15s`, with the no-retry acceptance step successful |
+| Quality + PostgreSQL + AI proof, job `101995198688` | **FAILURE**, `17m12s` |
+
+Within Quality, exact runtime identity, dependency installation, AI Prompt authority and append-only history, Phase D synthetic boundary, Lint and Typecheck all passed. The job downloaded the sole official PostgreSQL 18.4 archive from `https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2`, verified literal SHA-256 `81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094` (`postgresql-18.4.tar.bz2: OK`), built and started the isolated loopback server, and applied the fresh Migration through `0021`; each of those workflow steps completed `success`.
+
+The only failed step was `Run the full test suite with PostgreSQL suites enabled`. Vitest completed with **174 test files passed / 1 skipped (`176` total reported), 1330 tests passed / 10 skipped (`1347` total reported), one unhandled error, duration `841.18s`**. The terminal error was `SyntaxError: Unexpected token '�', "�" is not valid JSON` while `convert-source-map@2.0.0` and `@vitest/utils` were extracting a source map. No business-test assertion failure was reported, but the unhandled error correctly made the command and run fail with exit code `1`; this evidence therefore cannot be accepted as hosted-CI PASS. The bounded failure-diagnostics step completed `success`, and unconditional `Stop and remove task-owned PostgreSQL` also completed `success` immediately afterward.
+
+Final read-only checks found remote `main` still exact `c9cac161...`, zero active repository runs, zero registered repository Runners, zero release-workflow runs at this head, zero matching GHCR versions, zero running local Docker containers, and no reserved Build Once Runner root. No registration token, Runner, Build Once dispatch, Environment approval, Product build, Registry write, publication, cloud/native operation, deployment or acceptance was created. The already authorized conditional Build Once remains non-executable because its real-CI condition did not pass. The next gate is coordinator confirmation of this failed external evidence and a reviewed causal remediation decision; this Operator stops at the CI failure boundary and grants no retry or expanded action.
