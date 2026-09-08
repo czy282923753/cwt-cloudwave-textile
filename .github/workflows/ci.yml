@@ -40,24 +40,10 @@ jobs:
   quality-postgres:
     name: Quality + PostgreSQL + AI proof
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       CWT_PHASE_C_POSTGRES_URL: postgres://cwt_ci@127.0.0.1:55432/cwt_ci
-    services:
-      postgres:
-        image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
-        env:
-          POSTGRES_USER: cwt_ci
-          POSTGRES_DB: cwt_ci
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U cwt_ci -d cwt_ci"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -110,6 +96,72 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build exact PostgreSQL 18.4 from official source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_root="${RUNNER_TEMP:?}/cwt-postgresql-18.4-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${GITHUB_JOB:?}"
+          pg_archive="$pg_root/source/postgresql-18.4.tar.bz2"
+          pg_source="$pg_root/source/postgresql-18.4"
+          pg_build="$pg_root/build"
+          pg_install="$pg_root/install"
+          mkdir -p "$pg_root/source" "$pg_build" "$pg_install" "$pg_root/data" "$pg_root/log"
+
+          curl --fail --show-error --silent --location \
+            --proto '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 180 \
+            --retry 3 --retry-delay 2 --retry-connrefused --retry-max-time 240 \
+            --output "$pg_archive" \
+            https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2
+          printf '%s  %s\n' \
+            '81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094' \
+            "$pg_archive" | shasum -a 256 --check
+          tar -xjf "$pg_archive" -C "$pg_root/source"
+
+          cd "$pg_build"
+          "$pg_source/configure" \
+            --prefix="$pg_install" \
+            --without-readline \
+            --without-zlib \
+            --without-icu \
+            --cache-file="$pg_build/config.cache"
+          make -C "$pg_build" -j"$(sysctl -n hw.ncpu)"
+          make -C "$pg_build" install
+          test "$("$pg_install/bin/postgres" --version)" = 'postgres (PostgreSQL) 18.4'
+
+      - name: Start isolated PostgreSQL 18.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_root="${RUNNER_TEMP:?}/cwt-postgresql-18.4-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${GITHUB_JOB:?}"
+          pg_install="$pg_root/install"
+          pg_data="$pg_root/data"
+          pg_log="$pg_root/log/postgresql.log"
+
+          "$pg_install/bin/initdb" \
+            --pgdata="$pg_data" \
+            --encoding=UTF8 \
+            --locale=C \
+            --auth-local=trust \
+            --auth-host=trust \
+            --username=cwt_ci
+          "$pg_install/bin/pg_ctl" \
+            --pgdata="$pg_data" \
+            --log="$pg_log" \
+            --options='-h 127.0.0.1 -p 55432' \
+            --wait --timeout=60 start
+          "$pg_install/bin/createdb" \
+            --host=127.0.0.1 --port=55432 --username=cwt_ci cwt_ci
+          test "$("$pg_install/bin/psql" \
+            --host=127.0.0.1 --port=55432 --username=cwt_ci --dbname=cwt_ci \
+            --tuples-only --no-align --command='SHOW server_version')" = '18.4'
+          test "$("$pg_install/bin/psql" \
+            --host=127.0.0.1 --port=55432 --username=cwt_ci --dbname=cwt_ci \
+            --tuples-only --no-align --command='SHOW server_encoding')" = 'UTF8'
+          test "$("$pg_install/bin/psql" \
+            --host=127.0.0.1 --port=55432 --username=cwt_ci --dbname=cwt_ci \
+            --tuples-only --no-align --command='SELECT 1')" = '1'
+
       - name: Apply fresh PostgreSQL migrations through 0021
         env:
           APP_ENV: test
@@ -124,6 +176,79 @@ jobs:
         env:
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
         run: pnpm test:run
+
+      - name: Report bounded PostgreSQL failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          pg_root="${RUNNER_TEMP:?}/cwt-postgresql-18.4-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${GITHUB_JOB:?}"
+          pg_log="$pg_root/log/postgresql.log"
+          if [ -f "$pg_log" ]; then
+            echo 'Last PostgreSQL log bytes (synthetic CI cluster only):'
+            tail -c 32768 "$pg_log" | tail -n 200
+          else
+            echo 'No PostgreSQL server log was created before the failure.'
+          fi
+
+      - name: Stop and remove task-owned PostgreSQL
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          pg_root="${RUNNER_TEMP:?}/cwt-postgresql-18.4-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}-${GITHUB_JOB:?}"
+          pg_install="$pg_root/install"
+          pg_data="$pg_root/data"
+          cleanup_status=0
+          owned_pid=''
+
+          case "$pg_root" in
+            "${RUNNER_TEMP}/cwt-postgresql-18.4-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}") ;;
+            *) echo 'Refusing cleanup outside the exact task-owned PostgreSQL root.' >&2; exit 1 ;;
+          esac
+
+          if [ -f "$pg_data/postmaster.pid" ]; then
+            owned_pid="$(sed -n '1p' "$pg_data/postmaster.pid")"
+          fi
+          if [ -x "$pg_install/bin/pg_ctl" ] && [ -f "$pg_data/postmaster.pid" ]; then
+            "$pg_install/bin/pg_ctl" \
+              --pgdata="$pg_data" --mode=fast --wait --timeout=60 stop || cleanup_status=1
+          fi
+
+          if [[ "$owned_pid" =~ ^[0-9]+$ ]] && kill -0 "$owned_pid" 2>/dev/null; then
+            owned_command="$(ps -ww -p "$owned_pid" -o command= 2>/dev/null)"
+            case "$owned_command" in
+              "$pg_install/bin/postgres -D $pg_data"*)
+                echo 'pg_ctl did not stop the task-owned server; terminating only its verified postmaster.' >&2
+                cleanup_status=1
+                kill -TERM "$owned_pid" 2>/dev/null
+                for _ in {1..20}; do
+                  kill -0 "$owned_pid" 2>/dev/null || break
+                  sleep 1
+                done
+                if kill -0 "$owned_pid" 2>/dev/null; then
+                  kill -KILL "$owned_pid" 2>/dev/null
+                  for _ in {1..10}; do
+                    kill -0 "$owned_pid" 2>/dev/null || break
+                    sleep 1
+                  done
+                fi
+                ;;
+              *)
+                echo 'Refusing to signal a live process that is not the task-owned PostgreSQL postmaster.' >&2
+                cleanup_status=1
+                ;;
+            esac
+          fi
+
+          if [[ "$owned_pid" =~ ^[0-9]+$ ]] && kill -0 "$owned_pid" 2>/dev/null; then
+            echo 'Task-owned PostgreSQL postmaster remains live; preserving its root for runner teardown.' >&2
+            cleanup_status=1
+          else
+            rm -rf -- "$pg_root" || cleanup_status=1
+            [ ! -e "$pg_root" ] || cleanup_status=1
+          fi
+          exit "$cleanup_status"
 
   build-bundle:
     name: Build + public bundle

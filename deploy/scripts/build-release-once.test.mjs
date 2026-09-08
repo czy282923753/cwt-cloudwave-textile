@@ -18,6 +18,101 @@ const promptTuples = [
   ["sourcing-guide-draft", 1, "e4aaf2e39483bde7569edb529f1c1d213b0a11d68ac4a9b99075992620238adf"],
 ];
 const scannerChunkIdentity = "server/chunks/ssr/admin-ai.js";
+const postgresSourceUrl = "https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2";
+const postgresSourceSha256 = "81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094";
+
+function countLiteral(value, literal) {
+  return value.split(literal).length - 1;
+}
+
+function assertQualityPostgresContract(qualityPostgres) {
+  assert.match(qualityPostgres, /runs-on: macos-15/u, "Quality must use the governed Darwin/ARM64 runner");
+  assert.doesNotMatch(
+    qualityPostgres,
+    /services:|postgres:18\.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382|\bbrew\b|postgresql@18|Cellar/u,
+    "Quality must have only the task-local PostgreSQL source lifecycle",
+  );
+  assert.equal(countLiteral(qualityPostgres, postgresSourceUrl), 1, "Quality must acquire the exact source once");
+  assert.equal(countLiteral(qualityPostgres, postgresSourceSha256), 1, "Quality must embed one exact source digest");
+  assert.equal(countLiteral(qualityPostgres, "curl --fail --show-error --silent --location"), 1, "Quality must have one acquisition path");
+  assert.match(qualityPostgres, /--proto '=https' --tlsv1\.2/u, "Acquisition must require HTTPS and TLS 1.2 or newer");
+  assert.match(qualityPostgres, /--connect-timeout 20 --max-time 180/u, "Acquisition must bound connection and transfer time");
+  assert.match(qualityPostgres, /--retry 3 --retry-delay 2 --retry-connrefused --retry-max-time 240/u, "Acquisition retries must be bounded");
+
+  const typecheckIndex = qualityPostgres.indexOf("- name: Typecheck");
+  const acquisitionIndex = qualityPostgres.indexOf(postgresSourceUrl);
+  const digestIndex = qualityPostgres.indexOf(postgresSourceSha256);
+  const verificationIndex = qualityPostgres.indexOf("shasum -a 256 --check");
+  const extractionIndex = qualityPostgres.indexOf("tar -xjf");
+  const startupIndex = qualityPostgres.indexOf("--wait --timeout=60 start");
+  const migrationIndex = qualityPostgres.indexOf("- name: Apply fresh PostgreSQL migrations through 0021");
+  const fullSuiteIndex = qualityPostgres.indexOf("run: pnpm test:run");
+  const diagnosticsIndex = qualityPostgres.indexOf("- name: Report bounded PostgreSQL failure diagnostics");
+  const cleanupIndex = qualityPostgres.indexOf("- name: Stop and remove task-owned PostgreSQL");
+  assert.ok(typecheckIndex >= 0 && typecheckIndex < acquisitionIndex, "PostgreSQL acquisition must follow Typecheck");
+  assert.ok(acquisitionIndex < digestIndex && digestIndex < verificationIndex, "The literal digest must govern checksum verification");
+  assert.ok(verificationIndex < extractionIndex, "Source integrity must be verified before extraction");
+  assert.ok(extractionIndex < startupIndex && startupIndex < migrationIndex, "A verified new cluster must start before Migration");
+  assert.ok(migrationIndex < fullSuiteIndex, "Fresh Migration must precede the full suite");
+  assert.ok(fullSuiteIndex < diagnosticsIndex && diagnosticsIndex < cleanupIndex, "Diagnostics and cleanup must follow substantive gates");
+
+  for (const flag of ["--without-readline", "--without-zlib", "--without-icu"]) {
+    assert.equal(countLiteral(qualityPostgres, flag), 1, `Quality must configure PostgreSQL with ${flag}`);
+  }
+  assert.match(qualityPostgres, /--prefix="\$pg_install"/u, "PostgreSQL must install below the task root");
+  assert.match(
+    qualityPostgres,
+    /test "\$\("\$pg_install\/bin\/postgres" --version\)" = 'postgres \(PostgreSQL\) 18\.4'/u,
+    "Quality must require the exact PostgreSQL binary identity",
+  );
+  assert.equal(countLiteral(qualityPostgres, '"$pg_install/bin/initdb"'), 1, "Quality must initialize one new cluster");
+  assert.match(qualityPostgres, /--encoding=UTF8/u, "The new cluster must use UTF8");
+  assert.match(qualityPostgres, /--locale=C/u, "The new cluster must use locale C");
+  assert.match(qualityPostgres, /--auth-local=trust[\s\S]*--auth-host=trust/u, "Trust auth must be explicit inside the isolated job");
+  assert.equal(countLiteral(qualityPostgres, "--wait --timeout=60 start"), 1, "Quality must start one PostgreSQL authority");
+  assert.match(qualityPostgres, /--options='-h 127\.0\.0\.1 -p 55432'/u, "PostgreSQL must bind only to the governed loopback endpoint");
+  assert.match(
+    qualityPostgres,
+    /--host=127\.0\.0\.1 --port=55432 --username=cwt_ci cwt_ci/u,
+    "Quality must create the synthetic cwt_ci database as cwt_ci",
+  );
+  assert.match(qualityPostgres, /--command='SHOW server_version'\)" = '18\.4'/u, "The live server version must be exact");
+  assert.match(qualityPostgres, /--command='SHOW server_encoding'\)" = 'UTF8'/u, "The live server encoding must be UTF8");
+  assert.match(qualityPostgres, /--command='SELECT 1'\)" = '1'/u, "The synthetic connection must succeed");
+
+  assert.match(qualityPostgres, /run: pnpm check:ai-prompts/u, "The AI Prompt authority gate must remain");
+  assert.match(qualityPostgres, /run: pnpm check:ai-phase-d-synthetic/u, "The Phase D synthetic gate must remain");
+  assert.match(qualityPostgres, /test -f drizzle\/0020_phase1b_ai_foundation\.sql/u, "Migration 0020 must remain in the fresh-chain gate");
+  assert.match(qualityPostgres, /test -f drizzle\/0021_phase_f_k1_run_cost_ceiling\.sql/u, "Migration 0021 must remain in the fresh-chain gate");
+  assert.equal(countLiteral(qualityPostgres, "pnpm db:migrate"), 1, "Quality must apply one fresh Migration chain");
+  assert.match(
+    qualityPostgres,
+    /- name: Run the full test suite with PostgreSQL suites enabled\n        env:\n          NEXT_PUBLIC_SITE_URL: http:\/\/localhost:3000\n        run: pnpm test:run\n/u,
+    "Quality must run the unfiltered full suite with PostgreSQL suites enabled",
+  );
+  assert.equal(countLiteral(qualityPostgres, "run: pnpm test:run"), 1, "Quality must have one unfiltered full-suite command");
+
+  assert.match(qualityPostgres, /if: failure\(\)[\s\S]*tail -c 32768 "\$pg_log" \| tail -n 200/u, "Failure diagnostics must be bounded");
+  assert.match(qualityPostgres, /if: always\(\)/u, "PostgreSQL cleanup must be unconditional");
+  assert.match(qualityPostgres, /--pgdata="\$pg_data" --mode=fast --wait --timeout=60 stop/u, "Cleanup must stop the owned cluster first");
+  assert.match(qualityPostgres, /Refusing to signal a live process that is not the task-owned PostgreSQL postmaster/u, "Cleanup must not signal unrelated processes");
+  assert.match(qualityPostgres, /rm -rf -- "\$pg_root"/u, "Cleanup must remove the exact task-owned root");
+  assert.match(qualityPostgres, /Task-owned PostgreSQL postmaster remains live/u, "Cleanup must fail closed on a live owned server");
+
+  assert.match(qualityPostgres, /pnpm\/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86[\s\S]*version: 11\.9\.0/u);
+  assert.match(qualityPostgres, /actions\/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38[\s\S]*node-version: 24\.14\.0/u);
+}
+
+function assertRejectedQualityMutation(name, qualityPostgres, expectedMessage) {
+  assert.throws(
+    () => assertQualityPostgresContract(qualityPostgres),
+    (error) => {
+      assert.match(error.message, expectedMessage);
+      return true;
+    },
+    name,
+  );
+}
 
 function writeFixtureFile(root, relativePath, content) {
   const path = resolve(root, relativePath);
@@ -113,7 +208,7 @@ test("workspace and CI callers each reach exactly one build-before-bundle sequen
   assert.match(buildBundleJob, /name: Build and verify the public bundle boundary/u);
 });
 
-test("CI binds builds to the checked-out source and uses one exact PostgreSQL service", () => {
+test("CI binds builds to the checked-out source and owns one exact Darwin PostgreSQL source lifecycle", () => {
   const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
   const workflowEnvironment = ci.slice(ci.indexOf("env:"), ci.indexOf("jobs:"));
   assert.match(
@@ -122,22 +217,84 @@ test("CI binds builds to the checked-out source and uses one exact PostgreSQL se
   );
 
   const qualityPostgres = ci.slice(ci.indexOf("  quality-postgres:"), ci.indexOf("  build-bundle:"));
-  assert.match(qualityPostgres, /runs-on: ubuntu-24\.04/u);
-  assert.match(
-    qualityPostgres,
-    /image: postgres:18\.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382/u,
-  );
-  assert.match(qualityPostgres, /POSTGRES_USER: cwt_ci/u);
-  assert.match(qualityPostgres, /POSTGRES_DB: cwt_ci/u);
-  assert.match(qualityPostgres, /POSTGRES_HOST_AUTH_METHOD: trust/u);
-  assert.match(qualityPostgres, /- 55432:5432/u);
-  assert.match(qualityPostgres, /--health-cmd "pg_isready -U cwt_ci -d cwt_ci"/u);
-  assert.doesNotMatch(qualityPostgres, /brew|Cellar|initdb|pg_ctl|createdb|RUNNER_TEMP/u);
-  assert.match(
-    qualityPostgres,
-    /- name: Run the full test suite with PostgreSQL suites enabled\n        env:\n          NEXT_PUBLIC_SITE_URL: http:\/\/localhost:3000\n        run: pnpm test:run/u,
-  );
+  assertQualityPostgresContract(qualityPostgres);
   assert.match(workflowEnvironment, /NEXT_PUBLIC_SITE_URL: http:\/\/127\.0\.0\.1:3100/u);
+
+  assertRejectedQualityMutation(
+    "the former x64 runner is rejected",
+    qualityPostgres.replace("runs-on: macos-15", "runs-on: ubuntu-24.04"),
+    /governed Darwin\/ARM64 runner/u,
+  );
+  assertRejectedQualityMutation(
+    "the former service acquisition is rejected inside Quality",
+    qualityPostgres.replace("    steps:", "    services:\n      postgres:\n        image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382\n    steps:"),
+    /task-local PostgreSQL source lifecycle/u,
+  );
+  assertRejectedQualityMutation(
+    "a changed source version is rejected",
+    qualityPostgres.replace(postgresSourceUrl, "https://ftp.postgresql.org/pub/source/v18.5/postgresql-18.5.tar.bz2"),
+    /exact source once/u,
+  );
+  assertRejectedQualityMutation(
+    "a changed embedded digest is rejected",
+    qualityPostgres.replace(postgresSourceSha256, "0".repeat(64)),
+    /one exact source digest/u,
+  );
+  assertRejectedQualityMutation(
+    "extraction before verification is rejected",
+    qualityPostgres.replace("shasum -a 256 --check\n          tar -xjf", "tar -xjf\n          shasum -a 256 --check\n          tar -xjf"),
+    /verified before extraction/u,
+  );
+  assertRejectedQualityMutation(
+    "a weakened binary version assertion is rejected",
+    qualityPostgres.replace("test \"$(\"$pg_install/bin/postgres\" --version)\" = 'postgres (PostgreSQL) 18.4'", "\"$pg_install/bin/postgres\" --version"),
+    /exact PostgreSQL binary identity/u,
+  );
+  assertRejectedQualityMutation(
+    "a public PostgreSQL bind is rejected",
+    qualityPostgres.replace("--options='-h 127.0.0.1 -p 55432'", "--options='-h 0.0.0.0 -p 55432'"),
+    /governed loopback endpoint/u,
+  );
+  assertRejectedQualityMutation(
+    "a changed synthetic database identity is rejected",
+    qualityPostgres.replace("--username=cwt_ci cwt_ci", "--username=postgres postgres"),
+    /synthetic cwt_ci database/u,
+  );
+  assertRejectedQualityMutation(
+    "removing Migration 0020 is rejected",
+    qualityPostgres.replace("test -f drizzle/0020_phase1b_ai_foundation.sql", "true"),
+    /Migration 0020/u,
+  );
+  assertRejectedQualityMutation(
+    "removing Migration 0021 is rejected",
+    qualityPostgres.replace("test -f drizzle/0021_phase_f_k1_run_cost_ceiling.sql", "true"),
+    /Migration 0021/u,
+  );
+  assertRejectedQualityMutation(
+    "filtering the full suite is rejected",
+    qualityPostgres.replace("run: pnpm test:run", "run: pnpm test:run -- src/ai"),
+    /unfiltered full suite/u,
+  );
+  assertRejectedQualityMutation(
+    "removing the AI synthetic gate is rejected",
+    qualityPostgres.replace("run: pnpm check:ai-phase-d-synthetic", "run: echo skipped"),
+    /Phase D synthetic gate/u,
+  );
+  assertRejectedQualityMutation(
+    "conditional cleanup is rejected",
+    qualityPostgres.replace("if: always()", "if: success()"),
+    /cleanup must be unconditional/u,
+  );
+  assertRejectedQualityMutation(
+    "a duplicate acquisition authority is rejected",
+    qualityPostgres.replace(postgresSourceUrl, `${postgresSourceUrl}\n          ${postgresSourceUrl}`),
+    /exact source once/u,
+  );
+  assertRejectedQualityMutation(
+    "a duplicate startup authority is rejected",
+    qualityPostgres.replace("--wait --timeout=60 start", "--wait --timeout=60 start\n          --wait --timeout=60 start"),
+    /start one PostgreSQL authority/u,
+  );
 });
 
 test("Next build identity rejects missing input and returns one lowercase source head", () => {
