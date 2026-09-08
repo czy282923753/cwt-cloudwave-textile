@@ -660,3 +660,173 @@ The failure is a deterministic Docker Compose 5.3.1 output-compatibility defect 
 Cleanup began after the terminal outcome but required interactive Owner identity validation before Tencent accepted destruction. The instance was then destroyed, its associated system disk and ordinary public address were released, and Security Group `sg-4iixds1o` was deleted after its association count reached zero. Authenticated Singapore inventories subsequently showed zero CVMs, zero cloud disks, zero public IPs and zero Security Groups. GitHub repository Runner inventory also returned zero. Final absence proof completed by `2026-09-08 07:49:12 +0800`. This was approximately 111 minutes after instance creation and exceeded both the accepted teardown-by-80-minute and finish-by-90-minute limits. It is recorded as an operational nonconformance; provider identity validation and the interactive handoff do not reset or excuse the lifecycle clock. Exact provider-settled cost was not yet available and no cost-compliance claim is made.
 
 The attempt is **NOT PASS** and creates no Stage acceptance, deployment or promotion authority. The native host and all attempt-owned cloud resources are gone, so there is no recoverable raw service inventory. The minimum next implementation is to replace the single-document parser at the existing bounded inventory boundary with strict support for Compose 5.3.1's one-object or newline-delimited-object output, while retaining the exact three-service equality check and sanitized failure behavior. That change requires focused tests and independent Review before any separately authorized native rerun. This execution report performs no such implementation, rerun, Product rebuild, Registry write, deployment or phase action.
+
+## Technical Escalation causal convergence and replacement repair plan Candidate V1.0
+
+Status: **ANALYSIS COMPLETE / REPAIR PLAN CANDIDATE / HOLD — the failed remediation loop is frozen; no implementation, Push, rebuild, Registry mutation, native retry, deployment or phase action is authorized by this section.** Plan identity: `S6-TE-RP-V1.0`. Analysis baseline: report/evidence commit `78596cf51ea67cc43a7999ebe91b3413f54c3ed4`, whose parent is preparation-only commit `4e0b754ff548392d85cd19f19d4e1214505d0c14`; reviewed executable tools remain exact `787d699ce68c562ea02ee5b632500c23fd2787e6`. This section is the sole versioned Technical Escalation analysis/plan addition and does not replace the immutable evidence already recorded above.
+
+### Frozen evidence and causal conclusion
+
+The prior corrections were causally valid at their own boundaries, but each successful correction exposed a later contract that had not been executed before the next paid native attempt. This is not evidence that the dependency-closure, outcome-handoff or Runner-child-umask corrections regressed. The recurring system-level cause is **continuation-proof fragmentation**: real command contracts were parsed or launched through multiple caller-specific paths, and the paid one-shot native run remained the first coherent execution of the newly reachable downstream path. The current source demonstrates the same pattern outside the native validator: three Compose inventory consumers use two incompatible parsing policies; CI asks a rolling Homebrew formula for an exact patch release; builds require a release identity that CI never binds; and server-only CLI callers do not consistently select the already established Node `react-server` condition.
+
+The replacement direction is therefore one bounded convergence, not a fourth symptom patch:
+
+1. one strict Compose-`ps` row parser serves every current consumer;
+2. CI inputs become immutable or source-derived at their existing authority boundaries;
+3. every direct server-only CLI caller uses the repository's existing Node export-condition convention;
+4. the exact Product/runtime continuation and all three ordinary CI paths must pass before any future native run can be considered;
+5. the cloud lifecycle clock and credential-handling timestamps are recorded as separate events instead of being inferred from final absence.
+
+| Frozen fact | Evidence-backed result |
+| --- | --- |
+| Native authority | GitHub run [`34165385584`](https://github.com/czy282923753/cwt-cloudwave-textile/actions/runs/34165385584), job `101875288060`, one `workflow_dispatch`, exact head `787d699c...`; checkouts, Runner binding, detached evidence, release reconciliation, ORAS, GHCR authentication and exact OCI materialization passed. |
+| Sole native failure | The Runtime authority ran from `06:06:09` through `06:07:51 +0800` and returned `NOT_PASS / compose_project_inventory_invalid`; retained artifact `10034024882` contains `linux-runtime-validation.json` at SHA-256 `972b7c7c541dd74340d0c923bc901b307c5d6977e9a5ee2c112de23c762e8a69`. |
+| Product binding | Release `68c15e6bcd2900f5e634f6c6c6e3b8b3f5550641`, index `sha256:c8d4d1c3148670a683a3509bafb7d832afc6fbe3bb811e2de19b27ae63540ce4`, selected `linux/amd64` child `sha256:6016047d8e2801e1971000d93046575d9e1c19d34bd1a06b1fee52c12418d57c`, Build Once run `34139907082` / artifact `10025983850`. No Product byte changed during the tools/Runner repairs. |
+| Reached Product path | Exact infrastructure `up --wait`, the one-off Scheduler Migration and `web-staging up --wait` necessarily completed before the inventory parser ran. Artifact cleanup records all four existing cleanup classes true. |
+| Compose contract | Docker's current [`docker compose ps` reference](https://docs.docker.com/reference/cli/docker/compose/ps/) expressly defines `--format json` as JSON Lines, one object per line. The current success-path validator nevertheless applies one `JSON.parse` to the complete multi-row stdout. |
+| Local continuation control | Exact local Compose `5.3.1` produced three NDJSON rows. Whole-document parsing refused them, while row parsing yielded exact services `postgres`, `valkey-staging`, `web-staging`, three unambiguous service-ID lookups, container inspections, in-container live/readiness/root `200` probes with noindex, and cleanup to zero task-owned consumers and networks. This is non-authoritative local evidence, but it proves the deterministic continuation mechanism. |
+| Product drift check | `68c15e6b...787d699c` changes only the Runner launcher/binding, Runtime preflight/test and existing reports. There is no application, schema, URL, SEO, publishing, storage or business-data change in that interval. |
+
+The native failure is thus caused by a tools-side framing defect, not by a missing service, Product startup failure, Docker-in-Docker, Registry identity mismatch or recurrence of the Runner umask fault. The retained sanitized artifact cannot prove the raw three rows byte-for-byte because raw output was intentionally not retained, but exact source control flow, the successful preceding steps, Docker's documented output contract and the exact-version local reproduction are jointly decisive.
+
+### Replacement A — one strict Compose inventory parser
+
+The implementation must export one small `parseComposePsRows` helper from the already authoritative `deploy/scripts/preflight-compose-graph.mjs` and import it into `deploy/scripts/preflight-linux-runtime.mjs`. No new parser file, wrapper, command runner, evidence format, reason-code taxonomy or validation framework is allowed.
+
+The helper contract is:
+
+- input must be a string no larger than `64 KiB`; maximum parsed row count is `128`;
+- an empty trimmed value yields an empty row set;
+- documented JSON Lines is primary behavior, while a single JSON object and a JSON array remain accepted for compatible Compose versions and existing tests;
+- malformed JSON, internal blank records, primitives, nested arrays, nulls, oversized input and excessive rows fail closed;
+- every row must be a non-array object whose `Service` value is a string before any caller filters or maps it;
+- the helper returns only validated rows or `null`; it does not log, retain raw output, classify Product state or convert any failure to PASS.
+
+That helper replaces all three current policies:
+
+| Consumer | Required post-replacement behavior |
+| --- | --- |
+| Runtime infrastructure-failure diagnostic | Keep its stricter existing `16 KiB` / 10-second collection envelope and safe-field sanitizer. Invalid shared-parser output remains `null` and never replaces the original `compose_infrastructure_up_failed`. Unknown services with valid string names remain ignored; duplicate target rows remain rejected. |
+| Runtime success inventory | Invalid framing/schema keeps exact reason `compose_project_inventory_invalid`. Valid rows must contain exactly one each of `postgres`, `valkey-staging` and `web-staging`; any missing, extra or duplicate service keeps exact reason `runtime_service_set_mismatch`. No weakening to subset membership is permitted. |
+| Protected Staging pre/post state | Replace its direct `JSON.parse`/array-only assumption with the shared helper. Invalid rows keep the existing fail-closed project-state error; the existing unique-service `Map`, Production/staging state, pause, health and memory predicates remain unchanged. |
+
+This same change closes accepted Low `S6-ID-L-01`: `{}` and `{ "Service": 1 }` must now produce unknown/invalid `null`, never a synthetic report that both target services are absent. This is required because the parser is being changed; it must not become a separate remediation loop.
+
+Allowed implementation scope for Replacement A is exactly:
+
+- `deploy/scripts/preflight-compose-graph.mjs`;
+- `deploy/scripts/preflight-compose-graph.test.mjs`;
+- `deploy/scripts/preflight-linux-runtime.mjs`;
+- `deploy/scripts/preflight-linux-runtime.test.mjs`.
+
+Focused proof must cover documented multi-row JSON Lines, CRLF, single-object and array compatibility; empty output; bounds; malformed/primitive/nested/null rows; missing and non-string `Service`; duplicate/missing/extra exact Runtime services; unchanged diagnostic sanitization; and an actual disposable Compose `5.3.1` three-service inventory followed by service lookup, container inspection, application probes and zero-residue cleanup. The protected pre/post consumer must have a focused regression that proves it consumes the same helper. The implementation may factor a pure exact-service predicate only if required for direct testing; it may not add a second parser or state authority.
+
+### Replacement B — repair all three ordinary CI failure paths
+
+Automatic Push-triggered run [`34164993698`](https://github.com/czy282923753/cwt-cloudwave-textile/actions/runs/34164993698) used exact head `787d699c...`. Dependency security job `101874173710` completed successfully as non-applicable for that unchanged dependency scope. The three substantive paths failed independently before their downstream gates. None is evidence that the native Product startup failed.
+
+#### B1. Exact PostgreSQL without a rolling package-manager contradiction
+
+Job `101874173766` installed Homebrew `postgresql@18` `18.6` and then required the literal nonexistent `/opt/homebrew/Cellar/postgresql@18/18.4/bin`; the step failed before any project migration or test. The current [Homebrew formula](https://formulae.brew.sh/formula/postgresql@18) is a rolling major-version formula, so it cannot be the authority for exact patch `18.4`.
+
+Replace the macOS/Homebrew provisioning body, rather than discovering a mutable Cellar path or broadening acceptance to arbitrary `18.x`:
+
+- run `quality-postgres` on the stable GitHub-hosted `ubuntu-24.04` `linux/amd64` label;
+- define one job service from the already frozen production index `postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382`;
+- retain Synthetic-only values: `POSTGRES_USER=cwt_ci`, `POSTGRES_DB=cwt_ci`, `POSTGRES_HOST_AUTH_METHOD=trust`;
+- map only `55432:5432`, use `pg_isready -U cwt_ci -d cwt_ci` as the bounded service health check and retain the existing `CWT_PHASE_C_POSTGRES_URL`;
+- delete the Homebrew install, handwritten init/start, path/version exception, log-path and stop steps. GitHub manages the service container lifecycle and network; its documented contract requires an Ubuntu runner and supports host port mapping ([GitHub PostgreSQL service guide](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-postgresql-service-containers), [workflow service syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)).
+
+The digest, not a mutable tag or downloaded package-manager path, is the PostgreSQL patch-level authority. Existing fresh Migration and full PostgreSQL-enabled test steps remain the behavioral proof. Do not change the frozen production PostgreSQL pin, application schema, database driver predicates or test expectations.
+
+#### B2. Bind the exact checked-out source identity to every CI build
+
+Job `101874173873` reached `next build` and failed because `next.config.ts` correctly rejects an empty/non-40-character `CWT_RELEASE_ID`. The workflow checks out `${{ github.event.pull_request.head.sha || github.sha }}` but never exports that same identity to the build.
+
+Add one workflow-level value, `CWT_RELEASE_ID: ${{ github.event.pull_request.head.sha || github.sha }}`, so build and Browser paths consume the same exact source selected by checkout. Keep the lowercase 40-character check and `generateBuildId`; do not insert a zero value, short SHA, branch name, fallback inside `next.config.ts` or test-only exception. Focused proof must show empty input still refuses, an exact 40-character head is accepted and the produced `.next/BUILD_ID` equals that head.
+
+#### B3. Preserve `server-only`; correct the server CLI entrypoints
+
+Job `101874173833` failed while Playwright's web-server command executed `tsx scripts/seed-fixtures.ts`, before Next build or browser tests. The emitted `server-only` message says “Client Component,” but the stack is an ordinary Node CLI stack through `scripts/seed-fixtures.ts` into `src/uploads/scanner-factory.ts:1`. The package exports its throwing default under ordinary Node and its empty marker under the `react-server` condition. A bounded local reproduction therefore refuses the current plain command and imports the same factory successfully with `node --conditions=react-server --import=tsx`.
+
+The `server-only` marker is the correct security boundary and must remain. Converge the four actual direct CLI consumers on the repository's existing convention:
+
+- change `db:seed:fixtures` to `node --conditions=react-server --import=tsx scripts/seed-fixtures.ts`;
+- change `assets:rescan-legacy` to `node --conditions=react-server --import=tsx scripts/rescan-legacy-assets.ts`;
+- change the two Playwright direct invocations for `scripts/seed-e2e-retryable-asset.ts` and `scripts/seed-e2e-block-projection.ts` to the same conditioned Node form;
+- leave `scripts/seed-e2e-editorial-roles.ts` and other entrypoints unchanged unless direct import evidence places them in the same boundary.
+
+Do not remove or mock `server-only`, move protected scanner composition into client-safe code, weaken public-bundle checks, add a loader wrapper, or create duplicate package scripts merely to hide the condition. Focused regression must freeze the direct consumer set and exact conditioned caller strings. A real fresh Synthetic fixture seed must pass under the conditioned entrypoint while the ordinary unconditioned import continues to refuse.
+
+Allowed implementation scope for Replacement B is:
+
+- `.github/workflows/ci.yml`;
+- `package.json`;
+- `playwright.config.ts`;
+- `deploy/scripts/build-release-once.test.mjs`, which already owns a CI build-caller contract;
+- `src/uploads/scanner-factory.test.ts`, which already owns the server-only scanner composition boundary.
+
+`pnpm-lock.yaml` must remain byte-unchanged because no dependency changes. No application route, domain service, schema/Migration, SEO, publishing, storage, scanner policy, workflow permission or protected-environment rule is in scope.
+
+### Immutable Product disposition
+
+Replacement A alone is tools-side and preserves the current immutable Product identity. Source comparison and the native path reached support continuing that exact Product beyond inventory for parser-focused diagnosis; no rebuild is justified by the parser defect itself.
+
+Replacement B3, however, exposes a separate real Product-source defect. Exact release `68c15e6b...` ships `package.json`, `scripts` and `src`; its shipped `assets:rescan-legacy` command is plain `tsx` even though it directly imports the server-only scanner factory. `docs/ASSET_AND_UPLOADS.md` defines this command as the authoritative historical-Asset rescan operation. The same ordinary-Node export-condition failure therefore affects a supported operational command in the immutable image, not only Synthetic Browser fixtures.
+
+The existing image must not be modified, retagged, overwritten or silently declared repaired. After implementation and independent Review, the coherent corrected source requires a **new** separately authorized Build Once, new release/index/child/evidence identities and the existing exact-image gates. Release `68c15e6b...` remains retained historical evidence and must not be deleted by this plan, but it is not eligible to be the final future Stage 6 subject once the required operational CLI correction is accepted. If the coordinator or Owner instead wants to defer that Product correction and reuse `68c15e6b...`, they must explicitly accept and record the broken required rescan command as a Product risk; this Candidate does not recommend that alternative.
+
+### Verification ladder before any native retry
+
+The repair is complete only when all of the following are evidenced in order:
+
+1. The fresh Implementer changes only the frozen allowed scope and records one coherent code Candidate; no Push or external action occurs.
+2. Local focused tests prove the shared parser, exact-service failures, `S6-ID-L-01`, both protected-state and Runtime consumers, CI source identity, exact PostgreSQL service definition and every scanner-factory CLI caller.
+3. One task-owned real Compose `5.3.1` continuation reaches exact service inventory, three unambiguous service-ID lookups, `docker inspect` assertions, in-container live/readiness/root/noindex probes, and cleanup to zero task-owned containers, networks, pulled references and host paths. It must use the production Runtime plan or its exported pure helpers, not a second hand-written acceptance authority.
+4. Proportionate repository gates pass: targeted ESLint and syntax, workflow parsing/static contract, `pnpm typecheck`, focused deployment tests, full PostgreSQL-enabled suites and Browser acceptance without retries. No failing path may be relabeled non-applicable.
+5. A separate fresh Reviewer verifies the Candidate and the single Security & Test Simplification Check. The Implementer cannot self-review.
+6. Only after Review and separate Build Once authority, produce a new immutable Product because B3 corrects shipped source. Both children must pass the existing Build Once gates. An exact-digest, non-authoritative `linux/amd64` continuation must then repeat service lookup, container inspection, application probes and cleanup against that new Product.
+7. Only after the new Product/runtime continuation and a real GitHub `CWT quality gates` run show all three substantive jobs plus dependency security green may the coordinator prepare a separately authorized native attempt. The existing 60-minute job maximum, one-Product-validator-start rule, one host, CNY 10 ceiling and no automatic retry remain unchanged.
+
+This ordering prevents a native host from becoming the first test of another locally reachable parser, CLI or CI contract. It does not replace native Ubuntu 24.04/`linux/amd64` evidence for the final host-specific authority.
+
+### Operational nonconformances and future teardown control
+
+The retained timestamps must be separated honestly:
+
+| Lifecycle event | Retained evidence | Disposition |
+| --- | --- | --- |
+| Instance creation | `2026-09-08 05:58:19 +0800` | Exact lifecycle-clock start. |
+| Runtime job terminal | `2026-09-08 06:08:00 +0800` | Exact; cleanup narrative begins after this event. |
+| First cleanup request/initiation | No exact timestamp retained; the narrative says cleanup began after terminal outcome. | **UNPROVEN timestamp.** It must not be substituted with either workflow terminal time or final absence. The earlier statement that the start-by-80 limit was definitely exceeded is not independently supported by the retained timestamp set. |
+| Tencent destruction acceptance/submission | No exact timestamp retained; only the fact that interactive Owner identity validation preceded acceptance. | **UNPROVEN timestamp.** |
+| Provider deletion completion | The console did not expose a stable captured completion timestamp. | **UNAVAILABLE; do not infer it.** |
+| First authoritative zero-resource observation | Completed by `2026-09-08 07:49:12 +0800` | Conservative final proof at approximately 111 minutes. The finish-by-90 requirement is NOT PASS because no earlier authoritative completion proof exists. |
+
+The token transport also missed its assigned sequencing contract. The exact attempt transferred the repository token directly into Tencent's hidden parameter and retained no token output/file/argv value, but the clipboard was overwritten **after submission**, whereas the reviewed instruction required overwrite immediately after the hidden field accepted the paste and **before submission**. This is an Operator-process nonconformance, separate from Product and validator causality. No retained evidence demonstrates token disclosure, and final Runner inventory is zero; those facts limit observed impact but do not retroactively make the sequence conformant.
+
+The least-complex future operating strategy is an attended one-shot runbook, not a new watchdog or standing credential framework:
+
+- before purchase, one named authorized Owner/Operator must remain continuously available through final absence with unlocked authenticated GitHub and Tencent sessions and any ordinary MFA prerequisites satisfied;
+- create no host unless the direct hidden-parameter form and exact deletion console are both reachable in that session;
+- start one visible monotonic lifecycle clock from provider-recorded instance creation and record wall-clock timestamps for terminal outcome, first cleanup click/request, final destruction submission/acceptance and first zero-inventory proof as distinct events;
+- after paste acceptance, overwrite the clipboard with the non-secret nonce before pressing Submit, and take no screen/accessibility capture while the token is visible;
+- begin cleanup immediately on terminal outcome and impose an internal manual abort at host age 60 minutes: if the validator is still active, cancel the attempt and start teardown. This does not shorten the existing workflow's configured 60-minute maximum; it gives the resource limits precedence and preserves at least 20 minutes before the 80-minute start ceiling and 30 minutes before the 90-minute final ceiling;
+- measure final completion conservatively by the first authenticated zero-inventory observation for the exact VM, disk, public address, Security Group and Runner when Tencent exposes no stable completion timestamp; preserve the request/acceptance timestamps separately and never relabel them as completion;
+- if Owner identity validation is unavailable or the deletion request has not been accepted by host age 70 minutes, mark the lifecycle **AT RISK** and continue mandatory cleanup as the only activity. Determine the actual start/finish result only from the separately recorded 80/90-minute events. Do not create another host, retry Product validation or reset the clock.
+
+This strategy uses existing interactive authority and requires no TCCLI/OAuth grant, API key, daemon or cleanup framework. It materially reduces the demonstrated handoff delay but cannot mathematically guarantee a provider-side deletion completion time. If the Owner requires the 90-minute finish to be a guaranteed rather than conservatively evidenced operating bound, a separate Owner decision is required before any paid run: either authorize a narrowly scoped pre-established deletion mechanism under existing security governance, or accept that the interactive provider step remains an external timing risk. No such access or risk acceptance is granted here.
+
+### Rollback, open risks and next gate
+
+The source repair should be one reviewable Candidate. Before a new Product is built, rollback is one normal revert of that Candidate; it restores the known failures and therefore cannot create PASS. If the new Build Once or exact-digest continuation fails, do not mutate or promote it: retain the bounded evidence and apply the existing failed-Product disposition. Never retag or overwrite `68c15e6b...` or its index. CI service cleanup remains GitHub-owned; local Compose proof cleanup remains exact-task-owned and must not prune shared images, caches or unrelated resources.
+
+Residual risks are bounded and explicit:
+
+- a future Compose version may change row schema again; the shared fail-closed parser and exact service predicates convert that drift to one diagnosable refusal instead of three inconsistent interpretations;
+- GitHub-hosted service availability and external Registry pull remain external dependencies, but the exact digest removes Homebrew patch drift and the existing CI result exposes failure without weakening tests;
+- the corrected Product still requires a new Build Once and exact-digest continuation before native authority; source-level CLI PASS is not image proof;
+- the human interactive deletion path still has provider/MFA latency; the internal age-60 abort and continuous attendance reduce risk but do not replace an Owner-approved deletion authority;
+- exact provider-settled cost for the completed attempt remains unavailable and no cost-compliance claim is created.
+
+The next gate is fixed: the coordinator either freezes `S6-TE-RP-V1.0` or returns a bounded plan correction. After freeze, a **different fresh `gpt-5.6-sol` / high Implementer** receives the exact allowed scope and verification ladder; a **separate fresh Reviewer** then evaluates its Candidate. No native rerun, Product build, Push, Registry action, deployment or phase advance may precede those gates. The only Owner decision that may be required before later paid execution is the deletion-timing authority/risk choice above; ordinary in-budget purchase/destruction authority remains unchanged and need not be reconfirmed.
